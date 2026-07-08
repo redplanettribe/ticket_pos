@@ -1,0 +1,23 @@
+{
+  "skill_name": "api-errors",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add a POST /api/v1/staff/events/{eventId}/ticket-types endpoint. Price and capacity must be positive. Return the created ticket type.",
+      "expected_output": "Handler validates price/capacity before service call (400 VALIDATION_FAILED). Success uses envelope with bare ticket type in data, error null, request_id present. Domain duplicate-name error from service mapped to 409.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The checkout endpoint needs to return a proper error when a customer tries to buy more tickets than remain. Wire it up.",
+      "expected_output": "sales.ErrCapacityExceeded in service layer. Handler maps to 409 with CAPACITY_EXCEEDED code, UI-safe message, details with ticket_type_id/requested/remaining. Standard envelope.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Review this handler - it calls the service first and validates price inside CreateTicketType. Is that right?",
+      "expected_output": "Flag validation in service as wrong layer. Recommend moving field validation to handler (400 VALIDATION_FAILED). Service keeps DB-dependent rules only.",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# Soft blocks: excluded from codebase indexing and automatic context.
+# Still reachable via explicit @ mentions when needed.
+# https://cursor.com/docs/context/ignore-files
+
+# Lock files (large; Cursor also defaults these)
+pnpm-lock.yaml
+backend/go.sum
+
+# Generated Swagger (source of truth: Go swag annotations; committed contract: openapi/)
+backend/docs/
+
+# Next.js / TypeScript build artifacts
+**/next-env.d.ts
+**/*.tsbuildinfo
+
+# Test and coverage output (also in .gitignore)
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+coverage/

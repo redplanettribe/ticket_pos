@@ -46,31 +46,17 @@ const docTemplate = `{
                 }
             }
         }
-    },
-    "tags": [
-        {
-            "description": "Unauthenticated storefront routes",
-            "name": "public"
-        },
-        {
-            "description": "Authenticated staff routes",
-            "name": "staff"
-        },
-        {
-            "description": "Partner integration routes",
-            "name": "integration"
-        }
-    ]
+    }
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.0.0",
-	Host:             "localhost:8080",
-	BasePath:         "/",
+	Version:          "",
+	Host:             "",
+	BasePath:         "",
 	Schemes:          []string{},
-	Title:            "Ticket POS API",
-	Description:      "Multi-tenant event ticketing API for storefront, staff, and integration partners.",
+	Title:            "",
+	Description:      "",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

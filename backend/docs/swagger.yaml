@@ -1,4 +1,3 @@
-basePath: /
 definitions:
   main.healthResponse:
     properties:
@@ -6,13 +5,8 @@ definitions:
         example: ok
         type: string
     type: object
-host: localhost:8080
 info:
   contact: {}
-  description: Multi-tenant event ticketing API for storefront, staff, and integration
-    partners.
-  title: Ticket POS API
-  version: 1.0.0
 paths:
   /health:
     get:
@@ -28,10 +22,3 @@ paths:
       tags:
       - public
 swagger: "2.0"
-tags:
-- description: Unauthenticated storefront routes
-  name: public
-- description: Authenticated staff routes
-  name: staff
-- description: Partner integration routes
-  name: integration

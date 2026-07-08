@@ -1,0 +1,11 @@
+# Hard blocks: excluded from indexing and Agent access (including @ mentions).
+# Cursor also respects .gitignore; patterns here are additional.
+# https://cursor.com/docs/context/ignore-files
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Skill evaluation fixtures (not application source)
+.cursor/skills/**/evals/
