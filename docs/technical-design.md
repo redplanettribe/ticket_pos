@@ -57,7 +57,7 @@ graph TB
 | Migrations | Plain `.sql` files; small in-repo migration runner |
 | Tenancy enforcement | Application layer; explicit `organization_id` in repositories; no RLS at launch |
 | API style | REST + OpenAPI 3, versioned at `/api/v1/...` |
-| Staff auth | Email OTP → Postgres session → httpOnly cookie; Staff app is a BFF |
+| Staff auth | Email OTP → Postgres session → httpOnly cookie; Staff app is a BFF; open signup with create-org onboarding |
 | Integration auth | API keys or OAuth2 client credentials on Go API (separate from staff sessions) |
 | Customer auth | Guest checkout at launch |
 | Payments | Provider-agnostic boundary; no vendor chosen |
@@ -400,6 +400,8 @@ Returning all failing rows is deferred.
 
 Staff authenticate via **one-time passcodes** sent to their email.
 There are no passwords at launch.
+**Open signup** is supported: any valid email may request an OTP.
+A new person with no existing Member records creates an Organization during onboarding and becomes Org Admin.
 
 1. Staff enters their email address in the Staff app.
 2. Go generates a short-lived OTP, stores a **hash** and expiry in Postgres.
@@ -407,6 +409,20 @@ There are no passwords at launch.
 4. Staff submits the code; Go verifies it and creates a **server-side session** in Postgres.
 5. Staff Next sets an **httpOnly session cookie**.
 6. Staff Next BFF calls Go staff routes on behalf of the authenticated user.
+
+After OTP verification, routing depends on membership count:
+
+| Memberships | Next step |
+|-------------|-----------|
+| 0 | Create-organization onboarding |
+| 1 | Auto-select the sole Member as active |
+| 2+ | Organization picker, then dashboard |
+
+A session stores the signed-in email and an optional **active Member** (`active_member_id`).
+Authenticated requests without an active Member may access onboarding and org-picker routes only.
+Staff workflow routes return **403 Forbidden** until an Organization context is selected.
+
+Sessions use a **sliding 14-day** expiry extended on authenticated API use.
 
 **Rate limiting** and lockout protect against brute-force OTP guessing.
 Codes expire quickly (target: 10 minutes).

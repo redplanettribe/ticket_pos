@@ -7,6 +7,7 @@ Multi-tenant event ticketing platform with a Go API, public Storefront, and Staf
 - [CONTEXT.md](./CONTEXT.md) - domain vocabulary and ubiquitous language
 - [docs/business-intent.md](./docs/business-intent.md) - product goals and scope
 - [docs/technical-design.md](./docs/technical-design.md) - architecture, stack, and engineering agreements
+- [docs/prd-staff-authentication.md](./docs/prd-staff-authentication.md) - PRD for staff OTP auth (M3T-165)
 
 ## Local development
 

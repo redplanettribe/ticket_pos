@@ -1,13 +1,211 @@
+basePath: /
 definitions:
+  handler.createOrganizationBody:
+    properties:
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  handler.otpRequestBody:
+    properties:
+      email:
+        type: string
+    type: object
+  handler.otpVerifyBody:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+    type: object
+  handler.selectOrganizationBody:
+    properties:
+      member_id:
+        type: string
+    type: object
   main.healthResponse:
     properties:
       status:
         example: ok
         type: string
     type: object
+  platform.APIError:
+    properties:
+      code:
+        type: string
+      details: {}
+      message:
+        type: string
+    type: object
+  platform.Envelope:
+    properties:
+      data: {}
+      error:
+        $ref: '#/definitions/platform.APIError'
+      request_id:
+        type: string
+    type: object
 info:
   contact: {}
+  description: Ticket POS backend API.
+  title: Ticket POS API
+  version: "1.0"
 paths:
+  /api/v1/auth/logout:
+    post:
+      description: Destroys the authenticated session.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - auth
+  /api/v1/auth/otp/request:
+    post:
+      consumes:
+      - application/json
+      description: Sends a one-time passcode to the given email address.
+      parameters:
+      - description: Email address
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.otpRequestBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      summary: Request OTP
+      tags:
+      - auth
+  /api/v1/auth/otp/verify:
+    post:
+      consumes:
+      - application/json
+      description: Verifies a one-time passcode and creates a server-side session.
+      parameters:
+      - description: Email and passcode
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.otpVerifyBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      summary: Verify OTP
+      tags:
+      - auth
+  /api/v1/auth/session:
+    get:
+      description: Returns the authenticated session and membership summary.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get session
+      tags:
+      - auth
+  /api/v1/staff/me:
+    get:
+      description: Returns the active member and organization for the authenticated
+        session.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get staff context
+      tags:
+      - staff
+  /api/v1/staff/memberships:
+    get:
+      description: Lists organization memberships for the authenticated session email.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List memberships
+      tags:
+      - staff
+  /api/v1/staff/organizations:
+    post:
+      consumes:
+      - application/json
+      description: Creates an organization, org_admin member, and sets the session
+        active member.
+      parameters:
+      - description: Organization details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOrganizationBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Create organization
+      tags:
+      - staff
+  /api/v1/staff/session/organization:
+    post:
+      consumes:
+      - application/json
+      description: Sets the active member on the authenticated session.
+      parameters:
+      - description: Member to activate
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.selectOrganizationBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/platform.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Select organization
+      tags:
+      - staff
   /health:
     get:
       description: Returns service health status.

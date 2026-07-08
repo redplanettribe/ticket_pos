@@ -21,4 +21,4 @@ ci:
 	pnpm turbo lint typecheck build
 
 migrate:
-	@echo "Apply database migrations (stub: wire to backend migration runner)"
+	cd backend && go run ./cmd/migrate

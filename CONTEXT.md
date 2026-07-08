@@ -12,6 +12,17 @@ _Avoid_: Account, workspace, team
 A person belonging to an Organization who may hold a role such as Org Admin, Event Owner, or Event Staff.
 _Avoid_: User, account, teammate
 
+**Session**:
+A server-side staff sign-in record tied to an email address.
+The session may or may not have an active Member selected.
+Signing in proves email ownership; acting in an Organization requires an active Member on the session.
+_Avoid_: Login, token, cookie
+
+**Active Member**:
+The Member record currently selected on a staff Session.
+Staff API calls and workflows are scoped to the active Member's Organization and role.
+_Avoid_: Current user, active org, tenant context
+
 **Org Admin**:
 A member of an Organization with full authority over all Events in that Organization.
 For now, equivalent in scope to an Event Owner on any single Event.
