@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: Ticket POS API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: public
+    description: Unauthenticated storefront routes
+  - name: staff
+    description: Authenticated staff routes
+  - name: integration
+    description: Partner integration routes
+paths:
+  /health:
+    get:
+      tags:
+        - public
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /api/v1/public/organizations/{orgSlug}/events/{eventSlug}:
+    get:
+      tags:
+        - public
+      summary: Get public event details
+      operationId: getPublicEvent
+      parameters:
+        - name: orgSlug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: eventSlug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event details
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Placeholder response schema

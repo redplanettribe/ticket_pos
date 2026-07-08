@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# JavaScript build output
+.next/
+dist/
+out/
+.turbo/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Go binaries and test artifacts
+/backend/server
+/backend/bin/
+*.exe
+*.test
+*.out
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs and coverage
+*.log
+coverage/
+.nyc_output/
+
+# Playwright
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/

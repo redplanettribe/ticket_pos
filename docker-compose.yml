@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ticket_pos
+      POSTGRES_PASSWORD: ticket_pos
+      POSTGRES_DB: ticket_pos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticket_pos -d ticket_pos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://ticket_pos:ticket_pos@postgres:5432/ticket_pos?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  storefront:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+      - root_node_modules:/app/node_modules
+    command: >
+      sh -c "corepack enable &&
+      corepack prepare pnpm@9.15.4 --activate &&
+      pnpm install &&
+      pnpm --filter @ticket-pos/storefront exec next dev --hostname 0.0.0.0 --port 3000"
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - backend
+
+  staff:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+      - root_node_modules:/app/node_modules
+    command: >
+      sh -c "corepack enable &&
+      corepack prepare pnpm@9.15.4 --activate &&
+      pnpm install &&
+      pnpm --filter @ticket-pos/staff exec next dev --hostname 0.0.0.0 --port 3001"
+    ports:
+      - "3001:3001"
+    environment:
+      API_URL: http://backend:8080
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  root_node_modules:

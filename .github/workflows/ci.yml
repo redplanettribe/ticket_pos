@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  go-test:
+    name: Go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Run Go vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Run Go tests
+        working-directory: backend
+        run: go test ./...
+
+  js-checks:
+    name: JS checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint, typecheck, and build
+        run: pnpm turbo lint typecheck build
+
+  openapi-sync:
+    name: OpenAPI sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check OpenAPI client sync
+        run: echo "TODO: verify OpenAPI spec matches generated api-client"
