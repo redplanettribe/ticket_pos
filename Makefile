@@ -1,4 +1,10 @@
-.PHONY: dev down test ci migrate
+.PHONY: dev down test ci migrate swagger
+
+export GOTOOLCHAIN := local
+
+swagger:
+	cd backend && go run github.com/swaggo/swag/cmd/swag@v1.16.4 init -g cmd/server/main.go -o docs
+	cp backend/docs/swagger.yaml openapi/openapi.yaml
 
 dev:
 	docker compose up --build

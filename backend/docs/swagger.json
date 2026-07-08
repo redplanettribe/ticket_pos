@@ -1,0 +1,58 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Multi-tenant event ticketing API for storefront, staff, and integration partners.",
+        "title": "Ticket POS API",
+        "contact": {},
+        "version": "1.0.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Returns service health status.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.healthResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "main.healthResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
+                }
+            }
+        }
+    },
+    "tags": [
+        {
+            "description": "Unauthenticated storefront routes",
+            "name": "public"
+        },
+        {
+            "description": "Authenticated staff routes",
+            "name": "staff"
+        },
+        {
+            "description": "Partner integration routes",
+            "name": "integration"
+        }
+    ]
+}

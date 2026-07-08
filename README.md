@@ -16,6 +16,9 @@ Start the full stack (Postgres, Go API, Storefront, Staff):
 make dev
 ```
 
+With the backend running, open [http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html) for interactive API docs.
+After changing handlers or request/response types, run `make swagger` to refresh the spec.
+
 Other common commands:
 
 ```bash
@@ -23,6 +26,7 @@ make down      # stop Docker Compose services
 make test      # Go unit tests + JS package tests
 make ci        # fast PR-level checks
 make migrate   # apply database migrations
+make swagger   # regenerate API docs from Go annotations
 pnpm install   # install JS workspace dependencies
 ```
 

@@ -18,9 +18,12 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     ports:
       - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - backend_go_mod_cache:/go/pkg/mod
     environment:
       DATABASE_URL: postgres://ticket_pos:ticket_pos@postgres:5432/ticket_pos?sslmode=disable
     depends_on:
@@ -81,3 +84,4 @@ services:
 volumes:
   postgres_data:
   root_node_modules:
+  backend_go_mod_cache:

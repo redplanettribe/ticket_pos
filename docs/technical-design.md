@@ -116,8 +116,8 @@ Each domain module follows the same layering:
 
 | Layer | Responsibility |
 |-------|----------------|
-| **handler** | HTTP request/response; maps to service calls |
-| **service** | Business rules; orchestrates transactions |
+| **handler** | HTTP request/response; input validation; maps domain errors to the standard envelope |
+| **service** | Business rules; orchestrates transactions; returns typed domain errors |
 | **repository** | Hand-written SQL; no business logic |
 
 Cross-module calls go through **services**, not repositories.
@@ -131,7 +131,7 @@ backend/
     sales/         # Online, in-person, and import sales; capacity logic
     identity/      # Organizations, members, roles, OTP, sessions
     integrations/  # Partner credentials and integration route wiring
-    platform/      # DB pool, tx helpers, httputil, tenancy middleware, Logger
+    platform/      # DB pool, tx helpers, httputil (envelope + error mapping), tenancy middleware, Logger
   migrations/      # Plain SQL migration files
 ```
 
@@ -139,7 +139,7 @@ backend/
 
 | Concern | Choice |
 |---------|--------|
-| HTTP routing | `net/http` + `ServeMux` (Go 1.22+ method-aware routing) |
+| HTTP routing | `net/http` + `ServeMux` (Go 1.26+ method-aware routing) |
 | JSON | `encoding/json` |
 | Logging | `log/slog` behind an injected `Logger` interface |
 | Configuration | Environment variables and/or `flag` |
@@ -241,6 +241,153 @@ It covers all three route groups on the same domain model.
 
 Sale-creation endpoints that may be retried (online checkout, partner API calls) accept an **idempotency key** header.
 The Go API stores the key and returns the original result on replay.
+
+### Standard response envelope
+
+Every JSON response uses the same top-level shape.
+Success and failure differ only in which fields are populated.
+
+```json
+{
+  "data": <resource or null>,
+  "error": <error object or null>,
+  "request_id": "<uuid>"
+}
+```
+
+| Field | Success | Failure |
+|-------|---------|---------|
+| `data` | The response payload (resource object, list, or other endpoint-specific value) | `null` |
+| `error` | `null` | Error object (see below) |
+| `request_id` | Present | Present |
+
+`request_id` mirrors the `X-Request-ID` header on every response.
+Clients use it for support and log correlation; Integration Partners can read it from the body without inspecting headers.
+
+On success, `data` holds the resource directly (not wrapped under a type-specific key).
+Example for `GET /api/v1/staff/events/{id}`:
+
+```json
+{
+  "data": {
+    "id": "...",
+    "name": "Summer Fest",
+    "ticket_types": []
+  },
+  "error": null,
+  "request_id": "abc-123"
+}
+```
+
+The envelope is defined once in OpenAPI as a reusable schema.
+Endpoint-specific `data` types reference it.
+
+### Errors
+
+Errors are separated by **layer**, not by response shape.
+
+| Layer | Where it lives | Examples |
+|-------|----------------|----------|
+| **Handler** | Request parsing, auth, and input validation before the service is called | Malformed JSON, missing session, `price: -5` |
+| **Domain** | Service business rules; translated to HTTP at the handler | Capacity exceeded, event not found in org, duplicate ticket type name |
+
+Both layers produce the same `error` object.
+Clients distinguish them by `code`, not by envelope structure.
+
+```json
+{
+  "code": "CAPACITY_EXCEEDED",
+  "message": "Not enough tickets remaining for VIP",
+  "details": {}
+}
+```
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `code` | Yes | Stable machine-readable identifier; the client contract |
+| `message` | Yes | Human-readable text, safe to show in Storefront and Staff UI at launch |
+| `details` | No | Structured context (field errors, row numbers, IDs); shape varies by `code` |
+
+#### Handler errors
+
+The handler rejects invalid requests before calling the service.
+
+Request validation (shape, required fields, types, formats) is **always** handler responsibility.
+Validation failures return `400` with code `VALIDATION_FAILED`:
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Request validation failed",
+    "details": {
+      "fields": [
+        { "field": "price", "message": "must be greater than 0" },
+        { "field": "capacity", "message": "must be greater than 0" }
+      ]
+    }
+  },
+  "request_id": "abc-123"
+}
+```
+
+Other handler-level codes include `INVALID_JSON`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, and `INTERNAL_ERROR`.
+
+#### Domain errors
+
+Services return typed domain errors; they never set HTTP status codes.
+Each domain module owns its error types and stable codes (for example `catalog.ErrEventNotFound`, `sales.ErrCapacityExceeded`).
+`platform/httputil` provides envelope helpers and a default mapping from domain errors to HTTP status:
+
+| Pattern | HTTP status | Example `code` |
+|---------|-------------|----------------|
+| Resource not found | 404 | `EVENT_NOT_FOUND` |
+| Conflict / state violation | 409 | `CAPACITY_EXCEEDED` |
+| Permission denied | 403 | `FORBIDDEN` |
+
+Handlers stay thin: call the service, pass any returned error to the mapper, write the envelope.
+
+Example domain error (capacity exceeded on checkout):
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "CAPACITY_EXCEEDED",
+    "message": "Not enough tickets remaining for VIP",
+    "details": {
+      "ticket_type_id": "...",
+      "requested": 5,
+      "remaining": 2
+    }
+  },
+  "request_id": "abc-123"
+}
+```
+
+#### Batch failures (Sale Import)
+
+Sale Import batches are all-or-nothing.
+On failure, the API returns the **first** failing row only:
+
+```json
+{
+  "data": null,
+  "error": {
+    "code": "IMPORT_BATCH_FAILED",
+    "message": "Import would oversell at row 200",
+    "details": {
+      "row": 200,
+      "reason": "CAPACITY_EXCEEDED"
+    }
+  },
+  "request_id": "abc-123"
+}
+```
+
+Staff fix the reported row and re-upload.
+Returning all failing rows is deferred.
 
 ### TypeScript client
 
@@ -357,9 +504,12 @@ Event Staff upload sales from External Platforms as a **CSV file**.
 | Service | Role |
 |---------|------|
 | **postgres** | Database |
-| **backend** | Go API |
+| **backend** | Go API with [Air](https://github.com/air-verse/air) live reload (`Dockerfile.dev`; source mounted) |
 | **storefront** | Storefront Next.js dev server |
 | **staff** | Staff Next.js dev server |
+
+The backend dev container watches `.go` files and rebuilds/restarts the API on change.
+Production builds use `backend/Dockerfile` (compiled binary, no Air).
 
 ### Make
 
@@ -422,6 +572,7 @@ The following are explicitly out of scope for this technical design at launch:
 - An engineer can trace any HTTP request across Staff → Go via a shared `X-Request-ID`.
 - Hand-written SQL is tested against a real Postgres instance in CI.
 - The OpenAPI spec, Go handlers, and TypeScript client stay in sync.
+- Every API response uses the standard envelope (`data`, `error`, `request_id`).
 - Capacity remains correct under concurrent sales across channels (verified by integration and E2E tests).
 - Domain module boundaries in Go align with the vocabulary in CONTEXT.md.
 

@@ -16,6 +16,7 @@ out/
 # Go binaries and test artifacts
 /backend/server
 /backend/bin/
+/backend/tmp/
 *.exe
 *.test
 *.out
