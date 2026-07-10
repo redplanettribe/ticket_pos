@@ -11,10 +11,15 @@ import (
 )
 
 func main() {
+	cfg, err := platform.LoadConfig()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	db, err := platform.OpenDBFromEnv(ctx)
+	db, err := platform.OpenDB(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}

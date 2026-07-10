@@ -16,12 +16,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
-	identitymiddleware "github.com/peter/ticket_pos/backend/internal/identity/middleware"
-	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
-	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	"github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
-	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
+	"github.com/peter/ticket_pos/backend/internal/server"
 )
 
 type testEnv struct {
@@ -29,7 +26,7 @@ type testEnv struct {
 	db         *sql.DB
 	email      *platform.CaptureEmailSender
 	fixedClock time.Time
-	service    *identitysvc.Service
+	service    *service.Service
 }
 
 func setupTestEnv(t *testing.T) *testEnv {
@@ -57,51 +54,37 @@ func setupTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("connection string: %v", err)
 	}
 
-	db, err := platform.OpenDB(ctx, connStr)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Close()
-	})
-	if err := migrate.Up(ctx, db.Pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-
 	email := &platform.CaptureEmailSender{}
 	fixed := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 
-	repo := identityrepo.New(db)
-	svc := identitysvc.New(repo, email, noopLogger{}).WithClock(func() time.Time {
-		return fixed
+	cfg := platform.Config{
+		DatabaseURL:   connStr,
+		RunMigrations: true,
+	}
+
+	app, err := server.NewApp(ctx, cfg,
+		server.WithEmailSender(email),
+		server.WithClock(func() time.Time { return fixed }),
+	)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Close()
 	})
-	h := identityhandler.New(svc)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/auth/otp/request", h.RequestOTP)
-	mux.HandleFunc("POST /api/v1/auth/otp/verify", h.VerifyOTP)
-	mux.HandleFunc("GET /api/v1/auth/session", h.GetSession)
-	mux.HandleFunc("POST /api/v1/auth/logout", h.Logout)
-	mux.HandleFunc("POST /api/v1/staff/organizations", h.CreateOrganization)
-	mux.HandleFunc("GET /api/v1/staff/memberships", h.ListMemberships)
-	mux.HandleFunc("POST /api/v1/staff/session/organization", h.SelectOrganization)
-	mux.Handle("GET /api/v1/staff/me",
-		identitymiddleware.SessionAuth(svc)(
-			identitymiddleware.RequireActiveMember(
-				http.HandlerFunc(h.GetStaffMe),
-			),
-		),
-	)
+	server.RegisterRoutes(mux, app)
 
 	handler := platform.RequestIDMiddleware(mux)
 	server := httptest.NewServer(handler)
 
 	env := &testEnv{
 		server:     server,
-		db:         db.Pool,
+		db:         app.DB.Pool,
 		email:      email,
 		fixedClock: fixed,
-		service:    svc,
+		service:    app.IdentityService,
 	}
 	t.Cleanup(server.Close)
 	return env
@@ -175,11 +158,6 @@ func decodeEnvelope(t *testing.T, resp *http.Response, env *envelope) {
 func authHeader(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
-
-type noopLogger struct{}
-
-func (noopLogger) Info(string, ...any)  {}
-func (noopLogger) Error(string, ...any) {}
 
 func TestAuthOTPHappyPath(t *testing.T) {
 	env := setupTestEnv(t)

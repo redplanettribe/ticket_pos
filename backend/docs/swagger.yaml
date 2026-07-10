@@ -7,6 +7,12 @@ definitions:
       slug:
         type: string
     type: object
+  handler.healthResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
   handler.otpRequestBody:
     properties:
       email:
@@ -22,12 +28,6 @@ definitions:
   handler.selectOrganizationBody:
     properties:
       member_id:
-        type: string
-    type: object
-  main.healthResponse:
-    properties:
-      status:
-        example: ok
         type: string
     type: object
   platform.APIError:
@@ -215,7 +215,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/main.healthResponse'
+            $ref: '#/definitions/handler.healthResponse'
       summary: Health check
       tags:
       - public

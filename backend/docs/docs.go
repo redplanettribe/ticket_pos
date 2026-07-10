@@ -275,7 +275,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/main.healthResponse"
+                            "$ref": "#/definitions/handler.healthResponse"
                         }
                     }
                 }
@@ -291,6 +291,15 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.healthResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         },
@@ -318,15 +327,6 @@ const docTemplate = `{
             "properties": {
                 "member_id": {
                     "type": "string"
-                }
-            }
-        },
-        "main.healthResponse": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "example": "ok"
                 }
             }
         },
