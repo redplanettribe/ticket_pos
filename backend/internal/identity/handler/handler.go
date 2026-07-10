@@ -43,8 +43,8 @@ type selectOrganizationBody struct {
 }
 
 type verifyOTPResponse struct {
-	Session    *service.SessionView `json:"session"`
-	SessionID  string               `json:"session_id"`
+	Session   *service.SessionView `json:"session"`
+	SessionID string               `json:"session_id"`
 }
 
 // RequestOTP sends a one-time passcode to the given email.
@@ -55,7 +55,9 @@ type verifyOTPResponse struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body      otpRequestBody  true  "Email address"
-// @Success      200   {object}  platform.Envelope
+// @Success      200   {object}  openapi.EnvelopeOTPRequest
+// @Failure      400   {object}  platform.Envelope
+// @Failure      429   {object}  platform.Envelope
 // @Router       /api/v1/auth/otp/request [post]
 func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -88,7 +90,10 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        body  body      otpVerifyBody  true  "Email and passcode"
-// @Success      200   {object}  platform.Envelope
+// @Success      200   {object}  openapi.EnvelopeVerifyOTP
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      429   {object}  platform.Envelope
 // @Router       /api/v1/auth/otp/verify [post]
 func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -127,7 +132,8 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 // @Tags         auth
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {object}  platform.Envelope
+// @Success      200  {object}  openapi.EnvelopeSession
+// @Failure      401  {object}  platform.Envelope
 // @Router       /api/v1/auth/session [get]
 func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -153,7 +159,8 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 // @Tags         auth
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {object}  platform.Envelope
+// @Success      200  {object}  openapi.EnvelopeLogout
+// @Failure      401  {object}  platform.Envelope
 // @Router       /api/v1/auth/logout [post]
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -182,7 +189,10 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        body  body      createOrganizationBody  true  "Organization details"
-// @Success      201   {object}  platform.Envelope
+// @Success      201   {object}  openapi.EnvelopeSession
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
 // @Router       /api/v1/staff/organizations [post]
 func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -222,7 +232,8 @@ func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request) {
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {object}  platform.Envelope
+// @Success      200  {object}  openapi.EnvelopeMembershipList
+// @Failure      401  {object}  platform.Envelope
 // @Router       /api/v1/staff/memberships [get]
 func (h *Handler) ListMemberships(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -250,7 +261,10 @@ func (h *Handler) ListMemberships(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        body  body      selectOrganizationBody  true  "Member to activate"
-// @Success      200   {object}  platform.Envelope
+// @Success      200   {object}  openapi.EnvelopeSession
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
 // @Router       /api/v1/staff/session/organization [post]
 func (h *Handler) SelectOrganization(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -287,7 +301,9 @@ func (h *Handler) SelectOrganization(w http.ResponseWriter, r *http.Request) {
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {object}  platform.Envelope
+// @Success      200  {object}  openapi.EnvelopeStaffMe
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
 // @Router       /api/v1/staff/me [get]
 func (h *Handler) GetStaffMe(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())

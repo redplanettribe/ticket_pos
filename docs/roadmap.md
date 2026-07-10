@@ -25,7 +25,7 @@ Update the status column as features land.
 ## Build order (summary)
 
 ```text
-Platform spine (finish OpenAPI, client, CI, integration tests)
+Platform spine (adopt api-client in Staff and Storefront apps)
   → Staff identity (finish hardening + auth E2E)
   → Catalog (Events + Ticket Types, staff + public + storefront)
   → Sales core (schema, capacity logic, idempotency)
@@ -51,6 +51,10 @@ Platform spine (finish OpenAPI, client, CI, integration tests)
 
 ## A. Platform and repo spine
 
+The spine is largely in place.
+OpenAPI is generated from Go handler annotations (swag), copied to `openapi/openapi.yaml`, and served at `/swagger/` in dev.
+The TypeScript client package generates from that spec, but Staff and Storefront still hand-roll fetch calls.
+CI runs Go (including integration tests), turbo lint/typecheck/build, and the OpenAPI sync check.
 
 | #   | Feature                                                              | Status      |
 | --- | -------------------------------------------------------------------- | ----------- |
@@ -62,11 +66,16 @@ Platform spine (finish OpenAPI, client, CI, integration tests)
 | A6  | Standard API response envelope (`data`, `error`, `request_id`)       | Done        |
 | A7  | Domain error to HTTP mapping (`platform/httputil`)                   | Done        |
 | A8  | Pluggable `EmailSender` (dummy logs OTP in dev)                      | Done        |
-| A9  | OpenAPI spec and Swagger UI                                          | Partial     |
-| A10 | TypeScript client generation from OpenAPI (`packages/api-client`)    | Not started |
-| A11 | CI: Go test and vet, migrations on fresh DB, turbo lint and build    | Partial     |
-| A12 | CI: OpenAPI to client sync check                                     | Not started |
-| A13 | HTTP integration test harness (testcontainers Postgres)              | Partial     |
+| A9  | OpenAPI 3.1 spec (identity routes) and Swagger UI                    | Done        |
+| A10 | Typed OpenAPI envelope schemas (`identity/openapi`)                  | Done        |
+| A11 | OpenAPI contract test (`identity/openapi/contract_test.go`)          | Done        |
+| A12 | Makefile `swagger`, `api-client`, and `openapi-sync-check` targets   | Done        |
+| A13 | TypeScript client package (`packages/api-client`, `openapi-fetch`)   | Partial     |
+| A14 | Shared UI package (`packages/ui`, Tailwind + shadcn primitives)      | Done        |
+| A15 | CI: Go test and vet (includes integration), turbo lint and build     | Done        |
+| A16 | CI: OpenAPI to client sync check                                     | Done        |
+| A17 | HTTP integration test harness (testcontainers Postgres)              | Done        |
+| A18 | Integration testing guide (`docs/testing.md`)                        | Done        |
 
 
 ---
@@ -304,6 +313,6 @@ The following are explicitly deferred per business intent and technical design.
 - [design/README.md](./design/README.md) - UI/UX guidelines and design system
 - [CONTEXT.md](../CONTEXT.md) - canonical domain glossary
 - [prd-staff-authentication.md](./prd-staff-authentication.md) - staff auth PRD
-- [testing.md](./testing.md) - HTTP integration testing guide (A13)
+- [testing.md](./testing.md) - HTTP integration testing guide (A17, A18)
 - [prd-integration-testing.md](./prd-integration-testing.md) - integration testing initiative PRD
 

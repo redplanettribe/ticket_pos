@@ -1,351 +1,743 @@
 {
-    "swagger": "2.0",
+    "components": {
+        "schemas": {
+            "handler.createOrganizationBody": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.healthResponse": {
+                "properties": {
+                    "status": {
+                        "example": "ok",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.otpRequestBody": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.otpVerifyBody": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.selectOrganizationBody": {
+                "properties": {
+                    "member_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeLogout": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.MessageData"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeMembershipList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.MembershipView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOTPRequest": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OTPRequestResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeSession": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.SessionView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeStaffMe": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ActiveMemberView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeVerifyOTP": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.VerifyOTPData"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.MessageData": {
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.VerifyOTPData": {
+                "properties": {
+                    "session": {
+                        "$ref": "#/components/schemas/service.SessionView"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "platform.APIError": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "details": {},
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "platform.Envelope": {
+                "properties": {
+                    "data": {},
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ActiveMemberView": {
+                "properties": {
+                    "member_id": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    },
+                    "organization_slug": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.MembershipView": {
+                "properties": {
+                    "member_id": {
+                        "type": "string"
+                    },
+                    "organization_id": {
+                        "type": "string"
+                    },
+                    "organization_name": {
+                        "type": "string"
+                    },
+                    "organization_slug": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OTPRequestResult": {
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.SessionView": {
+                "properties": {
+                    "active_member": {
+                        "$ref": "#/components/schemas/service.ActiveMemberView"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "memberships": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.MembershipView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "securitySchemes": {
+            "BearerAuth": {
+                "description": "Staff session token as Bearer \u003csession_id\u003e. The Staff BFF also accepts an httpOnly cookie.",
+                "in": "header",
+                "name": "Authorization",
+                "type": "apiKey"
+            }
+        }
+    },
     "info": {
-        "description": "Ticket POS backend API.",
+        "description": "Ticket POS backend API.\nJSON endpoints use the standard envelope with data, error, and request_id.\n/health is the only endpoint that returns a bare JSON object.",
         "title": "Ticket POS API",
-        "contact": {},
         "version": "1.0"
     },
-    "basePath": "/",
+    "externalDocs": {
+        "description": "",
+        "url": ""
+    },
     "paths": {
         "/api/v1/auth/logout": {
             "post": {
+                "description": "Destroys the authenticated session.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeLogout"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Destroys the authenticated session.",
-                "produces": [
-                    "application/json"
-                ],
+                "summary": "Logout",
                 "tags": [
                     "auth"
-                ],
-                "summary": "Logout",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
-                    }
-                }
+                ]
             }
         },
         "/api/v1/auth/otp/request": {
             "post": {
                 "description": "Sends a one-time passcode to the given email address.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Request OTP",
-                "parameters": [
-                    {
-                        "description": "Email address",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.otpRequestBody"
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.otpRequestBody",
+                                        "summary": "body",
+                                        "description": "Email address"
+                                    }
+                                ]
+                            }
                         }
-                    }
-                ],
+                    },
+                    "description": "Email address",
+                    "required": true
+                },
                 "responses": {
                     "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOTPRequest"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
                     }
-                }
+                },
+                "summary": "Request OTP",
+                "tags": [
+                    "auth"
+                ]
             }
         },
         "/api/v1/auth/otp/verify": {
             "post": {
                 "description": "Verifies a one-time passcode and creates a server-side session.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Verify OTP",
-                "parameters": [
-                    {
-                        "description": "Email and passcode",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.otpVerifyBody"
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.otpVerifyBody",
+                                        "summary": "body",
+                                        "description": "Email and passcode"
+                                    }
+                                ]
+                            }
                         }
-                    }
-                ],
+                    },
+                    "description": "Email and passcode",
+                    "required": true
+                },
                 "responses": {
                     "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeVerifyOTP"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
                     }
-                }
+                },
+                "summary": "Verify OTP",
+                "tags": [
+                    "auth"
+                ]
             }
         },
         "/api/v1/auth/session": {
             "get": {
+                "description": "Returns the authenticated session and membership summary.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSession"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the authenticated session and membership summary.",
-                "produces": [
-                    "application/json"
-                ],
+                "summary": "Get session",
                 "tags": [
                     "auth"
-                ],
-                "summary": "Get session",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
-                    }
-                }
+                ]
             }
         },
         "/api/v1/staff/me": {
             "get": {
+                "description": "Returns the active member and organization for the authenticated session.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeStaffMe"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the active member and organization for the authenticated session.",
-                "produces": [
-                    "application/json"
-                ],
+                "summary": "Get staff context",
                 "tags": [
                     "staff"
-                ],
-                "summary": "Get staff context",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
-                    }
-                }
+                ]
             }
         },
         "/api/v1/staff/memberships": {
             "get": {
+                "description": "Lists organization memberships for the authenticated session email.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeMembershipList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Lists organization memberships for the authenticated session email.",
-                "produces": [
-                    "application/json"
-                ],
+                "summary": "List memberships",
                 "tags": [
                     "staff"
-                ],
-                "summary": "List memberships",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
-                    }
-                }
+                ]
             }
         },
         "/api/v1/staff/organizations": {
             "post": {
+                "description": "Creates an organization, org_admin member, and sets the session active member.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.createOrganizationBody",
+                                        "summary": "body",
+                                        "description": "Organization details"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Organization details",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSession"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates an organization, org_admin member, and sets the session active member.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
+                "summary": "Create organization",
                 "tags": [
                     "staff"
-                ],
-                "summary": "Create organization",
-                "parameters": [
-                    {
-                        "description": "Organization details",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.createOrganizationBody"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
-                    }
-                }
+                ]
             }
         },
         "/api/v1/staff/session/organization": {
             "post": {
+                "description": "Sets the active member on the authenticated session.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.selectOrganizationBody",
+                                        "summary": "body",
+                                        "description": "Member to activate"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Member to activate",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSession"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Sets the active member on the authenticated session.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
+                "summary": "Select organization",
                 "tags": [
                     "staff"
-                ],
-                "summary": "Select organization",
-                "parameters": [
-                    {
-                        "description": "Member to activate",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.selectOrganizationBody"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/platform.Envelope"
-                        }
-                    }
-                }
+                ]
             }
         },
         "/health": {
             "get": {
                 "description": "Returns service health status.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "public"
-                ],
-                "summary": "Health check",
                 "responses": {
                     "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/handler.healthResponse"
-                        }
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/handler.healthResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
                     }
-                }
+                },
+                "summary": "Health check",
+                "tags": [
+                    "public"
+                ]
             }
         }
     },
-    "definitions": {
-        "handler.createOrganizationBody": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                }
-            }
+    "openapi": "3.1.0",
+    "tags": [
+        {
+            "description": "Public routes for the Storefront (no auth)",
+            "name": "public"
         },
-        "handler.healthResponse": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "example": "ok"
-                }
-            }
+        {
+            "description": "Staff email OTP authentication and session management",
+            "name": "auth"
         },
-        "handler.otpRequestBody": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                }
-            }
-        },
-        "handler.otpVerifyBody": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                }
-            }
-        },
-        "handler.selectOrganizationBody": {
-            "type": "object",
-            "properties": {
-                "member_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "platform.APIError": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string"
-                },
-                "details": {},
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "platform.Envelope": {
-            "type": "object",
-            "properties": {
-                "data": {},
-                "error": {
-                    "$ref": "#/definitions/platform.APIError"
-                },
-                "request_id": {
-                    "type": "string"
-                }
-            }
+        {
+            "description": "Staff routes for catalog, sales, and organization management",
+            "name": "staff"
         }
-    }
+    ]
 }

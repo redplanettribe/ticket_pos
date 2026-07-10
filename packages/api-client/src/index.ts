@@ -1,3 +1,9 @@
-// Placeholder export. This package will be generated from openapi/openapi.yaml.
+import createClient from "openapi-fetch";
+import type { paths } from "./generated/schema";
 
-export {};
+export type { paths } from "./generated/schema";
+export type APIClient = ReturnType<typeof createAPIClient>;
+
+export function createAPIClient(baseUrl: string) {
+  return createClient<paths>({ baseUrl });
+}

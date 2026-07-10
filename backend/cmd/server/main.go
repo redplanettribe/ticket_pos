@@ -16,7 +16,19 @@ import (
 // @title           Ticket POS API
 // @version         1.0
 // @description     Ticket POS backend API.
-// @BasePath        /
+// @description     JSON endpoints use the standard envelope with data, error, and request_id.
+// @description     /health is the only endpoint that returns a bare JSON object.
+// @servers         url=http://localhost:8080 description=Local development
+// @tag.name        public
+// @tag.description Public routes for the Storefront (no auth)
+// @tag.name        auth
+// @tag.description Staff email OTP authentication and session management
+// @tag.name        staff
+// @tag.description Staff routes for catalog, sales, and organization management
+// @securitydefinitions.apikey BearerAuth
+// @in              header
+// @name            Authorization
+// @description     Staff session token as Bearer <session_id>. The Staff BFF also accepts an httpOnly cookie.
 func main() {
 	cfg, err := platform.LoadConfig()
 	if err != nil {
