@@ -66,7 +66,7 @@ Platform spine (finish OpenAPI, client, CI, integration tests)
 | A10 | TypeScript client generation from OpenAPI (`packages/api-client`)    | Not started |
 | A11 | CI: Go test and vet, migrations on fresh DB, turbo lint and build    | Partial     |
 | A12 | CI: OpenAPI to client sync check                                     | Not started |
-| A13 | Repository integration tests (testcontainers Postgres)               | Not started |
+| A13 | HTTP integration test harness (testcontainers Postgres)              | Partial     |
 
 
 ---
@@ -304,4 +304,6 @@ The following are explicitly deferred per business intent and technical design.
 - [design/README.md](./design/README.md) - UI/UX guidelines and design system
 - [CONTEXT.md](../CONTEXT.md) - canonical domain glossary
 - [prd-staff-authentication.md](./prd-staff-authentication.md) - staff auth PRD
+- [testing.md](./testing.md) - HTTP integration testing guide (A13)
+- [prd-integration-testing.md](./prd-integration-testing.md) - integration testing initiative PRD
 

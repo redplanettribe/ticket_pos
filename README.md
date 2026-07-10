@@ -8,6 +8,8 @@ Multi-tenant event ticketing platform with a Go API, public Storefront, and Staf
 - [docs/business-intent.md](./docs/business-intent.md) - product goals and scope
 - [docs/technical-design.md](./docs/technical-design.md) - architecture, stack, and engineering agreements
 - [docs/prd-staff-authentication.md](./docs/prd-staff-authentication.md) - PRD for staff OTP auth (M3T-165)
+- [docs/prd-integration-testing.md](./docs/prd-integration-testing.md) - PRD for integration testing harness and guidance
+- [docs/testing.md](./docs/testing.md) - canonical HTTP integration testing guide
 
 ## Local development
 
@@ -24,8 +26,9 @@ Other common commands:
 
 ```bash
 make down      # stop Docker Compose services
-make test      # Go unit tests + JS package tests
-make ci        # fast PR-level checks
+make test              # fast Go unit tests (no integration) + JS package tests
+make test-integration  # HTTP integration tests (requires Docker)
+make ci                # full pre-push checks (Go suite including integration, vet, lint, build)
 make migrate   # apply database migrations
 make swagger   # regenerate API docs from Go annotations
 pnpm install   # install JS workspace dependencies

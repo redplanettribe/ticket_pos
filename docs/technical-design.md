@@ -539,11 +539,12 @@ Production builds use `backend/Dockerfile` (compiled binary, no Air).
 |--------|---------|
 | `make dev` | Start the full Compose stack |
 | `make down` | Stop services |
-| `make test` | Run Go and JS tests |
-| `make ci` | Run fast PR-level checks locally |
+| `make test` | Run fast Go unit tests (excluding integration) and JS tests |
+| `make test-integration` | Run HTTP integration tests (`backend/integration/`) |
+| `make ci` | Run full pre-push checks locally (Go suite including integration, vet, turbo lint/typecheck/build) |
 | `make migrate` | Apply database migrations |
 
-Exact targets will be defined when the repository is scaffolded.
+Integration test authoring rules, harness behavior, and the E2E boundary are documented in [testing.md](./testing.md).
 
 ## CI/CD
 
@@ -551,11 +552,13 @@ Exact targets will be defined when the repository is scaffolded.
 
 **On every pull request (fast):**
 
-- `go test ./...` and `go vet`
-- Repository integration tests with testcontainers Postgres
+- `go test ./...` and `go vet` (includes HTTP integration tests in `backend/integration/` with testcontainers Postgres)
+- Repository exception tests for concurrency and locking where applicable
 - `turbo lint`, `typecheck`, `build`
 - OpenAPI client sync check
 - Migration apply on a fresh database
+
+See [testing.md](./testing.md) for the three-layer testing model, harness usage, and commands.
 
 **On main / nightly (slower):**
 
@@ -599,4 +602,5 @@ The following are explicitly out of scope for this technical design at launch:
 ## Related documents
 
 - [business-intent.md](./business-intent.md) - business scope, actors, and product decisions
+- [testing.md](./testing.md) - HTTP integration testing guide and E2E boundary
 - [CONTEXT.md](../CONTEXT.md) - canonical domain glossary

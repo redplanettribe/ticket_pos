@@ -1,166 +1,16 @@
 package integration
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
-
-	"github.com/peter/ticket_pos/backend/internal/identity/service"
-	"github.com/peter/ticket_pos/backend/internal/platform"
-	"github.com/peter/ticket_pos/backend/internal/server"
 )
 
-type testEnv struct {
-	server     *httptest.Server
-	db         *sql.DB
-	email      *platform.CaptureEmailSender
-	fixedClock time.Time
-	service    *service.Service
-}
-
-func setupTestEnv(t *testing.T) *testEnv {
-	t.Helper()
-	ctx := context.Background()
-
-	pg, err := postgres.Run(ctx,
-		"postgres:16-alpine",
-		postgres.WithDatabase("ticket_pos"),
-		postgres.WithUsername("ticket_pos"),
-		postgres.WithPassword("ticket_pos"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		),
-	)
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = pg.Terminate(ctx)
-	})
-
-	connStr, err := pg.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
-
-	email := &platform.CaptureEmailSender{}
-	fixed := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
-
-	cfg := platform.Config{
-		DatabaseURL:   connStr,
-		RunMigrations: true,
-	}
-
-	app, err := server.NewApp(ctx, cfg,
-		server.WithEmailSender(email),
-		server.WithClock(func() time.Time { return fixed }),
-	)
-	if err != nil {
-		t.Fatalf("new app: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = app.Close()
-	})
-
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux, app)
-
-	handler := platform.RequestIDMiddleware(mux)
-	server := httptest.NewServer(handler)
-
-	env := &testEnv{
-		server:     server,
-		db:         app.DB.Pool,
-		email:      email,
-		fixedClock: fixed,
-		service:    app.IdentityService,
-	}
-	t.Cleanup(server.Close)
-	return env
-}
-
-type envelope struct {
-	Data      json.RawMessage   `json:"data"`
-	Error     *platform.APIError `json:"error"`
-	RequestID string            `json:"request_id"`
-}
-
-func (env *testEnv) post(t *testing.T, path string, body any, headers map[string]string) (*http.Response, envelope) {
-	t.Helper()
-	var reader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			t.Fatalf("marshal body: %v", err)
-		}
-		reader = bytes.NewReader(b)
-	}
-	req, err := http.NewRequest(http.MethodPost, env.server.URL+path, reader)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do request: %v", err)
-	}
-	var envBody envelope
-	decodeEnvelope(t, resp, &envBody)
-	return resp, envBody
-}
-
-func (env *testEnv) get(t *testing.T, path string, headers map[string]string) (*http.Response, envelope) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, env.server.URL+path, nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("do request: %v", err)
-	}
-	var envBody envelope
-	decodeEnvelope(t, resp, &envBody)
-	return resp, envBody
-}
-
-func decodeEnvelope(t *testing.T, resp *http.Response, env *envelope) {
-	t.Helper()
-	defer resp.Body.Close()
-	if err := json.NewDecoder(resp.Body).Decode(env); err != nil {
-		t.Fatalf("decode envelope: %v", err)
-	}
-	if env.RequestID == "" {
-		t.Fatalf("expected request_id in envelope")
-	}
-	if resp.Header.Get("X-Request-ID") != env.RequestID {
-		t.Fatalf("request id header mismatch: header=%q body=%q", resp.Header.Get("X-Request-ID"), env.RequestID)
-	}
-}
-
-func authHeader(token string) map[string]string {
-	return map[string]string{"Authorization": "Bearer " + token}
-}
-
 func TestAuthOTPHappyPath(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	resp, body := env.post(t, "/api/v1/auth/otp/request", map[string]string{
 		"email": "staff@example.com",
@@ -210,7 +60,7 @@ func TestAuthOTPHappyPath(t *testing.T) {
 }
 
 func TestAuthInvalidOTP(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{
 		"email": "staff@example.com",
@@ -229,7 +79,7 @@ func TestAuthInvalidOTP(t *testing.T) {
 }
 
 func TestAuthExpiredOTP(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{
 		"email": "staff@example.com",
@@ -253,7 +103,7 @@ func TestAuthExpiredOTP(t *testing.T) {
 }
 
 func TestAuthRateLimitByEmail(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	for i := 0; i < 3; i++ {
 		resp, body := env.post(t, "/api/v1/auth/otp/request", map[string]string{
@@ -276,7 +126,7 @@ func TestAuthRateLimitByEmail(t *testing.T) {
 }
 
 func TestAuthRateLimitByIP(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	for i := 0; i < 10; i++ {
 		resp, body := env.post(t, "/api/v1/auth/otp/request", map[string]string{
@@ -299,7 +149,7 @@ func TestAuthRateLimitByIP(t *testing.T) {
 }
 
 func TestAuthAttemptCap(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{
 		"email": "staff@example.com",
@@ -323,7 +173,7 @@ func TestAuthAttemptCap(t *testing.T) {
 }
 
 func TestAuthLogoutDestroysSession(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{
 		"email": "staff@example.com",
@@ -355,7 +205,7 @@ func TestAuthLogoutDestroysSession(t *testing.T) {
 }
 
 func TestCreateOrganizationFlow(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 	sessionID := verifyOTP(t, env, "neworg@example.com")
 
 	resp, body := env.post(t, "/api/v1/staff/organizations", map[string]string{
@@ -407,7 +257,7 @@ func TestCreateOrganizationFlow(t *testing.T) {
 }
 
 func TestDuplicateOrganizationSlug(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 	sessionID := verifyOTP(t, env, "slug-taken@example.com")
 
 	resp, body := env.post(t, "/api/v1/staff/organizations", map[string]string{
@@ -423,7 +273,7 @@ func TestDuplicateOrganizationSlug(t *testing.T) {
 }
 
 func TestPreSeededSingleMemberAutoSelect(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	_, _ = env.post(t, "/api/v1/auth/otp/request", map[string]string{
 		"email": "preseeded@example.com",
@@ -515,6 +365,7 @@ func verifyOTP(t *testing.T, env *testEnv, email string) string {
 
 func seedMultiMembership(t *testing.T, env *testEnv, email string) (memberID1, memberID2 string) {
 	t.Helper()
+	// No API exists yet to provision a second Organization membership for the same email.
 	ctx := context.Background()
 
 	var orgNorthID, orgSouthID string
@@ -554,7 +405,7 @@ func seedMultiMembership(t *testing.T, env *testEnv, email string) (memberID1, m
 }
 
 func TestTwoMembershipPickerFlow(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 	email := "multi@example.com"
 	memberNorth, memberSouth := seedMultiMembership(t, env, email)
 
@@ -644,7 +495,7 @@ func TestTwoMembershipPickerFlow(t *testing.T) {
 }
 
 func TestStaffWorkflowForbiddenWithoutActiveMember(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 	email := "multi@example.com"
 	seedMultiMembership(t, env, email)
 	sessionID := verifyOTP(t, env, email)
@@ -659,7 +510,7 @@ func TestStaffWorkflowForbiddenWithoutActiveMember(t *testing.T) {
 }
 
 func TestStaffWorkflowUnauthorizedWithoutSession(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 
 	resp, body := env.get(t, "/api/v1/staff/me", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -671,7 +522,7 @@ func TestStaffWorkflowUnauthorizedWithoutSession(t *testing.T) {
 }
 
 func TestSessionExtensionOnUse(t *testing.T) {
-	env := setupTestEnv(t)
+	env := setupTest(t)
 	sessionID := verifyOTP(t, env, "staff@example.com")
 
 	var expiresBefore time.Time

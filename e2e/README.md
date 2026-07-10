@@ -1,6 +1,11 @@
 # E2E tests
 
-Playwright smoke and integration tests for Ticket POS.
+Playwright smoke tests for Ticket POS cross-runtime wiring.
+
+Business rules, API contracts, and domain invariants belong in HTTP integration tests (`backend/integration/`).
+E2E owns thin journeys only - for example Staff login through the BFF httpOnly cookie path and Storefront checkout happy path.
+Do not duplicate integration coverage here.
+See [docs/testing.md](../docs/testing.md) for the full boundary.
 
 ## Local development
 

@@ -1,0 +1,214 @@
+package integration
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/peter/ticket_pos/backend/internal/identity/service"
+	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/server"
+)
+
+type testEnv struct {
+	server     *httptest.Server
+	db         *sql.DB
+	email      *platform.CaptureEmailSender
+	fixedClock time.Time
+	service    *service.Service
+}
+
+type envelope struct {
+	Data      json.RawMessage    `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
+var (
+	sharedEnv   *testEnv
+	sharedDB    *sql.DB
+	sharedApp   *server.App
+	pgContainer testcontainers.Container
+	sharedEmail *platform.CaptureEmailSender
+	fixedClock  = time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+)
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	pg, err := postgres.Run(ctx,
+		"postgres:16-alpine",
+		postgres.WithDatabase("ticket_pos"),
+		postgres.WithUsername("ticket_pos"),
+		postgres.WithPassword("ticket_pos"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+		),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "start postgres: %v\n", err)
+		os.Exit(1)
+	}
+	pgContainer = pg
+
+	connStr, err := pg.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "connection string: %v\n", err)
+		os.Exit(1)
+	}
+
+	email := &platform.CaptureEmailSender{}
+	cfg := platform.Config{
+		DatabaseURL:   connStr,
+		RunMigrations: true,
+	}
+
+	app, err := server.NewApp(ctx, cfg,
+		server.WithEmailSender(email),
+		server.WithClock(func() time.Time { return fixedClock }),
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "new app: %v\n", err)
+		os.Exit(1)
+	}
+	sharedApp = app
+	sharedDB = app.DB.Pool
+	sharedEmail = email
+
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux, app)
+	handler := platform.RequestIDMiddleware(mux)
+	srv := httptest.NewServer(handler)
+	sharedEnv = &testEnv{
+		server:     srv,
+		db:         app.DB.Pool,
+		email:      email,
+		fixedClock: fixedClock,
+		service:    app.IdentityService,
+	}
+
+	code := m.Run()
+
+	srv.Close()
+	_ = app.Close()
+	_ = pg.Terminate(ctx)
+	os.Exit(code)
+}
+
+func setupTest(t *testing.T) *testEnv {
+	t.Helper()
+	if err := resetDatabase(context.Background(), sharedDB); err != nil {
+		t.Fatalf("reset database: %v", err)
+	}
+	sharedEmail.LastTo = ""
+	sharedEmail.LastCode = ""
+	sharedApp.IdentityService.WithClock(func() time.Time { return fixedClock })
+	return sharedEnv
+}
+
+func resetDatabase(ctx context.Context, db *sql.DB) error {
+	// Update this list when new application tables are added via migrations.
+	if _, err := db.ExecContext(ctx, `
+		TRUNCATE TABLE otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+	`); err != nil {
+		return fmt.Errorf("truncate tables: %w", err)
+	}
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO organizations (id, name, slug, created_at)
+		VALUES (
+			'a0000000-0000-4000-8000-000000000001',
+			'Demo Venue',
+			'demo-venue',
+			NOW()
+		);
+
+		INSERT INTO members (id, organization_id, email, role, created_at)
+		VALUES (
+			'b0000000-0000-4000-8000-000000000001',
+			'a0000000-0000-4000-8000-000000000001',
+			'preseeded@example.com',
+			'org_admin',
+			NOW()
+		);
+	`)
+	if err != nil {
+		return fmt.Errorf("reseed dev organization: %w", err)
+	}
+	return nil
+}
+
+func (env *testEnv) post(t *testing.T, path string, body any, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(http.MethodPost, env.server.URL+path, reader)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	var envBody envelope
+	decodeEnvelope(t, resp, &envBody)
+	return resp, envBody
+}
+
+func (env *testEnv) get(t *testing.T, path string, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, env.server.URL+path, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	var envBody envelope
+	decodeEnvelope(t, resp, &envBody)
+	return resp, envBody
+}
+
+func decodeEnvelope(t *testing.T, resp *http.Response, env *envelope) {
+	t.Helper()
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if env.RequestID == "" {
+		t.Fatalf("expected request_id in envelope")
+	}
+	if resp.Header.Get("X-Request-ID") != env.RequestID {
+		t.Fatalf("request id header mismatch: header=%q body=%q", resp.Header.Get("X-Request-ID"), env.RequestID)
+	}
+}
+
+func authHeader(token string) map[string]string {
+	return map[string]string{"Authorization": "Bearer " + token}
+}

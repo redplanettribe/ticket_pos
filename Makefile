@@ -1,4 +1,4 @@
-.PHONY: dev down test ci migrate swagger
+.PHONY: dev down test test-integration ci migrate swagger
 
 export GOTOOLCHAIN := local
 
@@ -13,8 +13,11 @@ down:
 	docker compose down
 
 test:
-	cd backend && go test ./...
+	cd backend && go test $$(go list ./... | grep -v '/integration$$')
 	pnpm turbo test
+
+test-integration:
+	cd backend && go test ./integration/...
 
 ci:
 	cd backend && go test ./... && go vet ./...
