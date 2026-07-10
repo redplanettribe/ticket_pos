@@ -91,8 +91,10 @@ func domainHTTPStatus(code string) int {
 		return http.StatusForbidden
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND":
 		return http.StatusNotFound
-	case "ORGANIZATION_SLUG_TAKEN", "CAPACITY_EXCEEDED":
+	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED":
 		return http.StatusConflict
+	case "ASSIGNMENT_NOT_FOUND":
+		return http.StatusNotFound
 	default:
 		return http.StatusBadRequest
 	}

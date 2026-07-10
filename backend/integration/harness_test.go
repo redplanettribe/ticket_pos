@@ -121,7 +121,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE event_assignments, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
@@ -211,4 +211,66 @@ func decodeEnvelope(t *testing.T, resp *http.Response, env *envelope) {
 
 func authHeader(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
+}
+
+func (env *testEnv) patch(t *testing.T, path string, body any, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
+	return env.doJSON(t, http.MethodPatch, path, body, headers)
+}
+
+func (env *testEnv) put(t *testing.T, path string, body any, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
+	return env.doJSON(t, http.MethodPut, path, body, headers)
+}
+
+func (env *testEnv) deleteJSON(t *testing.T, path string, body any, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
+	return env.doJSON(t, http.MethodDelete, path, body, headers)
+}
+
+func (env *testEnv) doJSON(t *testing.T, method, path string, body any, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, env.server.URL+path, reader)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	var envBody envelope
+	decodeEnvelope(t, resp, &envBody)
+	return resp, envBody
+}
+
+func createOrganization(t *testing.T, env *testEnv, sessionID, name, slug string) {
+	t.Helper()
+	resp, body := env.post(t, "/api/v1/staff/organizations", map[string]string{
+		"name": name,
+		"slug": slug,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create organization status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+func orgAdminSession(t *testing.T, env *testEnv) string {
+	t.Helper()
+	sessionID := verifyOTP(t, env, "admin@example.com")
+	createOrganization(t, env, sessionID, "Test Org", "test-org")
+	return sessionID
 }

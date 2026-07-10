@@ -34,9 +34,32 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle(
 		"GET /api/v1/staff/me",
 		identitymiddleware.SessionAuth(svc)(
-			identitymiddleware.RequireActiveMember(
+			identitymiddleware.LoadActiveMember(svc)(
 				http.HandlerFunc(h.GetStaffMe),
 			),
 		),
 	)
+
+	orgAdmin := func(handler http.Handler) http.Handler {
+		return identitymiddleware.SessionAuth(svc)(
+			identitymiddleware.LoadActiveMember(svc)(
+				identitymiddleware.RequireOrgAdmin(handler),
+			),
+		)
+	}
+
+	mux.Handle("GET /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.GetOrganization)))
+	mux.Handle("PATCH /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.UpdateOrganization)))
+	mux.Handle("DELETE /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.DeleteOrganization)))
+
+	mux.Handle("GET /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.ListMembers)))
+	mux.Handle("POST /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.AddMember)))
+	mux.Handle("PATCH /api/v1/staff/members/{memberID}", orgAdmin(http.HandlerFunc(h.UpdateMember)))
+	mux.Handle("DELETE /api/v1/staff/members/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveMember)))
+
+	mux.Handle("GET /api/v1/staff/events", orgAdmin(http.HandlerFunc(h.ListEvents)))
+	mux.Handle("POST /api/v1/staff/events", orgAdmin(http.HandlerFunc(h.CreateEvent)))
+	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
+	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))
+	mux.Handle("DELETE /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveEventAssignment)))
 }

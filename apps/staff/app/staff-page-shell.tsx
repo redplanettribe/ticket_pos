@@ -57,6 +57,7 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
     <StaffShell
       organizationName={organizationName}
       activePath={activePath}
+      showSettings={session?.active_member?.role === "org_admin"}
       userMenu={
         <div className="space-y-3">
           {session?.active_member && session.memberships.length > 1 ? (

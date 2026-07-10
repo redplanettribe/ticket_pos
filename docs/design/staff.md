@@ -49,7 +49,7 @@ Below the `md` breakpoint, collapse to an icon rail or hamburger drawer.
 2. **Events** — list, create, edit; Ticket Types live inside an event
 3. **POS** — enters full-screen POS mode
 4. **Imports** — CSV sale import upload
-5. **Team** — members, invites, event assignments
+5. **Settings** — organization profile, members, event assignments
 
 Organization switching stays in the user menu, not as a top-level nav item.
 

@@ -7,17 +7,24 @@ type StaffShellProps = {
   children: ReactNode;
   userMenu?: ReactNode;
   activePath?: string;
+  showSettings?: boolean;
 };
 
-const navItems = [
+const baseNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/events", label: "Events" },
   { href: "/pos", label: "POS" },
   { href: "/imports", label: "Imports" },
-  { href: "/team", label: "Team" },
 ] as const;
 
-export function StaffShell({ organizationName, children, userMenu, activePath }: StaffShellProps) {
+export function StaffShell({
+  organizationName,
+  children,
+  userMenu,
+  activePath,
+  showSettings = false,
+}: StaffShellProps) {
+  const navItems = showSettings ? [...baseNavItems, { href: "/settings", label: "Settings" }] : [...baseNavItems];
   return (
     <div className="flex min-h-screen bg-background">
       <a

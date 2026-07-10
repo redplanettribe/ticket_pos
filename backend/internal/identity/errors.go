@@ -65,3 +65,59 @@ func ErrMemberNotFound() apperror.DomainError {
 func ErrNoActiveMember() apperror.DomainError {
 	return newDomainError("FORBIDDEN", "Select an organization to continue.", nil)
 }
+
+// ErrForbidden is returned when the active Member lacks permission for the operation.
+func ErrForbidden() apperror.DomainError {
+	return newDomainError("FORBIDDEN", "You do not have permission to perform this action.", nil)
+}
+
+// ErrOrganizationNotFound is returned when an organization does not exist for the active Member.
+func ErrOrganizationNotFound() apperror.DomainError {
+	return newDomainError("ORGANIZATION_NOT_FOUND", "Organization not found.", nil)
+}
+
+// ErrMemberAlreadyExists is returned when a Member email is already in the Organization.
+func ErrMemberAlreadyExists(email string) apperror.DomainError {
+	return newDomainError("MEMBER_ALREADY_EXISTS", "A member with this email already exists in the organization.", map[string]any{
+		"email": email,
+	})
+}
+
+// ErrLastOrgAdmin is returned when removing or demoting the sole Org Admin.
+func ErrLastOrgAdmin() apperror.DomainError {
+	return newDomainError("LAST_ORG_ADMIN", "The organization must have at least one Org Admin.", nil)
+}
+
+// ErrCannotRemoveSelf is returned when a Member tries to remove themselves.
+func ErrCannotRemoveSelf() apperror.DomainError {
+	return newDomainError("CANNOT_REMOVE_SELF", "Add another Org Admin before removing yourself.", nil)
+}
+
+// ErrOrganizationDeleteConfirmationMismatch is returned when delete confirmation name does not match.
+func ErrOrganizationDeleteConfirmationMismatch() apperror.DomainError {
+	return newDomainError("ORGANIZATION_DELETE_CONFIRMATION_MISMATCH", "Confirmation name does not match the organization name.", nil)
+}
+
+// ErrEventNotFound is returned when an Event does not exist in the active Organization.
+func ErrEventNotFound() apperror.DomainError {
+	return newDomainError("EVENT_NOT_FOUND", "Event not found.", nil)
+}
+
+// ErrEventSlugTaken is returned when an event slug is already in use within the organization.
+func ErrEventSlugTaken(slug string) apperror.DomainError {
+	return newDomainError("EVENT_SLUG_TAKEN", "Event slug is already taken in this organization.", map[string]any{
+		"slug": slug,
+	})
+}
+
+// ErrAssignmentNotFound is returned when an event assignment does not exist.
+func ErrAssignmentNotFound() apperror.DomainError {
+	return newDomainError("ASSIGNMENT_NOT_FOUND", "Event assignment not found.", nil)
+}
+
+// ErrInvalidMemberRole is returned when a member role value is not allowed.
+func ErrInvalidMemberRole(role string) apperror.DomainError {
+	return newDomainError("INVALID_MEMBER_ROLE", "Invalid member role.", map[string]any{
+		"role": role,
+	})
+}

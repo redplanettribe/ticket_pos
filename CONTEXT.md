@@ -24,9 +24,14 @@ Staff API calls and workflows are scoped to the active Member's Organization and
 _Avoid_: Current user, active org, tenant context
 
 **Org Admin**:
-A member of an Organization with full authority over all Events in that Organization.
+A member of an Organization with full authority over all Events in that Organization, including member and event assignment management.
 For now, equivalent in scope to an Event Owner on any single Event.
 _Avoid_: Organization owner, super admin
+
+**Event assignment**:
+A grant linking a Member to an Event with a role of Event Owner or Event Staff.
+Required for a non-Org Admin Member to act on that Event; Org Admins do not need assignments.
+_Avoid_: Permission, ACL, grant
 
 **Event Owner**:
 A member with full authority over a specific Event.
