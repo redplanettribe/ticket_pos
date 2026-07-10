@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -19,8 +20,14 @@ export function LogoutButton() {
   }
 
   return (
-    <button type="button" onClick={handleLogout} disabled={loading}>
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={handleLogout}
+      disabled={loading}
+      aria-busy={loading}
+    >
       {loading ? "Signing out..." : "Sign out"}
-    </button>
+    </Button>
   );
 }

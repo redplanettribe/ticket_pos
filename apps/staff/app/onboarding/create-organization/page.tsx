@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  Alert,
+  AlertDescription,
+  AuthCard,
+  Button,
+  FormField,
+  Input,
+} from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -59,37 +67,44 @@ export default function CreateOrganizationPage() {
   }
 
   return (
-    <main>
-      <h1>Create your organization</h1>
-      <p>Name your venue and choose a URL slug for your storefront.</p>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="name">Organization name</label>
-        <input
-          id="name"
-          name="name"
-          type="text"
-          required
-          value={name}
-          onChange={(event) => handleNameChange(event.target.value)}
-        />
-        <label htmlFor="slug">Slug</label>
-        <input
-          id="slug"
-          name="slug"
-          type="text"
-          required
-          value={slug}
-          onChange={(event) => {
-            setSlugEdited(true);
-            setSlug(event.target.value);
-          }}
-        />
-        <button type="submit" disabled={loading}>
+    <AuthCard
+      title="Create your organization"
+      description="Name your venue and choose a URL slug for your storefront."
+      footer={<LogoutButton />}
+    >
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <FormField id="name" label="Organization name">
+          <Input
+            id="name"
+            name="name"
+            type="text"
+            required
+            value={name}
+            onChange={(event) => handleNameChange(event.target.value)}
+          />
+        </FormField>
+        <FormField id="slug" label="Slug" description="Used in your storefront URL.">
+          <Input
+            id="slug"
+            name="slug"
+            type="text"
+            required
+            value={slug}
+            onChange={(event) => {
+              setSlugEdited(true);
+              setSlug(event.target.value);
+            }}
+          />
+        </FormField>
+        <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
           {loading ? "Creating..." : "Create organization"}
-        </button>
+        </Button>
       </form>
-      {error ? <p role="alert">{error}</p> : null}
-      <LogoutButton />
-    </main>
+    </AuthCard>
   );
 }

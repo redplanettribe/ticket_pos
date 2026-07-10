@@ -88,6 +88,7 @@ ticket_pos/
     staff/                    # Next.js (BFF + POS mode)
   packages/
     api-client/               # TypeScript client generated from OpenAPI
+    ui/                       # Shared design system (Tailwind + shadcn primitives)
   openapi/                    # OpenAPI 3 spec (contract source of truth)
   docker-compose.yml
   Makefile
@@ -101,6 +102,9 @@ ticket_pos/
 - **Turborepo** for lint, typecheck, and build across apps and packages.
 - **OpenAPI → TypeScript** client generation into `packages/api-client`.
 - Staff and Storefront import the shared client; they do not hand-roll fetch types.
+- **Shared UI** lives in `packages/ui` (Tailwind CSS v4, shadcn/ui-style primitives).
+  Both apps import `@ticket-pos/ui` for components and global styles.
+  Canonical UX guidelines live in [design/README.md](./design/README.md).
 
 ### Go toolchain
 

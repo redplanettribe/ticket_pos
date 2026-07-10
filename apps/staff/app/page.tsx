@@ -1,3 +1,4 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, StaffShell } from "@ticket-pos/ui";
 import { cookies } from "next/headers";
 
 import { callBackend } from "@/lib/api";
@@ -42,41 +43,57 @@ async function loadSession(): Promise<SessionData | null> {
 
 export default async function StaffDashboardPage() {
   const session = await loadSession();
+  const organizationName = session?.active_member?.organization_name ?? "Ticket POS";
 
   return (
-    <main>
-      <h1>Staff Dashboard</h1>
-      <p>Catalog management, POS mode, and sale imports will live here.</p>
-
-      <section aria-label="Session">
-        <h2>Session</h2>
-        <dl>
-          <div>
-            <dt>Email</dt>
-            <dd>{session?.email ?? "Unknown"}</dd>
-          </div>
-          <div>
-            <dt>Active organization</dt>
-            <dd>{session?.active_member?.organization_name ?? "None selected"}</dd>
-          </div>
-          {session?.active_member ? (
-            <div>
-              <dt>Role</dt>
-              <dd>{session.active_member.role.replace("_", " ")}</dd>
-            </div>
+    <StaffShell
+      organizationName={organizationName}
+      activePath="/"
+      userMenu={
+        <div className="space-y-3">
+          {session?.active_member && session.memberships.length > 1 ? (
+            <SwitchOrganizationControl
+              memberships={session.memberships}
+              activeMemberId={session.active_member.member_id}
+            />
           ) : null}
-        </dl>
-        {session?.active_member && session.memberships.length > 1 ? (
-          <SwitchOrganizationControl
-            memberships={session.memberships}
-            activeMemberId={session.active_member.member_id}
-          />
-        ) : null}
-      </section>
+          <LogoutButton />
+        </div>
+      }
+    >
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Catalog management, POS mode, and sale imports will live here.
+          </p>
+        </div>
 
-      <nav>
-        <LogoutButton />
-      </nav>
-    </main>
+        <Card>
+          <CardHeader>
+            <CardTitle>Session</CardTitle>
+            <CardDescription>Your current staff session details.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">Email</dt>
+                <dd className="mt-1">{session?.email ?? "Unknown"}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">Active organization</dt>
+                <dd className="mt-1">{session?.active_member?.organization_name ?? "None selected"}</dd>
+              </div>
+              {session?.active_member ? (
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">Role</dt>
+                  <dd className="mt-1">{session.active_member.role.replace("_", " ")}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </CardContent>
+        </Card>
+      </div>
+    </StaffShell>
   );
 }

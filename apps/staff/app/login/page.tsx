@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  Alert,
+  AlertDescription,
+  AuthCard,
+  Button,
+  FormField,
+  Input,
+} from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -87,14 +95,29 @@ export default function LoginPage() {
   }
 
   return (
-    <main>
-      <h1>Sign in</h1>
+    <AuthCard
+      title="Sign in"
+      description={
+        step === "email"
+          ? "Enter your email to receive a one-time passcode."
+          : `Enter the 6-digit passcode sent to ${email}.`
+      }
+    >
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {message ? (
+        <p role="status" className="rounded-lg border bg-muted/50 px-4 py-3 text-sm">
+          {message}
+        </p>
+      ) : null}
+
       {step === "email" ? (
-        <>
-          <p>Enter your email to receive a one-time passcode.</p>
-          <form onSubmit={handleRequestOTP}>
-            <label htmlFor="email">Email</label>
-            <input
+        <form className="space-y-4" onSubmit={handleRequestOTP}>
+          <FormField id="email" label="Email">
+            <Input
               id="email"
               name="email"
               type="email"
@@ -103,17 +126,15 @@ export default function LoginPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-            <button type="submit" disabled={loading}>
-              {loading ? "Sending..." : "Send code"}
-            </button>
-          </form>
-        </>
+          </FormField>
+          <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
+            {loading ? "Sending..." : "Send code"}
+          </Button>
+        </form>
       ) : (
-        <>
-          <p>Enter the 6-digit passcode sent to {email}.</p>
-          <form onSubmit={handleVerifyOTP}>
-            <label htmlFor="code">Passcode</label>
-            <input
+        <form className="space-y-4" onSubmit={handleVerifyOTP}>
+          <FormField id="code" label="Passcode">
+            <Input
               id="code"
               name="code"
               type="text"
@@ -125,12 +146,14 @@ export default function LoginPage() {
               value={code}
               onChange={(event) => setCode(event.target.value)}
             />
-            <button type="submit" disabled={loading}>
-              {loading ? "Verifying..." : "Verify"}
-            </button>
-          </form>
-          <button
+          </FormField>
+          <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
+            {loading ? "Verifying..." : "Verify"}
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            className="w-full"
             onClick={() => {
               setStep("email");
               setCode("");
@@ -139,11 +162,9 @@ export default function LoginPage() {
             }}
           >
             Use a different email
-          </button>
-        </>
+          </Button>
+        </form>
       )}
-      {message ? <p role="status">{message}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-    </main>
+    </AuthCard>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, AlertDescription, FormField } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -54,20 +55,27 @@ export function SwitchOrganizationControl({ memberships, activeMemberId }: Switc
   }
 
   return (
-    <label>
-      Switch organization{" "}
-      <select
-        value={activeMemberId}
-        disabled={loading}
-        onChange={(event) => void handleChange(event.target.value)}
-      >
-        {memberships.map((membership) => (
-          <option key={membership.member_id} value={membership.member_id}>
-            {membership.organization_name}
-          </option>
-        ))}
-      </select>
-      {error ? <p role="alert">{error}</p> : null}
-    </label>
+    <div className="space-y-2">
+      <FormField id="switch-organization" label="Switch organization">
+        <select
+          id="switch-organization"
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          value={activeMemberId}
+          disabled={loading}
+          onChange={(event) => void handleChange(event.target.value)}
+        >
+          {memberships.map((membership) => (
+            <option key={membership.member_id} value={membership.member_id}>
+              {membership.organization_name}
+            </option>
+          ))}
+        </select>
+      </FormField>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+    </div>
   );
 }

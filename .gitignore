@@ -4,9 +4,11 @@ node_modules/
 
 # JavaScript build output
 .next/
+.next-build/
 dist/
 out/
 .turbo/
+*.tsbuildinfo
 
 # Environment
 .env
