@@ -6,6 +6,9 @@ This document is a loose, feature-by-feature implementation plan for Ticket POS.
 It is ordered by dependency and aligned with [business-intent.md](./business-intent.md) and [technical-design.md](./technical-design.md).
 The canonical domain vocabulary lives in [CONTEXT.md](../CONTEXT.md).
 
+**Vertical slices** (V0–V9) are the recommended build sequence: each slice ships one business outcome across backend, API, and UI.
+Sections A–J are horizontal checklists keyed by slice in the vertical slices table.
+
 This is a draft roadmap, not a commitment to dates or scope locks.
 Features may shift as implementation learns more, but the sequence reflects what must exist before what.
 
@@ -24,32 +27,116 @@ Update the status column as features land.
 
 ## Build order (summary)
 
+Vertical slices deliver one business outcome end to end.
+Horizontal sections A–J below are the feature checklist each slice pulls from.
+Order is loose; shift slices when implementation learns something new.
+
 ```text
-Platform spine (adopt api-client in Staff and Storefront apps)
-  → Staff identity (finish hardening + auth E2E)
-  → Catalog (Events + Ticket Types, staff + public + storefront)
-  → Sales core (schema, capacity logic, idempotency)
-  → In-person sales (POS)
-  → Online sales (storefront checkout)
-  → Sale import (CSV from External Platforms)
-  → Members, roles, and permissions
-  → Integration Partner API
-  → Production hardening and E2E smoke
+V0  Platform client adoption (api-client in Staff + Storefront)
+  → V1  Staff auth complete (OTP hardening, session, auth E2E)
+  → V2  Staff catalog (create Event + Ticket Types in Staff UI)
+  → V3  Public catalog (storefront event page with real data)
+  → V4  In-person sale (POS records sale, capacity decrements)
+  → V5  Online sale (guest checkout, shared capacity with POS)
+  → V6  Sale import (CSV from External Platforms)
+  → V7  Event Staff delegation (assignments + scoped permissions)
+  → V8  Integration Partner API (programmatic catalog + sales)
+  → V9  Production launch (email, payment, deploy, smoke E2E)
 ```
 
+### What's next (loose)
 
+The repo is between V0 and V2.
+Finish V0 and V1 in parallel if helpful, then start **V2** (staff catalog).
+V2 is the first slice that matches a core business-intent goal: an Organization defines Events and Ticket Types.
+V3 makes that catalog public; together they are the first user-visible milestone.
 
-### First three milestones
+---
 
-1. **Catalog live** - sign in, create an Event and Ticket Types, public storefront event page renders.
-2. **In-person selling** - Event Staff sells at the door; remaining capacity is accurate.
-3. **Online selling** - guest checkout on the storefront; capacity reflects online and in-person sales together.
+## Vertical slices
+
+Each slice cuts through schema, API, UI, and tests for one outcome.
+Business scenarios in [business-intent.md](./business-intent.md) map to slices as noted.
+
+| Slice | Outcome | Business intent | Refs | Status |
+| ----- | ------- | --------------- | ---- | ------ |
+| V0 | Staff and Storefront call the Go API through the generated TypeScript client | Platform spine before feature work | A13 | Partial |
+| V1 | OTP rate limits, sliding sessions, and Playwright auth coverage | Staff can sign in reliably before selling | B13–B16 | Partial |
+| V2 | Org Admin signs in and creates an Event with Ticket Types in Staff UI | Event and catalog management | C1–C8, C13–C14 | Not started |
+| V3 | Customer opens `/{orgSlug}/events/{eventSlug}` and sees real event and ticket types | Catalog visible on the Storefront | C9–C12, C14 | Partial |
+| V4 | Staff sells at the door on POS; remaining capacity updates immediately | Door sales scenario | D1–D10, E1–E7 | Not started |
+| V5 | Customer completes guest checkout online; capacity reflects POS and online together | Online + in-person sales both required at launch | F1–F10, D6, D9 | Not started |
+| V6 | Staff uploads a CSV of off-platform sales; capacity reduces or batch fails cleanly | Off-platform sales scenario | G1–G8 | Not started |
+| V7 | Org Admin invites members and assigns Event Staff to specific Events | Event Staff delegated catalog + sales on assigned Events | H1–H10 | Partial |
+| V8 | Integration Partner manages events, catalog, and sales via API keys | Partner-managed events scenario | I1–I8, I10 | Not started |
+| V9 | Production email and payment, deploy pipeline, full-path E2E smoke | Success criteria: zero to selling in one session | J1–J7 | Not started |
+
+### Milestone groupings
+
+These are informal checkpoints, not scope locks.
+
+1. **Catalog live** (V2 + V3) - sign in, create an Event and Ticket Types, public storefront event page renders real data.
+2. **In-person selling** (V4) - sell at the door; remaining capacity is accurate.
+3. **Online selling** (V5) - guest checkout; capacity reflects online and in-person sales together.
+4. **Unified capacity** (V6) - imports count the same way native sales do.
+5. **Delegation** (V7) - Event Staff scoped to assigned Events.
+6. **Partner access** (V8) - Integration Partner parity with Org Admin without the web UI.
+7. **Launch** (V9) - production providers and smoke tests.
+
+### Slice notes
+
+**V0 - Platform client adoption.**
+Staff and Storefront still hand-roll fetch calls.
+Adopting `packages/api-client` everywhere unblocks consistent error handling and typed requests for catalog and sales work.
+
+**V1 - Staff auth complete.**
+Identity is usable but not hardened.
+Finish rate limiting, sliding expiry, and auth E2E before leaning on Staff UI for catalog CRUD.
+
+**V2 - Staff catalog.**
+Thin vertical: migration, repository, staff routes, Staff UI list/create/edit for Events and Ticket Types.
+Org Admin only; permission checks beyond active-member scoping can wait until V7.
+At launch, Org Admin and Event Owner are equivalent, so V2 only needs org-scoped access.
+
+**V3 - Public catalog.**
+Wire public org/event routes and replace the storefront placeholder with API-backed SSR.
+SEO metadata can land in the same slice.
+Depends on V2 having at least one real event to render.
+
+**V4 - In-person sale.**
+Introduce sales schema and atomic capacity logic, then POS UI.
+Manual payment confirmation only (no card capture).
+This is the first slice that proves capacity math; include concurrent integration tests here.
+
+**V5 - Online sale.**
+Payment provider interface plus dev stub, checkout API, storefront cart.
+Reuse sales core and idempotency from V4.
+Success criteria expect online and in-person in the same session; V5 completes that pair.
+
+**V6 - Sale import.**
+Synchronous CSV upload in a single transaction.
+All-or-nothing on oversell matches the External Platform scenario in business intent.
+
+**V7 - Event Staff delegation.**
+Members, event assignments, and route-level permission checks.
+Deferred until core selling works under Org Admin so V2–V6 stay unblocked.
+H10 (org switcher polish) can ride along.
+
+**V8 - Integration Partner API.**
+Separate auth from staff sessions; org-wide scope at launch.
+Parity with staff catalog and sales routes, not a separate product surface.
+
+**V9 - Production launch.**
+Real email and payment providers, hosting, and cross-channel E2E smoke.
+Staff dashboard (J7) is nice-to-have before launch, not a blocker for V4–V6.
 
 ---
 
 
 
 ## A. Platform and repo spine
+
+Vertical slice: **V0** (api-client adoption); also underpins all later slices.
 
 The spine is largely in place.
 OpenAPI is generated from Go handler annotations (swag), copied to `openapi/openapi.yaml`, and served at `/swagger/` in dev.
@@ -84,6 +171,8 @@ CI runs Go (including integration tests), turbo lint/typecheck/build, and the Op
 
 ## B. Staff identity and tenancy
 
+Vertical slice: **V1**.
+
 
 | #   | Feature                                                       | Status      |
 | --- | ------------------------------------------------------------- | ----------- |
@@ -113,6 +202,8 @@ Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
 
 ## C. Catalog - Events and Ticket Types
 
+Vertical slices: **V2** (staff), **V3** (public storefront).
+
 
 | #   | Feature                                                                | Status      |
 | --- | ---------------------------------------------------------------------- | ----------- |
@@ -138,6 +229,8 @@ Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
 
 ## D. Sales core (shared by all channels)
 
+Vertical slices: **V4** (introduced), **V5** (idempotency for online), **V6** (import).
+
 
 | #   | Feature                                               | Status      |
 | --- | ----------------------------------------------------- | ----------- |
@@ -159,6 +252,8 @@ Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
 
 ## E. In-person sales (POS)
 
+Vertical slice: **V4**.
+
 
 | #   | Feature                                                 | Status      |
 | --- | ------------------------------------------------------- | ----------- |
@@ -176,6 +271,8 @@ Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
 
 
 ## F. Online sales (Storefront)
+
+Vertical slice: **V5**.
 
 
 | #   | Feature                                            | Status      |
@@ -198,6 +295,8 @@ Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
 
 ## G. Sale import (External Platforms)
 
+Vertical slice: **V6**.
+
 
 | #   | Feature                                                             | Status      |
 | --- | ------------------------------------------------------------------- | ----------- |
@@ -216,6 +315,8 @@ Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
 
 
 ## H. Members, roles, and permissions
+
+Vertical slice: **V7**.
 
 
 | #   | Feature                                                                   | Status      |
@@ -242,6 +343,8 @@ See [business-intent.md](./business-intent.md) for the full permission model.
 
 ## I. Integration Partner API
 
+Vertical slice: **V8**.
+
 
 | #   | Feature                                                    | Status      |
 | --- | ---------------------------------------------------------- | ----------- |
@@ -266,6 +369,9 @@ Integration Partners push and pull management operations into Ticket POS.
 
 
 ## J. Cross-cutting polish and launch
+
+Vertical slice: **V9**.
+Platform spine items map to **V0**; staff auth hardening maps to **V1**.
 
 
 | #   | Feature                                                             | Status      |

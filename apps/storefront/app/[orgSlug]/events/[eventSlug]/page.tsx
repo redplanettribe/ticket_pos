@@ -1,4 +1,13 @@
-import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, StorefrontShell } from "@ticket-pos/ui";
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  InProgressPanel,
+  StorefrontShell,
+} from "@ticket-pos/ui";
 
 type EventPageProps = {
   params: Promise<{
@@ -22,7 +31,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
   return (
     <StorefrontShell organizationName={organizationName}>
-      <article className="mx-auto w-full max-w-5xl px-4 py-8">
+      <article className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8">
         <header className="space-y-4 border-b pb-8">
           <div className="flex min-h-48 items-end rounded-xl bg-muted p-8">
             <div className="space-y-2">
@@ -32,8 +41,8 @@ export default async function EventPage({ params }: EventPageProps) {
           </div>
         </header>
 
-        <section className="py-8">
-          <h2 className="mb-4 text-xl font-semibold">Tickets</h2>
+        <section className="space-y-4">
+          <h2 className="text-xl font-semibold">Tickets</h2>
           <Card>
             <CardHeader>
               <CardTitle>General Admission</CardTitle>
@@ -48,6 +57,11 @@ export default async function EventPage({ params }: EventPageProps) {
             </CardContent>
           </Card>
         </section>
+
+        <InProgressPanel
+          title="Checkout is under development"
+          description="Ticket selection and payment will be available here soon."
+        />
       </article>
     </StorefrontShell>
   );
