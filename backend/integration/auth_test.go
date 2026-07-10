@@ -256,6 +256,72 @@ func TestCreateOrganizationFlow(t *testing.T) {
 	}
 }
 
+func TestCreateSecondOrganizationWhileMember(t *testing.T) {
+	env := setupTest(t)
+	sessionID := verifyOTP(t, env, "multi-org@example.com")
+
+	resp, body := env.post(t, "/api/v1/staff/organizations", map[string]string{
+		"name": "First Venue",
+		"slug": "first-venue",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create first org status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	var session struct {
+		ActiveMember *struct {
+			OrganizationSlug string `json:"organization_slug"`
+		} `json:"active_member"`
+		Memberships []struct {
+			OrganizationSlug string `json:"organization_slug"`
+		} `json:"memberships"`
+	}
+	if err := json.Unmarshal(body.Data, &session); err != nil {
+		t.Fatalf("decode session after first create: %v", err)
+	}
+	if session.ActiveMember == nil || session.ActiveMember.OrganizationSlug != "first-venue" {
+		t.Fatalf("expected first venue active, got %+v", session.ActiveMember)
+	}
+
+	resp, body = env.post(t, "/api/v1/staff/organizations", map[string]string{
+		"name": "Second Venue",
+		"slug": "second-venue",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create second org status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if err := json.Unmarshal(body.Data, &session); err != nil {
+		t.Fatalf("decode session after second create: %v", err)
+	}
+	if session.ActiveMember == nil || session.ActiveMember.OrganizationSlug != "second-venue" {
+		t.Fatalf("expected second venue active, got %+v", session.ActiveMember)
+	}
+	if len(session.Memberships) != 2 {
+		t.Fatalf("expected 2 memberships in session, got %d", len(session.Memberships))
+	}
+
+	resp, body = env.get(t, "/api/v1/staff/memberships", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list memberships status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var memberships []struct {
+		OrganizationSlug string `json:"organization_slug"`
+	}
+	if err := json.Unmarshal(body.Data, &memberships); err != nil {
+		t.Fatalf("decode memberships: %v", err)
+	}
+	if len(memberships) != 2 {
+		t.Fatalf("expected 2 memberships from API, got %d", len(memberships))
+	}
+	slugs := map[string]bool{}
+	for _, membership := range memberships {
+		slugs[membership.OrganizationSlug] = true
+	}
+	if !slugs["first-venue"] || !slugs["second-venue"] {
+		t.Fatalf("memberships=%+v", memberships)
+	}
+}
+
 func TestDuplicateOrganizationSlug(t *testing.T) {
 	env := setupTest(t)
 	sessionID := verifyOTP(t, env, "slug-taken@example.com")

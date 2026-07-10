@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 import { cn } from "../lib/utils";
@@ -8,6 +10,7 @@ type StaffShellProps = {
   userMenu?: ReactNode;
   activePath?: string;
   showSettings?: boolean;
+  onOrganizationClick?: () => void;
 };
 
 const baseNavItems = [
@@ -23,8 +26,22 @@ export function StaffShell({
   userMenu,
   activePath,
   showSettings = false,
+  onOrganizationClick,
 }: StaffShellProps) {
   const navItems = showSettings ? [...baseNavItems, { href: "/settings", label: "Settings" }] : [...baseNavItems];
+
+  const organizationNameElement = onOrganizationClick ? (
+    <button
+      type="button"
+      onClick={onOrganizationClick}
+      className="mt-1 w-full truncate text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+    >
+      {organizationName}
+    </button>
+  ) : (
+    <p className="mt-1 truncate font-semibold">{organizationName}</p>
+  );
+
   return (
     <div className="flex min-h-screen bg-background">
       <a
@@ -36,7 +53,7 @@ export function StaffShell({
       <aside className="hidden w-60 shrink-0 border-r bg-card md:flex md:flex-col">
         <div className="border-b px-4 py-5">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Organization</p>
-          <p className="mt-1 truncate font-semibold">{organizationName}</p>
+          {organizationNameElement}
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary">
           {navItems.map((item) => (
@@ -57,7 +74,17 @@ export function StaffShell({
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center border-b px-4 py-3 md:hidden">
-          <p className="truncate font-semibold">{organizationName}</p>
+          {onOrganizationClick ? (
+            <button
+              type="button"
+              onClick={onOrganizationClick}
+              className="truncate font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+            >
+              {organizationName}
+            </button>
+          ) : (
+            <p className="truncate font-semibold">{organizationName}</p>
+          )}
         </header>
         <main id="main-content" className="flex-1 p-6">
           {children}

@@ -1,14 +1,13 @@
 import type { ReactNode } from "react";
 import { cache } from "react";
 
-import { StaffShell } from "@ticket-pos/ui";
 import { cookies } from "next/headers";
 
 import { callBackend } from "@/lib/api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 import { LogoutButton } from "./logout-button";
-import { SwitchOrganizationControl } from "./switch-organization-control";
+import { StaffShellWithOrganizationSwitcher } from "./organization-switcher-dialog";
 
 type SessionData = {
   email: string;
@@ -20,6 +19,7 @@ type SessionData = {
   } | null;
   memberships: Array<{
     member_id: string;
+    organization_id: string;
     organization_name: string;
     organization_slug: string;
     role: string;
@@ -54,23 +54,15 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
   const organizationName = session?.active_member?.organization_name ?? "Ticket POS";
 
   return (
-    <StaffShell
+    <StaffShellWithOrganizationSwitcher
       organizationName={organizationName}
       activePath={activePath}
       showSettings={session?.active_member?.role === "org_admin"}
-      userMenu={
-        <div className="space-y-3">
-          {session?.active_member && session.memberships.length > 1 ? (
-            <SwitchOrganizationControl
-              memberships={session.memberships}
-              activeMemberId={session.active_member.member_id}
-            />
-          ) : null}
-          <LogoutButton />
-        </div>
-      }
+      memberships={session?.memberships ?? []}
+      activeMemberId={session?.active_member?.member_id}
+      userMenu={<LogoutButton />}
     >
       {children}
-    </StaffShell>
+    </StaffShellWithOrganizationSwitcher>
   );
 }

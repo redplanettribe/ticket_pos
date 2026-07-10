@@ -31,9 +31,9 @@ Persistent **left sidebar** on authenticated pages.
 
 | Area | Content |
 |------|---------|
-| Top | Active Organization name |
+| Top | Active Organization name (opens switcher dialog) |
 | Middle | Primary navigation |
-| Bottom | User menu (switch organization, logout) |
+| Bottom | User menu (logout) |
 
 Below the `md` breakpoint, collapse to an icon rail or hamburger drawer.
 
@@ -51,7 +51,7 @@ Below the `md` breakpoint, collapse to an icon rail or hamburger drawer.
 4. **Imports** — CSV sale import upload
 5. **Settings** — organization profile, members, event assignments
 
-Organization switching stays in the user menu, not as a top-level nav item.
+Organization switching is in the Organization header dialog, not as a top-level nav item or user menu control.
 
 ## Information architecture
 

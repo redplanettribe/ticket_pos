@@ -11,6 +11,8 @@ import {
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import { applyAuthFork } from "@/lib/auth-fork";
+
 type Step = "email" | "code";
 
 type SessionData = {
@@ -77,16 +79,18 @@ export default function LoginPage() {
       }
 
       const session = envelope.data?.session;
-      const membershipCount = session?.memberships.length ?? 0;
-      if (membershipCount === 0) {
-        router.push("/onboarding/create-organization");
+      if (!session) {
+        setError("Could not load session");
         return;
       }
-      if (membershipCount === 1 || session?.active_member) {
-        router.push("/");
+
+      const fork = await applyAuthFork(session);
+      if (fork.error) {
+        setError(fork.error);
         return;
       }
-      router.push("/select-organization");
+      router.push(fork.path);
+      router.refresh();
     } catch {
       setError("Could not verify passcode");
     } finally {

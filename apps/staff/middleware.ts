@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { resolveAuthForkRedirectPath } from "@/lib/auth-fork";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 const publicPaths = ["/login"];
 
-const onboardingPaths = ["/onboarding"];
+const createOrganizationPaths = ["/organizations/new"];
 const orgPickerPaths = ["/select-organization"];
+const legacyOnboardingPaths = ["/onboarding"];
 
 type SessionData = {
   email: string;
@@ -47,6 +49,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (isPathMatch(pathname, legacyOnboardingPaths)) {
+    const createUrl = request.nextUrl.clone();
+    createUrl.pathname = "/organizations/new";
+    createUrl.search = "";
+    return NextResponse.redirect(createUrl);
+  }
+
   const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (!sessionToken) {
     const loginUrl = request.nextUrl.clone();
@@ -66,10 +75,9 @@ export async function middleware(request: NextRequest) {
   }
 
   const hasActiveMember = Boolean(session.active_member);
-  const membershipCount = session.memberships.length;
 
   if (hasActiveMember) {
-    if (isPathMatch(pathname, onboardingPaths) || isPathMatch(pathname, orgPickerPaths)) {
+    if (isPathMatch(pathname, orgPickerPaths)) {
       const dashboardUrl = request.nextUrl.clone();
       dashboardUrl.pathname = "/";
       dashboardUrl.search = "";
@@ -78,17 +86,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (isPathMatch(pathname, onboardingPaths) || isPathMatch(pathname, orgPickerPaths)) {
+  if (isPathMatch(pathname, createOrganizationPaths) || isPathMatch(pathname, orgPickerPaths)) {
     return NextResponse.next();
   }
 
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.search = "";
-  if (membershipCount === 0) {
-    redirectUrl.pathname = "/onboarding/create-organization";
-  } else {
-    redirectUrl.pathname = "/select-organization";
-  }
+  redirectUrl.pathname = resolveAuthForkRedirectPath(session);
   return NextResponse.redirect(redirectUrl);
 }
 

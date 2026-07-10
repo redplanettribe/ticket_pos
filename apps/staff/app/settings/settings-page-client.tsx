@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "@ticket-pos/ui";
 
+import { applyAuthFork } from "@/lib/auth-fork";
+
 import {
   Alert,
   AlertDescription,
@@ -243,10 +245,21 @@ export function SettingsPageClient() {
 
       const sessionResponse = await fetch("/api/auth/session");
       const sessionEnvelope = (await sessionResponse.json()) as APIEnvelope<{
-        memberships: Array<unknown>;
+        active_member: unknown | null;
+        memberships: Array<{ member_id: string }>;
       }>;
-      const membershipCount = sessionEnvelope.data?.memberships.length ?? 0;
-      router.push(membershipCount === 0 ? "/onboarding/create-organization" : "/select-organization");
+      const session = sessionEnvelope.data;
+      if (!session) {
+        router.push("/login");
+        router.refresh();
+        return;
+      }
+
+      const fork = await applyAuthFork(session);
+      if (fork.error) {
+        toast.error(fork.error);
+      }
+      router.push(fork.path);
       router.refresh();
     } catch (deleteError) {
       toast.error(deleteError instanceof Error ? deleteError.message : "Failed to delete organization");
