@@ -56,10 +56,15 @@ _Avoid_: API key, connection, webhook
 
 **Event**:
 A scheduled occurrence belonging to an Organization, for which tickets are sold.
+Has scheduling (start and optional end, timezone, venue), optional markdown description and cover image, and a lifecycle status.
 _Avoid_: Show, gig, occurrence
 
+**Event status**:
+Where an Event is in its lifecycle: `draft` (being prepared), `published` (visible and sellable when sales exist), or `cancelled` (terminal; no longer active).
+_Avoid_: State, visibility flag, active/inactive
+
 **Ticket Type**:
-A purchasable ticket category belonging to an Event, with a name, description, price, and capacity.
+A purchasable ticket category belonging to an Event, with a name, description, price, capacity, and display order.
 _Avoid_: Ticket tier, ticket class, fare, SKU
 
 ## Sales

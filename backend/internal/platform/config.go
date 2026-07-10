@@ -13,6 +13,12 @@ type Config struct {
 	HTTPAddr      string
 	RunMigrations bool
 	LogLevel      slog.Level
+	S3Endpoint    string
+	S3PublicURL   string
+	S3AccessKey   string
+	S3SecretKey   string
+	S3Bucket      string
+	S3Region      string
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -28,6 +34,12 @@ func LoadConfig() (Config, error) {
 		HTTPAddr:      envOrDefault("HTTP_ADDR", ":8080"),
 		RunMigrations: shouldRunMigrations(),
 		LogLevel:      parseLogLevel(os.Getenv("LOG_LEVEL")),
+		S3Endpoint:    os.Getenv("S3_ENDPOINT"),
+		S3PublicURL:   os.Getenv("S3_PUBLIC_URL"),
+		S3AccessKey:   os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:   os.Getenv("S3_SECRET_KEY"),
+		S3Bucket:      os.Getenv("S3_BUCKET"),
+		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
 	}
 	return cfg, nil
 }

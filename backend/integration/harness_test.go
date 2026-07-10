@@ -78,6 +78,7 @@ func TestMain(m *testing.M) {
 	app, err := server.NewApp(ctx, cfg,
 		server.WithEmailSender(email),
 		server.WithClock(func() time.Time { return fixedClock }),
+		server.WithObjectStorage(&mockObjectStorage{}),
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new app: %v\n", err)
@@ -121,7 +122,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE event_assignments, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

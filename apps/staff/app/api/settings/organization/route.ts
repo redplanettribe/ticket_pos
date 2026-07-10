@@ -9,6 +9,8 @@ type Organization = {
   id: string;
   name: string;
   slug: string;
+  currency: string;
+  currency_locked: boolean;
   created_at: string;
 };
 

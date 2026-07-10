@@ -13,6 +13,7 @@ type Organization struct {
 	ID        string
 	Name      string
 	Slug      string
+	Currency  string
 	CreatedAt time.Time
 }
 
@@ -47,13 +48,13 @@ type EventAssignment struct {
 // GetOrganizationByID loads an organization by ID.
 func (r *Repository) GetOrganizationByID(ctx context.Context, orgID string) (*Organization, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, name, slug, created_at
+		SELECT id, name, slug, currency, created_at
 		FROM organizations
 		WHERE id = $1
 	`, orgID)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -68,11 +69,30 @@ func (r *Repository) UpdateOrganizationName(ctx context.Context, orgID, name str
 		UPDATE organizations
 		SET name = $2
 		WHERE id = $1
-		RETURNING id, name, slug, created_at
+		RETURNING id, name, slug, currency, created_at
 	`, orgID, name)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
+}
+
+// UpdateOrganizationCurrency updates the currency for an organization.
+func (r *Repository) UpdateOrganizationCurrency(ctx context.Context, orgID, currency string) (*Organization, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE organizations
+		SET currency = $2
+		WHERE id = $1
+		RETURNING id, name, slug, currency, created_at
+	`, orgID, currency)
+
+	var o Organization
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -237,56 +257,6 @@ func (r *Repository) CountOrgAdmins(ctx context.Context, orgID string) (int, err
 		WHERE organization_id = $1 AND role = 'org_admin'
 	`, orgID).Scan(&count)
 	return count, err
-}
-
-// ListEventsByOrganizationID returns events for an organization.
-func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID string) ([]Event, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT id, organization_id, name, slug, created_at
-		FROM events
-		WHERE organization_id = $1
-		ORDER BY created_at ASC, name ASC
-	`, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var events []Event
-	for rows.Next() {
-		var e Event
-		if err := rows.Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &e.CreatedAt); err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	return events, rows.Err()
-}
-
-// EventSlugExistsInOrganization reports whether a slug is taken within the org.
-func (r *Repository) EventSlugExistsInOrganization(ctx context.Context, orgID, slug string) (bool, error) {
-	var exists bool
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM events WHERE organization_id = $1 AND slug = $2
-		)
-	`, orgID, slug).Scan(&exists)
-	return exists, err
-}
-
-// CreateEvent inserts an event for an organization.
-func (r *Repository) CreateEvent(ctx context.Context, orgID, name, slug string, createdAt time.Time) (*Event, error) {
-	row := r.db.Pool.QueryRowContext(ctx, `
-		INSERT INTO events (organization_id, name, slug, created_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, organization_id, name, slug, created_at
-	`, orgID, name, slug, createdAt)
-
-	var e Event
-	if err := row.Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &e.CreatedAt); err != nil {
-		return nil, err
-	}
-	return &e, nil
 }
 
 // GetEventByID loads an event scoped to an organization.

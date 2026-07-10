@@ -26,6 +26,7 @@ func registerAuthRoutes(mux *http.ServeMux, app *App) {
 
 func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
+	ch := app.CatalogHandler
 	svc := app.IdentityService
 
 	mux.HandleFunc("POST /api/v1/staff/organizations", h.CreateOrganization)
@@ -57,8 +58,18 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("PATCH /api/v1/staff/members/{memberID}", orgAdmin(http.HandlerFunc(h.UpdateMember)))
 	mux.Handle("DELETE /api/v1/staff/members/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveMember)))
 
-	mux.Handle("GET /api/v1/staff/events", orgAdmin(http.HandlerFunc(h.ListEvents)))
-	mux.Handle("POST /api/v1/staff/events", orgAdmin(http.HandlerFunc(h.CreateEvent)))
+	mux.Handle("GET /api/v1/staff/events", orgAdmin(http.HandlerFunc(ch.ListEvents)))
+	mux.Handle("POST /api/v1/staff/events", orgAdmin(http.HandlerFunc(ch.CreateEvent)))
+	mux.Handle("GET /api/v1/staff/events/{id}", orgAdmin(http.HandlerFunc(ch.GetEvent)))
+	mux.Handle("PATCH /api/v1/staff/events/{id}", orgAdmin(http.HandlerFunc(ch.UpdateEvent)))
+	mux.Handle("DELETE /api/v1/staff/events/{id}", orgAdmin(http.HandlerFunc(ch.DeleteEvent)))
+	mux.Handle("POST /api/v1/staff/events/{id}/publish", orgAdmin(http.HandlerFunc(ch.PublishEvent)))
+	mux.Handle("POST /api/v1/staff/events/{id}/cancel", orgAdmin(http.HandlerFunc(ch.CancelEvent)))
+	mux.Handle("POST /api/v1/staff/events/{id}/cover-upload-url", orgAdmin(http.HandlerFunc(ch.CreateCoverUploadURL)))
+	mux.Handle("GET /api/v1/staff/events/{id}/ticket-types", orgAdmin(http.HandlerFunc(ch.ListTicketTypes)))
+	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types", orgAdmin(http.HandlerFunc(ch.CreateTicketType)))
+	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}", orgAdmin(http.HandlerFunc(ch.UpdateTicketType)))
+	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}", orgAdmin(http.HandlerFunc(ch.DeleteTicketType)))
 	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
 	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))
 	mux.Handle("DELETE /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveEventAssignment)))

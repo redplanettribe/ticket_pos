@@ -14,6 +14,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
+	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -59,19 +60,21 @@ type OTPRequestResult struct {
 
 // Service implements identity business rules.
 type Service struct {
-	repo   *repository.Repository
-	email  platform.EmailSender
-	logger platform.Logger
-	now    func() time.Time
+	repo        *repository.Repository
+	catalogRepo *catalogrepo.Repository
+	email       platform.EmailSender
+	logger      platform.Logger
+	now         func() time.Time
 }
 
 // New returns an identity service.
-func New(repo *repository.Repository, email platform.EmailSender, logger platform.Logger) *Service {
+func New(repo *repository.Repository, catalogRepo *catalogrepo.Repository, email platform.EmailSender, logger platform.Logger) *Service {
 	return &Service{
-		repo:   repo,
-		email:  email,
-		logger: logger,
-		now:    time.Now,
+		repo:        repo,
+		catalogRepo: catalogRepo,
+		email:       email,
+		logger:      logger,
+		now:         time.Now,
 	}
 }
 

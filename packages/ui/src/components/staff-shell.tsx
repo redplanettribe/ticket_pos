@@ -10,12 +10,12 @@ type StaffShellProps = {
   userMenu?: ReactNode;
   activePath?: string;
   showSettings?: boolean;
+  showEvents?: boolean;
   onOrganizationClick?: () => void;
 };
 
 const baseNavItems = [
   { href: "/", label: "Dashboard" },
-  { href: "/events", label: "Events" },
   { href: "/pos", label: "POS" },
   { href: "/imports", label: "Imports" },
 ] as const;
@@ -26,9 +26,15 @@ export function StaffShell({
   userMenu,
   activePath,
   showSettings = false,
+  showEvents = false,
   onOrganizationClick,
 }: StaffShellProps) {
-  const navItems = showSettings ? [...baseNavItems, { href: "/settings", label: "Settings" }] : [...baseNavItems];
+  const navItems = [
+    ...baseNavItems.slice(0, 1),
+    ...(showEvents ? [{ href: "/events", label: "Events" as const }] : []),
+    ...baseNavItems.slice(1),
+    ...(showSettings ? [{ href: "/settings", label: "Settings" as const }] : []),
+  ];
 
   const organizationNameElement = onOrganizationClick ? (
     <button

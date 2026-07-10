@@ -5,16 +5,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
 )
 
 // OrganizationView is the public organization profile.
 type OrganizationView struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Slug           string    `json:"slug"`
+	Currency       string    `json:"currency"`
+	CurrencyLocked bool      `json:"currency_locked"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// UpdateOrganizationInput updates organization profile fields.
+type UpdateOrganizationInput struct {
+	Name     string
+	Currency *string
 }
 
 // MemberView is a member in the organization roster.
@@ -22,14 +31,6 @@ type MemberView struct {
 	ID        string    `json:"id"`
 	Email     string    `json:"email"`
 	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// EventView is a minimal event summary for settings.
-type EventView struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -66,12 +67,6 @@ type UpdateMemberRoleInput struct {
 	Role string
 }
 
-// CreateEventInput creates a minimal event for assignment management.
-type CreateEventInput struct {
-	Name string
-	Slug string
-}
-
 // UpsertEventAssignmentInput sets a member's per-event role.
 type UpsertEventAssignmentInput struct {
 	Role string
@@ -90,28 +85,66 @@ func (s *Service) GetOrganization(ctx context.Context, actor ActiveMemberContext
 	if org == nil {
 		return nil, identity.ErrOrganizationNotFound()
 	}
-	return toOrganizationView(org), nil
+	return s.toOrganizationView(ctx, org)
 }
 
-// UpdateOrganizationName updates the organization display name.
-func (s *Service) UpdateOrganizationName(ctx context.Context, actor ActiveMemberContext, name string) (*OrganizationView, error) {
+// UpdateOrganization updates organization profile fields.
+func (s *Service) UpdateOrganization(ctx context.Context, actor ActiveMemberContext, input UpdateOrganizationInput) (*OrganizationView, error) {
 	if actor.Role != repository.RoleOrgAdmin {
 		return nil, identity.ErrForbidden()
 	}
 
-	name = strings.TrimSpace(name)
+	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		return nil, identity.ErrOrganizationNotFound()
 	}
 
-	org, err := s.repo.UpdateOrganizationName(ctx, actor.OrganizationID, name)
+	org, err := s.repo.GetOrganizationByID(ctx, actor.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
 		return nil, identity.ErrOrganizationNotFound()
 	}
-	return toOrganizationView(org), nil
+
+	updated := org
+	if name != org.Name {
+		updated, err = s.repo.UpdateOrganizationName(ctx, actor.OrganizationID, name)
+		if err != nil {
+			return nil, err
+		}
+		if updated == nil {
+			return nil, identity.ErrOrganizationNotFound()
+		}
+	}
+
+	if input.Currency != nil {
+		currency := strings.ToUpper(strings.TrimSpace(*input.Currency))
+		if currency != org.Currency {
+			hasTypes, err := s.catalogRepo.OrganizationHasTicketTypes(ctx, actor.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+			if hasTypes {
+				return nil, catalog.ErrCurrencyLocked()
+			}
+
+			updated, err = s.repo.UpdateOrganizationCurrency(ctx, actor.OrganizationID, currency)
+			if err != nil {
+				return nil, err
+			}
+			if updated == nil {
+				return nil, identity.ErrOrganizationNotFound()
+			}
+		}
+	}
+
+	return s.toOrganizationView(ctx, updated)
+}
+
+// UpdateOrganizationName updates the organization display name.
+func (s *Service) UpdateOrganizationName(ctx context.Context, actor ActiveMemberContext, name string) (*OrganizationView, error) {
+	return s.UpdateOrganization(ctx, actor, UpdateOrganizationInput{Name: name})
 }
 
 // DeleteOrganization hard-deletes the organization after confirmation.
@@ -267,51 +300,6 @@ func (s *Service) RemoveMember(ctx context.Context, actor ActiveMemberContext, m
 	return s.repo.DeleteMember(ctx, actor.OrganizationID, memberID)
 }
 
-// ListEvents returns events for the active organization.
-func (s *Service) ListEvents(ctx context.Context, actor ActiveMemberContext) ([]EventView, error) {
-	if actor.Role != repository.RoleOrgAdmin {
-		return nil, identity.ErrForbidden()
-	}
-
-	events, err := s.repo.ListEventsByOrganizationID(ctx, actor.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	views := make([]EventView, 0, len(events))
-	for _, e := range events {
-		views = append(views, toEventView(&e))
-	}
-	return views, nil
-}
-
-// CreateEvent creates a minimal event for the organization.
-func (s *Service) CreateEvent(ctx context.Context, actor ActiveMemberContext, input CreateEventInput) (*EventView, error) {
-	if actor.Role != repository.RoleOrgAdmin {
-		return nil, identity.ErrForbidden()
-	}
-
-	name := strings.TrimSpace(input.Name)
-	slug := normalizeSlug(input.Slug)
-	if name == "" || slug == "" {
-		return nil, identity.ErrEventNotFound()
-	}
-
-	exists, err := s.repo.EventSlugExistsInOrganization(ctx, actor.OrganizationID, slug)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, identity.ErrEventSlugTaken(slug)
-	}
-
-	event, err := s.repo.CreateEvent(ctx, actor.OrganizationID, name, slug, s.now())
-	if err != nil {
-		return nil, err
-	}
-	view := toEventView(event)
-	return &view, nil
-}
-
 // ListEventAssignments returns assignments for an event in the organization.
 func (s *Service) ListEventAssignments(ctx context.Context, actor ActiveMemberContext, eventID string) ([]EventAssignmentView, error) {
 	if actor.Role != repository.RoleOrgAdmin {
@@ -323,7 +311,7 @@ func (s *Service) ListEventAssignments(ctx context.Context, actor ActiveMemberCo
 		return nil, err
 	}
 	if event == nil {
-		return nil, identity.ErrEventNotFound()
+		return nil, catalog.ErrEventNotFound()
 	}
 
 	assignments, err := s.repo.ListEventAssignments(ctx, eventID)
@@ -353,7 +341,7 @@ func (s *Service) UpsertEventAssignment(
 		return nil, err
 	}
 	if event == nil {
-		return nil, identity.ErrEventNotFound()
+		return nil, catalog.ErrEventNotFound()
 	}
 
 	member, err := s.repo.GetMemberByID(ctx, actor.OrganizationID, memberID)
@@ -392,7 +380,7 @@ func (s *Service) RemoveEventAssignment(ctx context.Context, actor ActiveMemberC
 		return err
 	}
 	if event == nil {
-		return identity.ErrEventNotFound()
+		return catalog.ErrEventNotFound()
 	}
 
 	if err := s.repo.DeleteEventAssignment(ctx, eventID, memberID); err != nil {
@@ -470,8 +458,19 @@ func toOrganizationView(org *repository.Organization) *OrganizationView {
 		ID:        org.ID,
 		Name:      org.Name,
 		Slug:      org.Slug,
+		Currency:  org.Currency,
 		CreatedAt: org.CreatedAt,
 	}
+}
+
+func (s *Service) toOrganizationView(ctx context.Context, org *repository.Organization) (*OrganizationView, error) {
+	locked, err := s.catalogRepo.OrganizationHasTicketTypes(ctx, org.ID)
+	if err != nil {
+		return nil, err
+	}
+	view := toOrganizationView(org)
+	view.CurrencyLocked = locked
+	return view, nil
 }
 
 func toMemberView(m *repository.Member) MemberView {
@@ -480,15 +479,6 @@ func toMemberView(m *repository.Member) MemberView {
 		Email:     m.Email,
 		Role:      string(m.Role),
 		CreatedAt: m.CreatedAt,
-	}
-}
-
-func toEventView(e *repository.Event) EventView {
-	return EventView{
-		ID:        e.ID,
-		Name:      e.Name,
-		Slug:      e.Slug,
-		CreatedAt: e.CreatedAt,
 	}
 }
 

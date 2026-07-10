@@ -15,6 +15,35 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minio minio123 &&
+      mc mb local/ticket-pos --ignore-existing &&
+      mc anonymous set download local/ticket-pos/covers
+      "
+
   backend:
     build:
       context: ./backend
@@ -26,9 +55,17 @@ services:
       - backend_go_mod_cache:/go/pkg/mod
     environment:
       DATABASE_URL: postgres://ticket_pos:ticket_pos@postgres:5432/ticket_pos?sslmode=disable
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_URL: http://localhost:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_BUCKET: ticket-pos
+      S3_REGION: us-east-1
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   install:
     image: node:22-alpine
@@ -83,5 +120,6 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:
   root_node_modules:
   backend_go_mod_cache:

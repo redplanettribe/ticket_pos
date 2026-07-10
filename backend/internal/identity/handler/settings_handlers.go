@@ -12,7 +12,13 @@ import (
 )
 
 type updateOrganizationBody struct {
-	Name string `json:"name"`
+	Name     string  `json:"name"`
+	Currency *string `json:"currency"`
+}
+
+var supportedCurrencies = map[string]struct{}{
+	"USD": {}, "EUR": {}, "GBP": {}, "CAD": {}, "AUD": {}, "JPY": {}, "CHF": {},
+	"MXN": {}, "BRL": {}, "NZD": {}, "SEK": {}, "NOK": {}, "DKK": {},
 }
 
 type deleteOrganizationBody struct {
@@ -26,11 +32,6 @@ type addMemberBody struct {
 
 type updateMemberRoleBody struct {
 	Role string `json:"role"`
-}
-
-type createEventBody struct {
-	Name string `json:"name"`
-	Slug string `json:"slug"`
 }
 
 type upsertAssignmentBody struct {
@@ -73,10 +74,17 @@ func (h *Handler) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
+	if fields := validateOrganizationCurrency(body.Currency); len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
 
 	actor := actorContextFromRequest(r)
 
-	org, err := h.svc.UpdateOrganizationName(r.Context(), actor, body.Name)
+	org, err := h.svc.UpdateOrganization(r.Context(), actor, service.UpdateOrganizationInput{
+		Name:     body.Name,
+		Currency: body.Currency,
+	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -208,47 +216,7 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListEvents returns events for the organization.
-func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
-	reqID := platform.RequestID(r.Context())
-	actor := actorContextFromRequest(r)
-
-	events, err := h.svc.ListEvents(r.Context(), actor)
-	if err != nil {
-		_ = platform.WriteDomainError(w, reqID, err)
-		return
-	}
-	_ = platform.WriteSuccess(w, reqID, http.StatusOK, events)
-}
-
-// CreateEvent creates a minimal event for the organization.
-func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
-	reqID := platform.RequestID(r.Context())
-
-	var body createEventBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		_ = platform.WriteInvalidJSON(w, reqID)
-		return
-	}
-	if fields := validateCreateEvent(body.Name, body.Slug); len(fields) > 0 {
-		_ = platform.WriteValidationError(w, reqID, fields)
-		return
-	}
-
-	actor := actorContextFromRequest(r)
-
-	event, err := h.svc.CreateEvent(r.Context(), actor, service.CreateEventInput{
-		Name: body.Name,
-		Slug: body.Slug,
-	})
-	if err != nil {
-		_ = platform.WriteDomainError(w, reqID, err)
-		return
-	}
-	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, event)
-}
-
-// ListEventAssignments returns assignments for an event.
+// RemoveEventAssignment removes a member's assignment from an event.
 func (h *Handler) ListEventAssignments(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 	eventID := strings.TrimSpace(r.PathValue("eventID"))
@@ -333,6 +301,20 @@ func validateOrganizationName(name string) []platform.FieldError {
 	return nil
 }
 
+func validateOrganizationCurrency(currency *string) []platform.FieldError {
+	if currency == nil {
+		return nil
+	}
+	code := strings.ToUpper(strings.TrimSpace(*currency))
+	if code == "" {
+		return nil
+	}
+	if _, ok := supportedCurrencies[code]; !ok {
+		return []platform.FieldError{{Field: "currency", Message: "must be a supported ISO 4217 currency code"}}
+	}
+	return nil
+}
+
 func validateAddMember(email, role string) []platform.FieldError {
 	var fields []platform.FieldError
 	fields = append(fields, validateEmail(email)...)
@@ -356,19 +338,4 @@ func validateAssignmentRole(role string) []platform.FieldError {
 	default:
 		return []platform.FieldError{{Field: "role", Message: "must be event_owner or event_staff"}}
 	}
-}
-
-func validateCreateEvent(name, slug string) []platform.FieldError {
-	name = strings.TrimSpace(name)
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	var fields []platform.FieldError
-	if name == "" {
-		fields = append(fields, platform.FieldError{Field: "name", Message: "is required"})
-	}
-	if slug == "" {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "is required"})
-	} else if !slugPattern.MatchString(slug) {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
-	}
-	return fields
 }

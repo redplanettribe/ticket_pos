@@ -104,6 +104,7 @@ type StaffShellWithOrganizationSwitcherProps = {
   organizationName: string;
   activePath: string;
   showSettings: boolean;
+  showEvents: boolean;
   memberships: Membership[];
   activeMemberId?: string;
   userMenu: ReactNode;
@@ -114,6 +115,7 @@ export function StaffShellWithOrganizationSwitcher({
   organizationName,
   activePath,
   showSettings,
+  showEvents,
   memberships,
   activeMemberId,
   userMenu,
@@ -127,6 +129,7 @@ export function StaffShellWithOrganizationSwitcher({
         organizationName={organizationName}
         activePath={activePath}
         showSettings={showSettings}
+        showEvents={showEvents}
         userMenu={userMenu}
         onOrganizationClick={() => setOpen(true)}
       >

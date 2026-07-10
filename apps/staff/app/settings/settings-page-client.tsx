@@ -26,10 +26,14 @@ import {
   Input,
 } from "@ticket-pos/ui";
 
+import { SUPPORTED_CURRENCIES } from "@/lib/events-api";
+
 type Organization = {
   id: string;
   name: string;
   slug: string;
+  currency: string;
+  currency_locked: boolean;
 };
 
 type Member = {
@@ -90,6 +94,8 @@ export function SettingsPageClient() {
   const [error, setError] = useState<string | null>(null);
 
   const [profileName, setProfileName] = useState("");
+  const [profileCurrency, setProfileCurrency] = useState("USD");
+  const [currencyLocked, setCurrencyLocked] = useState(false);
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState("event_staff");
   const [eventName, setEventName] = useState("");
@@ -114,6 +120,8 @@ export function SettingsPageClient() {
       ]);
       setOrganization(org);
       setProfileName(org.name);
+      setProfileCurrency(org.currency);
+      setCurrencyLocked(org.currency_locked);
       setMembers(memberList);
       setEvents(eventList);
       setForbidden(false);
@@ -137,10 +145,12 @@ export function SettingsPageClient() {
     try {
       const org = await fetchJSON<Organization>("/api/settings/organization", {
         method: "PATCH",
-        body: JSON.stringify({ name: profileName }),
+        body: JSON.stringify({ name: profileName, currency: profileCurrency }),
       });
       setOrganization(org);
-      toast.success("Organization name updated");
+      setProfileCurrency(org.currency);
+      setCurrencyLocked(org.currency_locked);
+      toast.success("Organization profile updated");
       router.refresh();
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : "Failed to save");
@@ -295,11 +305,34 @@ export function SettingsPageClient() {
       <Card>
         <CardHeader>
           <CardTitle>Profile</CardTitle>
-          <CardDescription>Organization display name and Storefront URL slug.</CardDescription>
+          <CardDescription>Organization display name, currency, and Storefront URL slug.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <FormField id="org-name" label="Organization name">
             <Input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+          </FormField>
+          <FormField
+            id="org-currency"
+            label="Currency"
+            description={
+              currencyLocked
+                ? "Locked after the first ticket type is created in this organization."
+                : "Set before creating ticket types. Used for all ticket prices."
+            }
+          >
+            <select
+              id="org-currency"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+              value={profileCurrency}
+              onChange={(event) => setProfileCurrency(event.target.value)}
+              disabled={currencyLocked}
+            >
+              {SUPPORTED_CURRENCIES.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
           </FormField>
           <FormField
             id="org-slug"

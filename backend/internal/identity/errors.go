@@ -98,18 +98,6 @@ func ErrOrganizationDeleteConfirmationMismatch() apperror.DomainError {
 	return newDomainError("ORGANIZATION_DELETE_CONFIRMATION_MISMATCH", "Confirmation name does not match the organization name.", nil)
 }
 
-// ErrEventNotFound is returned when an Event does not exist in the active Organization.
-func ErrEventNotFound() apperror.DomainError {
-	return newDomainError("EVENT_NOT_FOUND", "Event not found.", nil)
-}
-
-// ErrEventSlugTaken is returned when an event slug is already in use within the organization.
-func ErrEventSlugTaken(slug string) apperror.DomainError {
-	return newDomainError("EVENT_SLUG_TAKEN", "Event slug is already taken in this organization.", map[string]any{
-		"slug": slug,
-	})
-}
-
 // ErrAssignmentNotFound is returned when an event assignment does not exist.
 func ErrAssignmentNotFound() apperror.DomainError {
 	return newDomainError("ASSIGNMENT_NOT_FOUND", "Event assignment not found.", nil)
