@@ -150,4 +150,5 @@ It creates Events, defines Ticket Types, and records sales without a human using
 ## Related documents
 
 - [CONTEXT.md](../CONTEXT.md) - canonical domain glossary
-- [technical-design.md](./technical-design.md) - technology stack and architecture
+- [technical-design.md](./technical-design.md) - technology stack, architecture, and API contract
+- [roadmap.md](./roadmap.md) - feature-by-feature implementation plan

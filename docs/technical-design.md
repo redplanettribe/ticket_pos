@@ -24,7 +24,7 @@ graph TB
         ST[Staff Next.js BFF]
         IP[Integration Partner]
     end
-  subgraph backend["Go API monolith"]
+    subgraph backend["Go API monolith"]
         API[REST /api/v1]
         CAT[catalog]
         SAL[sales]
@@ -85,7 +85,7 @@ ticket_pos/
     migrations/
   apps/
     storefront/             # Next.js (SEO / SSR / ISR)
-    staff/                    # Next.js (BFF + POS mode)
+    staff/                  # Next.js (BFF + POS mode)
   packages/
     api-client/               # TypeScript client generated from OpenAPI
     ui/                       # Shared design system (Tailwind + shadcn primitives)
