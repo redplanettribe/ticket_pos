@@ -23,7 +23,6 @@ type S3Config struct {
 
 // S3Storage implements ObjectStorage against an S3-compatible endpoint (MinIO, AWS S3).
 type S3Storage struct {
-	client  *s3.Client
 	presign *s3.PresignClient
 	cfg     S3Config
 }
@@ -52,26 +51,15 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 
 	endpoint := strings.TrimRight(strings.TrimSpace(cfg.Endpoint), "/")
 
-	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			URL:               endpoint,
-			HostnameImmutable: true,
-		}, nil
-	})
-
-	awsCfg := aws.Config{
-		Region:                      region,
-		Credentials:                 credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, ""),
-		EndpointResolverWithOptions: resolver,
+	// Presigned URLs must use the browser-reachable host. Signing is local, so the
+	// presign client does not need network access to the public endpoint.
+	presignClient, err := newS3Client(publicURL, cfg.AccessKey, cfg.SecretKey, region)
+	if err != nil {
+		return nil, err
 	}
 
-	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		o.UsePathStyle = true
-	})
-
 	return &S3Storage{
-		client:  client,
-		presign: s3.NewPresignClient(client),
+		presign: s3.NewPresignClient(presignClient),
 		cfg: S3Config{
 			Endpoint:  endpoint,
 			PublicURL: publicURL,
@@ -81,6 +69,30 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 			Region:    region,
 		},
 	}, nil
+}
+
+func newS3Client(endpoint, accessKey, secretKey, region string) (*s3.Client, error) {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return nil, fmt.Errorf("S3 endpoint is required")
+	}
+
+	resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			URL:               endpoint,
+			HostnameImmutable: true,
+		}, nil
+	})
+
+	awsCfg := aws.Config{
+		Region:                      region,
+		Credentials:                 credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+		EndpointResolverWithOptions: resolver,
+	}
+
+	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.UsePathStyle = true
+	}), nil
 }
 
 // PresignPut returns a presigned PUT URL for the given object key.
