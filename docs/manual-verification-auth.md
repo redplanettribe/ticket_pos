@@ -9,7 +9,7 @@ Use these steps when Playwright E2E against the full Compose stack is not availa
 
 ## Happy path: login → create org → dashboard
 
-1. Open `http://localhost:3001/login`
+1. Open `http://localhost:64301/login`
 2. Enter a new email (e.g. `new-venue@example.com`) and request a passcode
 3. Copy the 6-digit code from the Go API terminal logs
 4. Enter the code and submit
@@ -42,13 +42,13 @@ Use these steps when Playwright E2E against the full Compose stack is not availa
 
 ```bash
 # After OTP verify, without selecting org:
-curl -s -H "Authorization: Bearer $SESSION_ID" http://localhost:8080/api/v1/staff/me
+curl -s -H "Authorization: Bearer $SESSION_ID" http://localhost:64080/api/v1/staff/me
 # Expect 403 FORBIDDEN
 
 # Select org:
 curl -s -X POST -H "Authorization: Bearer $SESSION_ID" -H "Content-Type: application/json" \
-  -d '{"member_id":"MEMBER_UUID"}' http://localhost:8080/api/v1/staff/session/organization
+  -d '{"member_id":"MEMBER_UUID"}' http://localhost:64080/api/v1/staff/session/organization
 
 # Staff me succeeds:
-curl -s -H "Authorization: Bearer $SESSION_ID" http://localhost:8080/api/v1/staff/me
+curl -s -H "Authorization: Bearer $SESSION_ID" http://localhost:64080/api/v1/staff/me
 ```

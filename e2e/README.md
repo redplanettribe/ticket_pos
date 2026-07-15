@@ -14,7 +14,7 @@ pnpm install
 pnpm test
 ```
 
-The default `baseURL` is `http://localhost:3000` (Storefront).
+The default `baseURL` is `http://localhost:64300` (Storefront).
 Start the full stack with `make dev` before running browser tests against a live environment.
 
 ## CI

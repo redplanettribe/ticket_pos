@@ -19,7 +19,7 @@ Start the full stack (Postgres, Go API, Storefront, Staff):
 make dev
 ```
 
-With the backend running, open [http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html) for interactive API docs.
+With the backend running, open [http://localhost:64080/swagger/index.html](http://localhost:64080/swagger/index.html) for interactive API docs.
 After changing handlers or request/response types, run `make swagger` to refresh the spec.
 
 Other common commands:

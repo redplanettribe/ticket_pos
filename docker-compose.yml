@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ticket_pos
       POSTGRES_DB: ticket_pos
     ports:
-      - "5433:5432"
+      - "64432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,12 +19,12 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     ports:
-      - "9002:9000"
-      - "9003:9001"
+      - "64900:9000"
+      - "64901:9001"
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio123
-      MINIO_SERVER_URL: http://localhost:9002
+      MINIO_SERVER_URL: http://localhost:64900
     volumes:
       - minio_data:/data
     healthcheck:
@@ -50,14 +50,14 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     ports:
-      - "8080:8080"
+      - "64080:8080"
     volumes:
       - ./backend:/app
       - backend_go_mod_cache:/go/pkg/mod
     environment:
       DATABASE_URL: postgres://ticket_pos:ticket_pos@postgres:5432/ticket_pos?sslmode=disable
       S3_ENDPOINT: http://minio:9000
-      S3_PUBLIC_URL: http://localhost:9002
+      S3_PUBLIC_URL: http://localhost:64900
       S3_ACCESS_KEY: minio
       S3_SECRET_KEY: minio123
       S3_BUCKET: ticket-pos
@@ -90,9 +90,9 @@ services:
       corepack prepare pnpm@9.15.4 --activate &&
       pnpm --filter @ticket-pos/storefront exec next dev --hostname 0.0.0.0 --port 3000"
     ports:
-      - "3000:3000"
+      - "64300:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_API_URL: http://localhost:64080
     depends_on:
       backend:
         condition: service_started
@@ -110,7 +110,7 @@ services:
       corepack prepare pnpm@9.15.4 --activate &&
       pnpm --filter @ticket-pos/staff exec next dev --hostname 0.0.0.0 --port 3001"
     ports:
-      - "3001:3001"
+      - "64301:3001"
     environment:
       API_URL: http://backend:8080
     depends_on:

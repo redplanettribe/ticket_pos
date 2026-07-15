@@ -42,7 +42,7 @@ Use `platform.Envelope` for `@Failure` responses.
 
 ## Verify
 
-Swagger UI: `http://localhost:8080/swagger/index.html` (with backend running).
+Swagger UI: `http://localhost:64080/swagger/index.html` (with backend running).
 
 Contract test: `go test ./internal/identity/openapi/...` from `backend/`.
 

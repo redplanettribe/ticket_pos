@@ -18,7 +18,7 @@ import (
 // @description     Ticket POS backend API.
 // @description     JSON endpoints use the standard envelope with data, error, and request_id.
 // @description     /health is the only endpoint that returns a bare JSON object.
-// @servers         url=http://localhost:8080 description=Local development
+// @servers         url=http://localhost:64080 description=Local development
 // @tag.name        public
 // @tag.description Public routes for the Storefront (no auth)
 // @tag.name        auth

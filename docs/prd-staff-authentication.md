@@ -64,7 +64,7 @@ Authorization always flows through the active **Member** on the session, never e
 
 - **Staff app is a BFF.**
   The browser calls Staff Next.js Route Handlers only.
-  Staff proxies to the Go API and manages the httpOnly session cookie on the Staff domain (`localhost:3001` in dev).
+  Staff proxies to the Go API and manages the httpOnly session cookie on the Staff domain (`localhost:64301` in dev).
 - **Go owns session truth.**
   Sessions are stored in PostgreSQL.
   The cookie holds an opaque session token only.
