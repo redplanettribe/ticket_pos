@@ -22,6 +22,17 @@ make dev
 With the backend running, open [http://localhost:64080/swagger/index.html](http://localhost:64080/swagger/index.html) for interactive API docs.
 After changing handlers or request/response types, run `make swagger` to refresh the spec.
 
+Host ports are namespaced away from Docker's defaults so `make dev` doesn't collide with other local dev stacks:
+
+| Service | Host port | Container port |
+|---|---|---|
+| Postgres | 64432 | 5432 |
+| MinIO API | 64900 | 9000 |
+| MinIO Console | 64901 | 9001 |
+| Backend (Go API) | 64080 | 8080 |
+| Storefront | 64300 | 3000 |
+| Staff | 64301 | 3001 |
+
 Other common commands:
 
 ```bash
