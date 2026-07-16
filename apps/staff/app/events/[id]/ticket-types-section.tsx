@@ -32,6 +32,7 @@ type TicketTypesSectionProps = {
   eventId: string;
   eventStatus: string;
   onTicketTypeCountChange?: (count: number) => void;
+  missingWarning?: boolean;
 };
 
 type TicketTypeFormState = {
@@ -52,6 +53,7 @@ export function TicketTypesSection({
   eventId,
   eventStatus,
   onTicketTypeCountChange,
+  missingWarning,
 }: TicketTypesSectionProps) {
   const [loading, setLoading] = useState(true);
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
@@ -313,7 +315,7 @@ export function TicketTypesSection({
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading ticket types...</p>
         ) : ticketTypes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className={`text-sm ${missingWarning ? "text-destructive" : "text-muted-foreground"}`} role={missingWarning ? "alert" : undefined}>
             No ticket types yet. Add at least one before publishing this Event.
           </p>
         ) : (

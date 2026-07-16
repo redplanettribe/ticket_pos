@@ -1,7 +1,19 @@
 export type APIEnvelope<T> = {
   data: T | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; details?: Record<string, unknown> } | null;
 };
+
+export class ApiError extends Error {
+  code?: string;
+  details?: Record<string, unknown>;
+
+  constructor(message: string, code?: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+    this.details = details;
+  }
+}
 
 export type EventListItem = {
   id: string;
@@ -114,7 +126,7 @@ export async function fetchEventsJSON<T>(path: string, init?: RequestInit): Prom
   });
   const envelope = (await response.json()) as APIEnvelope<T>;
   if (!response.ok || envelope.error) {
-    throw new Error(envelope.error?.message ?? "Request failed");
+    throw new ApiError(envelope.error?.message ?? "Request failed", envelope.error?.code, envelope.error?.details);
   }
   if (envelope.data === null) {
     throw new Error("Empty response");
@@ -156,13 +168,10 @@ export function statusBadgeVariant(status: string): "warning" | "success" | "des
   }
 }
 
-export const PUBLISH_FIELD_LABELS: Record<string, string> = {
-  name: "Name",
-  slug: "Slug",
-  starts_at: "Start date and time",
-  timezone: "Timezone",
-  ticket_types: "At least one ticket type",
-};
+export function missingFieldsFromDetails(details: Record<string, unknown> | undefined): string[] | null {
+  const missing = details?.missing_fields;
+  return Array.isArray(missing) ? missing.filter((field): field is string => typeof field === "string") : null;
+}
 
 export function getPublishMissingFields(
   name: string,

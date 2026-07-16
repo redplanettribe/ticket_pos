@@ -29,12 +29,13 @@ import {
 } from "@ticket-pos/ui";
 
 import {
+  ApiError,
   COMMON_TIMEZONES,
   dateTimeLocalToISO,
   fetchEventsJSON,
   getPublishMissingFields,
   isoToDateTimeLocal,
-  PUBLISH_FIELD_LABELS,
+  missingFieldsFromDetails,
   statusBadgeVariant,
   type EventDetail,
   type EventPatchBody,
@@ -58,6 +59,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [ticketTypeCount, setTicketTypeCount] = useState(0);
+  const [backendMissingFields, setBackendMissingFields] = useState<string[] | null>(null);
 
   const [status, setStatus] = useState("draft");
   const [name, setName] = useState("");
@@ -101,10 +103,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
     void loadEvent();
   }, [loadEvent]);
 
-  async function handleSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-
+  async function saveEvent(): Promise<EventDetail | null> {
     try {
       const updated = await fetchEventsJSON<EventDetail>(`/api/events/${eventId}`, {
         method: "PATCH",
@@ -120,10 +119,22 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
         }),
       });
       applyEvent(updated);
-      toast.success("Event saved");
-      router.refresh();
+      return updated;
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : "Failed to save event");
+      return null;
+    }
+  }
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const updated = await saveEvent();
+      if (updated) {
+        toast.success("Event saved");
+        router.refresh();
+      }
     } finally {
       setSaving(false);
     }
@@ -144,7 +155,12 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
 
   async function handlePublish() {
     setPublishing(true);
+    setBackendMissingFields(null);
     try {
+      const saved = await saveEvent();
+      if (!saved) {
+        return;
+      }
       const updated = await fetchEventsJSON<EventDetail>(`/api/events/${eventId}/publish`, {
         method: "POST",
       });
@@ -153,6 +169,9 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
       router.refresh();
     } catch (publishError) {
       toast.error(publishError instanceof Error ? publishError.message : "Failed to publish event");
+      if (publishError instanceof ApiError) {
+        setBackendMissingFields(missingFieldsFromDetails(publishError.details));
+      }
     } finally {
       setPublishing(false);
     }
@@ -189,8 +208,11 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
   }
 
   const slugReadOnly = status !== "draft";
-  const publishMissingFields = getPublishMissingFields(name, slug, startsAtLocal, timezone, ticketTypeCount);
-  const canPublish = status === "draft" && publishMissingFields.length === 0;
+  const localMissingFields = getPublishMissingFields(name, slug, startsAtLocal, timezone, ticketTypeCount);
+  const publishMissingFields = backendMissingFields ?? localMissingFields;
+  const canPublish = status === "draft" && localMissingFields.length === 0;
+  const fieldError = (field: string, message: string) =>
+    status === "draft" && publishMissingFields.includes(field) ? message : undefined;
 
   const statusDescription =
     status === "draft"
@@ -247,16 +269,6 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
         }
       />
 
-      {status === "draft" && publishMissingFields.length > 0 ? (
-        <Alert>
-          <AlertTitle>Publish requirements</AlertTitle>
-          <AlertDescription>
-            Before publishing, complete:{" "}
-            {publishMissingFields.map((field) => PUBLISH_FIELD_LABELS[field] ?? field).join(", ")}.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       <form className="space-y-6" onSubmit={(event) => void handleSave(event)}>
         <Card>
           <CardHeader>
@@ -264,20 +276,34 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
             <CardDescription>Name, slug, and scheduling for this Event.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField id="detail-name" label="Name">
-              <Input value={name} onChange={(event) => setName(event.target.value)} required />
+            <FormField id="detail-name" label="Name" error={fieldError("name", "Name is required.")}>
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className={fieldError("name", "x") ? "border-destructive" : undefined}
+                required
+              />
             </FormField>
             <FormField
               id="detail-slug"
               label="Slug"
               description={slugReadOnly ? "Locked after publish." : "Editable while the event is a draft."}
+              error={fieldError("slug", "Slug is required.")}
             >
-              <Input value={slug} onChange={(event) => setSlug(event.target.value)} readOnly={slugReadOnly} required />
+              <Input
+                value={slug}
+                onChange={(event) => setSlug(event.target.value)}
+                readOnly={slugReadOnly}
+                className={fieldError("slug", "x") ? "border-destructive" : undefined}
+                required
+              />
             </FormField>
-            <FormField id="detail-timezone" label="Timezone">
+            <FormField id="detail-timezone" label="Timezone" error={fieldError("timezone", "Timezone is required.")}>
               <select
                 id="detail-timezone"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className={`flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm ${
+                  fieldError("timezone", "x") ? "border-destructive" : "border-input"
+                }`}
                 value={timezone}
                 onChange={(event) => setTimezone(event.target.value)}
               >
@@ -289,12 +315,17 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
               </select>
             </FormField>
             <div className="grid gap-4 md:grid-cols-2">
-              <FormField id="detail-starts-at" label="Starts at">
+              <FormField
+                id="detail-starts-at"
+                label="Starts at"
+                error={fieldError("starts_at", "Start date and time is required.")}
+              >
                 <Input
                   id="detail-starts-at"
                   type="datetime-local"
                   value={startsAtLocal}
                   onChange={(event) => setStartsAtLocal(event.target.value)}
+                  className={fieldError("starts_at", "x") ? "border-destructive" : undefined}
                 />
               </FormField>
               <FormField id="detail-ends-at" label="Ends at">
@@ -360,6 +391,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
         eventId={eventId}
         eventStatus={status}
         onTicketTypeCountChange={setTicketTypeCount}
+        missingWarning={Boolean(fieldError("ticket_types", "x"))}
       />
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
