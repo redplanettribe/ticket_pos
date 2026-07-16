@@ -18,9 +18,10 @@ type EventListItem struct {
 	Name      string     `json:"name"`
 	Slug      string     `json:"slug"`
 	Status    string     `json:"status"`
-	StartsAt  *time.Time `json:"starts_at"`
-	Timezone  *string    `json:"timezone"`
-	CreatedAt time.Time  `json:"created_at"`
+	StartsAt     *time.Time `json:"starts_at"`
+	Timezone     *string    `json:"timezone"`
+	Discoverable bool       `json:"discoverable"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 // TicketTypeDetail is a Ticket Type with organization currency for display.
@@ -52,6 +53,7 @@ type EventDetail struct {
 	Description   *string    `json:"description"`
 	CoverImageKey  *string    `json:"cover_image_key"`
 	CoverImageURL  *string    `json:"cover_image_url"`
+	Discoverable   bool       `json:"discoverable"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
@@ -95,6 +97,7 @@ type UpdateEventInput struct {
 	VenueAddress *string
 	Description   *string
 	CoverImageKey *string
+	Discoverable  *bool
 }
 
 // CreateCoverUploadURLInput requests a presigned cover upload URL.
@@ -219,6 +222,11 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 		}
 	} else {
 		params.CoverImageKey = event.CoverImageKey
+	}
+
+	params.Discoverable = event.Discoverable
+	if input.Discoverable != nil {
+		params.Discoverable = *input.Discoverable
 	}
 
 	updated, err := s.repo.UpdateEvent(ctx, actor.OrganizationID, eventID, params)
@@ -395,11 +403,12 @@ func nullStringFromPtr(s *string) sql.NullString {
 
 func toEventListItem(e *repository.Event) EventListItem {
 	item := EventListItem{
-		ID:        e.ID,
-		Name:      e.Name,
-		Slug:      e.Slug,
-		Status:    string(e.Status),
-		CreatedAt: e.CreatedAt,
+		ID:           e.ID,
+		Name:         e.Name,
+		Slug:         e.Slug,
+		Status:       string(e.Status),
+		Discoverable: e.Discoverable,
+		CreatedAt:    e.CreatedAt,
 	}
 	if e.StartsAt.Valid {
 		t := e.StartsAt.Time
@@ -567,11 +576,12 @@ func toTicketTypeDetail(tt *repository.TicketType, currency string) TicketTypeDe
 
 func toEventDetailWithStorage(e *repository.Event, objectStorage storage.ObjectStorage) EventDetail {
 	detail := EventDetail{
-		ID:        e.ID,
-		Name:      e.Name,
-		Slug:      e.Slug,
-		Status:    string(e.Status),
-		CreatedAt: e.CreatedAt,
+		ID:           e.ID,
+		Name:         e.Name,
+		Slug:         e.Slug,
+		Status:       string(e.Status),
+		Discoverable: e.Discoverable,
+		CreatedAt:    e.CreatedAt,
 	}
 	if e.StartsAt.Valid {
 		t := e.StartsAt.Time

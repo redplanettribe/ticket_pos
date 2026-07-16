@@ -40,6 +40,7 @@ type updateEventBody struct {
 	VenueAddress  *string `json:"venue_address"`
 	Description   *string `json:"description"`
 	CoverImageKey *string `json:"cover_image_key"`
+	Discoverable  *bool   `json:"discoverable"`
 }
 
 type coverUploadURLBody struct {
@@ -661,5 +662,6 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		VenueAddress:  body.VenueAddress,
 		Description:   body.Description,
 		CoverImageKey: body.CoverImageKey,
+		Discoverable:  body.Discoverable,
 	}, nil
 }

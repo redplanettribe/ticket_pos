@@ -19,7 +19,11 @@ func RegisterRoutes(mux *http.ServeMux, app *App) {
 
 func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
+	ch := app.CatalogHandler
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}", h.GetPublicOrganization)
+	mux.HandleFunc("GET /api/v1/public/events", ch.ListPublicEvents)
+	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events", ch.GetPublicOrganizationEvents)
+	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events/{eventSlug}", ch.GetPublicEvent)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

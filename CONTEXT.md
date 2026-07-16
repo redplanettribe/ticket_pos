@@ -67,7 +67,17 @@ _Avoid_: Show, gig, occurrence
 
 **Event status**:
 Where an Event is in its lifecycle: `draft` (being prepared), `published` (visible and sellable when sales exist), or `cancelled` (terminal; no longer active).
+Governs whether an Event is reachable at all; distinct from Discoverable, which governs whether a reachable Event advertises itself in listings.
 _Avoid_: State, visibility flag, active/inactive
+
+**Discoverable**:
+A per-Event flag controlling whether a `published` Event appears in public listings — the Organization page and the global explorer — or is reachable by direct link only.
+Only a `published` Event can be Discoverable; `draft` and `cancelled` Events are never listed. A non-Discoverable published Event is still fully sellable to anyone who has its link.
+_Avoid_: Public/private, hidden, unlisted, featured
+
+**Storefront listing**:
+A public surface that lists Discoverable Events: the Organization page (`/{orgSlug}`, one Organization's Events) or the global explorer (`/`, Discoverable Events across all Organizations). Distinct from the Event page, which is the single-Event product and checkout surface.
+_Avoid_: Catalog, index, feed, directory
 
 **Ticket Type**:
 A purchasable ticket category belonging to an Event, with a name, description, price, capacity, and display order.

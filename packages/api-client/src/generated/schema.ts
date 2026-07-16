@@ -233,6 +233,169 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List public events
+         * @description Lists discoverable, published, not-yet-ended events across all organizations, soonest first.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Search over event and organization name */
+                    q?: string;
+                    /** @description Only events starting on or after this RFC3339 time */
+                    from?: string;
+                    /** @description Only events starting on or before this RFC3339 time */
+                    to?: string;
+                    /** @description Page size (default 20, max 50) */
+                    limit?: number;
+                    /** @description Pagination cursor from a previous response */
+                    cursor?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePublicEventPage"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/organizations/{slug}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get public organization events
+         * @description Returns an organization's discoverable events split into upcoming and past.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePublicOrganizationEvents"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/organizations/{slug}/events/{eventSlug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get public event
+         * @description Returns a published event with its ticket types for the Storefront event page.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                    /** @description Event slug */
+                    eventSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePublicEventDetail"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events": {
         parameters: {
             query?: never;
@@ -561,6 +724,84 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel event
+         * @description Cancels a published catalog event.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEventDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/cover-upload-url": {
         parameters: {
             query?: never;
@@ -629,6 +870,84 @@ export interface paths {
                 };
                 /** @description Not Found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish event
+         * @description Publishes a draft catalog event when required fields and ticket types are present.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeEventDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1254,6 +1573,7 @@ export interface components {
         "handler.updateEventBody": {
             cover_image_key?: string;
             description?: string;
+            discoverable?: boolean;
             ends_at?: string;
             name?: string;
             slug?: string;
@@ -1310,6 +1630,21 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopePublicEventDetail": {
+            data?: components["schemas"]["service.PublicEventDetail"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopePublicEventPage": {
+            data?: components["schemas"]["service.PublicEventPage"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopePublicOrganizationEvents": {
+            data?: components["schemas"]["service.PublicOrganizationEvents"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeSession": {
             data?: components["schemas"]["service.SessionView"];
             error?: components["schemas"]["platform.APIError"];
@@ -1352,6 +1687,7 @@ export interface components {
         "service.ActiveMemberView": {
             member_id?: string;
             organization_id?: string;
+            organization_logo_url?: string;
             organization_name?: string;
             organization_slug?: string;
             role?: string;
@@ -1361,6 +1697,7 @@ export interface components {
             cover_image_url?: string;
             created_at?: string;
             description?: string;
+            discoverable?: boolean;
             ends_at?: string;
             id?: string;
             name?: string;
@@ -1373,21 +1710,74 @@ export interface components {
         };
         "service.EventListItem": {
             created_at?: string;
+            discoverable?: boolean;
             id?: string;
             name?: string;
             slug?: string;
             starts_at?: string;
             status?: string;
+            timezone?: string;
         };
         "service.MembershipView": {
             member_id?: string;
             organization_id?: string;
+            organization_logo_url?: string;
             organization_name?: string;
             organization_slug?: string;
             role?: string;
         };
         "service.OTPRequestResult": {
             message?: string;
+        };
+        "service.PublicEventCard": {
+            cover_image_url?: string;
+            currency?: string;
+            ends_at?: string;
+            name?: string;
+            organization?: components["schemas"]["service.PublicOrganizationSummary"];
+            price_from_cents?: number;
+            slug?: string;
+            sold_out?: boolean;
+            starts_at?: string;
+            timezone?: string;
+            venue_name?: string;
+        };
+        "service.PublicEventDetail": {
+            cover_image_url?: string;
+            currency?: string;
+            description?: string;
+            ends_at?: string;
+            has_ended?: boolean;
+            name?: string;
+            organization?: components["schemas"]["service.PublicOrganizationSummary"];
+            slug?: string;
+            starts_at?: string;
+            ticket_types?: components["schemas"]["service.PublicTicketType"][];
+            timezone?: string;
+            venue_address?: string;
+            venue_name?: string;
+        };
+        "service.PublicEventPage": {
+            events?: components["schemas"]["service.PublicEventCard"][];
+            next_cursor?: string;
+        };
+        "service.PublicOrganizationEvents": {
+            organization?: components["schemas"]["service.PublicOrganizationSummary"];
+            past?: components["schemas"]["service.PublicEventCard"][];
+            upcoming?: components["schemas"]["service.PublicEventCard"][];
+        };
+        "service.PublicOrganizationSummary": {
+            logo_url?: string;
+            name?: string;
+            slug?: string;
+        };
+        "service.PublicTicketType": {
+            currency?: string;
+            description?: string;
+            name?: string;
+            price_cents?: number;
+            remaining?: number;
+            sold_out?: boolean;
         };
         "service.SessionView": {
             active_member?: components["schemas"]["service.ActiveMemberView"];

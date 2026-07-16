@@ -63,7 +63,7 @@ Business scenarios in [business-intent.md](./business-intent.md) map to slices a
 | V0 | Staff and Storefront call the Go API through the generated TypeScript client | Platform spine before feature work | A13 | Partial |
 | V1 | OTP rate limits, sliding sessions, and Playwright auth coverage | Staff can sign in reliably before selling | B13–B16 | Partial |
 | V2 | Org Admin signs in and creates an Event with Ticket Types in Staff UI | Event and catalog management | C1–C8, C13–C14 | Not started |
-| V3 | Customer opens `/{orgSlug}/events/{eventSlug}` and sees real event and ticket types | Catalog visible on the Storefront | C9–C12, C14 | Partial |
+| V3 | Customer explores events on the global explorer, org page, and event page (read-only) | Catalog visible on the Storefront | C9–C12, C14 | Done |
 | V4 | Staff sells at the door on POS; remaining capacity updates immediately | Door sales scenario | D1–D10, E1–E7 | Not started |
 | V5 | Customer completes guest checkout online; capacity reflects POS and online together | Online + in-person sales both required at launch | F1–F10, D6, D9 | Not started |
 | V6 | Staff uploads a CSV of off-platform sales; capacity reduces or batch fails cleanly | Off-platform sales scenario | G1–G8 | Not started |
@@ -215,12 +215,13 @@ Vertical slices: **V2** (staff), **V3** (public storefront).
 | C6  | Event slug (unique per organization) for storefront URLs               | Not started |
 | C7  | Staff UI: events list and create or edit event                         | Not started |
 | C8  | Staff UI: ticket type management on an event                           | Not started |
-| C9  | Public API: get organization by slug                                   | Not started |
-| C10 | Public API: get event and ticket types by slugs                        | Not started |
-| C11 | Storefront SSR or ISR event page (`/{orgSlug}/events/{eventSlug}`)     | Partial     |
-| C12 | Storefront SEO metadata (title, Open Graph, canonical URL)             | Not started |
-| C13 | Catalog domain errors (`EVENT_NOT_FOUND`, duplicate name, and similar) | Not started |
-| C14 | Catalog integration tests                                              | Not started |
+| C9  | Public API: get organization by slug and its discoverable events       | Done        |
+| C10 | Public API: get event and ticket types by slugs; global explorer list  | Done        |
+| C11 | Storefront SSR event page, org page, and global explorer               | Done        |
+| C12 | Storefront SEO metadata (title, Open Graph, canonical URL)             | Done        |
+| C13 | Catalog domain errors (`EVENT_NOT_FOUND`, duplicate name, and similar) | Done        |
+| C14 | Catalog integration tests                                              | Partial     |
+| C15 | Per-event `discoverable` flag (staff UI toggle still pending)          | Partial     |
 
 
 ---

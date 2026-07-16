@@ -52,3 +52,24 @@ type EnvelopeTicketTypeDetail struct {
 	Error     *platform.APIError       `json:"error"`
 	RequestID string                   `json:"request_id"`
 }
+
+// EnvelopePublicEventPage documents GET /api/v1/public/events success responses.
+type EnvelopePublicEventPage struct {
+	Data      service.PublicEventPage `json:"data"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
+}
+
+// EnvelopePublicOrganizationEvents documents public organization events responses.
+type EnvelopePublicOrganizationEvents struct {
+	Data      service.PublicOrganizationEvents `json:"data"`
+	Error     *platform.APIError               `json:"error"`
+	RequestID string                           `json:"request_id"`
+}
+
+// EnvelopePublicEventDetail documents public event detail responses.
+type EnvelopePublicEventDetail struct {
+	Data      service.PublicEventDetail `json:"data"`
+	Error     *platform.APIError        `json:"error"`
+	RequestID string                    `json:"request_id"`
+}

@@ -1,0 +1,50 @@
+// Date presets for the global explorer. Each maps to an optional RFC3339
+// [from, to] window over an Event's start time, computed from "now".
+
+export type WhenPreset = "all" | "weekend" | "week" | "month";
+
+export const WHEN_PRESETS: { value: WhenPreset; label: string }[] = [
+  { value: "all", label: "All upcoming" },
+  { value: "weekend", label: "This weekend" },
+  { value: "week", label: "This week" },
+  { value: "month", label: "This month" },
+];
+
+export function isWhenPreset(value: string | undefined): value is WhenPreset {
+  return value === "all" || value === "weekend" || value === "week" || value === "month";
+}
+
+export function whenToRange(
+  preset: WhenPreset,
+  now: Date = new Date(),
+): { from?: string; to?: string } {
+  switch (preset) {
+    case "week": {
+      const to = new Date(now);
+      to.setDate(to.getDate() + 7);
+      return { from: now.toISOString(), to: to.toISOString() };
+    }
+    case "month": {
+      const to = new Date(now);
+      to.setMonth(to.getMonth() + 1);
+      return { from: now.toISOString(), to: to.toISOString() };
+    }
+    case "weekend": {
+      // The coming Saturday 00:00 through Sunday 23:59:59 (local server time).
+      const start = new Date(now);
+      const day = start.getDay(); // 0 Sun … 6 Sat
+      const daysUntilSaturday = (6 - day + 7) % 7;
+      start.setDate(start.getDate() + daysUntilSaturday);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      end.setHours(23, 59, 59, 0);
+      // If we're already in the weekend, include from now.
+      const from = start.getTime() < now.getTime() ? now : start;
+      return { from: from.toISOString(), to: end.toISOString() };
+    }
+    case "all":
+    default:
+      return {};
+  }
+}

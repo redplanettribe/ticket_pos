@@ -1,6 +1,6 @@
 # Storefront UI
 
-Customer-facing UI for Online Sales.
+Customer-facing UI for discovering events and completing Online Sales.
 Path-based tenancy: `/{orgSlug}/events/{eventSlug}`.
 
 Read [foundation.md](./foundation.md) first for tokens, components, accessibility, and feedback patterns.
@@ -16,23 +16,45 @@ Checkout should feel safe and simple — guest checkout, no account friction.
 **The event is the center of the Storefront.**
 
 Ticket Types belong to Events.
-Group and sell tickets per event, never as a flat org-wide catalog.
+**Selling** always happens per event — one event per cart, ticket selection on the event page. Tickets are never sold as a flat org-wide or cross-org cart.
+
+Discovery, however, is layered. Customers reach an event three ways, and all three funnel into the same event page where buying happens.
 
 | Concept | Role |
 |---------|------|
 | **Event** | Product page; ticket selection happens here |
 | **Organization** | Trust and attribution context, not the shopping unit |
 
+### Discovery surfaces
+
+| Surface | Route | Answers | Lists |
+|---------|-------|---------|-------|
+| **Event page** | `/{orgSlug}/events/{eventSlug}` | "What tickets does *this event* have?" | one event |
+| **Organization page** | `/{orgSlug}` | "What is *this org* putting on?" | one org's Discoverable events (upcoming + past) |
+| **Global explorer** | `/` | "What's coming up *anywhere*?" | Discoverable events across all orgs, soonest first |
+
+A published event is **reachable by direct link** regardless of discovery. Whether it also *advertises itself* in the org page and global explorer is controlled by the per-event **Discoverable** flag (see [CONTEXT.md](../../CONTEXT.md)). `draft` and `cancelled` events are never reachable or listed.
+
+Past events (end, or start if no end, in the past) drop off the global explorer and appear under a "Past events" section on the org page; their event page stays reachable with an "ended" state.
+
 ### Primary flow
 
 Marketing link → **event page** → select Ticket Types → checkout → confirmation.
 
-### Secondary flow
+### Secondary flows
 
-Org events index (optional) → pick an event → same event page.
+- Global explorer (`/`) → search / date filter → pick an event → event page.
+- Org page (`/{orgSlug}`) → pick an event → event page.
 
-Most traffic arrives on a specific event.
-The org index is for discovery when an Organization runs many events.
+Most traffic arrives on a specific event; the explorer and org page are for discovery.
+
+### Global explorer
+
+- Sorted soonest-first; only Discoverable, published, not-yet-ended events.
+- One search box over event and organization name.
+- Date presets over event start: All upcoming / This weekend / This week / This month.
+- Cursor-based "Load more" pagination.
+- Location/city filtering is **deferred** (no structured location data yet).
 
 ### Checkout scope
 

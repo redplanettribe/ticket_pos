@@ -22,6 +22,11 @@ func ErrEventNotFound() apperror.DomainError {
 	return newDomainError("EVENT_NOT_FOUND", "Event not found.", nil)
 }
 
+// ErrOrganizationNotFound is returned when a public Organization slug does not resolve.
+func ErrOrganizationNotFound() apperror.DomainError {
+	return newDomainError("ORGANIZATION_NOT_FOUND", "Organization not found.", nil)
+}
+
 // ErrEventSlugTaken is returned when an event slug is already in use within the organization.
 func ErrEventSlugTaken(slug string) apperror.DomainError {
 	return newDomainError("EVENT_SLUG_TAKEN", "Event slug is already taken in this organization.", map[string]any{

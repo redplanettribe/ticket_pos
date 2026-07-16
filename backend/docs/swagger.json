@@ -95,6 +95,9 @@
                     "description": {
                         "type": "string"
                     },
+                    "discoverable": {
+                        "type": "boolean"
+                    },
                     "ends_at": {
                         "type": "string"
                     },
@@ -261,6 +264,48 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopePublicEventDetail": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PublicEventDetail"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopePublicEventPage": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PublicEventPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopePublicOrganizationEvents": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PublicOrganizationEvents"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeSession": {
                 "properties": {
                     "data": {
@@ -378,6 +423,9 @@
                     "organization_id": {
                         "type": "string"
                     },
+                    "organization_logo_url": {
+                        "type": "string"
+                    },
                     "organization_name": {
                         "type": "string"
                     },
@@ -403,6 +451,9 @@
                     },
                     "description": {
                         "type": "string"
+                    },
+                    "discoverable": {
+                        "type": "boolean"
                     },
                     "ends_at": {
                         "type": "string"
@@ -439,6 +490,9 @@
                     "created_at": {
                         "type": "string"
                     },
+                    "discoverable": {
+                        "type": "boolean"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -453,6 +507,9 @@
                     },
                     "status": {
                         "type": "string"
+                    },
+                    "timezone": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -463,6 +520,9 @@
                         "type": "string"
                     },
                     "organization_id": {
+                        "type": "string"
+                    },
+                    "organization_logo_url": {
                         "type": "string"
                     },
                     "organization_name": {
@@ -481,6 +541,166 @@
                 "properties": {
                     "message": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PublicEventCard": {
+                "properties": {
+                    "cover_image_url": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "ends_at": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/service.PublicOrganizationSummary"
+                    },
+                    "price_from_cents": {
+                        "type": "integer"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "sold_out": {
+                        "type": "boolean"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    },
+                    "timezone": {
+                        "type": "string"
+                    },
+                    "venue_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PublicEventDetail": {
+                "properties": {
+                    "cover_image_url": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "ends_at": {
+                        "type": "string"
+                    },
+                    "has_ended": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/service.PublicOrganizationSummary"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    },
+                    "ticket_types": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.PublicTicketType"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "timezone": {
+                        "type": "string"
+                    },
+                    "venue_address": {
+                        "type": "string"
+                    },
+                    "venue_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PublicEventPage": {
+                "properties": {
+                    "events": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.PublicEventCard"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "next_cursor": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PublicOrganizationEvents": {
+                "properties": {
+                    "organization": {
+                        "$ref": "#/components/schemas/service.PublicOrganizationSummary"
+                    },
+                    "past": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.PublicEventCard"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "upcoming": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.PublicEventCard"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.PublicOrganizationSummary": {
+                "properties": {
+                    "logo_url": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PublicTicketType": {
+                "properties": {
+                    "currency": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "price_cents": {
+                        "type": "integer"
+                    },
+                    "remaining": {
+                        "type": "integer"
+                    },
+                    "sold_out": {
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -776,6 +996,172 @@
                 "summary": "Get session",
                 "tags": [
                     "auth"
+                ]
+            }
+        },
+        "/api/v1/public/events": {
+            "get": {
+                "description": "Lists discoverable, published, not-yet-ended events across all organizations, soonest first.",
+                "parameters": [
+                    {
+                        "description": "Search over event and organization name",
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only events starting on or after this RFC3339 time",
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Only events starting on or before this RFC3339 time",
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 20, max 50)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Pagination cursor from a previous response",
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePublicEventPage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "List public events",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/organizations/{slug}/events": {
+            "get": {
+                "description": "Returns an organization's discoverable events split into upcoming and past.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePublicOrganizationEvents"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get public organization events",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/organizations/{slug}/events/{eventSlug}": {
+            "get": {
+                "description": "Returns a published event with its ticket types for the Storefront event page.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Event slug",
+                        "in": "path",
+                        "name": "eventSlug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePublicEventDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get public event",
+                "tags": [
+                    "public"
                 ]
             }
         },
