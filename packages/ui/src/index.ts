@@ -1,6 +1,7 @@
 export { AuthCard } from "./components/auth-card";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
+export { OrgAvatar } from "./components/org-avatar";
 export { PageHeader } from "./components/page-header";
 export { StaffShell } from "./components/staff-shell";
 export { StorefrontShell } from "./components/storefront-shell";

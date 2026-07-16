@@ -3,9 +3,11 @@
 import type { ReactNode } from "react";
 
 import { cn } from "../lib/utils";
+import { OrgAvatar } from "./org-avatar";
 
 type StaffShellProps = {
   organizationName: string;
+  organizationLogoUrl?: string | null;
   children: ReactNode;
   userMenu?: ReactNode;
   activePath?: string;
@@ -22,6 +24,7 @@ const baseNavItems = [
 
 export function StaffShell({
   organizationName,
+  organizationLogoUrl,
   children,
   userMenu,
   activePath,
@@ -40,12 +43,16 @@ export function StaffShell({
     <button
       type="button"
       onClick={onOrganizationClick}
-      className="mt-1 w-full truncate text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+      className="mt-1 flex w-full items-center gap-2 text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
     >
-      {organizationName}
+      <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+      <span className="truncate">{organizationName}</span>
     </button>
   ) : (
-    <p className="mt-1 truncate font-semibold">{organizationName}</p>
+    <p className="mt-1 flex items-center gap-2 font-semibold">
+      <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+      <span className="truncate">{organizationName}</span>
+    </p>
   );
 
   return (
@@ -84,12 +91,16 @@ export function StaffShell({
             <button
               type="button"
               onClick={onOrganizationClick}
-              className="truncate font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+              className="flex items-center gap-2 font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
             >
-              {organizationName}
+              <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+              <span className="truncate">{organizationName}</span>
             </button>
           ) : (
-            <p className="truncate font-semibold">{organizationName}</p>
+            <p className="flex items-center gap-2 font-semibold">
+              <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+              <span className="truncate">{organizationName}</span>
+            </p>
           )}
         </header>
         <main id="main-content" className="flex-1 p-6">

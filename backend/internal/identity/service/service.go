@@ -12,38 +12,41 @@ import (
 	"strings"
 	"time"
 
+	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
-	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
 const (
-	otpLength           = 6
-	otpExpiry           = 10 * time.Minute
-	otpRateWindow       = 15 * time.Minute
-	maxOTPPerEmail      = 3
-	maxOTPPerIP         = 10
+	otpLength            = 6
+	otpExpiry            = 10 * time.Minute
+	otpRateWindow        = 15 * time.Minute
+	maxOTPPerEmail       = 3
+	maxOTPPerIP          = 10
 	maxOTPVerifyAttempts = 5
-	sessionDuration     = 14 * 24 * time.Hour
+	sessionDuration      = 14 * 24 * time.Hour
 )
 
 // MembershipView is returned in session responses.
 type MembershipView struct {
-	MemberID         string `json:"member_id"`
-	OrganizationID   string `json:"organization_id"`
-	OrganizationName string `json:"organization_name"`
-	OrganizationSlug string `json:"organization_slug"`
-	Role             string `json:"role"`
+	MemberID            string  `json:"member_id"`
+	OrganizationID      string  `json:"organization_id"`
+	OrganizationName    string  `json:"organization_name"`
+	OrganizationSlug    string  `json:"organization_slug"`
+	OrganizationLogoURL *string `json:"organization_logo_url"`
+	Role                string  `json:"role"`
 }
 
 // ActiveMemberView is the active organization context on a session.
 type ActiveMemberView struct {
-	MemberID         string `json:"member_id"`
-	OrganizationID   string `json:"organization_id"`
-	OrganizationName string `json:"organization_name"`
-	OrganizationSlug string `json:"organization_slug"`
-	Role             string `json:"role"`
+	MemberID            string  `json:"member_id"`
+	OrganizationID      string  `json:"organization_id"`
+	OrganizationName    string  `json:"organization_name"`
+	OrganizationSlug    string  `json:"organization_slug"`
+	OrganizationLogoURL *string `json:"organization_logo_url"`
+	Role                string  `json:"role"`
 }
 
 // SessionView is the public session representation.
@@ -62,16 +65,24 @@ type OTPRequestResult struct {
 type Service struct {
 	repo        *repository.Repository
 	catalogRepo *catalogrepo.Repository
+	storage     storage.ObjectStorage
 	email       platform.EmailSender
 	logger      platform.Logger
 	now         func() time.Time
 }
 
 // New returns an identity service.
-func New(repo *repository.Repository, catalogRepo *catalogrepo.Repository, email platform.EmailSender, logger platform.Logger) *Service {
+func New(
+	repo *repository.Repository,
+	catalogRepo *catalogrepo.Repository,
+	objectStorage storage.ObjectStorage,
+	email platform.EmailSender,
+	logger platform.Logger,
+) *Service {
 	return &Service{
 		repo:        repo,
 		catalogRepo: catalogRepo,
+		storage:     objectStorage,
 		email:       email,
 		logger:      logger,
 		now:         time.Now,
@@ -276,11 +287,12 @@ func (s *Service) ListMemberships(ctx context.Context, sessionID string) ([]Memb
 	views := make([]MembershipView, 0, len(memberships))
 	for _, m := range memberships {
 		views = append(views, MembershipView{
-			MemberID:         m.MemberID,
-			OrganizationID:   m.OrganizationID,
-			OrganizationName: m.OrganizationName,
-			OrganizationSlug: m.OrganizationSlug,
-			Role:             string(m.Role),
+			MemberID:            m.MemberID,
+			OrganizationID:      m.OrganizationID,
+			OrganizationName:    m.OrganizationName,
+			OrganizationSlug:    m.OrganizationSlug,
+			OrganizationLogoURL: s.organizationLogoURL(m.OrganizationLogoKey),
+			Role:                string(m.Role),
 		})
 	}
 	return views, nil
@@ -381,11 +393,12 @@ func (s *Service) buildSessionView(ctx context.Context, session *repository.Sess
 	}
 	for _, m := range memberships {
 		view.Memberships = append(view.Memberships, MembershipView{
-			MemberID:         m.MemberID,
-			OrganizationID:   m.OrganizationID,
-			OrganizationName: m.OrganizationName,
-			OrganizationSlug: m.OrganizationSlug,
-			Role:             string(m.Role),
+			MemberID:            m.MemberID,
+			OrganizationID:      m.OrganizationID,
+			OrganizationName:    m.OrganizationName,
+			OrganizationSlug:    m.OrganizationSlug,
+			OrganizationLogoURL: s.organizationLogoURL(m.OrganizationLogoKey),
+			Role:                string(m.Role),
 		})
 	}
 
@@ -393,11 +406,12 @@ func (s *Service) buildSessionView(ctx context.Context, session *repository.Sess
 		for _, m := range memberships {
 			if m.MemberID == session.ActiveMemberID.String {
 				view.ActiveMember = &ActiveMemberView{
-					MemberID:         m.MemberID,
-					OrganizationID:   m.OrganizationID,
-					OrganizationName: m.OrganizationName,
-					OrganizationSlug: m.OrganizationSlug,
-					Role:             string(m.Role),
+					MemberID:            m.MemberID,
+					OrganizationID:      m.OrganizationID,
+					OrganizationName:    m.OrganizationName,
+					OrganizationSlug:    m.OrganizationSlug,
+					OrganizationLogoURL: s.organizationLogoURL(m.OrganizationLogoKey),
+					Role:                string(m.Role),
 				}
 				break
 			}
@@ -422,6 +436,14 @@ func generateOTPCode() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%06d", n.Int64()), nil
+}
+
+func (s *Service) organizationLogoURL(logoImageKey sql.NullString) *string {
+	if !logoImageKey.Valid || s.storage == nil {
+		return nil
+	}
+	url := s.storage.PublicURL(logoImageKey.String)
+	return &url
 }
 
 func hashOTPCode(challengeID, code string) string {

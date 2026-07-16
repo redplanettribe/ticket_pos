@@ -9,6 +9,8 @@ import {
   StorefrontShell,
 } from "@ticket-pos/ui";
 
+import { getPublicOrganization } from "@/lib/api";
+
 type EventPageProps = {
   params: Promise<{
     orgSlug: string;
@@ -27,10 +29,11 @@ function titleCase(slug: string): string {
 export default async function EventPage({ params }: EventPageProps) {
   const { orgSlug, eventSlug } = await params;
   const eventName = titleCase(eventSlug);
-  const organizationName = titleCase(orgSlug);
+  const organization = await getPublicOrganization(orgSlug);
+  const organizationName = organization?.name ?? titleCase(orgSlug);
 
   return (
-    <StorefrontShell organizationName={organizationName}>
+    <StorefrontShell organizationName={organizationName} organizationLogoUrl={organization?.logo_url}>
       <article className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8">
         <header className="space-y-4 border-b pb-8">
           <div className="flex min-h-48 items-end rounded-xl bg-muted p-8">

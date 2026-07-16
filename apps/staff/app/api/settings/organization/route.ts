@@ -11,6 +11,7 @@ type Organization = {
   slug: string;
   currency: string;
   currency_locked: boolean;
+  logo_url: string | null;
   created_at: string;
 };
 

@@ -9,6 +9,7 @@ type Membership = {
   organization_id: string;
   organization_name: string;
   organization_slug: string;
+  organization_logo_url: string | null;
   role: string;
 };
 

@@ -8,6 +8,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
 // OrganizationView is the public organization profile.
@@ -17,13 +18,28 @@ type OrganizationView struct {
 	Slug           string    `json:"slug"`
 	Currency       string    `json:"currency"`
 	CurrencyLocked bool      `json:"currency_locked"`
+	LogoURL        *string   `json:"logo_url"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+// PublicOrganizationView is the unauthenticated organization profile.
+type PublicOrganizationView struct {
+	Name    string  `json:"name"`
+	Slug    string  `json:"slug"`
+	LogoURL *string `json:"logo_url"`
 }
 
 // UpdateOrganizationInput updates organization profile fields.
 type UpdateOrganizationInput struct {
-	Name     string
-	Currency *string
+	Name         string
+	Currency     *string
+	LogoImageKey *string
+}
+
+// CreateLogoUploadURLInput describes a requested organization logo upload.
+type CreateLogoUploadURLInput struct {
+	ContentType string
+	FileName    string
 }
 
 // MemberView is a member in the organization roster.
@@ -139,7 +155,75 @@ func (s *Service) UpdateOrganization(ctx context.Context, actor ActiveMemberCont
 		}
 	}
 
+	if input.LogoImageKey != nil {
+		key := strings.TrimSpace(*input.LogoImageKey)
+		if key != "" && !storage.LogoKeyBelongsToOrg(key, actor.OrganizationID) {
+			return nil, identity.ErrInvalidLogoImageKey()
+		}
+
+		updated, err = s.repo.UpdateOrganizationLogoKey(ctx, actor.OrganizationID, input.LogoImageKey)
+		if err != nil {
+			return nil, err
+		}
+		if updated == nil {
+			return nil, identity.ErrOrganizationNotFound()
+		}
+	}
+
 	return s.toOrganizationView(ctx, updated)
+}
+
+// CreateLogoUploadURL returns a presigned PUT URL for an organization logo.
+func (s *Service) CreateLogoUploadURL(ctx context.Context, actor ActiveMemberContext, input CreateLogoUploadURLInput) (*storage.CoverUploadResult, error) {
+	if actor.Role != repository.RoleOrgAdmin {
+		return nil, identity.ErrForbidden()
+	}
+	if s.storage == nil {
+		return nil, identity.ErrLogoUploadUnavailable()
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(input.ContentType))
+	if !storage.CoverContentTypeAllowed(contentType) {
+		return nil, identity.ErrInvalidLogoImageKey()
+	}
+
+	key, err := storage.BuildLogoObjectKey(actor.OrganizationID, contentType, input.FileName)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadURL, err := s.storage.PresignPut(ctx, key, contentType, 15*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage.CoverUploadResult{
+		UploadURL: uploadURL,
+		ObjectKey: key,
+		PublicURL: s.storage.PublicURL(key),
+	}, nil
+}
+
+// GetPublicOrganization returns the unauthenticated organization profile by slug.
+func (s *Service) GetPublicOrganization(ctx context.Context, slug string) (*PublicOrganizationView, error) {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		return nil, identity.ErrOrganizationNotFound()
+	}
+
+	org, err := s.repo.GetOrganizationBySlug(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	if org == nil {
+		return nil, identity.ErrOrganizationNotFound()
+	}
+
+	return &PublicOrganizationView{
+		Name:    org.Name,
+		Slug:    org.Slug,
+		LogoURL: s.organizationLogoURL(org.LogoImageKey),
+	}, nil
 }
 
 // UpdateOrganizationName updates the organization display name.
@@ -470,6 +554,7 @@ func (s *Service) toOrganizationView(ctx context.Context, org *repository.Organi
 	}
 	view := toOrganizationView(org)
 	view.CurrencyLocked = locked
+	view.LogoURL = s.organizationLogoURL(org.LogoImageKey)
 	return view, nil
 }
 

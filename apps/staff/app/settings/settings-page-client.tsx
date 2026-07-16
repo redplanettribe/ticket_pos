@@ -28,12 +28,15 @@ import {
 
 import { SUPPORTED_CURRENCIES } from "@/lib/events-api";
 
+import { OrgLogoImage } from "./org-logo-image";
+
 type Organization = {
   id: string;
   name: string;
   slug: string;
   currency: string;
   currency_locked: boolean;
+  logo_url: string | null;
 };
 
 type Member = {
@@ -346,6 +349,12 @@ export function SettingsPageClient() {
           </Button>
         </CardContent>
       </Card>
+
+      <OrgLogoImage
+        organizationName={organization.name}
+        logoUrl={organization.logo_url}
+        onUpdated={(logoUrl) => setOrganization((current) => (current ? { ...current, logo_url: logoUrl } : current))}
+      />
 
       <Card>
         <CardHeader>

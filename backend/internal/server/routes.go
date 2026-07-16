@@ -14,6 +14,12 @@ func RegisterRoutes(mux *http.ServeMux, app *App) {
 
 	registerAuthRoutes(mux, app)
 	registerStaffRoutes(mux, app)
+	registerPublicRoutes(mux, app)
+}
+
+func registerPublicRoutes(mux *http.ServeMux, app *App) {
+	h := app.IdentityHandler
+	mux.HandleFunc("GET /api/v1/public/organizations/{slug}", h.GetPublicOrganization)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {
@@ -52,6 +58,7 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.GetOrganization)))
 	mux.Handle("PATCH /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.UpdateOrganization)))
 	mux.Handle("DELETE /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.DeleteOrganization)))
+	mux.Handle("POST /api/v1/staff/organization/logo-upload-url", orgAdmin(http.HandlerFunc(h.CreateLogoUploadURL)))
 
 	mux.Handle("GET /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.ListMembers)))
 	mux.Handle("POST /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.AddMember)))

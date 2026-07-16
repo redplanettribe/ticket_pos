@@ -6,7 +6,13 @@ A point-of-sale system for organizations to create events, define ticket types, 
 
 **Organization**:
 A group such as a promoter, venue, or company that owns Events and has members.
+Has an optional Logo.
 _Avoid_: Account, workspace, team
+
+**Logo**:
+An Organization's brand image, set by an Org Admin and shown wherever the Organization is represented to staff or Customers (e.g. the Storefront).
+Distinct from an Event's cover image, which represents a single Event rather than the Organization.
+_Avoid_: Icon, avatar, brand image
 
 **Member**:
 A person belonging to an Organization who may hold a role such as Org Admin, Event Owner, or Event Staff.

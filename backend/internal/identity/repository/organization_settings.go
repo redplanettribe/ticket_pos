@@ -10,11 +10,12 @@ import (
 
 // Organization is a tenant that owns Events and Members.
 type Organization struct {
-	ID        string
-	Name      string
-	Slug      string
-	Currency  string
-	CreatedAt time.Time
+	ID           string
+	Name         string
+	Slug         string
+	Currency     string
+	LogoImageKey sql.NullString
+	CreatedAt    time.Time
 }
 
 // Member is a person belonging to an Organization.
@@ -48,13 +49,31 @@ type EventAssignment struct {
 // GetOrganizationByID loads an organization by ID.
 func (r *Repository) GetOrganizationByID(ctx context.Context, orgID string) (*Organization, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, name, slug, currency, created_at
+		SELECT id, name, slug, currency, logo_image_key, created_at
 		FROM organizations
 		WHERE id = $1
 	`, orgID)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
+}
+
+// GetOrganizationBySlug loads an organization by its public slug.
+func (r *Repository) GetOrganizationBySlug(ctx context.Context, slug string) (*Organization, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		SELECT id, name, slug, currency, logo_image_key, created_at
+		FROM organizations
+		WHERE slug = $1
+	`, slug)
+
+	var o Organization
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -69,11 +88,11 @@ func (r *Repository) UpdateOrganizationName(ctx context.Context, orgID, name str
 		UPDATE organizations
 		SET name = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, created_at
+		RETURNING id, name, slug, currency, logo_image_key, created_at
 	`, orgID, name)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -88,11 +107,35 @@ func (r *Repository) UpdateOrganizationCurrency(ctx context.Context, orgID, curr
 		UPDATE organizations
 		SET currency = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, created_at
+		RETURNING id, name, slug, currency, logo_image_key, created_at
 	`, orgID, currency)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
+}
+
+// UpdateOrganizationLogoKey sets or clears the organization's logo object key.
+func (r *Repository) UpdateOrganizationLogoKey(ctx context.Context, orgID string, logoImageKey *string) (*Organization, error) {
+	var key sql.NullString
+	if logoImageKey != nil && *logoImageKey != "" {
+		key = sql.NullString{String: *logoImageKey, Valid: true}
+	}
+
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE organizations
+		SET logo_image_key = $2
+		WHERE id = $1
+		RETURNING id, name, slug, currency, logo_image_key, created_at
+	`, orgID, key)
+
+	var o Organization
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

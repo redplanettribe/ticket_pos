@@ -102,6 +102,7 @@ export function OrganizationSwitcherDialog({
 
 type StaffShellWithOrganizationSwitcherProps = {
   organizationName: string;
+  organizationLogoUrl?: string | null;
   activePath: string;
   showSettings: boolean;
   showEvents: boolean;
@@ -113,6 +114,7 @@ type StaffShellWithOrganizationSwitcherProps = {
 
 export function StaffShellWithOrganizationSwitcher({
   organizationName,
+  organizationLogoUrl,
   activePath,
   showSettings,
   showEvents,
@@ -127,6 +129,7 @@ export function StaffShellWithOrganizationSwitcher({
     <>
       <StaffShell
         organizationName={organizationName}
+        organizationLogoUrl={organizationLogoUrl}
         activePath={activePath}
         showSettings={showSettings}
         showEvents={showEvents}

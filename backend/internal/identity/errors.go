@@ -109,3 +109,13 @@ func ErrInvalidMemberRole(role string) apperror.DomainError {
 		"role": role,
 	})
 }
+
+// ErrLogoUploadUnavailable is returned when object storage is not configured.
+func ErrLogoUploadUnavailable() apperror.DomainError {
+	return newDomainError("LOGO_UPLOAD_UNAVAILABLE", "Logo upload is not available.", nil)
+}
+
+// ErrInvalidLogoImageKey is returned when a logo_image_key is not valid for the organization.
+func ErrInvalidLogoImageKey() apperror.DomainError {
+	return newDomainError("INVALID_LOGO_IMAGE_KEY", "Logo image key is not valid for this organization.", nil)
+}

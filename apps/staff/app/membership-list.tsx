@@ -1,12 +1,13 @@
 "use client";
 
-import { Badge, Button, Card, CardContent, cn } from "@ticket-pos/ui";
+import { Badge, Button, Card, CardContent, cn, OrgAvatar } from "@ticket-pos/ui";
 
 export type Membership = {
   member_id: string;
   organization_id: string;
   organization_name: string;
   organization_slug: string;
+  organization_logo_url: string | null;
   role: string;
 };
 
@@ -16,11 +17,14 @@ function formatRole(role: string): string {
 
 function MembershipDetails({ membership }: { membership: Membership }) {
   return (
-    <div className="min-w-0">
-      <p className="font-medium">{membership.organization_name}</p>
-      <p className="text-sm text-muted-foreground">
-        {membership.organization_slug} · {formatRole(membership.role)}
-      </p>
+    <div className="flex min-w-0 items-center gap-3">
+      <OrgAvatar logoUrl={membership.organization_logo_url} name={membership.organization_name} />
+      <div className="min-w-0">
+        <p className="font-medium">{membership.organization_name}</p>
+        <p className="text-sm text-muted-foreground">
+          {membership.organization_slug} · {formatRole(membership.role)}
+        </p>
+      </div>
     </div>
   );
 }

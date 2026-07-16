@@ -9,11 +9,18 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
 	"github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
 type updateOrganizationBody struct {
-	Name     string  `json:"name"`
-	Currency *string `json:"currency"`
+	Name         string  `json:"name"`
+	Currency     *string `json:"currency"`
+	LogoImageKey *string `json:"logo_image_key"`
+}
+
+type logoUploadURLBody struct {
+	ContentType string  `json:"content_type"`
+	FileName    *string `json:"file_name"`
 }
 
 var supportedCurrencies = map[string]struct{}{
@@ -82,14 +89,57 @@ func (h *Handler) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
 	actor := actorContextFromRequest(r)
 
 	org, err := h.svc.UpdateOrganization(r.Context(), actor, service.UpdateOrganizationInput{
-		Name:     body.Name,
-		Currency: body.Currency,
+		Name:         body.Name,
+		Currency:     body.Currency,
+		LogoImageKey: body.LogoImageKey,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, org)
+}
+
+// CreateLogoUploadURL returns a presigned URL for uploading the organization logo.
+func (h *Handler) CreateLogoUploadURL(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body logoUploadURLBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
+	if contentType == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Message: "is required"},
+		})
+		return
+	}
+	if !storage.CoverContentTypeAllowed(contentType) {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Message: "must be image/jpeg, image/png, or image/webp"},
+		})
+		return
+	}
+
+	fileName := ""
+	if body.FileName != nil {
+		fileName = strings.TrimSpace(*body.FileName)
+	}
+
+	actor := actorContextFromRequest(r)
+
+	result, err := h.svc.CreateLogoUploadURL(r.Context(), actor, service.CreateLogoUploadURLInput{
+		ContentType: contentType,
+		FileName:    fileName,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
 // DeleteOrganization hard-deletes the organization.

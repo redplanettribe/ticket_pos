@@ -93,14 +93,6 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		emailSender = newEmailSender(cfg, platformLogger)
 	}
 
-	identityRepo := identityrepo.New(db)
-	catalogRepo := catalogrepo.New(db)
-	identityService := identitysvc.New(identityRepo, catalogRepo, emailSender, platformLogger)
-	if options.clock != nil {
-		identityService = identityService.WithClock(options.clock)
-	}
-	identityHandler := identityhandler.New(identityService)
-
 	objectStorage := options.objectStorage
 	if objectStorage == nil {
 		objectStorage, err = newObjectStorage(cfg)
@@ -109,6 +101,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 			return nil, fmt.Errorf("object storage: %w", err)
 		}
 	}
+
+	identityRepo := identityrepo.New(db)
+	catalogRepo := catalogrepo.New(db)
+	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, emailSender, platformLogger)
+	if options.clock != nil {
+		identityService = identityService.WithClock(options.clock)
+	}
+	identityHandler := identityhandler.New(identityService)
+
 	catalogService := catalogsvc.New(catalogRepo, objectStorage)
 	if options.clock != nil {
 		catalogService = catalogService.WithClock(options.clock)

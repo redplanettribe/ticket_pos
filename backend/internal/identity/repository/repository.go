@@ -14,9 +14,9 @@ import (
 type MemberRole string
 
 const (
-	RoleOrgAdmin    MemberRole = "org_admin"
-	RoleEventOwner  MemberRole = "event_owner"
-	RoleEventStaff  MemberRole = "event_staff"
+	RoleOrgAdmin   MemberRole = "org_admin"
+	RoleEventOwner MemberRole = "event_owner"
+	RoleEventStaff MemberRole = "event_staff"
 )
 
 // OTPChallenge is a stored OTP verification challenge.
@@ -42,12 +42,13 @@ type Session struct {
 
 // Membership summarizes a member record for session responses.
 type Membership struct {
-	MemberID         string
-	OrganizationID   string
-	OrganizationName string
-	OrganizationSlug string
-	Role             MemberRole
-	Email            string
+	MemberID            string
+	OrganizationID      string
+	OrganizationName    string
+	OrganizationSlug    string
+	OrganizationLogoKey sql.NullString
+	Role                MemberRole
+	Email               string
 }
 
 // Repository provides SQL access for identity data.
@@ -185,7 +186,7 @@ func (r *Repository) DeleteSession(ctx context.Context, id string) error {
 // ListMemberships returns all member records for an email.
 func (r *Repository) ListMemberships(ctx context.Context, email string) ([]Membership, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT m.id, m.organization_id, o.name, o.slug, m.role, m.email
+		SELECT m.id, m.organization_id, o.name, o.slug, o.logo_image_key, m.role, m.email
 		FROM members m
 		JOIN organizations o ON o.id = m.organization_id
 		WHERE m.email = $1
@@ -200,7 +201,7 @@ func (r *Repository) ListMemberships(ctx context.Context, email string) ([]Membe
 	for rows.Next() {
 		var m Membership
 		var role string
-		if err := rows.Scan(&m.MemberID, &m.OrganizationID, &m.OrganizationName, &m.OrganizationSlug, &role, &m.Email); err != nil {
+		if err := rows.Scan(&m.MemberID, &m.OrganizationID, &m.OrganizationName, &m.OrganizationSlug, &m.OrganizationLogoKey, &role, &m.Email); err != nil {
 			return nil, err
 		}
 		m.Role = MemberRole(role)
@@ -280,7 +281,7 @@ func (r *Repository) CreateOrganizationWithMember(
 // GetMembershipByID loads a membership by member ID.
 func (r *Repository) GetMembershipByID(ctx context.Context, memberID string) (*Membership, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT m.id, m.organization_id, o.name, o.slug, m.role, m.email
+		SELECT m.id, m.organization_id, o.name, o.slug, o.logo_image_key, m.role, m.email
 		FROM members m
 		JOIN organizations o ON o.id = m.organization_id
 		WHERE m.id = $1
@@ -288,7 +289,7 @@ func (r *Repository) GetMembershipByID(ctx context.Context, memberID string) (*M
 
 	var m Membership
 	var role, email string
-	if err := row.Scan(&m.MemberID, &m.OrganizationID, &m.OrganizationName, &m.OrganizationSlug, &role, &email); err != nil {
+	if err := row.Scan(&m.MemberID, &m.OrganizationID, &m.OrganizationName, &m.OrganizationSlug, &m.OrganizationLogoKey, &role, &email); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

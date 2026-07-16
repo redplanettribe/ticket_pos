@@ -15,6 +15,7 @@ type SessionData = {
     member_id: string;
     organization_name: string;
     organization_slug: string;
+    organization_logo_url: string | null;
     role: string;
   } | null;
   memberships: Array<{
@@ -22,6 +23,7 @@ type SessionData = {
     organization_id: string;
     organization_name: string;
     organization_slug: string;
+    organization_logo_url: string | null;
     role: string;
   }>;
 };
@@ -52,10 +54,12 @@ type StaffPageShellProps = {
 export async function StaffPageShell({ activePath, children }: StaffPageShellProps) {
   const session = await loadSession();
   const organizationName = session?.active_member?.organization_name ?? "Ticket POS";
+  const organizationLogoUrl = session?.active_member?.organization_logo_url ?? null;
 
   return (
     <StaffShellWithOrganizationSwitcher
       organizationName={organizationName}
+      organizationLogoUrl={organizationLogoUrl}
       activePath={activePath}
       showSettings={session?.active_member?.role === "org_admin"}
       showEvents={session?.active_member?.role === "org_admin"}
