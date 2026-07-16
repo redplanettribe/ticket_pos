@@ -30,6 +30,18 @@ export {
 } from "./components/ui/dialog";
 export { Input } from "./components/ui/input";
 export { Label } from "./components/ui/label";
+export {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetOverlay,
+  SheetPortal,
+  SheetTitle,
+  SheetTrigger,
+} from "./components/ui/sheet";
 export { Skeleton } from "./components/ui/skeleton";
 export { toast } from "sonner";
 export { Toaster } from "./components/ui/sonner";
