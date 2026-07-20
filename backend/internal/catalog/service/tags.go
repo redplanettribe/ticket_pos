@@ -87,6 +87,17 @@ func canonicalTagKeys(names []string) []string {
 	return keys
 }
 
+// ListPopularCustomTags returns the most-used Custom Tags across all
+// Organizations for the staff editor's browse state, so an organizer can
+// discover and reuse existing custom vocabulary before typing.
+func (s *Service) ListPopularCustomTags(ctx context.Context) ([]TagView, error) {
+	tags, err := s.repo.ListPopularCustomTags(ctx, defaultTagSearchLimit)
+	if err != nil {
+		return nil, err
+	}
+	return toTagViews(tags), nil
+}
+
 // ListEventTags returns the Tags assigned to an Event in the active Organization.
 func (s *Service) ListEventTags(ctx context.Context, actor ActorContext, eventID string) ([]TagView, error) {
 	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)

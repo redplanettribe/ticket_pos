@@ -19,6 +19,7 @@ import {
   ApiError,
   getEventTags,
   isValidTagName,
+  listPopularTags,
   searchTags,
   setEventTags,
   tagCanonicalKey,
@@ -55,6 +56,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<Tag[]>([]);
   const [presets, setPresets] = useState<Tag[]>([]);
+  const [popular, setPopular] = useState<Tag[]>([]);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +89,25 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
         }
       } catch {
         // Presets are a convenience; the search box still works without them.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the most-used Custom Tags across all Organizations so the organizer can
+  // browse existing global vocabulary on focus, before typing.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const results = await listPopularTags();
+        if (!cancelled) {
+          setPopular(results);
+        }
+      } catch {
+        // Browse suggestions are a convenience; the search box still works.
       }
     })();
     return () => {
@@ -138,7 +159,15 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
     [suggestions, selectedKeys],
   );
 
+  // Popular Custom Tags from across all Organizations, shown on focus before typing.
+  const availablePopular = useMemo(
+    () => popular.filter((tag) => !selectedKeys.has(tagCanonicalKey(tag.name))),
+    [popular, selectedKeys],
+  );
+
   const trimmedQuery = query.trim();
+  const browsing = trimmedQuery.length === 0;
+  const dropdownItems = browsing ? availablePopular : availableSuggestions;
   const queryKey = tagCanonicalKey(query);
   const queryMatchesExisting =
     availableSuggestions.some((tag) => tagCanonicalKey(tag.name) === queryKey) ||
@@ -193,7 +222,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
     }
   }
 
-  const showDropdown = open && trimmedQuery.length > 0 && (availableSuggestions.length > 0 || canCreate);
+  const showDropdown = open && (dropdownItems.length > 0 || canCreate);
 
   return (
     <Card>
@@ -265,7 +294,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                   value={query}
                   autoComplete="off"
                   maxLength={TAG_NAME_MAX_LENGTH}
-                  placeholder="Search Preset Tags or type to create a Custom Tag"
+                  placeholder="Search tags or type to create a Custom Tag"
                   onChange={(event) => {
                     setQuery(event.target.value);
                     setOpen(true);
@@ -274,7 +303,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      if (availableSuggestions.length > 0) {
+                      if (!browsing && availableSuggestions.length > 0) {
                         addTag(availableSuggestions[0]);
                       } else if (canCreate) {
                         createTag();
@@ -286,7 +315,12 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
 
               {showDropdown ? (
                 <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-background py-1 shadow-md">
-                  {availableSuggestions.map((tag) => (
+                  {browsing && dropdownItems.length > 0 ? (
+                    <li className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                      Used by other events
+                    </li>
+                  ) : null}
+                  {dropdownItems.map((tag) => (
                     <li key={tagCanonicalKey(tag.name)}>
                       <button
                         type="button"

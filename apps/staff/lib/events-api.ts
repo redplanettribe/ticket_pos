@@ -94,6 +94,10 @@ export async function searchTags(query: string): Promise<Tag[]> {
   return fetchEventsJSON<Tag[]>(`/api/tags?q=${encodeURIComponent(query)}`);
 }
 
+export async function listPopularTags(): Promise<Tag[]> {
+  return fetchEventsJSON<Tag[]>(`/api/tags/popular`);
+}
+
 export async function getEventTags(eventId: string): Promise<Tag[]> {
   return fetchEventsJSON<Tag[]>(`/api/events/${eventId}/tags`);
 }

@@ -24,16 +24,53 @@ type NormalizedTag struct {
 const tagColumns = `id, canonical_key, display_name, curated`
 
 // SearchTags returns pool Tags whose canonical key contains the (already
-// canonicalized) query, Preset Tags first. An empty query returns the top Tags.
+// canonicalized) query. Preset Tags come first, then the most-used Tags (by
+// Event association count) so an established Tag outranks a near-duplicate
+// one-off. An empty query returns the top Tags by that same ranking.
 func (r *Repository) SearchTags(ctx context.Context, canonicalQuery string, limit int) ([]Tag, error) {
 	like := "%" + escapeLike(canonicalQuery) + "%"
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT `+tagColumns+`
-		FROM tags
-		WHERE canonical_key LIKE $1 ESCAPE '\'
-		ORDER BY curated DESC, display_name ASC
+		SELECT `+tagColumnsPrefixed("t")+`
+		FROM tags t
+		LEFT JOIN (
+			SELECT tag_id, COUNT(*) AS cnt FROM event_tags GROUP BY tag_id
+		) u ON u.tag_id = t.id
+		WHERE t.canonical_key LIKE $1 ESCAPE '\'
+		ORDER BY t.curated DESC, COALESCE(u.cnt, 0) DESC, t.display_name ASC
 		LIMIT $2
 	`, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tags := make([]Tag, 0)
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
+	}
+	return tags, rows.Err()
+}
+
+// ListPopularCustomTags returns Custom Tags carried by at least one Event,
+// most-used first, so the staff editor can surface the established custom
+// vocabulary from across all Organizations before the organizer types. Usage
+// counts every Event regardless of status; Preset Tags are excluded (they have
+// their own always-visible chip row) and zero-usage Tags are omitted.
+func (r *Repository) ListPopularCustomTags(ctx context.Context, limit int) ([]Tag, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+tagColumnsPrefixed("t")+`
+		FROM tags t
+		JOIN (
+			SELECT tag_id, COUNT(*) AS cnt FROM event_tags GROUP BY tag_id
+		) u ON u.tag_id = t.id
+		WHERE t.curated = FALSE
+		ORDER BY u.cnt DESC, t.display_name ASC
+		LIMIT $1
+	`, limit)
 	if err != nil {
 		return nil, err
 	}

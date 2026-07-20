@@ -55,6 +55,13 @@ to letters, digits, spaces, and hyphens, 1–30 characters. A staff typeahead
 - A new cross-tenant table (`tags`) exists that, unlike almost everything else, is not
   scoped by `organization_id`; queries and future features must treat it as shared.
 - Custom Tags accumulate globally with no deletion/moderation path yet — deferred.
+- The staff tag editor surfaces existing Custom Tags for reuse in two ways: the
+  typeahead searches the whole pool on input, and — added later — a focus-triggered
+  "browse" list shows the most-used Custom Tags (by cross-tenant Event-association
+  count, all statuses, no attribution), capped and excluding zero-usage rows. This is
+  a deliberately *bounded, usage-ranked* surface: it steers reuse over near-duplicate
+  coining without turning the unmoderated pool into permanent chrome. Preset Tags
+  remain the only always-visible chip row and the only explorer filter chips.
 - A future reader will see tagging is Org-Admin-gated while `Discoverable` (ADR 0003)
   is any-Member, on the same Event; this record explains why they diverge.
 - Preset Tags are seeded by migration and must survive data resets that clear tenant

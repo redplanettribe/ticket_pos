@@ -36,6 +36,28 @@ func (h *Handler) SearchTags(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, tags)
 }
 
+// ListPopularTags returns the most-used Custom Tags for the staff editor browse state.
+//
+// @Summary      List popular custom tags
+// @Description  Returns the most-used custom tags across all organizations, for the staff tag editor's browse state.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  openapi.EnvelopeTagList
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Router       /api/v1/staff/tags/popular [get]
+func (h *Handler) ListPopularTags(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	tags, err := h.svc.ListPopularCustomTags(r.Context())
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, tags)
+}
+
 // ListEventTags returns the Tags assigned to an Event.
 //
 // @Summary      List event tags

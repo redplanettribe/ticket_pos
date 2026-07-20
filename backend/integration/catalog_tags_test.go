@@ -25,6 +25,53 @@ func setEventTags(t *testing.T, env *testEnv, sessionID, eventID string, names [
 	return env.put(t, "/api/v1/staff/events/"+eventID+"/tags", map[string]any{"tags": names}, authHeader(sessionID))
 }
 
+func TestPopularCustomTagsRankedByUsageExcludingPresetsAndOrphans(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	eventA := createDraftEvent(t, env, sessionID, "Rave A", "rave-a")
+	eventB := createDraftEvent(t, env, sessionID, "Rave B", "rave-b")
+	eventC := createDraftEvent(t, env, sessionID, "Rave C", "rave-c")
+	orphanEvent := createDraftEvent(t, env, sessionID, "Orphan Fest", "orphan-fest")
+
+	// Techno used twice, House and Ambient once each; Music is a preset (must be
+	// excluded from popular even though it has usage).
+	setEventTags(t, env, sessionID, eventA, []string{"Techno", "House", "Music"})
+	setEventTags(t, env, sessionID, eventB, []string{"Techno"})
+	setEventTags(t, env, sessionID, eventC, []string{"Ambient"})
+
+	// Coin a custom tag then remove it: the pool row survives with zero usage and
+	// must not appear in the popular browse list.
+	setEventTags(t, env, sessionID, orphanEvent, []string{"Orphan"})
+	setEventTags(t, env, sessionID, orphanEvent, []string{})
+
+	resp, body := env.get(t, "/api/v1/staff/tags/popular", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("popular tags status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	tags := decodeTags(t, body.Data)
+
+	names := make([]string, len(tags))
+	for i, tag := range tags {
+		if tag.Curated {
+			t.Fatalf("popular list must be custom-only, got curated tag %q", tag.Name)
+		}
+		names[i] = tag.Name
+	}
+
+	// Most-used first: Techno (2) leads; House and Ambient (1 each) follow.
+	if len(names) != 3 || names[0] != "Techno" {
+		t.Fatalf("expected Techno first among 3 custom tags, got %v", names)
+	}
+	for _, banned := range []string{"Music", "Orphan"} {
+		for _, got := range names {
+			if got == banned {
+				t.Fatalf("popular list should exclude %q, got %v", banned, names)
+			}
+		}
+	}
+}
+
 func TestSearchTagsReturnsPresetsFirst(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)

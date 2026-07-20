@@ -2810,6 +2810,52 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/staff/tags/popular": {
+            "get": {
+                "description": "Returns the most-used custom tags across all organizations, for the staff tag editor's browse state.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTagList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List popular custom tags",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns service health status.",
