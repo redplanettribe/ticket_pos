@@ -113,8 +113,7 @@ func setupTest(t *testing.T) *testEnv {
 	if err := resetDatabase(context.Background(), sharedDB); err != nil {
 		t.Fatalf("reset database: %v", err)
 	}
-	sharedEmail.LastTo = ""
-	sharedEmail.LastCode = ""
+	sharedEmail.Reset()
 	sharedApp.IdentityService.WithClock(func() time.Time { return fixedClock })
 	return sharedEnv
 }
@@ -122,7 +121,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE ticket_sale_lines, ticket_sales, sale_import_batches, event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

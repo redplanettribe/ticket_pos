@@ -63,7 +63,7 @@ graph TB
 | Payments | Provider-agnostic boundary; no vendor chosen |
 | Email (OTP) | Pluggable `EmailSender`; dummy provider logs codes to terminal in dev |
 | Capacity accounting | Atomic decrement in Postgres transactions; row locks for multi-type sales |
-| Sale Import | CSV upload; synchronous processing; all-or-nothing per batch |
+| Sale Import | `.csv`/`.xlsx` upload parsed server-side; synchronous; all-or-nothing per batch; `direct` source first |
 | Storefront URLs | Path-based tenancy: `/{orgSlug}/events/{eventSlug}` |
 | Local development | Docker Compose + Make |
 | Production hosting | TBD |
@@ -495,25 +495,36 @@ The design defines a **provider-agnostic payment boundary**:
 
 ## Sale Import
 
-Event Staff upload sales from External Platforms as a **CSV file**.
+A Member who can manage an Event's sales uploads a batch of Ticket Sales as a **`.csv` or `.xlsx` file**.
+Each batch carries a **Sales Source**: `direct` (the Organization's own off-platform sales) or `external_platform` (a third-party service such as Eventbrite).
+The **`direct` source ships first** (roadmap V6); `external_platform` reuses the same pipeline later.
 
-### Format (launch)
+### Format (launch — `direct` source)
+
+Both `.csv` and `.xlsx` are parsed **server-side in Go** (via an xlsx library such as `excelize`); uploading the raw file keeps one authoritative parse/validate/commit core that external-platform CSVs and the Integration Partner API can reuse.
+A per-Event `.xlsx` **template** is generated server-side, pre-listing the Event's Ticket Types as a locked dropdown with the internal id in a hidden column to prevent mismatches.
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `ticket_type_id` | Preferred | Internal ID of the Ticket Type |
-| `ticket_type_name` | Fallback | Human-readable name when ID is unavailable |
+| `email` | Yes | Buyer email (Sale Confirmation is sent here) |
+| `name` | Yes | Buyer name |
+| `ticket_type` | Yes | Ticket Type (dropdown; backed by hidden internal id) |
 | `quantity` | Yes | Number of tickets sold |
-| `sold_at` | Yes | When the sale occurred (ISO 8601) |
-| `external_reference` | No | Reference from the External Platform (for future dedup) |
+| `payment_method` | Yes | `cash` or `transfer` |
+| `sold_at` | Yes | When the sale occurred (ISO 8601; Excel dates coerced; Event timezone) |
+| `amount` | No | Unit price charged; blank → catalog price (`0` = comp) |
+
+One file row = one Ticket Sale = one Ticket Sale Line. Grouping lines into one sale via an optional `order_ref` is deferred.
 
 ### Processing
 
-- Staff uploads via the Staff app → Staff BFF → `POST /api/v1/staff/.../sale-imports`.
-- Go parses the CSV and processes it **synchronously** in the request.
+- Staff uploads via the Staff app → Staff BFF → Go staff routes (template download, **preview**, **commit**, **undo**), scoped to an Event and gated by `can_manage_event_sales`.
+- **Preview** parses and validates every row server-side and returns all problems at once (unknown type, bad email, missing field, future `sold_at`, oversell, and soft duplicate flags matching an existing sale on `email + ticket_type + sold_at`), plus the capacity impact. No writes.
+- **Commit** runs **synchronously** in a **single transaction**: re-validate under row locks, insert sales + lines, decrement capacity, record the batch, and email each buyer a Sale Confirmation. Oversell fails the entire import (`IMPORT_BATCH_FAILED`); a replayed idempotency key returns the original result.
+- Oversell is **blocked, not clamped** — `sold_count ≤ capacity` always holds; Staff raise the Ticket Type's capacity (an inline catalog edit) and re-preview.
+- The **latest** committed batch per Event can be **undone** (reverse sales, restore capacity), sending void emails only when the caller opts in.
 - A reasonable row limit applies (target: 10,000 rows per batch).
-- The batch runs in a **single transaction**; oversell fails the entire import.
-- JSON import and async processing are deferred.
+- Async processing and the `external_platform` source are deferred.
 
 ## Local development
 
@@ -586,7 +597,7 @@ The following are explicitly out of scope for this technical design at launch:
 | Metrics and distributed tracing | Structured logs + request IDs at launch |
 | Customer accounts | Guest checkout only |
 | Stripe Terminal / in-person card capture | In-person sales recorded in POS; card capture TBD |
-| JSON Sale Import | CSV only at launch |
+| JSON / async Sale Import | Synchronous `.csv` / `.xlsx` upload at launch |
 | Per-event Integration scope | Org-wide per business intent |
 
 ## Success criteria (technical)

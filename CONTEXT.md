@@ -100,7 +100,7 @@ _Avoid_: User tag, private tag, org tag
 
 **Customer**:
 A person who buys a ticket.
-At launch, not modeled beyond their role in an Online Sale.
+Identified by a required email and name on every Ticket Sale, so the platform can email them a Sale Confirmation. Not otherwise modeled as an account at launch.
 _Avoid_: Buyer, purchaser, account
 
 **Ticket Sale**:
@@ -112,7 +112,7 @@ One Ticket Type and the quantity sold within a Ticket Sale.
 _Avoid_: Line item, cart item
 
 **Sales Channel**:
-The medium through which a Ticket Sale occurs: online or in person.
+The medium through which a Ticket Sale is recorded: `online`, `in_person`, or `import`. Distinct from Sales Source, which further qualifies where an imported sale originated.
 _Avoid_: Sale type, payment method
 
 **Storefront**:
@@ -127,11 +127,27 @@ _Avoid_: Web sale, e-commerce sale
 A Ticket Sale completed at a physical point of sale by Event Staff.
 _Avoid_: Door sale, box office sale, walk-up sale
 
+**Payment Method**:
+How a Ticket Sale was paid. Recorded for Direct Sales, where the value is `cash` or `transfer` at launch. Modeled as an extensible set so further methods can be added later.
+_Avoid_: Payment type, tender, channel
+
+**Sale Confirmation**:
+A per-Ticket-Sale receipt carrying a human-readable reference code (e.g. `TP-3F9K2`), emailed to the Customer whenever a Ticket Sale is recorded. Not a per-attendee admission ticket; the model leaves room to attach individual tickets later.
+_Avoid_: Ticket, receipt, order confirmation
+
 **External Platform**:
 A third-party ticketing service through which tickets may be sold outside this system.
 Distinct from an Integration Partner, which manages this system programmatically rather than supplying sales to import.
 _Avoid_: Partner platform, external vendor
 
+**Sales Source**:
+Where an imported Ticket Sale originated: `external_platform` (a third-party service such as Eventbrite) or `direct` (the Organization's own off-platform sale). Qualifies a Ticket Sale on the `import` Sales Channel.
+_Avoid_: Origin, provider, vendor
+
+**Direct Sale**:
+A Ticket Sale the Organization made off-platform on its own — for example a cash or bank-transfer sale arranged directly with a Customer — recorded through a Sale Import with Sales Source `direct` and a Payment Method. Distinct from an In-Person Sale (live at a physical POS) and from an External Platform sale (made in a third-party system).
+_Avoid_: Manual sale, offline sale, cash sale
+
 **Sale Import**:
-A batch upload of Ticket Sales from an External Platform during a given period, performed by Event Staff, counted against Ticket Type capacity.
+A batch upload of Ticket Sales, performed by a Member who can manage the Event's sales and counted against Ticket Type capacity. Each batch carries a Sales Source: `external_platform` sales made in a third-party service, or `direct` sales the Organization made itself. Recorded as a batch so the most recent import to an Event can be reversed. At launch the `direct` source ships first.
 _Avoid_: Manual sale entry, external sale upload

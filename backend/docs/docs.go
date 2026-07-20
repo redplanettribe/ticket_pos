@@ -8,6 +8,24 @@ const docTemplate = `{
     "schemes": {{ marshal .Schemes }},
     "components": {
         "schemas": {
+            "handler.commitImportBody": {
+                "properties": {
+                    "idempotency_key": {
+                        "type": "string"
+                    },
+                    "sales": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.importSaleRow"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "source": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.coverUploadURLBody": {
                 "properties": {
                     "content_type": {
@@ -62,6 +80,32 @@ const docTemplate = `{
                 "properties": {
                     "status": {
                         "example": "ok",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.importSaleRow": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_name": {
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "type": "integer"
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
                         "type": "string"
                     }
                 },
@@ -2001,6 +2045,113 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Publish event",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/sale-imports": {
+            "post": {
+                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.commitImportBody",
+                                        "summary": "body",
+                                        "description": "Sale import batch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Sale import batch",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Commit a Direct Sale Import",
                 "tags": [
                     "staff"
                 ]
