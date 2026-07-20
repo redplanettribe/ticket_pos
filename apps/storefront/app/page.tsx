@@ -2,13 +2,13 @@ import { PageHeader, StorefrontShell } from "@ticket-pos/ui";
 
 import { ExplorerFilters } from "@/components/explorer-filters";
 import { ExplorerResults } from "@/components/explorer-results";
-import { EXPLORER_PAGE_SIZE, listPublicEvents } from "@/lib/api";
+import { EXPLORER_PAGE_SIZE, listPublicEvents, listPublicTags } from "@/lib/api";
 import { isWhenPreset, whenToRange } from "@/lib/when";
 
 export const dynamic = "force-dynamic";
 
 type HomePageProps = {
-  searchParams: Promise<{ q?: string; when?: string }>;
+  searchParams: Promise<{ q?: string; when?: string; tags?: string }>;
 };
 
 export default async function HomePage({ searchParams }: HomePageProps) {
@@ -16,13 +16,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const q = params.q?.trim() || undefined;
   const preset = isWhenPreset(params.when) ? params.when : "all";
   const range = whenToRange(preset);
+  const selectedTags = (params.tags ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
 
-  const page = await listPublicEvents({
-    q,
-    from: range.from,
-    to: range.to,
-    limit: EXPLORER_PAGE_SIZE,
-  });
+  const [page, presetTags] = await Promise.all([
+    listPublicEvents({
+      q,
+      from: range.from,
+      to: range.to,
+      tags: selectedTags.length > 0 ? selectedTags : undefined,
+      limit: EXPLORER_PAGE_SIZE,
+    }),
+    listPublicTags(),
+  ]);
 
   return (
     <StorefrontShell>
@@ -31,13 +39,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           title="Discover events"
           description="Find and explore upcoming events from organizers everywhere."
         />
-        <ExplorerFilters />
+        <ExplorerFilters presetTags={presetTags ?? []} />
         <ExplorerResults
           initialEvents={page?.events ?? []}
           initialCursor={page?.next_cursor ?? null}
           q={q}
           from={range.from}
           to={range.to}
+          tags={selectedTags}
         />
       </div>
     </StorefrontShell>

@@ -253,6 +253,8 @@ export interface paths {
                     from?: string;
                     /** @description Only events starting on or before this RFC3339 time */
                     to?: string;
+                    /** @description Comma-separated tag names; events carrying any of them match */
+                    tags?: string;
                     /** @description Page size (default 20, max 50) */
                     limit?: number;
                     /** @description Pagination cursor from a previous response */
@@ -379,6 +381,54 @@ export interface paths {
                 };
                 /** @description Not Found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List public filter tags
+         * @description Lists preset tags carried by at least one discoverable upcoming event, for the storefront explorer chip bar. Independent of any q/date filter.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTagList"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };

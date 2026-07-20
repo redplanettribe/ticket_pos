@@ -20,6 +20,7 @@ import (
 // @Param        q       query     string  false  "Search over event and organization name"
 // @Param        from    query     string  false  "Only events starting on or after this RFC3339 time"
 // @Param        to      query     string  false  "Only events starting on or before this RFC3339 time"
+// @Param        tags    query     string  false  "Comma-separated tag names; events carrying any of them match"
 // @Param        limit   query     int     false  "Page size (default 20, max 50)"
 // @Param        cursor  query     string  false  "Pagination cursor from a previous response"
 // @Success      200     {object}  openapi.EnvelopePublicEventPage
@@ -59,12 +60,48 @@ func (h *Handler) ListPublicEvents(w http.ResponseWriter, r *http.Request) {
 		To:     to,
 		Limit:  limit,
 		Cursor: q.Get("cursor"),
+		Tags:   parseCSV(q.Get("tags")),
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, page)
+}
+
+// ListPublicTags returns the Preset Tags available as explorer filter chips.
+//
+// @Summary      List public filter tags
+// @Description  Lists preset tags carried by at least one discoverable upcoming event, for the storefront explorer chip bar. Independent of any q/date filter.
+// @Tags         public
+// @Produce      json
+// @Success      200  {object}  openapi.EnvelopeTagList
+// @Failure      400  {object}  platform.Envelope
+// @Router       /api/v1/public/tags [get]
+func (h *Handler) ListPublicTags(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	tags, err := h.svc.ListAvailablePresetTags(r.Context())
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, tags)
+}
+
+// parseCSV splits a comma-separated query param into trimmed, non-empty values.
+func parseCSV(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			values = append(values, v)
+		}
+	}
+	return values
 }
 
 // GetPublicOrganizationEvents returns an Organization's public profile and its

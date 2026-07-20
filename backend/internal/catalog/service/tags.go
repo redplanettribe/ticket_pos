@@ -49,6 +49,44 @@ func (s *Service) SearchTags(ctx context.Context, query string) ([]TagView, erro
 	return toTagViews(tags), nil
 }
 
+// ListAvailablePresetTags returns the Preset Tags carried by at least one
+// currently discoverable, upcoming Event, for the Storefront explorer's derived
+// chip bar. The set is computed against the full discoverable-upcoming pool
+// (independent of any q/date facet) so the chip bar stays stable as visitors
+// refine their filters, and presets with no matching Event are omitted.
+func (s *Service) ListAvailablePresetTags(ctx context.Context) ([]TagView, error) {
+	tags, err := s.repo.ListAvailablePresetTags(ctx, s.now())
+	if err != nil {
+		return nil, err
+	}
+	return toTagViews(tags), nil
+}
+
+// canonicalTagKeys canonicalizes raw tag names into deduped canonical keys for
+// matching against the pool, dropping any that canonicalize to empty.
+func canonicalTagKeys(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, raw := range names {
+		key := canonicalTagKey(raw)
+		if key == "" {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return keys
+}
+
 // ListEventTags returns the Tags assigned to an Event in the active Organization.
 func (s *Service) ListEventTags(ctx context.Context, actor ActorContext, eventID string) ([]TagView, error) {
 	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)

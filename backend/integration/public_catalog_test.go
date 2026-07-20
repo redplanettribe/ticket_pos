@@ -335,6 +335,141 @@ func TestPublicReadsExposeEventTagsAsBadges(t *testing.T) {
 	assertBadges("detail", publicEventCard{Tags: detail.Tags})
 }
 
+func TestPublicGlobalExplorerFiltersByTags(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	soon := env.fixedClock.Add(10 * 24 * time.Hour)
+	musicID := publishEvent(t, env, sessionID, "Music Fest", "music-fest", soon, true, 1000, 100)
+	comedyID := publishEvent(t, env, sessionID, "Comedy Fest", "comedy-fest", soon.Add(time.Hour), true, 1000, 100)
+	publishEvent(t, env, sessionID, "Plain Fest", "plain-fest", soon.Add(2*time.Hour), true, 1000, 100)
+
+	if resp, b := setEventTags(t, env, sessionID, musicID, []string{"Music"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set music tags status=%d error=%+v", resp.StatusCode, b.Error)
+	}
+	if resp, b := setEventTags(t, env, sessionID, comedyID, []string{"Comedy"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set comedy tags status=%d error=%+v", resp.StatusCode, b.Error)
+	}
+
+	slugs := func(query string) []string {
+		resp, body := env.get(t, "/api/v1/public/events"+query, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("explorer%s status=%d error=%+v", query, resp.StatusCode, body.Error)
+		}
+		var page struct {
+			Events []publicEventCard `json:"events"`
+		}
+		if err := json.Unmarshal(body.Data, &page); err != nil {
+			t.Fatalf("decode explorer%s: %v", query, err)
+		}
+		out := make([]string, len(page.Events))
+		for i, e := range page.Events {
+			out[i] = e.Slug
+		}
+		return out
+	}
+
+	// OR within the tag facet: Music OR Comedy returns both tagged events, not plain.
+	if got := slugs("?tags=music,comedy"); len(got) != 2 ||
+		!containsAll(got, "music-fest", "comedy-fest") {
+		t.Fatalf("expected music-fest and comedy-fest for tags=music,comedy, got %+v", got)
+	}
+	// Single tag narrows to just that event (canonicalization: mixed case).
+	if got := slugs("?tags=MUSIC"); len(got) != 1 || got[0] != "music-fest" {
+		t.Fatalf("expected only music-fest for tags=MUSIC, got %+v", got)
+	}
+	// Empty/absent tag filter leaves results unchanged (all three).
+	if got := slugs(""); len(got) != 3 {
+		t.Fatalf("expected all 3 events with no tag filter, got %+v", got)
+	}
+
+	// AND across facets: tag filter combined with q narrows to the intersection.
+	// Comedy tag AND q=music matches nothing (comedy-fest name has no "music").
+	if got := slugs("?tags=comedy&q=music"); len(got) != 0 {
+		t.Fatalf("expected no events for tags=comedy&q=music, got %+v", got)
+	}
+	// Music tag AND q=music matches only music-fest.
+	if got := slugs("?tags=music&q=music"); len(got) != 1 || got[0] != "music-fest" {
+		t.Fatalf("expected only music-fest for tags=music&q=music, got %+v", got)
+	}
+
+	// AND across facets with a date window: from just before comedy-fest excludes music-fest.
+	fromWindow := "?tags=music,comedy&from=" + soon.Add(30*time.Minute).Format(time.RFC3339)
+	if got := slugs(fromWindow); len(got) != 1 || got[0] != "comedy-fest" {
+		t.Fatalf("expected only comedy-fest for tag+from window, got %+v", got)
+	}
+}
+
+func TestPublicExplorerAvailablePresetChips(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	soon := env.fixedClock.Add(10 * 24 * time.Hour)
+	past := env.fixedClock.Add(-10 * 24 * time.Hour)
+
+	// Discoverable upcoming event carrying preset Music + custom Techno.
+	musicID := publishEvent(t, env, sessionID, "Music Fest", "music-fest", soon, true, 1000, 100)
+	if resp, b := setEventTags(t, env, sessionID, musicID, []string{"Music", "Techno"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set music tags status=%d error=%+v", resp.StatusCode, b.Error)
+	}
+	// Preset Comedy carried only by a non-discoverable event: must not appear.
+	hiddenID := publishEvent(t, env, sessionID, "Hidden Comedy", "hidden-comedy", soon, false, 1000, 100)
+	if resp, b := setEventTags(t, env, sessionID, hiddenID, []string{"Comedy"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set comedy tags status=%d error=%+v", resp.StatusCode, b.Error)
+	}
+	// Preset Film carried only by a past event: must not appear.
+	pastID := publishEvent(t, env, sessionID, "Past Film", "past-film", past, true, 1000, 100)
+	if resp, b := setEventTags(t, env, sessionID, pastID, []string{"Film"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set film tags status=%d error=%+v", resp.StatusCode, b.Error)
+	}
+
+	resp, body := env.get(t, "/api/v1/public/tags", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public tags status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	tags := decodeTags(t, body.Data)
+
+	names := make(map[string]bool)
+	for _, tg := range tags {
+		names[tg.Name] = true
+		if !tg.Curated {
+			t.Fatalf("expected only curated presets, got custom tag %q", tg.Name)
+		}
+	}
+	// Music has a discoverable upcoming event: present.
+	if !names["Music"] {
+		t.Fatalf("expected Music chip, got %+v", tags)
+	}
+	// Techno is a custom tag: never a chip.
+	if names["Techno"] {
+		t.Fatalf("custom tag Techno must not be a chip, got %+v", tags)
+	}
+	// Comedy (only non-discoverable) and Film (only past) must be excluded.
+	if names["Comedy"] {
+		t.Fatalf("Comedy carried only by a hidden event must not be a chip, got %+v", tags)
+	}
+	if names["Film"] {
+		t.Fatalf("Film carried only by a past event must not be a chip, got %+v", tags)
+	}
+	// A preset no event carries at all (e.g. Sports) must be excluded.
+	if names["Sports"] {
+		t.Fatalf("Sports carried by no event must not be a chip, got %+v", tags)
+	}
+}
+
+func containsAll(haystack []string, needles ...string) bool {
+	set := make(map[string]bool, len(haystack))
+	for _, h := range haystack {
+		set[h] = true
+	}
+	for _, n := range needles {
+		if !set[n] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestPublicEventPageDraftNotFound(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)

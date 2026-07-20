@@ -14,9 +14,17 @@ type ExplorerResultsProps = {
   from?: string;
   to?: string;
   q?: string;
+  tags?: string[];
 };
 
-export function ExplorerResults({ initialEvents, initialCursor, from, to, q }: ExplorerResultsProps) {
+export function ExplorerResults({
+  initialEvents,
+  initialCursor,
+  from,
+  to,
+  q,
+  tags,
+}: ExplorerResultsProps) {
   const [events, setEvents] = useState(initialEvents);
   const [cursor, setCursor] = useState(initialCursor);
   const [loading, setLoading] = useState(false);
@@ -31,6 +39,7 @@ export function ExplorerResults({ initialEvents, initialCursor, from, to, q }: E
       if (q) params.set("q", q);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
+      if (tags && tags.length > 0) params.set("tags", tags.join(","));
       params.set("cursor", cursor);
       params.set("limit", String(EXPLORER_PAGE_SIZE));
 

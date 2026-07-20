@@ -76,10 +76,16 @@ export type PublicOrganizationEvents = {
 // client "Load more" fetch request the same number of cards.
 export const EXPLORER_PAGE_SIZE = 12;
 
+export type PublicTag = {
+  name: string;
+  curated: boolean;
+};
+
 export type ListEventsParams = {
   q?: string;
   from?: string;
   to?: string;
+  tags?: string[];
   cursor?: string;
   limit?: number;
 };
@@ -106,10 +112,18 @@ export async function listPublicEvents(params: ListEventsParams = {}): Promise<P
   if (params.q) query.set("q", params.q);
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
+  if (params.tags && params.tags.length > 0) query.set("tags", params.tags.join(","));
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return fetchData<PublicEventPage>(`/api/v1/public/events${suffix}`);
+}
+
+// listPublicTags returns the preset filter chips for the explorer. The backend
+// derives this from the full discoverable-upcoming pool, so the bar is stable
+// regardless of the active q/date/tag selection.
+export async function listPublicTags(): Promise<PublicTag[] | null> {
+  return fetchData<PublicTag[]>(`/api/v1/public/tags`);
 }
 
 export async function getOrganizationEvents(slug: string): Promise<PublicOrganizationEvents | null> {

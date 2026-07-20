@@ -38,6 +38,9 @@ type PublicEventFilter struct {
 	Limit          int
 	CursorStartsAt *time.Time
 	CursorID       string
+	// TagKeys is a set of canonical tag keys; an Event matches if it carries any
+	// of them (OR within the facet). Empty means no tag constraint.
+	TagKeys []string
 }
 
 const publicEventColumns = `
@@ -117,6 +120,11 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 		cursorID = filter.CursorID
 	}
 
+	var tagKeys any
+	if len(filter.TagKeys) > 0 {
+		tagKeys = filter.TagKeys
+	}
+
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+publicEventColumns+`
 		`+publicEventFrom+`
@@ -131,6 +139,14 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 		    OR e.starts_at > $5
 		    OR (e.starts_at = $5 AND e.id > $6::uuid)
 		  )
+		  AND (
+		    $8::text[] IS NULL
+		    OR EXISTS (
+		      SELECT 1 FROM event_tags et
+		      JOIN tags t ON t.id = et.tag_id
+		      WHERE et.event_id = e.id AND t.canonical_key = ANY($8)
+		    )
+		  )
 		ORDER BY e.starts_at ASC, e.id ASC
 		LIMIT $7
 	`,
@@ -141,6 +157,7 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 		filter.CursorStartsAt,
 		cursorID,
 		filter.Limit,
+		tagKeys,
 	)
 	if err != nil {
 		return nil, err

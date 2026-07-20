@@ -1095,6 +1095,14 @@ const docTemplate = `{
                         }
                     },
                     {
+                        "description": "Comma-separated tag names; events carrying any of them match",
+                        "in": "query",
+                        "name": "tags",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Page size (default 20, max 50)",
                         "in": "query",
                         "name": "limit",
@@ -1227,6 +1235,37 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Get public event",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/tags": {
+            "get": {
+                "description": "Lists preset tags carried by at least one discoverable upcoming event, for the storefront explorer chip bar. Independent of any q/date filter.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTagList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "List public filter tags",
                 "tags": [
                     "public"
                 ]

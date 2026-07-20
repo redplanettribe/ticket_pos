@@ -7,10 +7,12 @@ import { listPublicEvents } from "@/lib/api";
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const limit = params.get("limit");
+  const tags = params.get("tags");
   const page = await listPublicEvents({
     q: params.get("q") ?? undefined,
     from: params.get("from") ?? undefined,
     to: params.get("to") ?? undefined,
+    tags: tags ? tags.split(",").filter(Boolean) : undefined,
     cursor: params.get("cursor") ?? undefined,
     limit: limit ? Number(limit) : undefined,
   });

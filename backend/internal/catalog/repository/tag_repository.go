@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // Tag is a discovery facet in the shared, system-wide pool.
@@ -33,6 +34,43 @@ func (r *Repository) SearchTags(ctx context.Context, canonicalQuery string, limi
 		ORDER BY curated DESC, display_name ASC
 		LIMIT $2
 	`, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tags := make([]Tag, 0)
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
+	}
+	return tags, rows.Err()
+}
+
+// ListAvailablePresetTags returns the Preset Tags (curated) carried by at least
+// one published, discoverable, not-yet-ended Event, ordered by display name. It
+// backs the explorer's derived chip bar: presets with no matching Event are
+// omitted so no chip dead-ends. The pool is evaluated against now only (no q or
+// date facet) so the bar stays stable as visitors refine their search.
+func (r *Repository) ListAvailablePresetTags(ctx context.Context, now time.Time) ([]Tag, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+tagColumnsPrefixed("t")+`
+		FROM tags t
+		WHERE t.curated = TRUE
+		  AND EXISTS (
+		    SELECT 1
+		    FROM event_tags et
+		    JOIN events e ON e.id = et.event_id
+		    WHERE et.tag_id = t.id
+		      AND e.status = 'published'
+		      AND e.discoverable = TRUE
+		      AND COALESCE(e.ends_at, e.starts_at) >= $1
+		  )
+		ORDER BY t.display_name ASC
+	`, now)
 	if err != nil {
 		return nil, err
 	}

@@ -87,6 +87,9 @@ type PublicEventQuery struct {
 	To     *time.Time
 	Limit  int
 	Cursor string
+	// Tags are raw tag names; an Event matches if it carries any of them (OR
+	// within the facet). Canonicalized server-side before matching.
+	Tags []string
 }
 
 // ListDiscoverableEvents returns a page of published, discoverable, not-yet-ended
@@ -110,6 +113,7 @@ func (s *Service) ListDiscoverableEvents(ctx context.Context, q PublicEventQuery
 		Limit:          limit + 1,
 		CursorStartsAt: cursorStartsAt,
 		CursorID:       cursorID,
+		TagKeys:        canonicalTagKeys(q.Tags),
 	})
 	if err != nil {
 		return nil, err
