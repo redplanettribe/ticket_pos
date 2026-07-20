@@ -54,6 +54,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<Tag[]>([]);
+  const [presets, setPresets] = useState<Tag[]>([]);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +74,25 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
   useEffect(() => {
     void loadTags();
   }, [loadTags]);
+
+  // Load the Preset Tags once so they are visible at all times — steering the
+  // organizer toward reusing an existing Tag rather than coining a near-duplicate.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const results = await searchTags("");
+        if (!cancelled) {
+          setPresets(sortTags(results.filter((tag) => tag.curated)));
+        }
+      } catch {
+        // Presets are a convenience; the search box still works without them.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Typeahead search against the shared Tag pool, debounced.
   useEffect(() => {
@@ -150,6 +170,14 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
     setTags((current) => current.filter((tag) => tagCanonicalKey(tag.name) !== key));
   }
 
+  function togglePreset(tag: Tag) {
+    if (selectedKeys.has(tagCanonicalKey(tag.name))) {
+      removeTag(tag.name);
+    } else {
+      addTag(tag);
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     try {
@@ -203,6 +231,32 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                 ))}
               </div>
             )}
+
+            {presets.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Preset Tags</p>
+                <div className="flex flex-wrap gap-2">
+                  {presets.map((tag) => {
+                    const active = selectedKeys.has(tagCanonicalKey(tag.name));
+                    return (
+                      <button
+                        key={tagCanonicalKey(tag.name)}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => togglePreset(tag)}
+                        className={
+                          active
+                            ? "rounded-full border border-primary bg-primary px-3 py-1 text-sm text-primary-foreground transition-colors"
+                            : "rounded-full border border-input bg-background px-3 py-1 text-sm text-foreground transition-colors hover:bg-muted"
+                        }
+                      >
+                        {tag.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             <div className="relative" ref={containerRef}>
               <FormField id="event-tags-search" label="Add a tag">
