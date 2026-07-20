@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { PageHeader, StorefrontShell } from "@ticket-pos/ui";
+import { Breadcrumb, PageHeader, StorefrontShell } from "@ticket-pos/ui";
 
 import { EmptyState, EventGrid } from "@/components/event-grid";
 import { getOrganizationEvents } from "@/lib/api";
@@ -35,6 +35,9 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
   return (
     <StorefrontShell organizationName={organization.name} organizationLogoUrl={organization.logo_url}>
       <div className="mx-auto w-full max-w-6xl space-y-10 px-4 py-10 sm:py-12">
+        <Breadcrumb
+          items={[{ label: "Discover events", href: "/" }, { label: organization.name }]}
+        />
         <PageHeader
           title={organization.name}
           description="Upcoming events and past highlights."

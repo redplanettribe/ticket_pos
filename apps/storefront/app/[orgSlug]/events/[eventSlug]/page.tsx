@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Alert, AlertDescription, AlertTitle, Badge, StorefrontShell } from "@ticket-pos/ui";
+import { Alert, AlertDescription, AlertTitle, Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
 
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getPublicEvent } from "@/lib/api";
@@ -50,6 +50,14 @@ export default async function EventPage({ params }: EventPageProps) {
       organizationLogoUrl={event.organization.logo_url}
     >
       <article className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
+        <Breadcrumb
+          className="mb-6"
+          items={[
+            { label: "Discover events", href: "/" },
+            { label: event.organization.name, href: `/${event.organization.slug}` },
+            { label: event.name },
+          ]}
+        />
         <div className="overflow-hidden rounded-xl border bg-muted">
           <div className="relative aspect-[16/9] w-full">
             {event.cover_image_url ? (
