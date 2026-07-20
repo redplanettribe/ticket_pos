@@ -21,7 +21,13 @@ import {
   statusBadgeVariant,
 } from "@/lib/events-api";
 
-export function EventsPageClient() {
+import { DiscoverabilityToggle } from "./discoverability-toggle";
+
+type EventsPageClientProps = {
+  isOrgAdmin: boolean;
+};
+
+export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -50,6 +56,12 @@ export function EventsPageClient() {
     void loadEvents();
   }, [loadEvents]);
 
+  const handleDiscoverableChange = useCallback((eventId: string, discoverable: boolean) => {
+    setEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, discoverable } : event)),
+    );
+  }, []);
+
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading events...</p>;
   }
@@ -58,7 +70,7 @@ export function EventsPageClient() {
     return (
       <Alert variant="destructive">
         <AlertTitle>Access denied</AlertTitle>
-        <AlertDescription>You need Org Admin access to manage the event catalog.</AlertDescription>
+        <AlertDescription>You do not have access to these events.</AlertDescription>
       </Alert>
     );
   }
@@ -76,40 +88,78 @@ export function EventsPageClient() {
     <div className="space-y-6">
       <PageHeader
         title="Events"
-        description="Create and manage Events and Ticket Types."
+        description={
+          isOrgAdmin
+            ? "Create and manage Events and Ticket Types."
+            : "Choose which Events are listed on the public storefront."
+        }
         actions={
-          <Button asChild>
-            <Link href="/events/new">Create event</Link>
-          </Button>
+          isOrgAdmin ? (
+            <Button asChild>
+              <Link href="/events/new">Create event</Link>
+            </Button>
+          ) : undefined
         }
       />
 
       {events.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-start gap-4 py-10">
-            <p className="text-muted-foreground">No events yet. Create your first Event to start building your catalog.</p>
-            <Button asChild>
-              <Link href="/events/new">Create event</Link>
-            </Button>
+            {isOrgAdmin ? (
+              <>
+                <p className="text-muted-foreground">
+                  No events yet. Create your first Event to start building your catalog.
+                </p>
+                <Button asChild>
+                  <Link href="/events/new">Create event</Link>
+                </Button>
+              </>
+            ) : (
+              <p className="text-muted-foreground">No events yet.</p>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {events.map((event) => (
-            <Link
-              key={event.id}
-              href={`/events/${event.id}`}
-              className="flex flex-col gap-3 rounded-md border p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
-            >
+          {events.map((event) => {
+            const details = (
               <div className="space-y-1">
                 <p className="font-medium">{event.name}</p>
-                <p className="text-sm text-muted-foreground">{formatEventStartDate(event.starts_at, event.timezone)}</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatEventStartDate(event.starts_at, event.timezone)}
+                </p>
               </div>
-              <Badge variant={statusBadgeVariant(event.status)} className="w-fit capitalize">
-                {event.status}
-              </Badge>
-            </Link>
-          ))}
+            );
+
+            return (
+              <div
+                key={event.id}
+                className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                {isOrgAdmin ? (
+                  <Link
+                    href={`/events/${event.id}`}
+                    className="-m-2 rounded-md p-2 transition-colors hover:bg-muted/50"
+                  >
+                    {details}
+                  </Link>
+                ) : (
+                  details
+                )}
+                <div className="flex items-center gap-3">
+                  <Badge variant={statusBadgeVariant(event.status)} className="w-fit capitalize">
+                    {event.status}
+                  </Badge>
+                  <DiscoverabilityToggle
+                    eventId={event.id}
+                    status={event.status}
+                    discoverable={event.discoverable}
+                    onChange={(discoverable) => handleDiscoverableChange(event.id, discoverable)}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

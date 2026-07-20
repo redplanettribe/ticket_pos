@@ -22,6 +22,7 @@ export type EventListItem = {
   status: string;
   starts_at: string | null;
   timezone: string | null;
+  discoverable: boolean;
   created_at: string;
 };
 
@@ -38,6 +39,7 @@ export type EventDetail = {
   description: string | null;
   cover_image_key: string | null;
   cover_image_url: string | null;
+  discoverable: boolean;
   created_at: string;
 };
 
@@ -132,6 +134,13 @@ export async function fetchEventsJSON<T>(path: string, init?: RequestInit): Prom
     throw new Error("Empty response");
   }
   return envelope.data;
+}
+
+export async function setEventDiscoverable(eventId: string, discoverable: boolean): Promise<EventDetail> {
+  return fetchEventsJSON<EventDetail>(`/api/events/${eventId}/discoverable`, {
+    method: "PUT",
+    body: JSON.stringify({ discoverable }),
+  });
 }
 
 export function slugify(name: string): string {

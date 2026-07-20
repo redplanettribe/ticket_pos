@@ -40,7 +40,6 @@ type updateEventBody struct {
 	VenueAddress  *string `json:"venue_address"`
 	Description   *string `json:"description"`
 	CoverImageKey *string `json:"cover_image_key"`
-	Discoverable  *bool   `json:"discoverable"`
 }
 
 type coverUploadURLBody struct {
@@ -297,6 +296,59 @@ func (h *Handler) CancelEvent(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromRequest(r)
 
 	event, err := h.svc.CancelEvent(r.Context(), actor, eventID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, event)
+}
+
+type setDiscoverableBody struct {
+	Discoverable *bool `json:"discoverable"`
+}
+
+// SetEventDiscoverable toggles whether a published Event is listed publicly.
+//
+// @Summary      Set event discoverability
+// @Description  Sets whether a published event is listed in public discovery surfaces. Available to any organization member.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string               true  "Event ID"
+// @Param        body  body      setDiscoverableBody  true  "Discoverability flag"
+// @Success      200   {object}  openapi.EnvelopeEventDetail
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/discoverable [put]
+func (h *Handler) SetEventDiscoverable(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "id", Message: "is required"},
+		})
+		return
+	}
+
+	var body setDiscoverableBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+	if body.Discoverable == nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "discoverable", Message: "is required"},
+		})
+		return
+	}
+
+	actor := actorFromRequest(r)
+
+	event, err := h.svc.SetEventDiscoverable(r.Context(), actor, eventID, *body.Discoverable)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -662,6 +714,5 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		VenueAddress:  body.VenueAddress,
 		Description:   body.Description,
 		CoverImageKey: body.CoverImageKey,
-		Discoverable:  body.Discoverable,
 	}, nil
 }

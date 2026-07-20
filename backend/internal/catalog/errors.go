@@ -39,6 +39,11 @@ func ErrEventNotDraft() apperror.DomainError {
 	return newDomainError("EVENT_NOT_DRAFT", "This change is only allowed while the event is a draft.", nil)
 }
 
+// ErrEventNotPublished is returned when discoverability is changed on a non-published Event.
+func ErrEventNotPublished() apperror.DomainError {
+	return newDomainError("EVENT_NOT_PUBLISHED", "Only published events can be made discoverable.", nil)
+}
+
 // ErrEventDeleteForbidden is returned when delete is attempted on a published or cancelled Event.
 func ErrEventDeleteForbidden() apperror.DomainError {
 	return newDomainError("EVENT_DELETE_FORBIDDEN", "Only draft events can be deleted.", nil)

@@ -59,6 +59,13 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 		)
 	}
 
+	// member gates a route to any active Member of the organization, regardless of role.
+	member := func(handler http.Handler) http.Handler {
+		return identitymiddleware.SessionAuth(svc)(
+			identitymiddleware.LoadActiveMember(svc)(handler),
+		)
+	}
+
 	mux.Handle("GET /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.GetOrganization)))
 	mux.Handle("PATCH /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.UpdateOrganization)))
 	mux.Handle("DELETE /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.DeleteOrganization)))
@@ -69,10 +76,11 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("PATCH /api/v1/staff/members/{memberID}", orgAdmin(http.HandlerFunc(h.UpdateMember)))
 	mux.Handle("DELETE /api/v1/staff/members/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveMember)))
 
-	mux.Handle("GET /api/v1/staff/events", orgAdmin(http.HandlerFunc(ch.ListEvents)))
+	mux.Handle("GET /api/v1/staff/events", member(http.HandlerFunc(ch.ListEvents)))
 	mux.Handle("POST /api/v1/staff/events", orgAdmin(http.HandlerFunc(ch.CreateEvent)))
-	mux.Handle("GET /api/v1/staff/events/{id}", orgAdmin(http.HandlerFunc(ch.GetEvent)))
+	mux.Handle("GET /api/v1/staff/events/{id}", member(http.HandlerFunc(ch.GetEvent)))
 	mux.Handle("PATCH /api/v1/staff/events/{id}", orgAdmin(http.HandlerFunc(ch.UpdateEvent)))
+	mux.Handle("PUT /api/v1/staff/events/{id}/discoverable", member(http.HandlerFunc(ch.SetEventDiscoverable)))
 	mux.Handle("DELETE /api/v1/staff/events/{id}", orgAdmin(http.HandlerFunc(ch.DeleteEvent)))
 	mux.Handle("POST /api/v1/staff/events/{id}/publish", orgAdmin(http.HandlerFunc(ch.PublishEvent)))
 	mux.Handle("POST /api/v1/staff/events/{id}/cancel", orgAdmin(http.HandlerFunc(ch.CancelEvent)))

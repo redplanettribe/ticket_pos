@@ -94,6 +94,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.setDiscoverableBody": {
+                "properties": {
+                    "discoverable": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "handler.updateEventBody": {
                 "properties": {
                     "cover_image_key": {
@@ -101,9 +109,6 @@ const docTemplate = `{
                     },
                     "description": {
                         "type": "string"
-                    },
-                    "discoverable": {
-                        "type": "boolean"
                     },
                     "ends_at": {
                         "type": "string"
@@ -1718,6 +1723,113 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Create cover upload URL",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/discoverable": {
+            "put": {
+                "description": "Sets whether a published event is listed in public discovery surfaces. Available to any organization member.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.setDiscoverableBody",
+                                        "summary": "body",
+                                        "description": "Discoverability flag"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Discoverability flag",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeEventDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Set event discoverability",
                 "tags": [
                     "staff"
                 ]

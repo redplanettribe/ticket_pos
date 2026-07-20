@@ -207,6 +207,17 @@ func (r *Repository) UpdateEventStatus(ctx context.Context, orgID, eventID strin
 	return scanEvent(row)
 }
 
+// SetEventDiscoverable sets the discoverable flag on an Event.
+func (r *Repository) SetEventDiscoverable(ctx context.Context, orgID, eventID string, discoverable bool) (*Event, error) {
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE events
+		SET discoverable = $3
+		WHERE id = $1 AND organization_id = $2
+		RETURNING `+eventColumns+`
+	`, eventID, orgID, discoverable)
+	return scanEvent(row)
+}
+
 // DeleteEvent removes an event by ID scoped to an organization.
 func (r *Repository) DeleteEvent(ctx context.Context, orgID, eventID string) error {
 	result, err := r.db.Pool.ExecContext(ctx, `

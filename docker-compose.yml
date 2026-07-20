@@ -93,6 +93,7 @@ services:
     ports:
       - "64300:3000"
     environment:
+      API_URL: http://backend:8080
       NEXT_PUBLIC_API_URL: http://localhost:64080
     depends_on:
       backend:

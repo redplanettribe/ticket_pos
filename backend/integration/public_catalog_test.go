@@ -7,19 +7,19 @@ import (
 	"time"
 )
 
-// publishEvent creates a draft event, fills publishable fields (optionally marking
-// it discoverable), adds a ticket type, and publishes it. Returns the event slug.
-func publishEvent(t *testing.T, env *testEnv, sessionID, name, slug string, startsAt time.Time, discoverable bool, priceCents, capacity int) {
+// publishEvent creates a draft event, fills publishable fields, adds a ticket type,
+// publishes it, and (optionally) marks it discoverable via the discoverability
+// endpoint, which requires the event to already be published. Returns the event ID.
+func publishEvent(t *testing.T, env *testEnv, sessionID, name, slug string, startsAt time.Time, discoverable bool, priceCents, capacity int) string {
 	t.Helper()
 	eventID := createDraftEvent(t, env, sessionID, name, slug)
 
 	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID, map[string]any{
-		"name":         name,
-		"slug":         slug,
-		"starts_at":    startsAt.Format(time.RFC3339),
-		"timezone":     "America/New_York",
-		"venue_name":   "The Hall",
-		"discoverable": discoverable,
+		"name":       name,
+		"slug":       slug,
+		"starts_at":  startsAt.Format(time.RFC3339),
+		"timezone":   "America/New_York",
+		"venue_name": "The Hall",
 	}, authHeader(sessionID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("patch event status=%d error=%+v", resp.StatusCode, body.Error)
@@ -38,6 +38,17 @@ func publishEvent(t *testing.T, env *testEnv, sessionID, name, slug string, star
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("publish event status=%d error=%+v", resp.StatusCode, body.Error)
 	}
+
+	if discoverable {
+		resp, body = env.put(t, "/api/v1/staff/events/"+eventID+"/discoverable", map[string]any{
+			"discoverable": true,
+		}, authHeader(sessionID))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("set discoverable status=%d error=%+v", resp.StatusCode, body.Error)
+		}
+	}
+
+	return eventID
 }
 
 type publicEventCard struct {

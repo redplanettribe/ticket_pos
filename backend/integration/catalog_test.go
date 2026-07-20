@@ -332,9 +332,19 @@ func TestCatalogForbiddenForNonOrgAdmin(t *testing.T) {
 
 	staffSessionID := verifyOTP(t, env, "staff@example.com")
 
+	// A non-admin member may read the events list...
 	resp, body = env.get(t, "/api/v1/staff/events", authHeader(staffSessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for member list, got %d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// ...but may not create or edit events.
+	resp, body = env.post(t, "/api/v1/staff/events", map[string]string{
+		"name": "Not Allowed",
+		"slug": "not-allowed",
+	}, authHeader(staffSessionID))
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d error=%+v", resp.StatusCode, body.Error)
+		t.Fatalf("expected 403 on create, got %d error=%+v", resp.StatusCode, body.Error)
 	}
 	if body.Error == nil || body.Error.Code != "FORBIDDEN" {
 		t.Fatalf("expected FORBIDDEN, got %+v", body.Error)

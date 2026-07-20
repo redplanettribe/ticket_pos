@@ -62,7 +62,7 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
       organizationLogoUrl={organizationLogoUrl}
       activePath={activePath}
       showSettings={session?.active_member?.role === "org_admin"}
-      showEvents={session?.active_member?.role === "org_admin"}
+      showEvents={session?.active_member != null}
       memberships={session?.memberships ?? []}
       activeMemberId={session?.active_member?.member_id}
       userMenu={<LogoutButton />}

@@ -97,7 +97,6 @@ type UpdateEventInput struct {
 	VenueAddress *string
 	Description   *string
 	CoverImageKey *string
-	Discoverable  *bool
 }
 
 // CreateCoverUploadURLInput requests a presigned cover upload URL.
@@ -225,11 +224,31 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	}
 
 	params.Discoverable = event.Discoverable
-	if input.Discoverable != nil {
-		params.Discoverable = *input.Discoverable
-	}
 
 	updated, err := s.repo.UpdateEvent(ctx, actor.OrganizationID, eventID, params)
+	if err != nil {
+		return nil, err
+	}
+	detail := s.toEventDetail(updated)
+	return &detail, nil
+}
+
+// SetEventDiscoverable sets whether a published Event is listed in public discovery
+// surfaces. Only a published Event may change discoverability; draft and cancelled
+// Events are never listed and reject the change.
+func (s *Service) SetEventDiscoverable(ctx context.Context, actor ActorContext, eventID string, discoverable bool) (*EventDetail, error) {
+	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, catalog.ErrEventNotFound()
+	}
+	if event.Status != repository.EventStatusPublished {
+		return nil, catalog.ErrEventNotPublished()
+	}
+
+	updated, err := s.repo.SetEventDiscoverable(ctx, actor.OrganizationID, eventID, discoverable)
 	if err != nil {
 		return nil, err
 	}
