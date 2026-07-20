@@ -43,13 +43,16 @@ import {
 
 import { EventCoverImage } from "./event-cover-image";
 
+import { EventTagsSection } from "./event-tags-section";
+
 import { TicketTypesSection } from "./ticket-types-section";
 
 type EventDetailFormProps = {
   eventId: string;
+  isOrgAdmin: boolean;
 };
 
-export function EventDetailForm({ eventId }: EventDetailFormProps) {
+export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -393,6 +396,8 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
         onTicketTypeCountChange={setTicketTypeCount}
         missingWarning={Boolean(fieldError("ticket_types", "x"))}
       />
+
+      {isOrgAdmin ? <EventTagsSection eventId={eventId} /> : null}
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>

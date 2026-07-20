@@ -74,6 +74,37 @@ export type TicketType = {
   updated_at: string;
 };
 
+export type Tag = {
+  name: string;
+  curated: boolean;
+};
+
+export const TAG_NAME_MAX_LENGTH = 30;
+const TAG_NAME_PATTERN = /^[\p{L}\p{N} -]{1,30}$/u;
+
+export function isValidTagName(value: string): boolean {
+  return TAG_NAME_PATTERN.test(value.trim());
+}
+
+export function tagCanonicalKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export async function searchTags(query: string): Promise<Tag[]> {
+  return fetchEventsJSON<Tag[]>(`/api/tags?q=${encodeURIComponent(query)}`);
+}
+
+export async function getEventTags(eventId: string): Promise<Tag[]> {
+  return fetchEventsJSON<Tag[]>(`/api/events/${eventId}/tags`);
+}
+
+export async function setEventTags(eventId: string, tags: string[]): Promise<Tag[]> {
+  return fetchEventsJSON<Tag[]>(`/api/events/${eventId}/tags`, {
+    method: "PUT",
+    body: JSON.stringify({ tags }),
+  });
+}
+
 export const SUPPORTED_CURRENCIES = [
   "USD",
   "EUR",
