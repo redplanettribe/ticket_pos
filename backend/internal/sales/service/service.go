@@ -11,6 +11,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
+	"github.com/peter/ticket_pos/backend/internal/sales/importfile"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
 
@@ -76,9 +77,15 @@ func (s *Service) CommitImport(ctx context.Context, actor ActorContext, eventID 
 	if !ok {
 		return nil, sales.ErrEventNotFound()
 	}
+	return s.commit(ctx, actor, eventID, eventName, input.Source, input.IdempotencyKey, input.Sales)
+}
 
-	commitSales := make([]repository.CommitSale, 0, len(input.Sales))
-	for _, row := range input.Sales {
+// commit records the prepared sales as one all-or-nothing, idempotent batch and
+// emails a Sale Confirmation per newly-recorded sale. It is the shared core of
+// the JSON and file commit paths.
+func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, eventName, source, idempotencyKey string, saleRows []ImportSaleInput) (*ImportResult, error) {
+	commitSales := make([]repository.CommitSale, 0, len(saleRows))
+	for _, row := range saleRows {
 		ref, err := generateConfirmationRef()
 		if err != nil {
 			return nil, err
@@ -100,9 +107,9 @@ func (s *Service) CommitImport(ctx context.Context, actor ActorContext, eventID 
 	batch, err := s.repo.CommitImport(ctx, repository.CommitInput{
 		EventID:           eventID,
 		OrganizationID:    actor.OrganizationID,
-		Source:            input.Source,
+		Source:            source,
 		CreatedByMemberID: actor.MemberID,
-		IdempotencyKey:    input.IdempotencyKey,
+		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
 		Now:               s.now(),
 	})
@@ -130,6 +137,117 @@ func (s *Service) CommitImport(ctx context.Context, actor ActorContext, eventID 
 	}
 
 	return result, nil
+}
+
+// FileCommitInput is a Sale Import to record from parsed file rows.
+type FileCommitInput struct {
+	Source         string
+	IdempotencyKey string
+	Rows           []importfile.RawRow
+}
+
+// BuildTemplate returns the per-event .xlsx Sale Import template and the Event
+// name (for the download filename).
+func (s *Service) BuildTemplate(ctx context.Context, actor ActorContext, eventID string) ([]byte, string, error) {
+	event, types, _, err := s.loadImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := importfile.BuildTemplate(event.Name, types)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, event.Name, nil
+}
+
+// PreviewImport validates parsed file rows against the Event's Ticket Types and
+// returns the per-row verdicts and capacity impact. It writes nothing.
+func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID string, rows []importfile.RawRow) (*importfile.ValidateResult, error) {
+	_, types, loc, err := s.loadImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	result := importfile.Validate(importfile.ValidateInput{
+		Rows:     rows,
+		Types:    types,
+		Now:      s.now(),
+		Location: loc,
+	})
+	return &result, nil
+}
+
+// CommitImportFile validates parsed file rows and, only if every row is valid,
+// records them as one all-or-nothing batch (reusing the same commit core as the
+// JSON path). When some rows are invalid it returns the ValidateResult and a nil
+// ImportResult without writing anything.
+func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, eventID string, input FileCommitInput) (*ImportResult, *importfile.ValidateResult, error) {
+	event, types, loc, err := s.loadImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	validated := importfile.Validate(importfile.ValidateInput{
+		Rows:     input.Rows,
+		Types:    types,
+		Now:      s.now(),
+		Location: loc,
+	})
+	if !validated.Valid() {
+		return nil, &validated, nil
+	}
+
+	saleRows := make([]ImportSaleInput, 0, len(validated.Rows))
+	for _, row := range validated.Rows {
+		saleRows = append(saleRows, ImportSaleInput{
+			CustomerEmail: row.CustomerEmail,
+			CustomerName:  row.CustomerName,
+			TicketTypeID:  row.TicketTypeID,
+			Quantity:      row.Quantity,
+			PaymentMethod: row.PaymentMethod,
+			SoldAt:        row.SoldAtTime(),
+			AmountCents:   row.AmountCents,
+		})
+	}
+
+	result, err := s.commit(ctx, actor, eventID, event.Name, input.Source, input.IdempotencyKey, saleRows)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result, nil, nil
+}
+
+// loadImportContext loads the Event and its Ticket Types for import operations,
+// resolving the Event timezone (defaulting to UTC when unset or unknown).
+func (s *Service) loadImportContext(ctx context.Context, orgID, eventID string) (*repository.EventImportContext, []importfile.TicketTypeRef, *time.Location, error) {
+	event, ok, err := s.repo.GetEventImportContext(ctx, orgID, eventID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !ok {
+		return nil, nil, nil, sales.ErrEventNotFound()
+	}
+
+	rows, err := s.repo.ListTicketTypesForImport(ctx, orgID, eventID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	types := make([]importfile.TicketTypeRef, 0, len(rows))
+	for _, tt := range rows {
+		types = append(types, importfile.TicketTypeRef{
+			ID:         tt.ID,
+			Name:       tt.Name,
+			PriceCents: tt.PriceCents,
+			Capacity:   tt.Capacity,
+			SoldCount:  tt.SoldCount,
+		})
+	}
+
+	loc := time.UTC
+	if event.Timezone != "" {
+		if parsed, err := time.LoadLocation(event.Timezone); err == nil {
+			loc = parsed
+		}
+	}
+	return event, types, loc, nil
 }
 
 func mapCommitError(err error) error {

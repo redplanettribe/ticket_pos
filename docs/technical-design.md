@@ -218,7 +218,7 @@ When one Ticket Sale spans multiple Ticket Types (a cart with several Ticket Sal
 
 ### Sale Import batches
 
-- A CSV import runs as a **single database transaction** per batch.
+- A Sale Import (`.csv` or `.xlsx`, parsed server-side) runs as a **single database transaction** per batch.
 - Lines are applied in order.
 - If any line would oversell, the **entire batch fails** and rolls back.
 - Partial-accept rules may be introduced later; at launch the behavior is all-or-nothing.
@@ -473,7 +473,7 @@ Subdomains and custom domains per Organization are deferred.
 - **Next.js** with App Router.
 - Acts as a **BFF** (backend-for-frontend): the browser holds a session cookie with Staff; Staff server calls Go.
 - The browser does not hold Integration-style API tokens.
-- Covers catalog management, CSV Sale Import upload, and **in-person POS mode** (tablet-first UI within the same app).
+- Covers catalog management, `.csv`/`.xlsx` Sale Import upload, and **in-person POS mode** (tablet-first UI within the same app).
 - Calls the Go API **staff** routes.
 - Hosted on its own runtime.
 

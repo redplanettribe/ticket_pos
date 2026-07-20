@@ -5,15 +5,23 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/sales"
+	"github.com/peter/ticket_pos/backend/internal/sales/importfile"
 	"github.com/peter/ticket_pos/backend/internal/sales/service"
 )
+
+// maxUploadBytes caps an uploaded Sale Import file at 32 MiB, comfortably above
+// the ~10,000-row limit while bounding memory.
+const maxUploadBytes = 32 << 20
 
 // Handler exposes HTTP endpoints for the sales domain.
 type Handler struct {
@@ -49,16 +57,94 @@ func actorFromRequest(r *http.Request) service.ActorContext {
 	}
 }
 
-// CommitDirectSaleImport records a batch of Direct Sales for an Event.
+// DownloadSaleImportTemplate returns a per-event .xlsx Sale Import template.
+//
+// @Summary      Download the Sale Import template
+// @Description  Returns a per-event .xlsx pre-listing the Event's Ticket Types as a locked dropdown, with the internal ticket type id in a hidden reference column.
+// @Tags         staff
+// @Produce      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Event ID"
+// @Success      200
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sale-imports/template [get]
+func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		return
+	}
+
+	data, eventName, err := h.svc.BuildTemplate(r.Context(), actorFromRequest(r), eventID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	filename := "sale-import-" + slugFilename(eventName) + ".xlsx"
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	w.Header().Set("X-Request-ID", reqID)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// PreviewSaleImport parses an uploaded .csv/.xlsx and returns a per-row
+// validation result plus the capacity impact, writing nothing.
+//
+// @Summary      Preview a Sale Import file
+// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, and the capacity impact per Ticket Type. No writes.
+// @Tags         staff
+// @Accept       multipart/form-data
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string  true  "Event ID"
+// @Param        file  formData  file    true  "Sale import file (.csv or .xlsx)"
+// @Success      200   {object}  platform.Envelope
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sale-imports/preview [post]
+func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		return
+	}
+
+	rows, ok := h.parseUploadedFile(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	result, err := h.svc.PreviewImport(r.Context(), actorFromRequest(r), eventID, rows)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// CommitDirectSaleImport records a batch of Direct Sales for an Event. The batch
+// is supplied either as multipart/form-data (a .csv/.xlsx `file` plus
+// `idempotency_key` and `source` fields) or as a JSON body.
 //
 // @Summary      Commit a Direct Sale Import
-// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent.
+// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file or a JSON body.
 // @Tags         staff
 // @Accept       json
+// @Accept       multipart/form-data
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id    path      string            true  "Event ID"
-// @Param        body  body      commitImportBody  true  "Sale import batch"
+// @Param        body  body      commitImportBody  false "Sale import batch (JSON form)"
 // @Success      201   {object}  platform.Envelope
 // @Failure      400   {object}  platform.Envelope
 // @Failure      401   {object}  platform.Envelope
@@ -75,6 +161,14 @@ func (h *Handler) CommitDirectSaleImport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if isMultipart(r) {
+		h.commitFromFile(w, r, reqID, eventID)
+		return
+	}
+	h.commitFromJSON(w, r, reqID, eventID)
+}
+
+func (h *Handler) commitFromJSON(w http.ResponseWriter, r *http.Request, reqID, eventID string) {
 	var body commitImportBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		_ = platform.WriteInvalidJSON(w, reqID)
@@ -102,11 +196,131 @@ func (h *Handler) CommitDirectSaleImport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	writeCommitResult(w, reqID, result)
+}
+
+func (h *Handler) commitFromFile(w http.ResponseWriter, r *http.Request, reqID, eventID string) {
+	rows, ok := h.parseUploadedFile(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	source := strings.TrimSpace(r.FormValue("source"))
+	if source == "" {
+		source = "direct"
+	}
+	idempotencyKey := strings.TrimSpace(r.FormValue("idempotency_key"))
+
+	var fields []platform.FieldError
+	if idempotencyKey == "" {
+		fields = append(fields, platform.FieldError{Field: "idempotency_key", Message: "is required"})
+	}
+	if source != "direct" {
+		fields = append(fields, platform.FieldError{Field: "source", Message: "must be 'direct'"})
+	}
+	if len(rows) == 0 {
+		fields = append(fields, platform.FieldError{Field: "file", Message: "must contain at least one row"})
+	}
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	result, invalid, err := h.svc.CommitImportFile(r.Context(), actorFromRequest(r), eventID, service.FileCommitInput{
+		Source:         source,
+		IdempotencyKey: idempotencyKey,
+		Rows:           rows,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	if invalid != nil {
+		_ = platform.WriteValidationError(w, reqID, rowValidationFields(invalid))
+		return
+	}
+	writeCommitResult(w, reqID, result)
+}
+
+func writeCommitResult(w http.ResponseWriter, reqID string, result *service.ImportResult) {
 	status := http.StatusCreated
 	if result.Replayed {
 		status = http.StatusOK
 	}
 	_ = platform.WriteSuccess(w, reqID, status, result)
+}
+
+// parseUploadedFile reads the multipart `file` field and parses it into rows,
+// writing the appropriate error envelope and returning ok=false on failure.
+func (h *Handler) parseUploadedFile(w http.ResponseWriter, r *http.Request, reqID string) ([]importfile.RawRow, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Message: "must be a valid multipart upload"}})
+		return nil, false
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Message: "is required"}})
+		return nil, false
+	}
+	defer func() { _ = file.Close() }()
+
+	filename := ""
+	if header != nil {
+		filename = header.Filename
+	}
+	rows, err := importfile.Parse(filename, io.LimitReader(file, maxUploadBytes))
+	if err != nil {
+		switch {
+		case importfile.IsUnreadable(err):
+			_ = platform.WriteDomainError(w, reqID, sales.ErrImportFileUnreadable(err.(*importfile.ErrUnreadable).Reason))
+		case err == importfile.ErrTooLarge:
+			_ = platform.WriteDomainError(w, reqID, sales.ErrImportFileTooLarge(importfile.MaxRows))
+		default:
+			_ = platform.WriteDomainError(w, reqID, sales.ErrImportFileUnreadable(err.Error()))
+		}
+		return nil, false
+	}
+	return rows, true
+}
+
+// rowValidationFields flattens per-row errors into the field-error list a
+// VALIDATION_FAILED envelope carries (e.g. "rows[3].customer_email").
+func rowValidationFields(result *importfile.ValidateResult) []platform.FieldError {
+	var fields []platform.FieldError
+	for _, row := range result.Rows {
+		for _, e := range row.Errors {
+			fields = append(fields, platform.FieldError{
+				Field:   fmt.Sprintf("rows[%d].%s", row.Row, e.Field),
+				Message: e.Message,
+			})
+		}
+	}
+	return fields
+}
+
+func isMultipart(r *http.Request) bool {
+	return strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data")
+}
+
+// slugFilename reduces an Event name to a filename-safe slug for downloads.
+func slugFilename(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '_':
+			b.WriteRune('-')
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return "event"
+	}
+	return url.PathEscape(slug)
 }
 
 func validateImport(source string, body commitImportBody) ([]platform.FieldError, []service.ImportSaleInput) {

@@ -99,6 +99,66 @@ func (r *Repository) GetEventName(ctx context.Context, orgID, eventID string) (s
 	return name, true, nil
 }
 
+// EventImportContext is the Event metadata a Sale Import needs: its name and the
+// timezone (nullable) used to interpret naive sold_at values.
+type EventImportContext struct {
+	Name     string
+	Timezone string
+}
+
+// GetEventImportContext returns the Event's name and timezone and whether it
+// belongs to the Organization.
+func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID string) (*EventImportContext, bool, error) {
+	var out EventImportContext
+	var tz sql.NullString
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT name, timezone FROM events WHERE id = $1 AND organization_id = $2
+	`, eventID, orgID).Scan(&out.Name, &tz)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	out.Timezone = tz.String
+	return &out, true, nil
+}
+
+// ImportTicketType is a Ticket Type snapshot used to match import rows and
+// compute capacity impact.
+type ImportTicketType struct {
+	ID         string
+	Name       string
+	PriceCents int
+	Capacity   int
+	SoldCount  int
+}
+
+// ListTicketTypesForImport returns the Event's Ticket Types for template
+// generation and import validation.
+func (r *Repository) ListTicketTypesForImport(ctx context.Context, orgID, eventID string) ([]ImportTicketType, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT id, name, price_cents, capacity, sold_count
+		FROM ticket_types
+		WHERE event_id = $1 AND organization_id = $2
+		ORDER BY sort_order, name
+	`, eventID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ImportTicketType
+	for rows.Next() {
+		var tt ImportTicketType
+		if err := rows.Scan(&tt.ID, &tt.Name, &tt.PriceCents, &tt.Capacity, &tt.SoldCount); err != nil {
+			return nil, err
+		}
+		out = append(out, tt)
+	}
+	return out, rows.Err()
+}
+
 type lockedType struct {
 	priceCents int
 	capacity   int

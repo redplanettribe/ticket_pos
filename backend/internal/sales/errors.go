@@ -30,6 +30,22 @@ func ErrTicketTypeNotFound(ticketTypeID string) apperror.DomainError {
 	})
 }
 
+// ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
+// parsed (wrong format, missing columns, corrupt contents).
+func ErrImportFileUnreadable(reason string) apperror.DomainError {
+	return newDomainError("IMPORT_FILE_INVALID", "Import file could not be read.", map[string]any{
+		"reason": reason,
+	})
+}
+
+// ErrImportFileTooLarge is returned when an uploaded Sale Import file exceeds the
+// per-batch row limit.
+func ErrImportFileTooLarge(limit int) apperror.DomainError {
+	return newDomainError("IMPORT_FILE_TOO_LARGE", "Import file has too many rows.", map[string]any{
+		"limit": limit,
+	})
+}
+
 // ErrImportBatchFailed is returned when a Sale Import cannot be committed as a
 // whole. The batch is all-or-nothing; details identify the first offending row
 // and the reason (e.g. CAPACITY_EXCEEDED).
