@@ -52,6 +52,15 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
             <p className="text-sm text-muted-foreground">Presented by {event.organization.name}</p>
           ) : null}
           {priceLabel ? <p className="pt-1 text-sm font-medium text-foreground">{priceLabel}</p> : null}
+          {event.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 pt-2">
+              {event.tags.map((tag) => (
+                <Badge key={tag.name} variant="outline">
+                  {tag.name}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </Link>

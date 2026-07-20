@@ -32,6 +32,7 @@ export type PublicEventCard = {
   currency: string;
   price_from_cents: number | null;
   sold_out: boolean;
+  tags: { name: string; curated: boolean }[];
 };
 
 export type PublicTicketType = {
@@ -57,6 +58,7 @@ export type PublicEventDetail = {
   organization: PublicOrganizationSummary;
   currency: string;
   ticket_types: PublicTicketType[];
+  tags: { name: string; curated: boolean }[];
 };
 
 export type PublicEventPage = {

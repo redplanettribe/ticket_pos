@@ -2037,6 +2037,7 @@ export interface components {
             slug?: string;
             sold_out?: boolean;
             starts_at?: string;
+            tags?: components["schemas"]["service.TagView"][];
             timezone?: string;
             venue_name?: string;
         };
@@ -2050,6 +2051,7 @@ export interface components {
             organization?: components["schemas"]["service.PublicOrganizationSummary"];
             slug?: string;
             starts_at?: string;
+            tags?: components["schemas"]["service.TagView"][];
             ticket_types?: components["schemas"]["service.PublicTicketType"][];
             timezone?: string;
             venue_address?: string;

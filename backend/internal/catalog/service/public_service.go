@@ -36,6 +36,7 @@ type PublicEventCard struct {
 	Currency       string                    `json:"currency"`
 	PriceFromCents *int                      `json:"price_from_cents"`
 	SoldOut        bool                      `json:"sold_out"`
+	Tags           []TagView                 `json:"tags"`
 }
 
 // PublicTicketType is a Ticket Type as shown on a Storefront event page.
@@ -63,6 +64,7 @@ type PublicEventDetail struct {
 	Organization  PublicOrganizationSummary `json:"organization"`
 	Currency      string                    `json:"currency"`
 	TicketTypes   []PublicTicketType        `json:"ticket_types"`
+	Tags          []TagView                 `json:"tags"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -113,6 +115,15 @@ func (s *Service) ListDiscoverableEvents(ctx context.Context, q PublicEventQuery
 		return nil, err
 	}
 
+	pageRows := rows
+	if len(rows) > limit {
+		pageRows = rows[:limit]
+	}
+	tagViews, err := s.tagViewsByEventIDs(ctx, eventIDsOf(pageRows))
+	if err != nil {
+		return nil, err
+	}
+
 	page := &PublicEventPage{Events: make([]PublicEventCard, 0, limit)}
 	for i := range rows {
 		if i == limit {
@@ -121,9 +132,18 @@ func (s *Service) ListDiscoverableEvents(ctx context.Context, q PublicEventQuery
 			page.NextCursor = &cursor
 			break
 		}
-		page.Events = append(page.Events, s.toPublicEventCard(&rows[i]))
+		page.Events = append(page.Events, s.toPublicEventCard(&rows[i], tagViewsFor(tagViews, rows[i].ID)))
 	}
 	return page, nil
+}
+
+// eventIDsOf collects the Event IDs from a set of public rows.
+func eventIDsOf(rows []repository.PublicEventRow) []string {
+	ids := make([]string, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+	return ids
 }
 
 // GetOrganizationEvents returns an Organization's public profile with its
@@ -143,6 +163,11 @@ func (s *Service) GetOrganizationEvents(ctx context.Context, orgSlug string) (*P
 		return nil, err
 	}
 
+	tagViews, err := s.tagViewsByEventIDs(ctx, eventIDsOf(rows))
+	if err != nil {
+		return nil, err
+	}
+
 	now := s.now()
 	result := &PublicOrganizationEvents{
 		Organization: s.publicOrgSummary(org.Name, org.Slug, org.LogoImageKey),
@@ -151,7 +176,7 @@ func (s *Service) GetOrganizationEvents(ctx context.Context, orgSlug string) (*P
 	}
 	// rows are ascending by start; past is shown most-recent first.
 	for i := range rows {
-		card := s.toPublicEventCard(&rows[i])
+		card := s.toPublicEventCard(&rows[i], tagViewsFor(tagViews, rows[i].ID))
 		if eventEnded(&rows[i], now) {
 			result.Past = append([]PublicEventCard{card}, result.Past...)
 		} else {
@@ -180,6 +205,11 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		return nil, err
 	}
 
+	tags, err := s.repo.ListEventTags(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	detail := &PublicEventDetail{
 		Slug:          row.Slug,
 		Name:          row.Name,
@@ -189,6 +219,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		Organization:  s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
 		Currency:      row.OrgCurrency,
 		TicketTypes:   make([]PublicTicketType, 0, len(types)),
+		Tags:          toTagViews(tags),
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time
@@ -219,7 +250,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 	return detail, nil
 }
 
-func (s *Service) toPublicEventCard(row *repository.PublicEventRow) PublicEventCard {
+func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagView) PublicEventCard {
 	card := PublicEventCard{
 		Slug:          row.Slug,
 		Name:          row.Name,
@@ -228,6 +259,7 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow) PublicEventC
 		CoverImageURL: s.coverURL(row.CoverImageKey),
 		Organization:  s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
 		Currency:      row.OrgCurrency,
+		Tags:          tags,
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time
@@ -245,6 +277,30 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow) PublicEventC
 		card.SoldOut = row.AllSoldOut.Bool
 	}
 	return card
+}
+
+// tagViewsByEventIDs batch-loads Tags for a set of Events and projects them into
+// TagViews keyed by Event ID, Preset Tags first. Events with no Tags are absent
+// from the map; callers use tagViewsFor to get a stable empty slice.
+func (s *Service) tagViewsByEventIDs(ctx context.Context, eventIDs []string) (map[string][]TagView, error) {
+	tagsByEvent, err := s.repo.ListTagsByEventIDs(ctx, eventIDs)
+	if err != nil {
+		return nil, err
+	}
+	views := make(map[string][]TagView, len(tagsByEvent))
+	for id, tags := range tagsByEvent {
+		views[id] = toTagViews(tags)
+	}
+	return views, nil
+}
+
+// tagViewsFor returns the Event's TagViews, or an empty (non-nil) slice so the
+// field serializes as [] rather than null.
+func tagViewsFor(views map[string][]TagView, eventID string) []TagView {
+	if v, ok := views[eventID]; ok {
+		return v
+	}
+	return make([]TagView, 0)
 }
 
 func (s *Service) publicOrgSummary(name, slug string, logoKey sql.NullString) PublicOrganizationSummary {

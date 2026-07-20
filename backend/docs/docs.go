@@ -616,6 +616,13 @@ const docTemplate = `{
                     "starts_at": {
                         "type": "string"
                     },
+                    "tags": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.TagView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "timezone": {
                         "type": "string"
                     },
@@ -653,6 +660,13 @@ const docTemplate = `{
                     },
                     "starts_at": {
                         "type": "string"
+                    },
+                    "tags": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.TagView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "ticket_types": {
                         "items": {

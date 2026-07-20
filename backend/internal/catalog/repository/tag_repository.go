@@ -74,6 +74,39 @@ func (r *Repository) ListEventTags(ctx context.Context, eventID string) ([]Tag, 
 	return tags, rows.Err()
 }
 
+// ListTagsByEventIDs batch-loads the Tags for a set of Events, keyed by Event
+// ID, so listings can attach tags without a query per row. Each Event's Tags
+// are Preset Tags first (curated DESC, display_name ASC). Events with no Tags
+// are simply absent from the map.
+func (r *Repository) ListTagsByEventIDs(ctx context.Context, eventIDs []string) (map[string][]Tag, error) {
+	result := make(map[string][]Tag, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return result, nil
+	}
+
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT et.event_id, `+tagColumnsPrefixed("t")+`
+		FROM event_tags et
+		JOIN tags t ON t.id = et.tag_id
+		WHERE et.event_id = ANY($1)
+		ORDER BY t.curated DESC, t.display_name ASC
+	`, eventIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var eventID string
+		var t Tag
+		if err := rows.Scan(&eventID, &t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
+			return nil, err
+		}
+		result[eventID] = append(result[eventID], t)
+	}
+	return result, rows.Err()
+}
+
 // SetEventTags replaces an Event's tag set with the given normalized Tags,
 // coining any that do not yet exist in the shared pool (as Custom Tags). It
 // runs in a single transaction and returns the Event's resulting Tags. On

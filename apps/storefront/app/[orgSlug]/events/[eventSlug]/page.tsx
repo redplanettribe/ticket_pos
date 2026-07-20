@@ -92,6 +92,15 @@ export default async function EventPage({ params }: EventPageProps) {
               {event.organization.name}
             </Link>
           </p>
+          {event.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {event.tags.map((tag) => (
+                <Badge key={tag.name} variant="outline">
+                  {tag.name}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
         </header>
 
         {event.description ? (

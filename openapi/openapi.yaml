@@ -396,6 +396,11 @@ components:
           type: boolean
         starts_at:
           type: string
+        tags:
+          items:
+            $ref: '#/components/schemas/service.TagView'
+          type: array
+          uniqueItems: false
         timezone:
           type: string
         venue_name:
@@ -421,6 +426,11 @@ components:
           type: string
         starts_at:
           type: string
+        tags:
+          items:
+            $ref: '#/components/schemas/service.TagView'
+          type: array
+          uniqueItems: false
         ticket_types:
           items:
             $ref: '#/components/schemas/service.PublicTicketType'

@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,10 +53,11 @@ func publishEvent(t *testing.T, env *testEnv, sessionID, name, slug string, star
 }
 
 type publicEventCard struct {
-	Slug           string `json:"slug"`
-	Name           string `json:"name"`
-	PriceFromCents *int   `json:"price_from_cents"`
-	SoldOut        bool   `json:"sold_out"`
+	Slug           string    `json:"slug"`
+	Name           string    `json:"name"`
+	PriceFromCents *int      `json:"price_from_cents"`
+	SoldOut        bool      `json:"sold_out"`
+	Tags           []tagView `json:"tags"`
 	Organization   struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
@@ -248,6 +250,89 @@ func TestPublicEventPageReachableByDirectLinkEvenWhenHidden(t *testing.T) {
 	if tt.PriceCents != 4200 || tt.Remaining != 3 || tt.SoldOut {
 		t.Fatalf("unexpected ticket type: %+v", tt)
 	}
+}
+
+func TestPublicReadsExposeEventTagsAsBadges(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	soon := env.fixedClock.Add(10 * 24 * time.Hour)
+	taggedID := publishEvent(t, env, sessionID, "Tagged Event", "tagged-event", soon, true, 2500, 100)
+	// A second discoverable event with no tags: must serialize tags as [].
+	publishEvent(t, env, sessionID, "Untagged Event", "untagged-event", soon.Add(time.Hour), true, 2500, 100)
+
+	// Preset "Music" first, custom "Techno" second (curated DESC, name ASC).
+	if resp, b := setEventTags(t, env, sessionID, taggedID, []string{"Techno", "Music"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set tags status=%d error=%+v", resp.StatusCode, b.Error)
+	}
+
+	assertBadges := func(where string, card publicEventCard) {
+		if len(card.Tags) != 2 {
+			t.Fatalf("%s: expected 2 tags, got %+v", where, card.Tags)
+		}
+		if card.Tags[0].Name != "Music" || !card.Tags[0].Curated {
+			t.Fatalf("%s: expected Music preset first, got %+v", where, card.Tags[0])
+		}
+		if card.Tags[1].Name != "Techno" || card.Tags[1].Curated {
+			t.Fatalf("%s: expected Techno custom second, got %+v", where, card.Tags[1])
+		}
+	}
+
+	findCard := func(cards []publicEventCard, slug string) publicEventCard {
+		for _, c := range cards {
+			if c.Slug == slug {
+				return c
+			}
+		}
+		t.Fatalf("card %q not found in %+v", slug, cards)
+		return publicEventCard{}
+	}
+
+	// Global explorer card.
+	resp, body := env.get(t, "/api/v1/public/events", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("explorer status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var page struct {
+		Events []publicEventCard `json:"events"`
+	}
+	if err := json.Unmarshal(body.Data, &page); err != nil {
+		t.Fatalf("decode explorer: %v", err)
+	}
+	assertBadges("explorer", findCard(page.Events, "tagged-event"))
+	if untagged := findCard(page.Events, "untagged-event"); len(untagged.Tags) != 0 {
+		t.Fatalf("explorer: expected empty tags for untagged event, got %+v", untagged.Tags)
+	}
+	// Empty slice must serialize as [] (not null).
+	if !strings.Contains(string(body.Data), `"tags":[]`) {
+		t.Fatalf("explorer: expected an empty \"tags\":[] in payload, got %s", string(body.Data))
+	}
+
+	// Org page card.
+	resp, body = env.get(t, "/api/v1/public/organizations/test-org/events", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("org events status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var org struct {
+		Upcoming []publicEventCard `json:"upcoming"`
+	}
+	if err := json.Unmarshal(body.Data, &org); err != nil {
+		t.Fatalf("decode org events: %v", err)
+	}
+	assertBadges("org page", findCard(org.Upcoming, "tagged-event"))
+
+	// Event detail page.
+	resp, body = env.get(t, "/api/v1/public/organizations/test-org/events/tagged-event", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event detail status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var detail struct {
+		Tags []tagView `json:"tags"`
+	}
+	if err := json.Unmarshal(body.Data, &detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	assertBadges("detail", publicEventCard{Tags: detail.Tags})
 }
 
 func TestPublicEventPageDraftNotFound(t *testing.T) {
