@@ -92,3 +92,21 @@ func ErrCoverUploadUnavailable() apperror.DomainError {
 func ErrInvalidCoverImageKey() apperror.DomainError {
 	return newDomainError("INVALID_COVER_IMAGE_KEY", "Cover image key is not valid for this event.", nil)
 }
+
+// ErrInvalidTag is returned when one or more Tag names fail normalization or validation.
+func ErrInvalidTag(invalid []string) apperror.DomainError {
+	return newDomainError(
+		"INVALID_TAG",
+		"Tags must be 1-30 characters using only letters, numbers, spaces, and hyphens.",
+		map[string]any{"invalid": invalid},
+	)
+}
+
+// ErrTooManyTags is returned when an Event would exceed the maximum number of Tags.
+func ErrTooManyTags(max int) apperror.DomainError {
+	return newDomainError(
+		"TOO_MANY_TAGS",
+		"An event has too many tags.",
+		map[string]any{"max": max},
+	)
+}

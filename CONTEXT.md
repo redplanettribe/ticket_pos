@@ -84,6 +84,18 @@ _Avoid_: Catalog, index, feed, directory
 A purchasable ticket category belonging to an Event, with a name, description, price, capacity, and display order.
 _Avoid_: Ticket tier, ticket class, fare, SKU
 
+**Tag**:
+A discovery facet an Event can wear, describing what kind of Event it is (e.g. "Music", "Workshop", "Techno"). An Event may carry several Tags, and Tags live in one system-wide shared pool reused across all Organizations. Aids Storefront discovery. Distinct from Ticket Type, which is a purchasable category within a single Event.
+_Avoid_: Category, genre, label, keyword
+
+**Preset Tag**:
+A curated Tag seeded by the system and always offered as a filter in the global explorer's tag chip bar. The curated tier of the shared Tag pool.
+_Avoid_: Default tag, official tag, built-in category
+
+**Custom Tag**:
+A Tag coined by an Organization when no existing Tag fits. It joins the same shared pool as Preset Tags and aids discovery through search and on the Organization and Event pages, but is not offered as a filter chip in the global explorer unless later promoted to a Preset Tag.
+_Avoid_: User tag, private tag, org tag
+
 ## Sales
 
 **Customer**:

@@ -53,6 +53,13 @@ type EnvelopeTicketTypeDetail struct {
 	RequestID string                   `json:"request_id"`
 }
 
+// EnvelopeTagList documents tag list success responses (search and event tags).
+type EnvelopeTagList struct {
+	Data      []service.TagView  `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
 // EnvelopePublicEventPage documents GET /api/v1/public/events success responses.
 type EnvelopePublicEventPage struct {
 	Data      service.PublicEventPage `json:"data"`

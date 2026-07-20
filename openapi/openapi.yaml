@@ -60,6 +60,14 @@ components:
         discoverable:
           type: boolean
       type: object
+    handler.setEventTagsBody:
+      properties:
+        tags:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
     handler.updateEventBody:
       properties:
         cover_image_key:
@@ -213,6 +221,18 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/service.ActiveMemberView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeTagList:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/service.TagView'
+          type: array
+          uniqueItems: false
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -473,6 +493,13 @@ components:
             $ref: '#/components/schemas/service.MembershipView'
           type: array
           uniqueItems: false
+      type: object
+    service.TagView:
+      properties:
+        curated:
+          type: boolean
+        name:
+          type: string
       type: object
     service.TicketTypeDetail:
       properties:
@@ -1190,6 +1217,103 @@ paths:
       summary: Publish event
       tags:
       - staff
+  /api/v1/staff/events/{id}/tags:
+    get:
+      description: Lists the tags assigned to a catalog event.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeTagList'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: List event tags
+      tags:
+      - staff
+    put:
+      description: Replaces the tags on a catalog event, coining custom tags where
+        none exist. Org Admin only.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.setEventTagsBody'
+                description: Tag names
+                summary: body
+        description: Tag names
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeTagList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Set event tags
+      tags:
+      - staff
   /api/v1/staff/events/{id}/ticket-types:
     get:
       description: Lists ticket types for a catalog event.
@@ -1536,6 +1660,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Select organization
+      tags:
+      - staff
+  /api/v1/staff/tags:
+    get:
+      description: Searches the shared Tag pool for the staff tag editor, preset tags
+        first.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeTagList'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Search tags
       tags:
       - staff
   /health:

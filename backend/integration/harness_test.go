@@ -122,9 +122,15 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
+	}
+
+	// Preset Tags are seeded once by migration and must survive resets; only
+	// Custom Tags coined during a test are cleared for isolation.
+	if _, err := db.ExecContext(ctx, `DELETE FROM tags WHERE curated = FALSE`); err != nil {
+		return fmt.Errorf("clear custom tags: %w", err)
 	}
 
 	_, err := db.ExecContext(ctx, `
