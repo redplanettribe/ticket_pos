@@ -217,24 +217,32 @@ export function missingFieldsFromDetails(details: Record<string, unknown> | unde
   return Array.isArray(missing) ? missing.filter((field): field is string => typeof field === "string") : null;
 }
 
-export function getPublishMissingFields(
-  name: string,
-  slug: string,
-  startsAtLocal: string,
-  timezone: string,
-  ticketTypeCount: number,
-): string[] {
+/** The persisted Event fields publish-readiness depends on. */
+export type PublishReadinessEvent = {
+  name: string;
+  slug: string;
+  starts_at: string | null;
+  timezone: string | null;
+};
+
+/**
+ * Pure publish-readiness check over SAVED server state. Returns the list of
+ * missing requirement keys (empty when the persisted Event may be published).
+ * Kept pure and dependency-free so it is directly unit-testable and can drive
+ * the header bar's Publish button without any form state.
+ */
+export function getPublishMissingFields(event: PublishReadinessEvent, ticketTypeCount: number): string[] {
   const missing: string[] = [];
-  if (!name.trim()) {
+  if (!event.name.trim()) {
     missing.push("name");
   }
-  if (!slug.trim()) {
+  if (!event.slug.trim()) {
     missing.push("slug");
   }
-  if (!startsAtLocal) {
+  if (!event.starts_at) {
     missing.push("starts_at");
   }
-  if (!timezone.trim()) {
+  if (!event.timezone || !event.timezone.trim()) {
     missing.push("timezone");
   }
   if (ticketTypeCount === 0) {
@@ -242,6 +250,15 @@ export function getPublishMissingFields(
   }
   return missing;
 }
+
+/** Human-readable labels for the publish-readiness missing-field keys. */
+export const PUBLISH_FIELD_LABELS: Record<string, string> = {
+  name: "name",
+  slug: "slug",
+  starts_at: "schedule",
+  timezone: "timezone",
+  ticket_types: "at least one ticket type",
+};
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
   const formatter = new Intl.DateTimeFormat("en-US", {
