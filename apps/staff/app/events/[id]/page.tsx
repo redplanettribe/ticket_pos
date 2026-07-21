@@ -11,7 +11,6 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
   const { id } = await params;
   const session = await loadSession();
   const role = session?.active_member?.role;
-  const isOrgAdmin = role === "org_admin";
 
   // Event Staff have no editable Details actions; send them straight to the
   // area they manage. The Details index is read-only reference for them.
@@ -19,5 +18,5 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
     redirect(`/events/${id}/ticket-types`);
   }
 
-  return <EventDetailForm eventId={id} isOrgAdmin={isOrgAdmin} />;
+  return <EventDetailForm eventId={id} />;
 }

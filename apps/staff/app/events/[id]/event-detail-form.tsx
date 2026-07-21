@@ -43,16 +43,11 @@ import {
 
 import { EventCoverImage } from "./event-cover-image";
 
-import { EventTagsSection } from "./event-tags-section";
-
-import { ImportSalesSection } from "./import-sales-section";
-
 type EventDetailFormProps = {
   eventId: string;
-  isOrgAdmin: boolean;
 };
 
-export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
+export function EventDetailForm({ eventId }: EventDetailFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -395,10 +390,6 @@ export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
           {saving ? "Saving..." : "Save changes"}
         </Button>
       </form>
-
-      {isOrgAdmin ? <EventTagsSection eventId={eventId} /> : null}
-
-      {isOrgAdmin ? <ImportSalesSection eventId={eventId} /> : null}
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
