@@ -38,7 +38,7 @@ V0  Platform client adoption (api-client in Staff + Storefront)
   → V3  Public catalog (storefront event page with real data)
   → V4  In-person sale (POS records sale, capacity decrements)
   → V5  Online sale (guest checkout, shared capacity with POS)
-  → V6  Sale import (CSV from External Platforms)
+  → V6  Sale import (Direct off-platform sales from CSV/Excel; builds shared sales spine)
   → V7  Event Staff delegation (assignments + scoped permissions)
   → V8  Integration Partner API (programmatic catalog + sales)
   → V9  Production launch (email, payment, deploy, smoke E2E)
@@ -66,7 +66,7 @@ Business scenarios in [business-intent.md](./business-intent.md) map to slices a
 | V3 | Customer explores events on the global explorer, org page, and event page (read-only) | Catalog visible on the Storefront | C9–C12, C14 | Done |
 | V4 | Staff sells at the door on POS; remaining capacity updates immediately | Door sales scenario | D1–D10, E1–E7 | Not started |
 | V5 | Customer completes guest checkout online; capacity reflects POS and online together | Online + in-person sales both required at launch | F1–F10, D6, D9 | Not started |
-| V6 | Staff uploads a CSV of off-platform sales; capacity reduces or batch fails cleanly | Off-platform sales scenario | G1–G8 | Not started |
+| V6 | Staff imports Direct off-platform sales (cash/transfer) from CSV/Excel; capacity reduces or batch fails cleanly; buyers emailed a Sale Confirmation; latest batch undoable | Off-platform sales scenario | D1–D5, G1–G10 | Not started |
 | V7 | Org Admin invites members and assigns Event Staff to specific Events | Event Staff delegated catalog + sales on assigned Events | H1–H10 | Partial |
 | V8 | Integration Partner manages events, catalog, and sales via API keys | Partner-managed events scenario | I1–I8, I10 | Not started |
 | V9 | Production email and payment, deploy pipeline, full-path E2E smoke | Success criteria: zero to selling in one session | J1–J7 | Not started |
@@ -113,9 +113,11 @@ Payment provider interface plus dev stub, checkout API, storefront cart.
 Reuse sales core and idempotency from V4.
 Success criteria expect online and in-person in the same session; V5 completes that pair.
 
-**V6 - Sale import.**
-Synchronous CSV upload in a single transaction.
-All-or-nothing on oversell matches the External Platform scenario in business intent.
+**V6 - Sale import (Direct source first).**
+Synchronous `.csv`/`.xlsx` upload parsed server-side, in a single transaction, all-or-nothing on oversell.
+Ships the `direct` Sales Source (the Organization's own cash/transfer sales); `external_platform` reuses the same pipeline later.
+Deliberately pulls the shared **sales spine** forward — sales core (D1–D5), the Sale Confirmation artifact, and the `EmailSender`-backed delivery path — because imported buyers are emailed a confirmation just like online sales. That spine is reused by V5 and V8.
+See [issue #17](https://github.com/redplanettribe/ticket_pos/issues/17). Staged: spine → import UI → undo.
 
 **V7 - Event Staff delegation.**
 Members, event assignments, and route-level permission checks.
@@ -230,7 +232,7 @@ Vertical slices: **V2** (staff), **V3** (public storefront).
 
 ## D. Sales core (shared by all channels)
 
-Vertical slices: **V4** (introduced), **V5** (idempotency for online), **V6** (import).
+Vertical slices: originally scoped to **V4**, but **V6** now builds D1–D5 first (the import feature pulls the shared sales spine forward — see [issue #17](https://github.com/redplanettribe/ticket_pos/issues/17)); **V5** adds idempotency for online.
 
 
 | #   | Feature                                               | Status      |
@@ -294,21 +296,24 @@ Vertical slice: **V5**.
 
 
 
-## G. Sale import (External Platforms)
+## G. Sale import (Direct source)
 
-Vertical slice: **V6**.
+Vertical slice: **V6**. Spec: [issue #17](https://github.com/redplanettribe/ticket_pos/issues/17).
+Builds the `direct` Sales Source on top of the sales spine (section D). `external_platform` source is deferred.
 
 
-| #   | Feature                                                             | Status      |
-| --- | ------------------------------------------------------------------- | ----------- |
-| G1  | Import batch schema (batch record and line audit)                   | Not started |
-| G2  | CSV parser (columns per technical design)                           | Not started |
-| G3  | Staff API: upload CSV sale import (synchronous, single transaction) | Not started |
-| G4  | All-or-nothing batch: rollback on any oversell                      | Not started |
-| G5  | `IMPORT_BATCH_FAILED` with first failing row                        | Not started |
-| G6  | Row limit (~10,000) and validation errors                           | Not started |
-| G7  | Staff UI: CSV upload and success or failure feedback                | Not started |
-| G8  | Sale import integration tests                                       | Not started |
+| #   | Feature                                                                       | Status      |
+| --- | ----------------------------------------------------------------------------- | ----------- |
+| G1  | `sale_import_batches` schema (batch record, source, actor, counts, status)    | Not started |
+| G2  | Server-side `.csv` + `.xlsx` parser (add xlsx lib; columns per technical design) | Not started |
+| G3  | Per-event `.xlsx` template with locked ticket-type dropdown + hidden id        | Not started |
+| G4  | Staff API: preview (all row errors at once + soft duplicate flags + capacity)  | Not started |
+| G5  | Staff API: commit (synchronous, single transaction, idempotency key)           | Not started |
+| G6  | All-or-nothing batch: oversell blocked; `IMPORT_BATCH_FAILED`; raise-capacity  | Not started |
+| G7  | Confirmation email per sale on commit (via `EmailSender`)                       | Not started |
+| G8  | Undo latest batch: reverse sales, restore capacity, opt-in void email          | Not started |
+| G9  | Staff UI: Event "Import sales" flow + per-event history; `/imports` → picker    | Not started |
+| G10 | Sale import integration tests (+ repository concurrency exception)             | Not started |
 
 
 ---

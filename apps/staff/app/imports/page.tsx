@@ -1,19 +1,17 @@
-import { InProgressPanel, PageHeader } from "@ticket-pos/ui";
+import { PageHeader } from "@ticket-pos/ui";
 
 import { StaffPageShell } from "../staff-page-shell";
+import { ImportsPicker } from "./imports-picker";
 
 export default async function ImportsPage() {
   return (
     <StaffPageShell activePath="/imports">
       <div className="mx-auto max-w-4xl space-y-6">
         <PageHeader
-          title="Imports"
-          description="Upload CSV sale imports for an Event."
+          title="Import sales"
+          description="Choose an Event to record off-platform sales from a .csv or .xlsx file."
         />
-        <InProgressPanel
-          title="Sale imports are under development"
-          description="Upload CSV files from external platforms and reconcile sales against your Events."
-        />
+        <ImportsPicker />
       </div>
     </StaffPageShell>
   );

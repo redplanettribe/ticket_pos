@@ -20,6 +20,9 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
+	saleshandler "github.com/peter/ticket_pos/backend/internal/sales/handler"
+	salesrepo "github.com/peter/ticket_pos/backend/internal/sales/repository"
+	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
 // App holds wired application dependencies.
@@ -34,6 +37,9 @@ type App struct {
 	CatalogRepo     *catalogrepo.Repository
 	CatalogService  *catalogsvc.Service
 	CatalogHandler  *cataloghandler.Handler
+	SalesRepo       *salesrepo.Repository
+	SalesService    *salessvc.Service
+	SalesHandler    *saleshandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -116,6 +122,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	catalogHandler := cataloghandler.New(catalogService)
 
+	salesRepo := salesrepo.New(db)
+	salesService := salessvc.New(salesRepo, emailSender)
+	if options.clock != nil {
+		salesService = salesService.WithClock(options.clock)
+	}
+	salesHandler := saleshandler.New(salesService)
+
 	return &App{
 		Config:          cfg,
 		Logger:          logger,
@@ -127,6 +140,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		CatalogRepo:     catalogRepo,
 		CatalogService:  catalogService,
 		CatalogHandler:  catalogHandler,
+		SalesRepo:       salesRepo,
+		SalesService:    salesService,
+		SalesHandler:    salesHandler,
 	}, nil
 }
 

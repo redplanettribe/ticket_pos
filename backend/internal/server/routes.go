@@ -38,6 +38,7 @@ func registerAuthRoutes(mux *http.ServeMux, app *App) {
 func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
 	ch := app.CatalogHandler
+	sh := app.SalesHandler
 	svc := app.IdentityService
 
 	mux.HandleFunc("POST /api/v1/staff/organizations", h.CreateOrganization)
@@ -67,6 +68,12 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 		)
 	}
 
+	// canManageEventSales gates Sale Import (and future selling) actions. Today
+	// this resolves to Org Admin; when Event assignments land (V7), widen this one
+	// definition to also admit Event Owner and assigned Event Staff — callers need
+	// no change.
+	canManageEventSales := orgAdmin
+
 	mux.Handle("GET /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.GetOrganization)))
 	mux.Handle("PATCH /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.UpdateOrganization)))
 	mux.Handle("DELETE /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.DeleteOrganization)))
@@ -94,6 +101,13 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))
 	mux.Handle("PUT /api/v1/staff/events/{id}/tags", orgAdmin(http.HandlerFunc(ch.SetEventTags)))
+	// Sale Import (Direct source).
+	mux.Handle("GET /api/v1/staff/events/{id}/sale-imports/template", canManageEventSales(http.HandlerFunc(sh.DownloadSaleImportTemplate)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sale-imports/preview", canManageEventSales(http.HandlerFunc(sh.PreviewSaleImport)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sale-imports", canManageEventSales(http.HandlerFunc(sh.CommitDirectSaleImport)))
+	mux.Handle("GET /api/v1/staff/events/{id}/sale-imports", canManageEventSales(http.HandlerFunc(sh.ListSaleImports)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sale-imports/{batchId}/undo", canManageEventSales(http.HandlerFunc(sh.UndoSaleImport)))
+
 	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
 	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))
 	mux.Handle("DELETE /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveEventAssignment)))
