@@ -19,7 +19,6 @@ type StaffShellProps = {
 const baseNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/pos", label: "POS" },
-  { href: "/imports", label: "Imports" },
 ] as const;
 
 export function StaffShell({
