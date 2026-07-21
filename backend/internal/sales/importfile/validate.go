@@ -52,6 +52,14 @@ type RowResult struct {
 	Valid          bool       `json:"valid"`
 	Errors         []RowError `json:"errors,omitempty"`
 
+	// PossibleDuplicate flags a valid row that matches an existing active Ticket
+	// Sale on customer_email + ticket type + sold_at date. Soft signal only: it
+	// never blocks commit; the organizer resolves it by skipping or keeping.
+	PossibleDuplicate bool `json:"possible_duplicate,omitempty"`
+	// DuplicateOfDate is the prior sale's sold_at date (YYYY-MM-DD, Event tz) that
+	// this row appears to duplicate.
+	DuplicateOfDate string `json:"duplicate_of_date,omitempty"`
+
 	// soldAt is the parsed sold_at, retained for the commit path (not serialized).
 	soldAt time.Time
 }
@@ -68,6 +76,10 @@ type CapacityImpact struct {
 	SoldCount      int    `json:"sold_count"`
 	Capacity       int    `json:"capacity"`
 	Remaining      int    `json:"remaining"`
+	// Overage is how many the requested quantity exceeds remaining capacity by
+	// (0 when it fits). Oversold is true whenever Overage > 0.
+	Overage  int  `json:"overage"`
+	Oversold bool `json:"oversold"`
 }
 
 // ValidateResult is the full preview: per-row verdicts, the per-Ticket-Type
@@ -77,6 +89,10 @@ type ValidateResult struct {
 	CapacityImpact []CapacityImpact `json:"capacity_impact"`
 	ValidRows      int              `json:"valid_rows"`
 	TotalRows      int              `json:"total_rows"`
+	// Committable is true only when every row is valid and no Ticket Type is
+	// oversold. Possible-duplicate flags never affect it (soft signal). A
+	// commit-blocked preview must not be committed until re-previewed.
+	Committable bool `json:"committable"`
 }
 
 // Valid reports whether every parsed row passed validation.
@@ -116,10 +132,19 @@ func Validate(in ValidateInput) ValidateResult {
 		result.Rows = append(result.Rows, row)
 	}
 
+	anyOversold := false
 	for _, tt := range in.Types {
 		req, ok := requested[tt.ID]
 		if !ok {
 			continue
+		}
+		remaining := tt.Capacity - tt.SoldCount
+		overage := req - remaining
+		if overage < 0 {
+			overage = 0
+		}
+		if overage > 0 {
+			anyOversold = true
 		}
 		result.CapacityImpact = append(result.CapacityImpact, CapacityImpact{
 			TicketTypeID:   tt.ID,
@@ -127,9 +152,15 @@ func Validate(in ValidateInput) ValidateResult {
 			Requested:      req,
 			SoldCount:      tt.SoldCount,
 			Capacity:       tt.Capacity,
-			Remaining:      tt.Capacity - tt.SoldCount,
+			Remaining:      remaining,
+			Overage:        overage,
+			Oversold:       overage > 0,
 		})
 	}
+
+	// A batch may be committed only when every row is valid and nothing is
+	// oversold. Possible-duplicate flags are a soft signal and never block.
+	result.Committable = result.Valid() && !anyOversold
 
 	return result
 }

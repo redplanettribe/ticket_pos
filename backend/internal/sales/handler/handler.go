@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,7 +98,7 @@ func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Requ
 // validation result plus the capacity impact, writing nothing.
 //
 // @Summary      Preview a Sale Import file
-// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, and the capacity impact per Ticket Type. No writes.
+// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.
 // @Tags         staff
 // @Accept       multipart/form-data
 // @Produce      json
@@ -137,7 +138,7 @@ func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
 // `idempotency_key` and `source` fields) or as a JSON body.
 //
 // @Summary      Commit a Direct Sale Import
-// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file or a JSON body.
+// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body.
 // @Tags         staff
 // @Accept       json
 // @Accept       multipart/form-data
@@ -210,6 +211,7 @@ func (h *Handler) commitFromFile(w http.ResponseWriter, r *http.Request, reqID, 
 		source = "direct"
 	}
 	idempotencyKey := strings.TrimSpace(r.FormValue("idempotency_key"))
+	skipRows, skipErr := parseSkipRows(r.FormValue("skip_rows"))
 
 	var fields []platform.FieldError
 	if idempotencyKey == "" {
@@ -221,6 +223,9 @@ func (h *Handler) commitFromFile(w http.ResponseWriter, r *http.Request, reqID, 
 	if len(rows) == 0 {
 		fields = append(fields, platform.FieldError{Field: "file", Message: "must contain at least one row"})
 	}
+	if skipErr != nil {
+		fields = append(fields, *skipErr)
+	}
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
@@ -230,6 +235,7 @@ func (h *Handler) commitFromFile(w http.ResponseWriter, r *http.Request, reqID, 
 		Source:         source,
 		IdempotencyKey: idempotencyKey,
 		Rows:           rows,
+		SkipRows:       skipRows,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -298,6 +304,30 @@ func rowValidationFields(result *importfile.ValidateResult) []platform.FieldErro
 		}
 	}
 	return fields
+}
+
+// parseSkipRows parses the multipart `skip_rows` field: a comma-separated list of
+// file row numbers to exclude from the commit (e.g. "3,7"), tolerating optional
+// surrounding brackets and whitespace. Blank means skip nothing.
+func parseSkipRows(raw string) ([]int, *platform.FieldError) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, "[]")
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var out []int
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, &platform.FieldError{Field: "skip_rows", Message: "must be a comma-separated list of row numbers"}
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 func isMultipart(r *http.Request) bool {

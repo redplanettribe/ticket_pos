@@ -29,6 +29,33 @@ func createTicketTypeWithCapacity(t *testing.T, env *testEnv, sessionID, eventID
 	return tt.ID
 }
 
+// raiseTicketTypeCapacity updates a Ticket Type's capacity via the standard
+// catalog PATCH — the inline "raise capacity" action the oversell flow relies on.
+func raiseTicketTypeCapacity(t *testing.T, env *testEnv, sessionID, eventID, ticketTypeID, name string, priceCents, capacity int) {
+	t.Helper()
+	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID+"/ticket-types/"+ticketTypeID, map[string]any{
+		"name":        name,
+		"price_cents": priceCents,
+		"capacity":    capacity,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("raise capacity status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+// salesCountByEmail counts active Ticket Sales recorded for a buyer on an Event.
+func salesCountByEmail(t *testing.T, env *testEnv, eventID, email string) int {
+	t.Helper()
+	var n int
+	if err := env.db.QueryRow(`
+		SELECT COUNT(*) FROM ticket_sales
+		WHERE event_id = $1 AND customer_email = $2 AND status = 'active'
+	`, eventID, email).Scan(&n); err != nil {
+		t.Fatalf("count sales by email: %v", err)
+	}
+	return n
+}
+
 // soldCount reads the current sold_count for a Ticket Type via the staff API.
 func soldCount(t *testing.T, env *testEnv, sessionID, eventID, ticketTypeID string) int {
 	t.Helper()

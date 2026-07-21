@@ -1116,7 +1116,7 @@ export interface paths {
         put?: never;
         /**
          * Commit a Direct Sale Import
-         * @description Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file or a JSON body.
+         * @description Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body.
          */
         post: {
             parameters: {
@@ -1209,7 +1209,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a Sale Import file
-         * @description Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, and the capacity impact per Ticket Type. No writes.
+         * @description Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.
          */
         post: {
             parameters: {

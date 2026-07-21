@@ -159,6 +159,40 @@ func (r *Repository) ListTicketTypesForImport(ctx context.Context, orgID, eventI
 	return out, rows.Err()
 }
 
+// ExistingSaleKey is the identity of an existing active Ticket Sale used for
+// soft duplicate detection: buyer email, Ticket Type, and the raw sold_at
+// (the caller buckets it to a date in the Event timezone).
+type ExistingSaleKey struct {
+	CustomerEmail string
+	TicketTypeID  string
+	SoldAt        time.Time
+}
+
+// ListActiveSaleKeys returns the (email, ticket type, sold_at) tuples of every
+// active Ticket Sale on the Event, for soft duplicate detection in the preview.
+func (r *Repository) ListActiveSaleKeys(ctx context.Context, orgID, eventID string) ([]ExistingSaleKey, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT ts.customer_email, tsl.ticket_type_id, ts.sold_at
+		FROM ticket_sales ts
+		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
+		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = 'active'
+	`, eventID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ExistingSaleKey
+	for rows.Next() {
+		var k ExistingSaleKey
+		if err := rows.Scan(&k.CustomerEmail, &k.TicketTypeID, &k.SoldAt); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
 type lockedType struct {
 	priceCents int
 	capacity   int

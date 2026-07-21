@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -144,6 +145,10 @@ type FileCommitInput struct {
 	Source         string
 	IdempotencyKey string
 	Rows           []importfile.RawRow
+	// SkipRows is the set of file row numbers (RawRow.Line) the organizer chose to
+	// exclude — e.g. accidental duplicates resolved as "skip". Kept rows are
+	// recorded; skipped rows are dropped before validation and capacity checks.
+	SkipRows []int
 }
 
 // BuildTemplate returns the per-event .xlsx Sale Import template and the Event
@@ -161,7 +166,8 @@ func (s *Service) BuildTemplate(ctx context.Context, actor ActorContext, eventID
 }
 
 // PreviewImport validates parsed file rows against the Event's Ticket Types and
-// returns the per-row verdicts and capacity impact. It writes nothing.
+// returns the per-row verdicts and capacity impact, flagging rows that match an
+// existing active sale as possible duplicates. It writes nothing.
 func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID string, rows []importfile.RawRow) (*importfile.ValidateResult, error) {
 	_, types, loc, err := s.loadImportContext(ctx, actor.OrganizationID, eventID)
 	if err != nil {
@@ -173,7 +179,53 @@ func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID
 		Now:      s.now(),
 		Location: loc,
 	})
+
+	existing, err := s.repo.ListActiveSaleKeys(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	flagDuplicates(&result, existing, loc)
+
 	return &result, nil
+}
+
+// dupKey identifies a sale by buyer email (case-insensitive), Ticket Type, and
+// sold_at date in the Event timezone — the soft duplicate signal.
+type dupKey struct {
+	email  string
+	typeID string
+	date   string
+}
+
+func makeDupKey(email, typeID string, soldAt time.Time, loc *time.Location) dupKey {
+	return dupKey{
+		email:  strings.ToLower(strings.TrimSpace(email)),
+		typeID: typeID,
+		date:   soldAt.In(loc).Format("2006-01-02"),
+	}
+}
+
+// flagDuplicates marks each valid row whose (email, ticket type, sold_at date)
+// matches an existing active sale, referencing that date. Soft signal only.
+func flagDuplicates(result *importfile.ValidateResult, existing []repository.ExistingSaleKey, loc *time.Location) {
+	if len(existing) == 0 {
+		return
+	}
+	seen := make(map[dupKey]struct{}, len(existing))
+	for _, e := range existing {
+		seen[makeDupKey(e.CustomerEmail, e.TicketTypeID, e.SoldAt, loc)] = struct{}{}
+	}
+	for i := range result.Rows {
+		row := &result.Rows[i]
+		if !row.Valid {
+			continue
+		}
+		key := makeDupKey(row.CustomerEmail, row.TicketTypeID, row.SoldAtTime(), loc)
+		if _, ok := seen[key]; ok {
+			row.PossibleDuplicate = true
+			row.DuplicateOfDate = key.date
+		}
+	}
 }
 
 // CommitImportFile validates parsed file rows and, only if every row is valid,
@@ -185,12 +237,22 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Drop rows the organizer chose to skip (e.g. resolved duplicates) before
+	// validating: a skipped row is excluded from the batch and from capacity math,
+	// and its problems must not block the kept rows.
+	rows := filterSkippedRows(input.Rows, input.SkipRows)
+
 	validated := importfile.Validate(importfile.ValidateInput{
-		Rows:     input.Rows,
+		Rows:     rows,
 		Types:    types,
 		Now:      s.now(),
 		Location: loc,
 	})
+	// Invalid kept rows block with VALIDATION_FAILED. Oversell is not decided here:
+	// it falls through to the repository's under-lock capacity check, which fails
+	// the whole batch with IMPORT_BATCH_FAILED / CAPACITY_EXCEEDED (and also
+	// catches capacity races lost since preview).
 	if !validated.Valid() {
 		return nil, &validated, nil
 	}
@@ -213,6 +275,26 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 		return nil, nil, err
 	}
 	return result, nil, nil
+}
+
+// filterSkippedRows returns the rows whose Line is not in skip. It preserves
+// order and is a no-op when skip is empty.
+func filterSkippedRows(rows []importfile.RawRow, skip []int) []importfile.RawRow {
+	if len(skip) == 0 {
+		return rows
+	}
+	skipped := make(map[int]struct{}, len(skip))
+	for _, n := range skip {
+		skipped[n] = struct{}{}
+	}
+	kept := make([]importfile.RawRow, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := skipped[row.Line]; ok {
+			continue
+		}
+		kept = append(kept, row)
+	}
+	return kept
 }
 
 // loadImportContext loads the Event and its Ticket Types for import operations,

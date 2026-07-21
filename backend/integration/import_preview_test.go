@@ -77,11 +77,13 @@ func xlsxWithRows(t *testing.T, rows [][]any) []byte {
 
 type previewResultBody struct {
 	Rows []struct {
-		Row            int    `json:"row"`
-		TicketTypeID   string `json:"ticket_type_id"`
-		TicketTypeName string `json:"ticket_type_name"`
-		Valid          bool   `json:"valid"`
-		Errors         []struct {
+		Row               int    `json:"row"`
+		TicketTypeID      string `json:"ticket_type_id"`
+		TicketTypeName    string `json:"ticket_type_name"`
+		Valid             bool   `json:"valid"`
+		PossibleDuplicate bool   `json:"possible_duplicate"`
+		DuplicateOfDate   string `json:"duplicate_of_date"`
+		Errors            []struct {
 			Field   string `json:"field"`
 			Message string `json:"message"`
 		} `json:"errors"`
@@ -90,9 +92,12 @@ type previewResultBody struct {
 		TicketTypeID string `json:"ticket_type_id"`
 		Requested    int    `json:"requested"`
 		Remaining    int    `json:"remaining"`
+		Overage      int    `json:"overage"`
+		Oversold     bool   `json:"oversold"`
 	} `json:"capacity_impact"`
-	ValidRows int `json:"valid_rows"`
-	TotalRows int `json:"total_rows"`
+	ValidRows   int  `json:"valid_rows"`
+	TotalRows   int  `json:"total_rows"`
+	Committable bool `json:"committable"`
 }
 
 func TestSaleImportTemplateDownload(t *testing.T) {
@@ -298,6 +303,156 @@ func TestSaleImportCommitFileRejectsInvalidRows(t *testing.T) {
 	}
 	if n := len(env.email.Confirmations()); n != 0 {
 		t.Fatalf("confirmations = %d, want 0", n)
+	}
+}
+
+func decodePreview(t *testing.T, body envelope) previewResultBody {
+	t.Helper()
+	var res previewResultBody
+	if err := json.Unmarshal(body.Data, &res); err != nil {
+		t.Fatalf("decode preview: %v", err)
+	}
+	return res
+}
+
+// TestSaleImportPreviewOversellBlocksThenRaiseThenCommit covers the oversell
+// safety rail: preview flags the overage and blocks commit; raising the Ticket
+// Type's capacity and re-previewing clears the block; the commit then succeeds.
+func TestSaleImportPreviewOversellBlocksThenRaiseThenCommit(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Oversell Fest", "oversell-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 5)
+
+	// Requests 8 against capacity 5 → overage 3, commit blocked.
+	csv := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,GA,8,cash,2026-07-01T10:00:00Z,\n"
+
+	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
+		"sales.csv", []byte(csv), nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview status = %d error=%+v", resp.StatusCode, body.Error)
+	}
+	res := decodePreview(t, body)
+	if res.Committable {
+		t.Fatalf("committable = true, want false when oversold")
+	}
+	if len(res.CapacityImpact) != 1 || !res.CapacityImpact[0].Oversold || res.CapacityImpact[0].Overage != 3 {
+		t.Fatalf("capacity impact = %+v, want oversold overage 3", res.CapacityImpact)
+	}
+
+	// Committing while blocked is rejected by the under-lock capacity check.
+	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"sales.csv", []byte(csv), map[string]string{"idempotency_key": "oversell-1", "source": "direct"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("commit-while-blocked status = %d, want 409; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "IMPORT_BATCH_FAILED" {
+		t.Fatalf("error = %+v, want IMPORT_BATCH_FAILED", body.Error)
+	}
+
+	// Inline raise-capacity: a normal catalog edit lifting GA to 10.
+	raiseTicketTypeCapacity(t, env, sessionID, eventID, ttID, "GA", 1000, 10)
+
+	// Re-preview clears the block.
+	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
+		"sales.csv", []byte(csv), nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("re-preview status = %d error=%+v", resp.StatusCode, body.Error)
+	}
+	res = decodePreview(t, body)
+	if !res.Committable {
+		t.Fatalf("committable = false after raise, want true; impact=%+v", res.CapacityImpact)
+	}
+	if res.CapacityImpact[0].Oversold {
+		t.Fatalf("still oversold after raise: %+v", res.CapacityImpact[0])
+	}
+
+	// Commit now succeeds; sold_count reflects the batch.
+	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"sales.csv", []byte(csv), map[string]string{"idempotency_key": "oversell-2", "source": "direct"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("commit status = %d, want 201; error=%+v", resp.StatusCode, body.Error)
+	}
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 8 {
+		t.Fatalf("sold_count = %d, want 8", got)
+	}
+}
+
+// TestSaleImportDuplicateFlagSkipVsKeep covers the soft duplicate rail: a row
+// matching an existing active sale on email + type + sold_at date is flagged (but
+// never blocks); a skipped duplicate is excluded from commit while a kept one is
+// recorded, so a genuine repeat buyer is preserved.
+func TestSaleImportDuplicateFlagSkipVsKeep(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Dup Fest", "dup-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	// Seed an existing active sale for Ana on 2026-07-01.
+	seed := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,GA,2,cash,2026-07-01T10:00:00Z,\n"
+	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"seed.csv", []byte(seed), map[string]string{"idempotency_key": "dup-seed", "source": "direct"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed commit status = %d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// Second file: Ana repeats the same email+type+date (row 2, dup); Carol is new (row 3).
+	second := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,GA,2,cash,2026-07-01T18:00:00Z,\n" +
+		"carol@example.com,Carol,GA,1,cash,2026-07-03T10:00:00Z,\n"
+
+	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
+		"second.csv", []byte(second), nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview status = %d error=%+v", resp.StatusCode, body.Error)
+	}
+	res := decodePreview(t, body)
+	if !res.Committable {
+		t.Fatalf("committable = false, want true (duplicates are soft)")
+	}
+	// Row 2 (Ana) flagged referencing the prior date; row 3 (Carol) not flagged.
+	if !res.Rows[0].PossibleDuplicate || res.Rows[0].DuplicateOfDate != "2026-07-01" {
+		t.Fatalf("row0 = %+v, want possible_duplicate on 2026-07-01", res.Rows[0])
+	}
+	if res.Rows[1].PossibleDuplicate {
+		t.Fatalf("row1 (Carol) flagged as duplicate: %+v", res.Rows[1])
+	}
+
+	// Commit skipping the duplicate (row 2): only Carol is recorded.
+	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"second.csv", []byte(second), map[string]string{"idempotency_key": "dup-skip", "source": "direct", "skip_rows": "2"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("skip commit status = %d error=%+v", resp.StatusCode, body.Error)
+	}
+	if r := importResult(t, body); r.SaleCount != 1 {
+		t.Fatalf("skip commit sale_count = %d, want 1 (Carol only)", r.SaleCount)
+	}
+	// Ana still has exactly her one seeded sale; Carol now has one.
+	if n := salesCountByEmail(t, env, eventID, "ana@example.com"); n != 1 {
+		t.Fatalf("ana sales = %d, want 1 (duplicate skipped)", n)
+	}
+	if n := salesCountByEmail(t, env, eventID, "carol@example.com"); n != 1 {
+		t.Fatalf("carol sales = %d, want 1", n)
+	}
+	// sold_count: seed 2 + Carol 1 = 3.
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 3 {
+		t.Fatalf("sold_count after skip = %d, want 3", got)
+	}
+
+	// Keep the duplicate this time (no skip, new key): Ana's repeat is recorded.
+	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"keep.csv", []byte("customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\nana@example.com,Ana,GA,2,cash,2026-07-01T20:00:00Z,\n"),
+		map[string]string{"idempotency_key": "dup-keep", "source": "direct"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("keep commit status = %d error=%+v", resp.StatusCode, body.Error)
+	}
+	if n := salesCountByEmail(t, env, eventID, "ana@example.com"); n != 2 {
+		t.Fatalf("ana sales = %d, want 2 (repeat buyer kept)", n)
+	}
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 5 {
+		t.Fatalf("sold_count after keep = %d, want 5", got)
 	}
 }
 

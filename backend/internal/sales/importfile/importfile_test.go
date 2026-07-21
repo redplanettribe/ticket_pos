@@ -104,6 +104,50 @@ func TestValidateMatchesAndCapacityImpact(t *testing.T) {
 	}
 }
 
+func TestValidateOversellFlagsAndBlocksCommit(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	// VIP has capacity 10, sold 0; request 12 → overage 2, commit blocked.
+	rows := []RawRow{
+		{Line: 2, CustomerEmail: "ana@example.com", CustomerName: "Ana", TicketType: "VIP Pass", Quantity: "12", PaymentMethod: "cash", SoldAt: "2026-07-01T10:00:00Z"},
+	}
+	res := Validate(ValidateInput{Rows: rows, Types: sampleTypes(), Now: now, Location: time.UTC})
+	if len(res.CapacityImpact) != 1 {
+		t.Fatalf("impact = %+v", res.CapacityImpact)
+	}
+	imp := res.CapacityImpact[0]
+	if !imp.Oversold || imp.Overage != 2 {
+		t.Fatalf("impact = %+v, want oversold overage 2", imp)
+	}
+	if res.Committable {
+		t.Fatalf("Committable = true, want false when oversold")
+	}
+}
+
+func TestValidateCommittableWhenValidAndWithinCapacity(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	rows := []RawRow{
+		{Line: 2, CustomerEmail: "ana@example.com", CustomerName: "Ana", TicketType: "GA", Quantity: "2", PaymentMethod: "cash", SoldAt: "2026-07-01T10:00:00Z"},
+	}
+	res := Validate(ValidateInput{Rows: rows, Types: sampleTypes(), Now: now, Location: time.UTC})
+	if !res.Committable {
+		t.Fatalf("Committable = false, want true; rows=%+v impact=%+v", res.Rows, res.CapacityImpact)
+	}
+	if res.CapacityImpact[0].Oversold || res.CapacityImpact[0].Overage != 0 {
+		t.Fatalf("impact = %+v, want not oversold", res.CapacityImpact[0])
+	}
+}
+
+func TestValidateNotCommittableWhenAnyRowInvalid(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	rows := []RawRow{
+		{Line: 2, CustomerEmail: "bad", CustomerName: "", TicketType: "GA", Quantity: "1", PaymentMethod: "cash", SoldAt: "2026-07-01T10:00:00Z"},
+	}
+	res := Validate(ValidateInput{Rows: rows, Types: sampleTypes(), Now: now, Location: time.UTC})
+	if res.Committable {
+		t.Fatalf("Committable = true, want false when a row is invalid")
+	}
+}
+
 func TestValidateMatchesByHiddenID(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	rows := []RawRow{
