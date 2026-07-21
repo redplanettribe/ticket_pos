@@ -200,6 +200,63 @@ func (h *Handler) ListSaleImports(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, entries)
 }
 
+type undoImportBody struct {
+	NotifyBuyers bool `json:"notify_buyers"`
+}
+
+// UndoSaleImport reverses the latest committed Sale Import batch on an Event,
+// restoring capacity and optionally emailing affected buyers a void notice.
+//
+// @Summary      Undo a Sale Import
+// @Description  Reverses the most recent committed Sale Import batch on an Event: marks its Ticket Sales reversed, restores each Ticket Type's sold_count, and marks the batch reversed. Only the latest batch is reversible (409 IMPORT_NOT_LATEST_BATCH otherwise; 409 IMPORT_ALREADY_REVERSED if already undone). With `notify_buyers` true, each affected buyer is emailed a void/cancellation notice referencing their Sale Confirmation; false sends nothing.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path      string          true  "Event ID"
+// @Param        batchId  path      string          true  "Sale Import batch ID"
+// @Param        body     body      undoImportBody  false "Undo options"
+// @Success      200      {object}  platform.Envelope
+// @Failure      400      {object}  platform.Envelope
+// @Failure      401      {object}  platform.Envelope
+// @Failure      403      {object}  platform.Envelope
+// @Failure      404      {object}  platform.Envelope
+// @Failure      409      {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sale-imports/{batchId}/undo [post]
+func (h *Handler) UndoSaleImport(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	batchID := strings.TrimSpace(r.PathValue("batchId"))
+	var fields []platform.FieldError
+	if eventID == "" {
+		fields = append(fields, platform.FieldError{Field: "id", Message: "is required"})
+	}
+	if batchID == "" {
+		fields = append(fields, platform.FieldError{Field: "batchId", Message: "is required"})
+	}
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	// The body is optional; a missing/empty body defaults notify_buyers to false.
+	var body undoImportBody
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+			_ = platform.WriteInvalidJSON(w, reqID)
+			return
+		}
+	}
+
+	result, err := h.svc.UndoImport(r.Context(), actorFromRequest(r), eventID, batchID, body.NotifyBuyers)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
 func (h *Handler) commitFromJSON(w http.ResponseWriter, r *http.Request, reqID, eventID string) {
 	var body commitImportBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

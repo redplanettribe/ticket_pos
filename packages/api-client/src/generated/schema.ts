@@ -1251,6 +1251,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/sale-imports/{batchId}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a Sale Import
+         * @description Reverses the most recent committed Sale Import batch on an Event: marks its Ticket Sales reversed, restores each Ticket Type's sold_count, and marks the batch reversed. Only the latest batch is reversible (409 IMPORT_NOT_LATEST_BATCH otherwise; 409 IMPORT_ALREADY_REVERSED if already undone). With `notify_buyers` true, each affected buyer is emailed a void/cancellation notice referencing their Sale Confirmation; false sends nothing.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Sale Import batch ID */
+                    batchId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Undo options */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.undoImportBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/sale-imports/preview": {
         parameters: {
             query?: never;
@@ -2283,6 +2377,9 @@ export interface components {
         };
         "handler.setEventTagsBody": {
             tags?: string[];
+        };
+        "handler.undoImportBody": {
+            notify_buyers?: boolean;
         };
         "handler.updateEventBody": {
             cover_image_key?: string;

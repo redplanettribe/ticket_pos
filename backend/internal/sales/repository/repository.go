@@ -335,6 +335,194 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 	return &CommittedBatch{ID: batchID, SaleCount: len(in.Sales), Status: "committed"}, nil
 }
 
+// ReverseInput identifies the Sale Import batch to reverse.
+type ReverseInput struct {
+	EventID        string
+	OrganizationID string
+	BatchID        string
+	Now            time.Time
+}
+
+// ReversedSale is one Ticket Sale that was reversed, carrying the fields needed
+// to email its Customer a void/cancellation notice.
+type ReversedSale struct {
+	CustomerEmail   string
+	CustomerName    string
+	ConfirmationRef string
+}
+
+// ReversedBatch is the outcome of a reversed Sale Import batch.
+type ReversedBatch struct {
+	ID    string
+	Sales []ReversedSale
+}
+
+// BatchNotFoundError reports that the target Sale Import batch does not exist on
+// the Event.
+type BatchNotFoundError struct{ BatchID string }
+
+func (e *BatchNotFoundError) Error() string { return "sale import batch not found: " + e.BatchID }
+
+// BatchNotLatestError reports that the target batch is not the most recent one
+// on the Event, so it cannot be undone (latest-only).
+type BatchNotLatestError struct{ BatchID string }
+
+func (e *BatchNotLatestError) Error() string {
+	return "sale import batch is not the latest: " + e.BatchID
+}
+
+// BatchAlreadyReversedError reports that the target batch has already been reversed.
+type BatchAlreadyReversedError struct{ BatchID string }
+
+func (e *BatchAlreadyReversedError) Error() string {
+	return "sale import batch already reversed: " + e.BatchID
+}
+
+// ReverseBatch reverses a committed Sale Import batch in a single transaction:
+// it marks the batch's active Ticket Sales 'reversed', restores each affected
+// Ticket Type's sold_count by the reversed quantities (locking ticket_types FOR
+// UPDATE, symmetric to CommitImport), and marks the batch 'reversed'.
+//
+// Only the most recent batch on the Event is reversible: if the target is not
+// the newest batch it returns *BatchNotLatestError; an already-reversed batch
+// returns *BatchAlreadyReversedError; a missing batch returns *BatchNotFoundError.
+// It returns the reversed sales so the caller can send void notices after commit.
+func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*ReversedBatch, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Lock the target batch row so a concurrent undo of the same batch serializes.
+	var status string
+	err = tx.QueryRowContext(ctx, `
+		SELECT status FROM sale_import_batches
+		WHERE id = $1 AND event_id = $2 AND organization_id = $3
+		FOR UPDATE
+	`, in.BatchID, in.EventID, in.OrganizationID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, &BatchNotFoundError{BatchID: in.BatchID}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Latest-only: reject unless the target is the newest batch on the Event.
+	var latestID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id FROM sale_import_batches
+		WHERE event_id = $1 AND organization_id = $2
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, in.EventID, in.OrganizationID).Scan(&latestID)
+	if err != nil {
+		return nil, err
+	}
+	if latestID != in.BatchID {
+		return nil, &BatchNotLatestError{BatchID: in.BatchID}
+	}
+
+	if status == "reversed" {
+		return nil, &BatchAlreadyReversedError{BatchID: in.BatchID}
+	}
+
+	// Aggregate the quantities to restore per Ticket Type from the batch's active
+	// sales, and collect the sales for the void notices.
+	quantityRows, err := tx.QueryContext(ctx, `
+		SELECT tsl.ticket_type_id, SUM(tsl.quantity)
+		FROM ticket_sale_lines tsl
+		JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
+		WHERE ts.import_batch_id = $1 AND ts.status = 'active'
+		GROUP BY tsl.ticket_type_id
+	`, in.BatchID)
+	if err != nil {
+		return nil, err
+	}
+	restore := map[string]int{}
+	var typeIDs []string
+	for quantityRows.Next() {
+		var id string
+		var qty int
+		if err := quantityRows.Scan(&id, &qty); err != nil {
+			quantityRows.Close()
+			return nil, err
+		}
+		restore[id] = qty
+		typeIDs = append(typeIDs, id)
+	}
+	if err := quantityRows.Err(); err != nil {
+		quantityRows.Close()
+		return nil, err
+	}
+	quantityRows.Close()
+	sort.Strings(typeIDs)
+
+	saleRows, err := tx.QueryContext(ctx, `
+		SELECT customer_email, customer_name, confirmation_ref
+		FROM ticket_sales
+		WHERE import_batch_id = $1 AND status = 'active'
+	`, in.BatchID)
+	if err != nil {
+		return nil, err
+	}
+	var reversed []ReversedSale
+	for saleRows.Next() {
+		var s ReversedSale
+		if err := saleRows.Scan(&s.CustomerEmail, &s.CustomerName, &s.ConfirmationRef); err != nil {
+			saleRows.Close()
+			return nil, err
+		}
+		reversed = append(reversed, s)
+	}
+	if err := saleRows.Err(); err != nil {
+		saleRows.Close()
+		return nil, err
+	}
+	saleRows.Close()
+
+	// Lock the affected Ticket Types in a stable order (symmetric to CommitImport)
+	// then restore capacity.
+	for _, id := range typeIDs {
+		var dummy int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT sold_count FROM ticket_types
+			WHERE id = $1 AND event_id = $2 AND organization_id = $3
+			FOR UPDATE
+		`, id, in.EventID, in.OrganizationID).Scan(&dummy); err != nil {
+			return nil, err
+		}
+	}
+	for _, id := range typeIDs {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE ticket_types SET sold_count = sold_count - $1, updated_at = $2
+			WHERE id = $3
+		`, restore[id], in.Now, id); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ticket_sales SET status = 'reversed'
+		WHERE import_batch_id = $1 AND status = 'active'
+	`, in.BatchID); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sale_import_batches SET status = 'reversed'
+		WHERE id = $1
+	`, in.BatchID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &ReversedBatch{ID: in.BatchID, Sales: reversed}, nil
+}
+
 // ImportBatchSummary is one committed Sale Import batch for the per-event
 // history: when it ran, how many sales it recorded, its source and status, and
 // the acting Member's identity (email; nil when the Member was since removed).

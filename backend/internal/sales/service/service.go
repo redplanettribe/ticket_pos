@@ -181,6 +181,59 @@ func (s *Service) ListImportHistory(ctx context.Context, actor ActorContext, eve
 	return entries, nil
 }
 
+// UndoResult is the outcome of undoing (reversing) a Sale Import batch.
+type UndoResult struct {
+	BatchID   string `json:"batch_id"`
+	SaleCount int    `json:"sale_count"`
+	Status    string `json:"status"`
+	// Notified is true when void/cancellation emails were sent to affected buyers.
+	Notified bool `json:"notified"`
+}
+
+// UndoImport reverses the latest committed Sale Import batch on an Event: its
+// Ticket Sales are marked reversed, each affected Ticket Type's sold_count is
+// restored, and the batch is marked reversed. When notifyBuyers is true, each
+// affected Customer is emailed a void/cancellation notice referencing their Sale
+// Confirmation — sent only after the reversal transaction commits. When false,
+// nothing is sent. Only the most recent batch is reversible.
+func (s *Service) UndoImport(ctx context.Context, actor ActorContext, eventID, batchID string, notifyBuyers bool) (*UndoResult, error) {
+	eventName, ok, err := s.repo.GetEventName(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sales.ErrEventNotFound()
+	}
+
+	reversed, err := s.repo.ReverseBatch(ctx, repository.ReverseInput{
+		EventID:        eventID,
+		OrganizationID: actor.OrganizationID,
+		BatchID:        batchID,
+		Now:            s.now(),
+	})
+	if err != nil {
+		return nil, mapReverseError(err)
+	}
+
+	if notifyBuyers {
+		for _, rs := range reversed.Sales {
+			_ = s.email.SendSaleVoided(ctx, platform.SaleVoided{
+				To:           rs.CustomerEmail,
+				CustomerName: rs.CustomerName,
+				EventName:    eventName,
+				Reference:    rs.ConfirmationRef,
+			})
+		}
+	}
+
+	return &UndoResult{
+		BatchID:   reversed.ID,
+		SaleCount: len(reversed.Sales),
+		Status:    "reversed",
+		Notified:  notifyBuyers,
+	}, nil
+}
+
 // FileCommitInput is a Sale Import to record from parsed file rows.
 type FileCommitInput struct {
 	Source         string
@@ -385,6 +438,22 @@ func mapCommitError(err error) error {
 	var unknownErr *repository.UnknownTicketTypeError
 	if errors.As(err, &unknownErr) {
 		return sales.ErrTicketTypeNotFound(unknownErr.TicketTypeID)
+	}
+	return err
+}
+
+func mapReverseError(err error) error {
+	var notFound *repository.BatchNotFoundError
+	if errors.As(err, &notFound) {
+		return sales.ErrImportBatchNotFound(notFound.BatchID)
+	}
+	var notLatest *repository.BatchNotLatestError
+	if errors.As(err, &notLatest) {
+		return sales.ErrImportNotLatestBatch(notLatest.BatchID)
+	}
+	var reversed *repository.BatchAlreadyReversedError
+	if errors.As(err, &reversed) {
+		return sales.ErrImportAlreadyReversed(reversed.BatchID)
 	}
 	return err
 }

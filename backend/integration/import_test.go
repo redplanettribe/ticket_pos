@@ -431,6 +431,220 @@ func TestDirectSaleImportHistoryForbiddenForNonOrgAdmin(t *testing.T) {
 	}
 }
 
+type undoResultBody struct {
+	BatchID   string `json:"batch_id"`
+	SaleCount int    `json:"sale_count"`
+	Status    string `json:"status"`
+	Notified  bool   `json:"notified"`
+}
+
+// commitBatch commits a Direct Sale Import batch and returns its batch id.
+func commitBatch(t *testing.T, env *testEnv, sessionID, eventID, idempotencyKey string, sales []map[string]any) string {
+	t.Helper()
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports", map[string]any{
+		"idempotency_key": idempotencyKey,
+		"source":          "direct",
+		"sales":           sales,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("commit %s status=%d error=%+v", idempotencyKey, resp.StatusCode, body.Error)
+	}
+	return importResult(t, body).BatchID
+}
+
+// TestDirectSaleImportUndoRestoresCapacity proves undoing the latest batch
+// reverses its sales and restores each Ticket Type's sold_count to its
+// pre-batch value, marks the batch reversed, and (with notify_buyers false)
+// sends no void emails.
+func TestDirectSaleImportUndoRestoresCapacity(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Undo Fest", "undo-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	batchID := commitBatch(t, env, sessionID, eventID, "batch-undo", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_name": "Bob", "ticket_type_id": ttID, "quantity": 3, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 5 {
+		t.Fatalf("sold_count = %d, want 5 before undo", got)
+	}
+
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+batchID+"/undo", map[string]any{
+		"notify_buyers": false,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("undo status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var res undoResultBody
+	if err := json.Unmarshal(body.Data, &res); err != nil {
+		t.Fatalf("decode undo result: %v", err)
+	}
+	if res.BatchID != batchID || res.SaleCount != 2 || res.Status != "reversed" || res.Notified {
+		t.Fatalf("unexpected undo result: %+v", res)
+	}
+
+	// Capacity restored to the pre-batch value.
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 0 {
+		t.Fatalf("sold_count = %d, want 0 after undo", got)
+	}
+	// Sales no longer active.
+	if n := salesCountByEmail(t, env, eventID, "ana@example.com"); n != 0 {
+		t.Fatalf("active sales for ana = %d, want 0 after undo", n)
+	}
+	// Batch marked reversed in history.
+	resp, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sale-imports", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("history status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var history []struct {
+		BatchID string `json:"batch_id"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal(body.Data, &history); err != nil {
+		t.Fatalf("decode history: %v", err)
+	}
+	if len(history) != 1 || history[0].BatchID != batchID || history[0].Status != "reversed" {
+		t.Fatalf("history = %+v, want single reversed batch %s", history, batchID)
+	}
+	// notify_buyers false: no void emails.
+	if n := len(env.email.Voided()); n != 0 {
+		t.Fatalf("voided emails = %d, want 0 when notify_buyers is false", n)
+	}
+}
+
+// TestDirectSaleImportUndoNotifiesBuyers proves that with notify_buyers true,
+// each affected buyer is emailed a void notice referencing their confirmation.
+func TestDirectSaleImportUndoNotifiesBuyers(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Notify Fest", "notify-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	batchID := commitBatch(t, env, sessionID, eventID, "batch-notify", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_name": "Bob", "ticket_type_id": ttID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+batchID+"/undo", map[string]any{
+		"notify_buyers": true,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("undo status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var res undoResultBody
+	if err := json.Unmarshal(body.Data, &res); err != nil {
+		t.Fatalf("decode undo result: %v", err)
+	}
+	if !res.Notified {
+		t.Fatalf("undo result notified = false, want true")
+	}
+
+	voided := env.email.Voided()
+	if len(voided) != 2 {
+		t.Fatalf("voided emails = %d, want 2", len(voided))
+	}
+	seen := map[string]bool{}
+	for _, v := range voided {
+		if v.Reference == "" {
+			t.Fatalf("void notice missing reference: %+v", v)
+		}
+		if v.EventName != "Notify Fest" {
+			t.Fatalf("void notice event = %q, want Notify Fest", v.EventName)
+		}
+		seen[v.To] = true
+	}
+	if !seen["ana@example.com"] || !seen["bob@example.com"] {
+		t.Fatalf("void notices not sent to both buyers: %+v", voided)
+	}
+}
+
+// TestDirectSaleImportUndoLatestOnly proves that only the most recent batch is
+// reversible: undoing an older batch after a newer one exists is rejected with
+// IMPORT_NOT_LATEST_BATCH, and a second undo of the same batch is rejected with
+// IMPORT_ALREADY_REVERSED.
+func TestDirectSaleImportUndoLatestOnly(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Latest Fest", "latest-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	firstBatch := commitBatch(t, env, sessionID, eventID, "batch-first", []map[string]any{
+		{"customer_email": "one@example.com", "customer_name": "One", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	// A newer batch exists, so the first is no longer the latest.
+	secondBatch := commitBatch(t, env, sessionID, eventID, "batch-second", []map[string]any{
+		{"customer_email": "two@example.com", "customer_name": "Two", "ticket_type_id": ttID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
+	})
+
+	// Undoing the older batch is rejected; capacity untouched.
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+firstBatch+"/undo", map[string]any{
+		"notify_buyers": false,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("undo older status=%d, want 409; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "IMPORT_NOT_LATEST_BATCH" {
+		t.Fatalf("error = %+v, want IMPORT_NOT_LATEST_BATCH", body.Error)
+	}
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 5 {
+		t.Fatalf("sold_count = %d, want 5 (undo rejected)", got)
+	}
+
+	// Undoing the latest batch succeeds.
+	resp, body = env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+secondBatch+"/undo", map[string]any{
+		"notify_buyers": false,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("undo latest status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if got := soldCount(t, env, sessionID, eventID, ttID); got != 2 {
+		t.Fatalf("sold_count = %d, want 2 after undoing latest", got)
+	}
+
+	// Undoing it again is rejected as already reversed.
+	resp, body = env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+secondBatch+"/undo", map[string]any{
+		"notify_buyers": false,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second undo status=%d, want 409; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "IMPORT_ALREADY_REVERSED" {
+		t.Fatalf("error = %+v, want IMPORT_ALREADY_REVERSED", body.Error)
+	}
+}
+
+// TestDirectSaleImportUndoForbiddenForNonOrgAdmin proves undo is gated by
+// can_manage_event_sales.
+func TestDirectSaleImportUndoForbiddenForNonOrgAdmin(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Gated Undo", "gated-undo")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+	batchID := commitBatch(t, env, sessionID, eventID, "batch-gated", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+
+	resp, body := env.post(t, "/api/v1/staff/members", map[string]string{
+		"email": "staff@example.com",
+		"role":  "event_staff",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("add member status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	staffSessionID := verifyOTP(t, env, "staff@example.com")
+
+	resp, body = env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+batchID+"/undo", map[string]any{
+		"notify_buyers": false,
+	}, authHeader(staffSessionID))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "FORBIDDEN" {
+		t.Fatalf("error = %+v, want FORBIDDEN", body.Error)
+	}
+}
+
 // TestDirectSaleImportConcurrentDoesNotOversell proves the FOR UPDATE row lock:
 // many concurrent imports competing for the same capacity never oversell, and
 // sold_count exactly matches the sales that were accepted.

@@ -51,6 +51,13 @@ export type ImportCommitResult = {
   replayed: boolean;
 };
 
+export type ImportUndoResult = {
+  batch_id: string;
+  sale_count: number;
+  status: string;
+  notified: boolean;
+};
+
 export type ImportHistoryEntry = {
   batch_id: string;
   created_at: string;
@@ -95,6 +102,29 @@ export async function commitSaleImport(
     form.append("skip_rows", skipRows.join(","));
   }
   return postImportForm<ImportCommitResult>(`/api/events/${eventId}/sale-imports`, form);
+}
+
+// undoSaleImport reverses the latest Sale Import batch via the BFF, opting into
+// buyer void notices when notifyBuyers is set. Surfaces the API error code
+// (e.g. IMPORT_NOT_LATEST_BATCH, IMPORT_ALREADY_REVERSED) as ApiError.
+export async function undoSaleImport(
+  eventId: string,
+  batchId: string,
+  notifyBuyers: boolean,
+): Promise<ImportUndoResult> {
+  const response = await fetch(`/api/events/${eventId}/sale-imports/${batchId}/undo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notify_buyers: notifyBuyers }),
+  });
+  const envelope = (await response.json()) as APIEnvelope<ImportUndoResult>;
+  if (!response.ok || envelope.error) {
+    throw new ApiError(envelope.error?.message ?? "Request failed", envelope.error?.code, envelope.error?.details);
+  }
+  if (envelope.data === null) {
+    throw new Error("Empty response");
+  }
+  return envelope.data;
 }
 
 export function formatBatchTimestamp(iso: string): string {

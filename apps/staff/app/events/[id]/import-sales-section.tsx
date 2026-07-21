@@ -13,6 +13,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Label,
   toast,
 } from "@ticket-pos/ui";
 
@@ -21,6 +28,7 @@ import {
   commitSaleImport,
   formatBatchTimestamp,
   previewSaleImport,
+  undoSaleImport,
   type ImportCommitResult,
   type ImportHistoryEntry,
   type ImportPreviewResult,
@@ -42,6 +50,9 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
   const [committed, setCommitted] = useState<ImportCommitResult | null>(null);
   const [history, setHistory] = useState<ImportHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [undoTarget, setUndoTarget] = useState<ImportHistoryEntry | null>(null);
+  const [notifyBuyers, setNotifyBuyers] = useState(false);
+  const [undoing, setUndoing] = useState(false);
 
   const currency = ticketTypes[0]?.currency ?? "USD";
 
@@ -180,6 +191,36 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
       setCommitting(false);
     }
   }
+
+  function openUndo(entry: ImportHistoryEntry) {
+    setUndoTarget(entry);
+    setNotifyBuyers(false);
+  }
+
+  async function confirmUndo() {
+    if (!undoTarget) {
+      return;
+    }
+    setUndoing(true);
+    try {
+      const result = await undoSaleImport(eventId, undoTarget.batch_id, notifyBuyers);
+      toast.success(
+        `Undid ${result.sale_count} sale${result.sale_count === 1 ? "" : "s"}${
+          result.notified ? " and notified buyers" : ""
+        }`,
+      );
+      setUndoTarget(null);
+      await Promise.all([loadTicketTypes(), loadHistory()]);
+    } catch (undoError) {
+      const message = undoError instanceof Error ? undoError.message : "Failed to undo import";
+      toast.error(message);
+    } finally {
+      setUndoing(false);
+    }
+  }
+
+  // Only the most recent batch is reversible; identify it once for the history UI.
+  const latestBatchId = history[0]?.batch_id;
 
   const skippedCount = preview ? preview.rows.filter((r) => skipRows.has(r.row)).length : 0;
   const commitCount = preview ? preview.total_rows - skippedCount : 0;
@@ -425,23 +466,70 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
             <p className="text-sm text-muted-foreground">No imports yet for this Event.</p>
           ) : (
             <div className="space-y-2">
-              {history.map((entry) => (
-                <div
-                  key={entry.batch_id}
-                  className="flex flex-col gap-1 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <span>{formatBatchTimestamp(entry.created_at)}</span>
-                  <span className="text-muted-foreground">
-                    {entry.sale_count} sale{entry.sale_count === 1 ? "" : "s"}
-                    {entry.actor_email ? ` · ${entry.actor_email}` : ""}
-                    {entry.status !== "committed" ? ` · ${entry.status}` : ""}
-                  </span>
-                </div>
-              ))}
+              {history.map((entry) => {
+                // Undo is offered only on the latest batch, and only while it is
+                // still committed (an already-reversed batch shows its status).
+                const undoable = entry.batch_id === latestBatchId && entry.status === "committed";
+                return (
+                  <div
+                    key={entry.batch_id}
+                    className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span>{formatBatchTimestamp(entry.created_at)}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground">
+                        {entry.sale_count} sale{entry.sale_count === 1 ? "" : "s"}
+                        {entry.actor_email ? ` · ${entry.actor_email}` : ""}
+                        {entry.status !== "committed" ? ` · ${entry.status}` : ""}
+                      </span>
+                      {undoable ? (
+                        <Button type="button" size="sm" variant="outline" onClick={() => openUndo(entry)}>
+                          Undo
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       </CardContent>
+
+      <Dialog open={undoTarget !== null} onOpenChange={(open) => (!open ? setUndoTarget(null) : undefined)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Undo this import?</DialogTitle>
+            <DialogDescription>
+              This reverses{" "}
+              {undoTarget ? `${undoTarget.sale_count} sale${undoTarget.sale_count === 1 ? "" : "s"}` : "the batch"} and
+              restores capacity. Only the most recent import can be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={notifyBuyers}
+              onChange={(event) => setNotifyBuyers(event.target.checked)}
+            />
+            <span>
+              <Label className="font-medium">Notify buyers</Label>
+              <span className="block text-muted-foreground">
+                Email each affected buyer that their confirmation is cancelled. Leave unchecked to undo silently.
+              </span>
+            </span>
+          </label>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={undoing} onClick={() => setUndoTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={undoing} onClick={() => void confirmUndo()}>
+              {undoing ? "Undoing..." : "Undo import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -97,6 +97,11 @@ components:
           type: array
           uniqueItems: false
       type: object
+    handler.undoImportBody:
+      properties:
+        notify_buyers:
+          type: boolean
+      type: object
     handler.updateEventBody:
       properties:
         cover_image_key:
@@ -1389,6 +1394,79 @@ paths:
       security:
       - BearerAuth: []
       summary: Commit a Direct Sale Import
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/sale-imports/{batchId}/undo:
+    post:
+      description: 'Reverses the most recent committed Sale Import batch on an Event:
+        marks its Ticket Sales reversed, restores each Ticket Type''s sold_count,
+        and marks the batch reversed. Only the latest batch is reversible (409 IMPORT_NOT_LATEST_BATCH
+        otherwise; 409 IMPORT_ALREADY_REVERSED if already undone). With `notify_buyers`
+        true, each affected buyer is emailed a void/cancellation notice referencing
+        their Sale Confirmation; false sends nothing.'
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - description: Sale Import batch ID
+        in: path
+        name: batchId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.undoImportBody'
+                description: Undo options
+                summary: body
+        description: Undo options
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
+      security:
+      - BearerAuth: []
+      summary: Undo a Sale Import
       tags:
       - staff
   /api/v1/staff/events/{id}/sale-imports/preview:

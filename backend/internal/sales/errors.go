@@ -46,6 +46,30 @@ func ErrImportFileTooLarge(limit int) apperror.DomainError {
 	})
 }
 
+// ErrImportBatchNotFound is returned when the target Sale Import batch does not
+// exist on the Event.
+func ErrImportBatchNotFound(batchID string) apperror.DomainError {
+	return newDomainError("IMPORT_BATCH_NOT_FOUND", "Sale Import batch not found on this Event.", map[string]any{
+		"batch_id": batchID,
+	})
+}
+
+// ErrImportNotLatestBatch is returned when an undo targets a batch that is not
+// the most recent one on the Event. Only the latest batch is reversible.
+func ErrImportNotLatestBatch(batchID string) apperror.DomainError {
+	return newDomainError("IMPORT_NOT_LATEST_BATCH", "Only the most recent Sale Import can be undone.", map[string]any{
+		"batch_id": batchID,
+	})
+}
+
+// ErrImportAlreadyReversed is returned when an undo targets a batch that has
+// already been reversed. Reversal is not repeatable.
+func ErrImportAlreadyReversed(batchID string) apperror.DomainError {
+	return newDomainError("IMPORT_ALREADY_REVERSED", "This Sale Import has already been undone.", map[string]any{
+		"batch_id": batchID,
+	})
+}
+
 // ErrImportBatchFailed is returned when a Sale Import cannot be committed as a
 // whole. The batch is all-or-nothing; details identify the first offending row
 // and the reason (e.g. CAPACITY_EXCEEDED).
