@@ -169,6 +169,37 @@ func (h *Handler) CommitDirectSaleImport(w http.ResponseWriter, r *http.Request)
 	h.commitFromJSON(w, r, reqID, eventID)
 }
 
+// ListSaleImports returns the Event's committed Sale Import batches, newest
+// first, for the per-event import history surface.
+//
+// @Summary      List Sale Import history
+// @Description  Returns the Event's Sale Import batches (newest first) for the per-event history: batch id, created_at, sale_count, source, status, and the acting Member's id/email. Read-only.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Event ID"
+// @Success      200  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sale-imports [get]
+func (h *Handler) ListSaleImports(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		return
+	}
+
+	entries, err := h.svc.ListImportHistory(r.Context(), actorFromRequest(r), eventID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, entries)
+}
+
 func (h *Handler) commitFromJSON(w http.ResponseWriter, r *http.Request, reqID, eventID string) {
 	var body commitImportBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

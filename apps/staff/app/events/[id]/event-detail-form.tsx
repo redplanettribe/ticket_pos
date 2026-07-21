@@ -45,6 +45,8 @@ import { EventCoverImage } from "./event-cover-image";
 
 import { EventTagsSection } from "./event-tags-section";
 
+import { ImportSalesSection } from "./import-sales-section";
+
 import { TicketTypesSection } from "./ticket-types-section";
 
 type EventDetailFormProps = {
@@ -398,6 +400,8 @@ export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
       />
 
       {isOrgAdmin ? <EventTagsSection eventId={eventId} /> : null}
+
+      {isOrgAdmin ? <ImportSalesSection eventId={eventId} /> : null}
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>

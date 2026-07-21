@@ -335,6 +335,53 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 	return &CommittedBatch{ID: batchID, SaleCount: len(in.Sales), Status: "committed"}, nil
 }
 
+// ImportBatchSummary is one committed Sale Import batch for the per-event
+// history: when it ran, how many sales it recorded, its source and status, and
+// the acting Member's identity (email; nil when the Member was since removed).
+type ImportBatchSummary struct {
+	ID          string
+	CreatedAt   time.Time
+	SaleCount   int
+	Source      string
+	Status      string
+	ActorMember *string
+	ActorEmail  *string
+}
+
+// ListImportBatches returns the Event's Sale Import batches, newest first, with
+// the acting Member's email joined in (nil when the Member was removed).
+func (r *Repository) ListImportBatches(ctx context.Context, orgID, eventID string) ([]ImportBatchSummary, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT b.id, b.created_at, b.sale_count, b.source, b.status,
+		       b.created_by_member_id, m.email
+		FROM sale_import_batches b
+		LEFT JOIN members m ON m.id = b.created_by_member_id
+		WHERE b.event_id = $1 AND b.organization_id = $2
+		ORDER BY b.created_at DESC, b.id DESC
+	`, eventID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ImportBatchSummary
+	for rows.Next() {
+		var b ImportBatchSummary
+		var memberID, email sql.NullString
+		if err := rows.Scan(&b.ID, &b.CreatedAt, &b.SaleCount, &b.Source, &b.Status, &memberID, &email); err != nil {
+			return nil, err
+		}
+		if memberID.Valid {
+			b.ActorMember = &memberID.String
+		}
+		if email.Valid {
+			b.ActorEmail = &email.String
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) findBatch(ctx context.Context, orgID, idempotencyKey string) (*CommittedBatch, error) {
 	var b CommittedBatch
 	err := r.db.Pool.QueryRowContext(ctx, `

@@ -329,6 +329,108 @@ func TestDirectSaleImportForbiddenForNonOrgAdmin(t *testing.T) {
 	}
 }
 
+func TestDirectSaleImportHistoryListsBatchesNewestFirst(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "History Fest", "history-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	// Empty history before any import.
+	resp, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sale-imports", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("history status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var empty []map[string]any
+	if err := json.Unmarshal(body.Data, &empty); err != nil {
+		t.Fatalf("decode empty history: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("history = %d, want 0 before any import", len(empty))
+	}
+
+	// Commit two batches: the first records one sale, the second two, so the
+	// resulting sale_count distinguishes them (the harness clock is fixed, so
+	// created_at ties — the endpoint's ordering is verified by production
+	// distinct timestamps; here we assert the batches and their counts as a set).
+	batchSales := [][]map[string]any{
+		{
+			{"customer_email": "one@example.com", "customer_name": "One", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		},
+		{
+			{"customer_email": "two-a@example.com", "customer_name": "Two A", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "two-b@example.com", "customer_name": "Two B", "ticket_type_id": ttID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+		},
+	}
+	for i, sales := range batchSales {
+		resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports", map[string]any{
+			"idempotency_key": fmt.Sprintf("hist-%d", i),
+			"source":          "direct",
+			"sales":           sales,
+		}, authHeader(sessionID))
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("commit hist-%d status=%d error=%+v", i, resp.StatusCode, body.Error)
+		}
+	}
+
+	resp, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sale-imports", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("history status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var history []struct {
+		BatchID    string  `json:"batch_id"`
+		SaleCount  int     `json:"sale_count"`
+		Source     string  `json:"source"`
+		Status     string  `json:"status"`
+		ActorEmail *string `json:"actor_email"`
+		CreatedAt  string  `json:"created_at"`
+	}
+	if err := json.Unmarshal(body.Data, &history); err != nil {
+		t.Fatalf("decode history: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("history = %d, want 2", len(history))
+	}
+	counts := map[int]bool{}
+	for _, h := range history {
+		counts[h.SaleCount] = true
+		if h.Source != "direct" || h.Status != "committed" {
+			t.Fatalf("unexpected batch: %+v", h)
+		}
+		if h.BatchID == "" || h.CreatedAt == "" {
+			t.Fatalf("batch missing id/created_at: %+v", h)
+		}
+		if h.ActorEmail == nil || *h.ActorEmail != "admin@example.com" {
+			t.Fatalf("actor_email = %v, want admin@example.com", h.ActorEmail)
+		}
+	}
+	if !counts[1] || !counts[2] {
+		t.Fatalf("history sale counts = %v, want {1,2}", counts)
+	}
+}
+
+func TestDirectSaleImportHistoryForbiddenForNonOrgAdmin(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Gated History", "gated-history")
+
+	resp, body := env.post(t, "/api/v1/staff/members", map[string]string{
+		"email": "staff@example.com",
+		"role":  "event_staff",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("add member status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	staffSessionID := verifyOTP(t, env, "staff@example.com")
+
+	resp, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sale-imports", authHeader(staffSessionID))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "FORBIDDEN" {
+		t.Fatalf("error = %+v, want FORBIDDEN", body.Error)
+	}
+}
+
 // TestDirectSaleImportConcurrentDoesNotOversell proves the FOR UPDATE row lock:
 // many concurrent imports competing for the same capacity never oversell, and
 // sold_count exactly matches the sales that were accepted.

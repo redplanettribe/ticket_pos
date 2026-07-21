@@ -140,6 +140,47 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, event
 	return result, nil
 }
 
+// ImportHistoryEntry is one committed Sale Import batch in an Event's history.
+type ImportHistoryEntry struct {
+	BatchID     string    `json:"batch_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	SaleCount   int       `json:"sale_count"`
+	Source      string    `json:"source"`
+	Status      string    `json:"status"`
+	ActorMember *string   `json:"actor_member_id,omitempty"`
+	ActorEmail  *string   `json:"actor_email,omitempty"`
+}
+
+// ListImportHistory returns the Event's Sale Import batches, newest first, for
+// the per-event import history surface. Read-only.
+func (s *Service) ListImportHistory(ctx context.Context, actor ActorContext, eventID string) ([]ImportHistoryEntry, error) {
+	_, ok, err := s.repo.GetEventName(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sales.ErrEventNotFound()
+	}
+
+	batches, err := s.repo.ListImportBatches(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]ImportHistoryEntry, 0, len(batches))
+	for _, b := range batches {
+		entries = append(entries, ImportHistoryEntry{
+			BatchID:     b.ID,
+			CreatedAt:   b.CreatedAt,
+			SaleCount:   b.SaleCount,
+			Source:      b.Source,
+			Status:      b.Status,
+			ActorMember: b.ActorMember,
+			ActorEmail:  b.ActorEmail,
+		})
+	}
+	return entries, nil
+}
+
 // FileCommitInput is a Sale Import to record from parsed file rows.
 type FileCommitInput struct {
 	Source         string
