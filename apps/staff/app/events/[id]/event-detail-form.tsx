@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
@@ -39,6 +38,7 @@ import {
   statusBadgeVariant,
   type EventDetail,
   type EventPatchBody,
+  type TicketType,
 } from "@/lib/events-api";
 
 import { EventCoverImage } from "./event-cover-image";
@@ -46,8 +46,6 @@ import { EventCoverImage } from "./event-cover-image";
 import { EventTagsSection } from "./event-tags-section";
 
 import { ImportSalesSection } from "./import-sales-section";
-
-import { TicketTypesSection } from "./ticket-types-section";
 
 type EventDetailFormProps = {
   eventId: string;
@@ -107,6 +105,20 @@ export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
   useEffect(() => {
     void loadEvent();
   }, [loadEvent]);
+
+  // Ticket Types now live on their own route, but Publish-readiness still needs
+  // the current count. Fetch it independently so the Publish button stays honest.
+  useEffect(() => {
+    async function loadTicketTypeCount() {
+      try {
+        const types = await fetchEventsJSON<TicketType[]>(`/api/events/${eventId}/ticket-types`);
+        setTicketTypeCount(types.length);
+      } catch {
+        setTicketTypeCount(0);
+      }
+    }
+    void loadTicketTypeCount();
+  }, [eventId]);
 
   async function saveEvent(): Promise<EventDetail | null> {
     try {
@@ -239,14 +251,6 @@ export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
 
   return (
     <div className="space-y-6">
-      <nav className="text-sm text-muted-foreground">
-        <Link href="/events" className="text-primary hover:underline">
-          Events
-        </Link>
-        <span className="px-2">/</span>
-        <span className="text-foreground">{name || "Event"}</span>
-      </nav>
-
       <PageHeader
         title={name || "Event"}
         description={statusDescription}
@@ -391,13 +395,6 @@ export function EventDetailForm({ eventId, isOrgAdmin }: EventDetailFormProps) {
           {saving ? "Saving..." : "Save changes"}
         </Button>
       </form>
-
-      <TicketTypesSection
-        eventId={eventId}
-        eventStatus={status}
-        onTicketTypeCountChange={setTicketTypeCount}
-        missingWarning={Boolean(fieldError("ticket_types", "x"))}
-      />
 
       {isOrgAdmin ? <EventTagsSection eventId={eventId} /> : null}
 

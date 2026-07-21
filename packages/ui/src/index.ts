@@ -1,5 +1,6 @@
 export { AuthCard } from "./components/auth-card";
 export { Breadcrumb, type BreadcrumbItem } from "./components/breadcrumb";
+export { EventShell } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
 export { OrgAvatar } from "./components/org-avatar";
