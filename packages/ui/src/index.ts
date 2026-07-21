@@ -4,6 +4,7 @@ export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
 export { OrgAvatar } from "./components/org-avatar";
 export { PageHeader } from "./components/page-header";
+export { SidebarShell, type SidebarHeaderSlot, type SidebarNavItem } from "./components/sidebar-shell";
 export { StaffShell } from "./components/staff-shell";
 export { StorefrontShell } from "./components/storefront-shell";
 export { Alert, AlertDescription, AlertTitle } from "./components/ui/alert";
