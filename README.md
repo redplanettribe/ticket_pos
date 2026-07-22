@@ -47,6 +47,8 @@ make openapi   # run swagger + api-client
 pnpm install   # install JS workspace dependencies
 ```
 
+`make migrate` applies the SQL migrations in `backend/migrations/`. It defaults to the local Docker Compose Postgres (host port 64432), so that container must be running (`make dev`, or just the Postgres service). It's idempotent — safe to re-run. Point it at another database by exporting `DATABASE_URL`, e.g. `DATABASE_URL=postgres://user:pass@host:5432/db?sslmode=disable make migrate`.
+
 ## Monorepo layout
 
 | Path | Purpose |

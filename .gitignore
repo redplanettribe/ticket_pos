@@ -3,7 +3,7 @@ node_modules/
 .pnpm-store/
 
 # JavaScript build output
-.next/
+.next*/
 .next-build/
 dist/
 out/
