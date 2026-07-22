@@ -201,6 +201,74 @@ func (h *Handler) ListSaleImports(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, entries)
 }
 
+// Sales list pagination bounds (ADR-0006): page_size defaults to 50 and is
+// clamped to a maximum of 100; page floors at 1.
+const (
+	defaultPageSize = 50
+	maxPageSize     = 100
+)
+
+// ListSales returns a page of the Event's active Ticket Sales for the Sales
+// list — one row per Ticket Sale — in the ADR-0006 nested envelope.
+//
+// @Summary      List an Event's Ticket Sales
+// @Description  Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path   string  true   "Event ID"
+// @Param        page       query  int     false  "Page number (1-based; floors at 1)"
+// @Param        page_size  query  int     false  "Page size (default 50, max 100)"
+// @Success      200  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales [get]
+func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		return
+	}
+
+	query := r.URL.Query()
+	result, err := h.svc.ListSales(r.Context(), actorFromRequest(r), eventID, service.ListSalesParams{
+		Page:     pageParam(query.Get("page")),
+		PageSize: pageSizeParam(query.Get("page_size")),
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// pageParam parses the `page` query value, flooring at 1: a missing, invalid, or
+// below-one value becomes page 1.
+func pageParam(raw string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// pageSizeParam parses the `page_size` query value, defaulting to 50 and
+// clamping to [1, 100]: a missing or invalid value uses the default; a value
+// above the maximum is clamped down; a below-one value uses the default.
+func pageSizeParam(raw string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 {
+		return defaultPageSize
+	}
+	if n > maxPageSize {
+		return maxPageSize
+	}
+	return n
+}
+
 type undoImportBody struct {
 	NotifyBuyers bool `json:"notify_buyers"`
 }

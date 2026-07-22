@@ -183,6 +183,127 @@ func (s *Service) ListImportHistory(ctx context.Context, actor ActorContext, eve
 	return entries, nil
 }
 
+// SaleLine is one Ticket Type and its quantity within a Ticket Sale, rolled up
+// for the Sales list.
+type SaleLine struct {
+	TicketTypeName string `json:"ticket_type_name"`
+	Quantity       int    `json:"quantity"`
+}
+
+// SaleListItem is one Ticket Sale row on the Sales list: the Customer, the
+// rolled-up Ticket Types, the amount in the Event currency, and the
+// channel/source/status/reference — plus the recorded-at time and payment
+// method surfaced only in the row-detail expand.
+type SaleListItem struct {
+	ID                string     `json:"id"`
+	CustomerFirstName string     `json:"customer_first_name"`
+	CustomerLastName  string     `json:"customer_last_name"`
+	CustomerEmail     string     `json:"customer_email"`
+	TicketTypes       []SaleLine `json:"ticket_types"`
+	AmountCents       int        `json:"amount_cents"`
+	Currency          string     `json:"currency"`
+	SoldAt            time.Time  `json:"sold_at"`
+	Channel           string     `json:"channel"`
+	Source            *string    `json:"source"`
+	Status            string     `json:"status"`
+	ConfirmationRef   string     `json:"confirmation_ref"`
+	RecordedAt        time.Time  `json:"recorded_at"`
+	PaymentMethod     *string    `json:"payment_method"`
+}
+
+// Pagination is the ADR-0006 nested pagination object: the current page and
+// size, the unpaginated total match count, and the derived page count.
+type Pagination struct {
+	Page       int `json:"page"`
+	PageSize   int `json:"page_size"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
+}
+
+// SalesListResult is the ADR-0006 nested envelope for the Sales list: the page
+// of rows plus its pagination metadata.
+type SalesListResult struct {
+	Data       []SaleListItem `json:"data"`
+	Pagination Pagination     `json:"pagination"`
+}
+
+// ListSalesParams is a validated, clamped Sales list request (page and size are
+// already floored/clamped by the handler per ADR-0006).
+type ListSalesParams struct {
+	Page     int
+	PageSize int
+}
+
+// ListSales returns a page of the Event's active Ticket Sales for the Sales
+// list, newest first (sold_at descending, ADR-0006). It is read-only and
+// scoped to the acting Member's Organization; a page beyond the last returns an
+// empty data slice with the true total so the UI can still show the count.
+func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID string, params ListSalesParams) (*SalesListResult, error) {
+	_, ok, err := s.repo.GetEventName(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sales.ErrEventNotFound()
+	}
+
+	rows, total, err := s.repo.ListSales(ctx, repository.ListSalesQuery{
+		OrganizationID: actor.OrganizationID,
+		EventID:        eventID,
+		// The default view shows only active sales (those that count against
+		// capacity); status filtering arrives in a later ticket.
+		Status: "active",
+		Limit:  params.PageSize,
+		Offset: (params.Page - 1) * params.PageSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]SaleListItem, 0, len(rows))
+	for _, row := range rows {
+		lines := make([]SaleLine, 0, len(row.TicketTypes))
+		for _, l := range row.TicketTypes {
+			lines = append(lines, SaleLine{TicketTypeName: l.TicketTypeName, Quantity: l.Quantity})
+		}
+		items = append(items, SaleListItem{
+			ID:                row.ID,
+			CustomerFirstName: row.CustomerFirstName,
+			CustomerLastName:  row.CustomerLastName,
+			CustomerEmail:     row.CustomerEmail,
+			TicketTypes:       lines,
+			AmountCents:       row.AmountCents,
+			Currency:          row.Currency,
+			SoldAt:            row.SoldAt,
+			Channel:           row.Channel,
+			Source:            row.Source,
+			Status:            row.Status,
+			ConfirmationRef:   row.ConfirmationRef,
+			RecordedAt:        row.RecordedAt,
+			PaymentMethod:     row.PaymentMethod,
+		})
+	}
+
+	return &SalesListResult{
+		Data: items,
+		Pagination: Pagination{
+			Page:       params.Page,
+			PageSize:   params.PageSize,
+			Total:      total,
+			TotalPages: totalPages(total, params.PageSize),
+		},
+	}, nil
+}
+
+// totalPages is the number of pages a total spans at the given page size (0 when
+// there are no matches).
+func totalPages(total, pageSize int) int {
+	if total <= 0 || pageSize <= 0 {
+		return 0
+	}
+	return (total + pageSize - 1) / pageSize
+}
+
 // UndoResult is the outcome of undoing (reversing) a Sale Import batch.
 type UndoResult struct {
 	BatchID   string `json:"batch_id"`

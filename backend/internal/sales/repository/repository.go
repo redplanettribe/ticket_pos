@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -572,6 +573,136 @@ func (r *Repository) ListImportBatches(ctx context.Context, orgID, eventID strin
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// SaleLineRollup is one Ticket Type and its quantity within a Ticket Sale, as
+// rolled up for the Sales list (one entry per Ticket Sale Line).
+type SaleLineRollup struct {
+	TicketTypeName string `json:"ticket_type_name"`
+	Quantity       int    `json:"quantity"`
+}
+
+// SaleRow is one Ticket Sale row for the Sales list: the Customer, the rolled-up
+// Ticket Types and total amount (in the Event/Organization currency), and the
+// channel/source/status/reference plus the recorded-at and payment method the
+// row-detail expand reveals.
+type SaleRow struct {
+	ID                string
+	CustomerFirstName string
+	CustomerLastName  string
+	CustomerEmail     string
+	TicketTypes       []SaleLineRollup
+	AmountCents       int
+	Currency          string
+	SoldAt            time.Time
+	Channel           string
+	Source            *string
+	Status            string
+	ConfirmationRef   string
+	RecordedAt        time.Time
+	PaymentMethod     *string
+}
+
+// ListSalesQuery selects a page of an Event's Ticket Sales for the Sales list.
+type ListSalesQuery struct {
+	OrganizationID string
+	EventID        string
+	// Status narrows to Ticket Sales in this lifecycle state (e.g. "active").
+	Status string
+	Limit  int
+	Offset int
+}
+
+// ListSales returns one page of an Event's Ticket Sales for the Sales list, one
+// row per Ticket Sale, newest first (sold_at DESC with an id tiebreaker so equal
+// timestamps do not reorder between pages). The Ticket Sale Lines are aggregated
+// per sale in a lateral subquery so a multi-line sale stays a single row (no
+// join fan-out): its amount is SUM(quantity × unit_price_cents) and its Ticket
+// Types roll up into one ordered list. total is the unpaginated match count via
+// COUNT(*) OVER() (ADR-0006).
+func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			ts.id,
+			ts.customer_first_name,
+			ts.customer_last_name,
+			ts.customer_email,
+			lines.amount_cents,
+			lines.ticket_types,
+			org.currency,
+			ts.sold_at,
+			ts.channel,
+			ts.source,
+			ts.status,
+			ts.confirmation_ref,
+			ts.created_at,
+			ts.payment_method,
+			COUNT(*) OVER() AS total
+		FROM ticket_sales ts
+		JOIN organizations org ON org.id = ts.organization_id
+		JOIN LATERAL (
+			SELECT
+				COALESCE(SUM(tsl.quantity * tsl.unit_price_cents), 0) AS amount_cents,
+				COALESCE(
+					json_agg(
+						json_build_object('ticket_type_name', tt.name, 'quantity', tsl.quantity)
+						ORDER BY tt.sort_order, tt.name
+					),
+					'[]'::json
+				) AS ticket_types
+			FROM ticket_sale_lines tsl
+			JOIN ticket_types tt ON tt.id = tsl.ticket_type_id
+			WHERE tsl.ticket_sale_id = ts.id
+		) lines ON TRUE
+		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = $3
+		ORDER BY ts.sold_at DESC, ts.id DESC
+		LIMIT $4 OFFSET $5
+	`, q.EventID, q.OrganizationID, q.Status, q.Limit, q.Offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var out []SaleRow
+	total := 0
+	for rows.Next() {
+		var s SaleRow
+		var typesJSON []byte
+		var source, paymentMethod sql.NullString
+		if err := rows.Scan(
+			&s.ID,
+			&s.CustomerFirstName,
+			&s.CustomerLastName,
+			&s.CustomerEmail,
+			&s.AmountCents,
+			&typesJSON,
+			&s.Currency,
+			&s.SoldAt,
+			&s.Channel,
+			&source,
+			&s.Status,
+			&s.ConfirmationRef,
+			&s.RecordedAt,
+			&paymentMethod,
+			&total,
+		); err != nil {
+			return nil, 0, err
+		}
+		if err := json.Unmarshal(typesJSON, &s.TicketTypes); err != nil {
+			return nil, 0, err
+		}
+		if source.Valid {
+			s.Source = &source.String
+		}
+		if paymentMethod.Valid {
+			s.PaymentMethod = &paymentMethod.String
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
 }
 
 func (r *Repository) findBatch(ctx context.Context, orgID, idempotencyKey string) (*CommittedBatch, error) {
