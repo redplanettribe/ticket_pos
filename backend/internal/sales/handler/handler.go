@@ -369,7 +369,8 @@ func (h *Handler) parseUploadedFile(w http.ResponseWriter, r *http.Request, reqI
 	if err != nil {
 		switch {
 		case importfile.IsUnreadable(err):
-			_ = platform.WriteDomainError(w, reqID, sales.ErrImportFileUnreadable(err.(*importfile.ErrUnreadable).Reason))
+			reason, _ := importfile.UnreadableReason(err)
+			_ = platform.WriteDomainError(w, reqID, sales.ErrImportFileUnreadable(reason))
 		case err == importfile.ErrTooLarge:
 			_ = platform.WriteDomainError(w, reqID, sales.ErrImportFileTooLarge(importfile.MaxRows))
 		default:

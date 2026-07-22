@@ -276,3 +276,15 @@ func IsUnreadable(err error) bool {
 	var u *ErrUnreadable
 	return errors.As(err, &u)
 }
+
+// UnreadableReason returns the human-readable reason carried by an
+// unreadable-file error, unwrapping as needed. The bool is false when err is not
+// an unreadable-file error. Callers use this instead of a direct type assertion,
+// which would panic if the error were ever wrapped.
+func UnreadableReason(err error) (string, bool) {
+	var u *ErrUnreadable
+	if errors.As(err, &u) {
+		return u.Reason, true
+	}
+	return "", false
+}

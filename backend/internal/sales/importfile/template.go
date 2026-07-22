@@ -31,9 +31,9 @@ var templateHeaders = []string{
 // organizer-facing; the amount prompt spells out the otherwise-invisible
 // blank→Ticket-Type-price behaviour.
 var templatePrompts = map[string]string{
-	colCustomerEmail:     "Required. The buyer's email. The Sale Confirmation is sent to this address.",
-	colCustomerFirstName: "Required. The buyer's first name.",
-	colCustomerLastName:  "Required. The buyer's last name.",
+	colCustomerEmail:     "Required. The Customer's email. The Sale Confirmation is sent to this address.",
+	colCustomerFirstName: "Required. The Customer's first name.",
+	colCustomerLastName:  "Required. The Customer's last name.",
 	colTicketType:        "Required. Pick a Ticket Type from the dropdown.",
 	colQuantity:          "Required. Number of tickets sold. A whole number, 1 or more.",
 	colPaymentMethod:     "Required. How the sale was paid: pick cash or transfer.",
@@ -44,9 +44,9 @@ var templatePrompts = map[string]string{
 // templateHeaderComments are the red-triangle notes attached to each header
 // cell, describing the column in a little more depth than the cell tooltip.
 var templateHeaderComments = map[string]string{
-	colCustomerEmail:     "Buyer's email address. Required on every row. The Sale Confirmation receipt is emailed here.",
-	colCustomerFirstName: "Buyer's first name. Required. Stored separately from the last name.",
-	colCustomerLastName:  "Buyer's last name. Required. Stored separately from the first name.",
+	colCustomerEmail:     "Customer's email address. Required on every row. The Sale Confirmation receipt is emailed here.",
+	colCustomerFirstName: "Customer's first name. Required. Stored separately from the last name.",
+	colCustomerLastName:  "Customer's last name. Required. Stored separately from the first name.",
 	colTicketType:        "The Ticket Type sold. Required. Choose from the dropdown so it matches this Event's catalog exactly.",
 	colQuantity:          "How many tickets of this Ticket Type were sold on this row. Required. A whole number of 1 or more.",
 	colPaymentMethod:     "How this Direct Sale was paid. Required. cash or transfer.",
@@ -60,7 +60,7 @@ var templateInstructions = []string{
 	"How to record your sales",
 	"",
 	"1. Open the Sales tab at the bottom and fill in one row per sale.",
-	"2. customer_email, customer_first_name and customer_last_name are required — the buyer gets their Sale Confirmation by email.",
+	"2. customer_email, customer_first_name and customer_last_name are required — the Customer gets their Sale Confirmation by email.",
 	"3. Pick the ticket_type from the dropdown so it matches this Event's Ticket Types exactly.",
 	"4. quantity is the number of tickets sold on that row (a whole number, 1 or more).",
 	"5. payment_method is how it was paid: cash or transfer.",
@@ -169,27 +169,17 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 	}
 
 	// quantity (column E): gentle whole-number >= 1 check with a tooltip.
-	qty := excelize.NewDataValidation(true)
-	qty.Sqref = rangeOf(colQuantity)
-	if err := qty.SetRange(1, 1, excelize.DataValidationTypeWhole, excelize.DataValidationOperatorGreaterThanOrEqual); err != nil {
-		return nil, err
-	}
-	qty.SetError(excelize.DataValidationErrorStyleWarning, "Check quantity", "Quantity should be a whole number of 1 or more.")
-	qty.SetInput(colQuantity, templatePrompts[colQuantity])
-	if err := f.AddDataValidation(templateSheet, qty); err != nil {
+	if err := addRangeValidation(f, colQuantity, rangeOf(colQuantity),
+		1, 1, excelize.DataValidationTypeWhole, excelize.DataValidationOperatorGreaterThanOrEqual,
+		"Check quantity", "Quantity should be a whole number of 1 or more."); err != nil {
 		return nil, err
 	}
 
 	// amount (column H): gentle decimal >= 0 check (blank stays allowed) with a
 	// tooltip that spells out the blank→Ticket-Type-price behaviour.
-	amt := excelize.NewDataValidation(true)
-	amt.Sqref = rangeOf(colAmount)
-	if err := amt.SetRange(0, 0, excelize.DataValidationTypeDecimal, excelize.DataValidationOperatorGreaterThanOrEqual); err != nil {
-		return nil, err
-	}
-	amt.SetError(excelize.DataValidationErrorStyleWarning, "Check amount", "Amount should be 0 or more, or left blank to use the Ticket Type's price.")
-	amt.SetInput(colAmount, templatePrompts[colAmount])
-	if err := f.AddDataValidation(templateSheet, amt); err != nil {
+	if err := addRangeValidation(f, colAmount, rangeOf(colAmount),
+		0, 0, excelize.DataValidationTypeDecimal, excelize.DataValidationOperatorGreaterThanOrEqual,
+		"Check amount", "Amount should be 0 or more, or left blank to use the Ticket Type's price."); err != nil {
 		return nil, err
 	}
 
@@ -204,14 +194,9 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 	if err := f.SetCellStyle(templateSheet, fmt.Sprintf("%s2", soldCol), fmt.Sprintf("%s%d", soldCol, lastRow), dateStyle); err != nil {
 		return nil, err
 	}
-	sold := excelize.NewDataValidation(true)
-	sold.Sqref = rangeOf(colSoldAt)
-	if err := sold.SetRange("TODAY()", "TODAY()", excelize.DataValidationTypeDate, excelize.DataValidationOperatorLessThanOrEqual); err != nil {
-		return nil, err
-	}
-	sold.SetError(excelize.DataValidationErrorStyleWarning, "Check sale date", "The sale date should not be in the future.")
-	sold.SetInput(colSoldAt, templatePrompts[colSoldAt])
-	if err := f.AddDataValidation(templateSheet, sold); err != nil {
+	if err := addRangeValidation(f, colSoldAt, rangeOf(colSoldAt),
+		"TODAY()", "TODAY()", excelize.DataValidationTypeDate, excelize.DataValidationOperatorLessThanOrEqual,
+		"Check sale date", "The sale date should not be in the future."); err != nil {
 		return nil, err
 	}
 
@@ -245,28 +230,9 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		return nil, err
 	}
 
-	// Instructions sheet: friendly how-to, placed first and made active so it
-	// greets the organizer on open. The Sales sheet keeps its name, so the parser
-	// (which selects "Sales" by name) is unaffected by the ordering.
-	if _, err := f.NewSheet(templateInstructionsSheet); err != nil {
+	if err := addInstructionsSheet(f); err != nil {
 		return nil, err
 	}
-	for i, line := range templateInstructions {
-		if err := f.SetCellStr(templateInstructionsSheet, fmt.Sprintf("A%d", i+1), line); err != nil {
-			return nil, err
-		}
-	}
-	if err := f.SetColWidth(templateInstructionsSheet, "A", "A", 100); err != nil {
-		return nil, err
-	}
-	if err := f.MoveSheet(templateInstructionsSheet, templateSheet); err != nil {
-		return nil, err
-	}
-	idx, err := f.GetSheetIndex(templateInstructionsSheet)
-	if err != nil {
-		return nil, err
-	}
-	f.SetActiveSheet(idx)
 
 	buf, err := f.WriteToBuffer()
 	if err != nil {
@@ -283,4 +249,46 @@ func addPromptValidation(f *excelize.File, header, sqref string) error {
 	dv.Sqref = sqref
 	dv.SetInput(header, templatePrompts[header])
 	return f.AddDataValidation(templateSheet, dv)
+}
+
+// addRangeValidation attaches a Warning-style range check (min/max, type,
+// operator) to a column on the Sales sheet, along with the column's tooltip. The
+// Warning style is deliberate: the upload preview is the authoritative gate, so
+// the spreadsheet only nudges and never blocks (it survives paste, too). min/max
+// are passed through to excelize, which accepts numbers or formulas like TODAY().
+func addRangeValidation(f *excelize.File, header, sqref string, min, max any, t excelize.DataValidationType, op excelize.DataValidationOperator, errTitle, errMsg string) error {
+	dv := excelize.NewDataValidation(true)
+	dv.Sqref = sqref
+	if err := dv.SetRange(min, max, t, op); err != nil {
+		return err
+	}
+	dv.SetError(excelize.DataValidationErrorStyleWarning, errTitle, errMsg)
+	dv.SetInput(header, templatePrompts[header])
+	return f.AddDataValidation(templateSheet, dv)
+}
+
+// addInstructionsSheet adds the friendly how-to sheet, placed first and made
+// active so it greets the organizer on open. The Sales sheet keeps its name, so
+// the parser (which selects "Sales" by name) is unaffected by the ordering.
+func addInstructionsSheet(f *excelize.File) error {
+	if _, err := f.NewSheet(templateInstructionsSheet); err != nil {
+		return err
+	}
+	for i, line := range templateInstructions {
+		if err := f.SetCellStr(templateInstructionsSheet, fmt.Sprintf("A%d", i+1), line); err != nil {
+			return err
+		}
+	}
+	if err := f.SetColWidth(templateInstructionsSheet, "A", "A", 100); err != nil {
+		return err
+	}
+	if err := f.MoveSheet(templateInstructionsSheet, templateSheet); err != nil {
+		return err
+	}
+	idx, err := f.GetSheetIndex(templateInstructionsSheet)
+	if err != nil {
+		return err
+	}
+	f.SetActiveSheet(idx)
+	return nil
 }

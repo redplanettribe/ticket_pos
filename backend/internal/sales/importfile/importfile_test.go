@@ -418,6 +418,20 @@ func TestTemplateRoundTrip(t *testing.T) {
 		t.Fatalf("payment_method dropdown missing/changed: %+v", dv)
 	}
 
+	// sold_at cells are real date cells: the column carries the yyyy-mm-dd number
+	// format so a typed date reflows and the backend reads a date serial.
+	styleID, err := f.GetCellStyle(templateSheet, "G2")
+	if err != nil {
+		t.Fatalf("get sold_at cell style: %v", err)
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
+		t.Fatalf("get sold_at style: %v", err)
+	}
+	if style.CustomNumFmt == nil || *style.CustomNumFmt != "yyyy-mm-dd" {
+		t.Fatalf("sold_at number format = %v, want yyyy-mm-dd", style.CustomNumFmt)
+	}
+
 	// Every visible column carries an input-message tooltip (prompt), including
 	// the columns whose only validation exists to hold the tooltip.
 	visibleRanges := map[string]string{
