@@ -35,12 +35,13 @@ type CommitLine struct {
 
 // CommitSale is one Ticket Sale to record within a Sale Import batch.
 type CommitSale struct {
-	CustomerEmail   string
-	CustomerName    string
-	PaymentMethod   string
-	SoldAt          time.Time
-	ConfirmationRef string
-	Line            CommitLine
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
+	PaymentMethod     string
+	SoldAt            time.Time
+	ConfirmationRef   string
+	Line              CommitLine
 }
 
 // CommitInput is a fully-prepared Direct Sale Import to record atomically.
@@ -300,13 +301,13 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		err := tx.QueryRowContext(ctx, `
 			INSERT INTO ticket_sales (
 				event_id, organization_id, channel, source, payment_method,
-				customer_email, customer_name, sold_at, confirmation_ref, status,
+				customer_email, customer_first_name, customer_last_name, sold_at, confirmation_ref, status,
 				import_batch_id, created_at
 			)
-			VALUES ($1, $2, 'import', $3, $4, $5, $6, $7, $8, 'active', $9, $10)
+			VALUES ($1, $2, 'import', $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Source, nullString(s.PaymentMethod),
-			s.CustomerEmail, s.CustomerName, s.SoldAt, s.ConfirmationRef, batchID, in.Now).Scan(&saleID)
+			s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, batchID, in.Now).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}
@@ -346,9 +347,10 @@ type ReverseInput struct {
 // ReversedSale is one Ticket Sale that was reversed, carrying the fields needed
 // to email its Customer a void/cancellation notice.
 type ReversedSale struct {
-	CustomerEmail   string
-	CustomerName    string
-	ConfirmationRef string
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
+	ConfirmationRef   string
 }
 
 // ReversedBatch is the outcome of a reversed Sale Import batch.
@@ -459,7 +461,7 @@ func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*Revers
 	sort.Strings(typeIDs)
 
 	saleRows, err := tx.QueryContext(ctx, `
-		SELECT customer_email, customer_name, confirmation_ref
+		SELECT customer_email, customer_first_name, customer_last_name, confirmation_ref
 		FROM ticket_sales
 		WHERE import_batch_id = $1 AND status = 'active'
 	`, in.BatchID)
@@ -469,7 +471,7 @@ func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*Revers
 	var reversed []ReversedSale
 	for saleRows.Next() {
 		var s ReversedSale
-		if err := saleRows.Scan(&s.CustomerEmail, &s.CustomerName, &s.ConfirmationRef); err != nil {
+		if err := saleRows.Scan(&s.CustomerEmail, &s.CustomerFirstName, &s.CustomerLastName, &s.ConfirmationRef); err != nil {
 			saleRows.Close()
 			return nil, err
 		}

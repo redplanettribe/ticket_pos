@@ -93,7 +93,10 @@ const docTemplate = `{
                     "customer_email": {
                         "type": "string"
                     },
-                    "customer_name": {
+                    "customer_first_name": {
+                        "type": "string"
+                    },
+                    "customer_last_name": {
                         "type": "string"
                     },
                     "payment_method": {

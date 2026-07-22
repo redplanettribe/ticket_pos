@@ -2356,7 +2356,8 @@ export interface components {
         "handler.importSaleRow": {
             amount_cents?: number;
             customer_email?: string;
-            customer_name?: string;
+            customer_first_name?: string;
+            customer_last_name?: string;
             payment_method?: string;
             quantity?: number;
             sold_at?: string;

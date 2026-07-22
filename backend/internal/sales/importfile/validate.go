@@ -39,18 +39,19 @@ type RowError struct {
 // RowResult is the validated outcome for one file row: the matched Ticket Type
 // (if any), the normalized field values, and every problem found on the row.
 type RowResult struct {
-	Row            int        `json:"row"`
-	CustomerEmail  string     `json:"customer_email"`
-	CustomerName   string     `json:"customer_name"`
-	TicketType     string     `json:"ticket_type"`
-	TicketTypeID   string     `json:"ticket_type_id,omitempty"`
-	TicketTypeName string     `json:"ticket_type_name,omitempty"`
-	Quantity       int        `json:"quantity"`
-	PaymentMethod  string     `json:"payment_method"`
-	SoldAt         string     `json:"sold_at,omitempty"`
-	AmountCents    *int       `json:"amount_cents,omitempty"`
-	Valid          bool       `json:"valid"`
-	Errors         []RowError `json:"errors,omitempty"`
+	Row               int        `json:"row"`
+	CustomerEmail     string     `json:"customer_email"`
+	CustomerFirstName string     `json:"customer_first_name"`
+	CustomerLastName  string     `json:"customer_last_name"`
+	TicketType        string     `json:"ticket_type"`
+	TicketTypeID      string     `json:"ticket_type_id,omitempty"`
+	TicketTypeName    string     `json:"ticket_type_name,omitempty"`
+	Quantity          int        `json:"quantity"`
+	PaymentMethod     string     `json:"payment_method"`
+	SoldAt            string     `json:"sold_at,omitempty"`
+	AmountCents       *int       `json:"amount_cents,omitempty"`
+	Valid             bool       `json:"valid"`
+	Errors            []RowError `json:"errors,omitempty"`
 
 	// PossibleDuplicate flags a valid row that matches an existing active Ticket
 	// Sale on customer_email + ticket type + sold_at date. Soft signal only: it
@@ -167,11 +168,12 @@ func Validate(in ValidateInput) ValidateResult {
 
 func validateRow(raw RawRow, byID, byName map[string]TicketTypeRef, loc *time.Location, now time.Time) RowResult {
 	row := RowResult{
-		Row:           raw.Line,
-		CustomerEmail: raw.CustomerEmail,
-		CustomerName:  raw.CustomerName,
-		TicketType:    raw.TicketType,
-		PaymentMethod: strings.ToLower(raw.PaymentMethod),
+		Row:               raw.Line,
+		CustomerEmail:     raw.CustomerEmail,
+		CustomerFirstName: raw.CustomerFirstName,
+		CustomerLastName:  raw.CustomerLastName,
+		TicketType:        raw.TicketType,
+		PaymentMethod:     strings.ToLower(raw.PaymentMethod),
 	}
 	var errs []RowError
 	add := func(field, message string) { errs = append(errs, RowError{Field: field, Message: message}) }
@@ -182,8 +184,11 @@ func validateRow(raw RawRow, byID, byName map[string]TicketTypeRef, loc *time.Lo
 		add(colCustomerEmail, "must be a valid email")
 	}
 
-	if raw.CustomerName == "" {
-		add(colCustomerName, "is required")
+	if raw.CustomerFirstName == "" {
+		add(colCustomerFirstName, "is required")
+	}
+	if raw.CustomerLastName == "" {
+		add(colCustomerLastName, "is required")
 	}
 
 	// Match the Ticket Type by hidden id first, then by name (case/space-insensitive).

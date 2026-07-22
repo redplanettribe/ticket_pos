@@ -11,7 +11,8 @@ export type ImportRowError = {
 export type ImportPreviewRow = {
   row: number;
   customer_email: string;
-  customer_name: string;
+  customer_first_name: string;
+  customer_last_name: string;
   ticket_type: string;
   ticket_type_id?: string;
   ticket_type_name?: string;

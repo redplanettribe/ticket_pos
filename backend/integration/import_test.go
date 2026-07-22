@@ -106,8 +106,8 @@ func TestDirectSaleImportRecordsSalesAndDecrementsCapacity(t *testing.T) {
 		"idempotency_key": "batch-1",
 		"source":          "direct",
 		"sales": []map[string]any{
-			{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
-			{"customer_email": "bob@example.com", "customer_name": "Bob", "ticket_type_id": ttID, "quantity": 3, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z", "amount_cents": &comp},
+			{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": ttID, "quantity": 3, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z", "amount_cents": &comp},
 		},
 	}, authHeader(sessionID))
 
@@ -129,6 +129,7 @@ func TestDirectSaleImportRecordsSalesAndDecrementsCapacity(t *testing.T) {
 		t.Fatalf("confirmations = %d, want 2", len(confs))
 	}
 	seen := map[string]bool{}
+	names := map[string]string{}
 	for _, c := range confs {
 		if c.Reference == "" {
 			t.Fatalf("confirmation missing reference: %+v", c)
@@ -137,9 +138,26 @@ func TestDirectSaleImportRecordsSalesAndDecrementsCapacity(t *testing.T) {
 			t.Fatalf("confirmation event = %q, want Summer Fest", c.EventName)
 		}
 		seen[c.To] = true
+		names[c.To] = c.CustomerName
 	}
 	if !seen["ana@example.com"] || !seen["bob@example.com"] {
 		t.Fatalf("confirmations not sent to both buyers: %+v", confs)
+	}
+	// The confirmation carries the joined "First Last" display name.
+	if names["ana@example.com"] != "Ana Lopez" {
+		t.Fatalf("ana confirmation name = %q, want %q", names["ana@example.com"], "Ana Lopez")
+	}
+
+	// The stored sale keeps the two name halves separate.
+	var first, last string
+	if err := env.db.QueryRow(`
+		SELECT customer_first_name, customer_last_name FROM ticket_sales
+		WHERE event_id = $1 AND customer_email = 'ana@example.com' AND status = 'active'
+	`, eventID).Scan(&first, &last); err != nil {
+		t.Fatalf("read stored name: %v", err)
+	}
+	if first != "Ana" || last != "Lopez" {
+		t.Fatalf("stored name = %q / %q, want Ana / Lopez", first, last)
 	}
 
 	// Line price is snapshotted: default catalog price for Ana, 0 comp for Bob.
@@ -175,8 +193,8 @@ func TestDirectSaleImportOversellRollsBackWholeBatch(t *testing.T) {
 		"idempotency_key": "batch-oversell",
 		"source":          "direct",
 		"sales": []map[string]any{
-			{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
-			{"customer_email": "bob@example.com", "customer_name": "Bob", "ticket_type_id": ttID, "quantity": 4, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": ttID, "quantity": 4, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 		},
 	}, authHeader(sessionID))
 
@@ -220,7 +238,7 @@ func TestDirectSaleImportIdempotentReplay(t *testing.T) {
 		"idempotency_key": "batch-replay",
 		"source":          "direct",
 		"sales": []map[string]any{
-			{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 4, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 4, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 		},
 	}
 
@@ -258,7 +276,7 @@ func TestDirectSaleImportUnknownTicketType(t *testing.T) {
 		"idempotency_key": "batch-unknown",
 		"source":          "direct",
 		"sales": []map[string]any{
-			{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": "c0000000-0000-4000-8000-000000000099", "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": "c0000000-0000-4000-8000-000000000099", "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 		},
 	}, authHeader(sessionID))
 
@@ -283,7 +301,7 @@ func TestDirectSaleImportValidationErrors(t *testing.T) {
 		"idempotency_key": "batch-invalid",
 		"source":          "direct",
 		"sales": []map[string]any{
-			{"customer_email": "not-an-email", "customer_name": "", "ticket_type_id": ttID, "quantity": 0, "payment_method": "bitcoin", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "not-an-email", "customer_first_name": "", "customer_last_name": "", "ticket_type_id": ttID, "quantity": 0, "payment_method": "bitcoin", "sold_at": "2026-07-01T10:00:00Z"},
 		},
 	}, authHeader(sessionID))
 
@@ -317,7 +335,7 @@ func TestDirectSaleImportForbiddenForNonOrgAdmin(t *testing.T) {
 		"idempotency_key": "batch-forbidden",
 		"source":          "direct",
 		"sales": []map[string]any{
-			{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 		},
 	}, authHeader(staffSessionID))
 
@@ -354,11 +372,11 @@ func TestDirectSaleImportHistoryListsBatchesNewestFirst(t *testing.T) {
 	// distinct timestamps; here we assert the batches and their counts as a set).
 	batchSales := [][]map[string]any{
 		{
-			{"customer_email": "one@example.com", "customer_name": "One", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "one@example.com", "customer_first_name": "One", "customer_last_name": "Uno", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 		},
 		{
-			{"customer_email": "two-a@example.com", "customer_name": "Two A", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
-			{"customer_email": "two-b@example.com", "customer_name": "Two B", "ticket_type_id": ttID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+			{"customer_email": "two-a@example.com", "customer_first_name": "Two A", "customer_last_name": "Alpha", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+			{"customer_email": "two-b@example.com", "customer_first_name": "Two B", "customer_last_name": "Beta", "ticket_type_id": ttID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
 		},
 	}
 	for i, sales := range batchSales {
@@ -463,8 +481,8 @@ func TestDirectSaleImportUndoRestoresCapacity(t *testing.T) {
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
 	batchID := commitBatch(t, env, sessionID, eventID, "batch-undo", []map[string]any{
-		{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
-		{"customer_email": "bob@example.com", "customer_name": "Bob", "ticket_type_id": ttID, "quantity": 3, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": ttID, "quantity": 3, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
 	})
 	if got := soldCount(t, env, sessionID, eventID, ttID); got != 5 {
 		t.Fatalf("sold_count = %d, want 5 before undo", got)
@@ -522,8 +540,8 @@ func TestDirectSaleImportUndoNotifiesBuyers(t *testing.T) {
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
 	batchID := commitBatch(t, env, sessionID, eventID, "batch-notify", []map[string]any{
-		{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
-		{"customer_email": "bob@example.com", "customer_name": "Bob", "ticket_type_id": ttID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": ttID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
 	})
 
 	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+batchID+"/undo", map[string]any{
@@ -570,11 +588,11 @@ func TestDirectSaleImportUndoLatestOnly(t *testing.T) {
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
 	firstBatch := commitBatch(t, env, sessionID, eventID, "batch-first", []map[string]any{
-		{"customer_email": "one@example.com", "customer_name": "One", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "one@example.com", "customer_first_name": "One", "customer_last_name": "Uno", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 	})
 	// A newer batch exists, so the first is no longer the latest.
 	secondBatch := commitBatch(t, env, sessionID, eventID, "batch-second", []map[string]any{
-		{"customer_email": "two@example.com", "customer_name": "Two", "ticket_type_id": ttID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
+		{"customer_email": "two@example.com", "customer_first_name": "Two", "customer_last_name": "Dos", "ticket_type_id": ttID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
 	})
 
 	// Undoing the older batch is rejected; capacity untouched.
@@ -622,7 +640,7 @@ func TestDirectSaleImportUndoForbiddenForNonOrgAdmin(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Gated Undo", "gated-undo")
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 	batchID := commitBatch(t, env, sessionID, eventID, "batch-gated", []map[string]any{
-		{"customer_email": "ana@example.com", "customer_name": "Ana", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 	})
 
 	resp, body := env.post(t, "/api/v1/staff/members", map[string]string{
@@ -665,7 +683,7 @@ func TestDirectSaleImportConcurrentDoesNotOversell(t *testing.T) {
 				"idempotency_key": fmt.Sprintf("race-%d", i),
 				"source":          "direct",
 				"sales": []map[string]any{
-					{"customer_email": fmt.Sprintf("buyer%d@example.com", i), "customer_name": "Buyer", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+					{"customer_email": fmt.Sprintf("buyer%d@example.com", i), "customer_first_name": "Buyer", "customer_last_name": "Test", "ticket_type_id": ttID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
 				},
 			}, authHeader(sessionID))
 			statuses[i] = resp.StatusCode

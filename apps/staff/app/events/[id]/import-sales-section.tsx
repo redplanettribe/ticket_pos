@@ -371,7 +371,7 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">Row {row.row}</span>
                           <span className="text-muted-foreground">
-                            {row.customer_name || "—"} · {row.customer_email || "—"}
+                            {`${row.customer_first_name} ${row.customer_last_name}`.trim() || "—"} · {row.customer_email || "—"}
                           </span>
                           {row.ticket_type_name ? (
                             <Badge variant="secondary">{row.ticket_type_name}</Badge>

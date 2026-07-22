@@ -100,8 +100,8 @@ _Avoid_: User tag, private tag, org tag
 
 **Customer**:
 A person who buys a ticket.
-Identified by a required email and name on every Ticket Sale, so the platform can email them a Sale Confirmation. Not otherwise modeled as an account at launch.
-_Avoid_: Buyer, purchaser, account
+Identified by a required email, first name, and last name on every Ticket Sale (across all Sales Channels), so the platform can email them a Sale Confirmation. First and last name are stored separately; where a single display name is needed they are joined as "First Last". Not otherwise modeled as an account at launch.
+_Avoid_: Buyer, purchaser, account, full name
 
 **Ticket Sale**:
 A completed transaction in which tickets of one or more Ticket Types are sold, such as a cart checkout.

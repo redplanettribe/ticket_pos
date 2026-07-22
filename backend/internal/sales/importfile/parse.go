@@ -21,19 +21,20 @@ const MaxRows = 10000
 // case- and space-insensitive. The ticket_type_id column is the hidden
 // reference the per-event template fills; when present it wins over the name.
 const (
-	colCustomerEmail = "customer_email"
-	colCustomerName  = "customer_name"
-	colTicketType    = "ticket_type"
-	colTicketTypeID  = "ticket_type_id"
-	colQuantity      = "quantity"
-	colPaymentMethod = "payment_method"
-	colSoldAt        = "sold_at"
-	colAmount        = "amount"
+	colCustomerEmail     = "customer_email"
+	colCustomerFirstName = "customer_first_name"
+	colCustomerLastName  = "customer_last_name"
+	colTicketType        = "ticket_type"
+	colTicketTypeID      = "ticket_type_id"
+	colQuantity          = "quantity"
+	colPaymentMethod     = "payment_method"
+	colSoldAt            = "sold_at"
+	colAmount            = "amount"
 )
 
 // requiredHeaders must all be present for a file to be parseable at all.
 var requiredHeaders = []string{
-	colCustomerEmail, colCustomerName, colTicketType,
+	colCustomerEmail, colCustomerFirstName, colCustomerLastName, colTicketType,
 	colQuantity, colPaymentMethod, colSoldAt,
 }
 
@@ -42,15 +43,16 @@ var requiredHeaders = []string{
 // during parsing); interpretation happens in Validate.
 type RawRow struct {
 	// Line is the 1-based spreadsheet row number (header is row 1).
-	Line          int
-	CustomerEmail string
-	CustomerName  string
-	TicketType    string
-	TicketTypeID  string
-	Quantity      string
-	PaymentMethod string
-	SoldAt        string
-	Amount        string
+	Line              int
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
+	TicketType        string
+	TicketTypeID      string
+	Quantity          string
+	PaymentMethod     string
+	SoldAt            string
+	Amount            string
 }
 
 // ErrTooLarge reports that a file exceeds MaxRows data rows.
@@ -198,15 +200,16 @@ func rowFromCells(line int, cells []string, index map[string]int) RawRow {
 		return strings.TrimSpace(cells[i])
 	}
 	return RawRow{
-		Line:          line,
-		CustomerEmail: get(colCustomerEmail),
-		CustomerName:  get(colCustomerName),
-		TicketType:    get(colTicketType),
-		TicketTypeID:  get(colTicketTypeID),
-		Quantity:      get(colQuantity),
-		PaymentMethod: get(colPaymentMethod),
-		SoldAt:        get(colSoldAt),
-		Amount:        get(colAmount),
+		Line:              line,
+		CustomerEmail:     get(colCustomerEmail),
+		CustomerFirstName: get(colCustomerFirstName),
+		CustomerLastName:  get(colCustomerLastName),
+		TicketType:        get(colTicketType),
+		TicketTypeID:      get(colTicketTypeID),
+		Quantity:          get(colQuantity),
+		PaymentMethod:     get(colPaymentMethod),
+		SoldAt:            get(colSoldAt),
+		Amount:            get(colAmount),
 	}
 }
 

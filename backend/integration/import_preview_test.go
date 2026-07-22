@@ -57,7 +57,7 @@ func xlsxWithRows(t *testing.T, rows [][]any) []byte {
 	f := excelize.NewFile()
 	defer func() { _ = f.Close() }()
 	sheet := f.GetSheetName(0)
-	headers := []any{"customer_email", "customer_name", "ticket_type", "quantity", "payment_method", "sold_at", "amount"}
+	headers := []any{"customer_email", "customer_first_name", "customer_last_name", "ticket_type", "quantity", "payment_method", "sold_at", "amount"}
 	if err := f.SetSheetRow(sheet, "A1", &headers); err != nil {
 		t.Fatalf("set header: %v", err)
 	}
@@ -78,6 +78,8 @@ func xlsxWithRows(t *testing.T, rows [][]any) []byte {
 type previewResultBody struct {
 	Rows []struct {
 		Row               int    `json:"row"`
+		CustomerFirstName string `json:"customer_first_name"`
+		CustomerLastName  string `json:"customer_last_name"`
 		TicketTypeID      string `json:"ticket_type_id"`
 		TicketTypeName    string `json:"ticket_type_name"`
 		Valid             bool   `json:"valid"`
@@ -152,9 +154,9 @@ func TestSaleImportPreviewReportsAllErrors(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Preview Fest", "preview-fest")
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
-	csv := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
-		"ana@example.com,Ana,GA,2,cash,2026-07-01T10:00:00Z,\n" +
-		"not-an-email,,Bogus,0,bitcoin,2030-01-01T00:00:00Z,\n"
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T10:00:00Z,\n" +
+		"not-an-email,,,Bogus,0,bitcoin,2030-01-01T00:00:00Z,\n"
 
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
 		"sales.csv", []byte(csv), nil, authHeader(sessionID))
@@ -177,10 +179,14 @@ func TestSaleImportPreviewReportsAllErrors(t *testing.T) {
 	for _, e := range res.Rows[1].Errors {
 		fields[e.Field] = true
 	}
-	for _, f := range []string{"customer_email", "customer_name", "ticket_type", "quantity", "payment_method", "sold_at"} {
+	for _, f := range []string{"customer_email", "customer_first_name", "customer_last_name", "ticket_type", "quantity", "payment_method", "sold_at"} {
 		if !fields[f] {
 			t.Fatalf("row1 missing error on %s: %+v", f, res.Rows[1].Errors)
 		}
+	}
+	// The preview exposes the two name halves separately on the valid row.
+	if res.Rows[0].CustomerFirstName != "Ana" || res.Rows[0].CustomerLastName != "Lopez" {
+		t.Fatalf("row0 names = %q / %q, want Ana / Lopez", res.Rows[0].CustomerFirstName, res.Rows[0].CustomerLastName)
 	}
 	// Capacity impact counts only valid row 0 (2 of GA), remaining 50.
 	if len(res.CapacityImpact) != 1 || res.CapacityImpact[0].Requested != 2 || res.CapacityImpact[0].Remaining != 50 {
@@ -198,9 +204,9 @@ func TestSaleImportCommitFromCSVFile(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "CSV Commit Fest", "csv-commit-fest")
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
-	csv := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
-		"ana@example.com,Ana,GA,2,cash,2026-07-01T10:00:00Z,\n" +
-		"bob@example.com,Bob,GA,3,transfer,2026-07-02T10:00:00Z,0\n"
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T10:00:00Z,\n" +
+		"bob@example.com,Bob,Ng,GA,3,transfer,2026-07-02T10:00:00Z,0\n"
 
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
 		"sales.csv", []byte(csv), map[string]string{"idempotency_key": "file-csv-1", "source": "direct"}, authHeader(sessionID))
@@ -239,8 +245,8 @@ func TestSaleImportCommitFromXLSXFile(t *testing.T) {
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
 	content := xlsxWithRows(t, [][]any{
-		{"ana@example.com", "Ana", "GA", 2, "cash", "2026-07-01T10:00:00Z", nil},
-		{"bob@example.com", "Bob", "ga", 4, "transfer", "2026-07-02T10:00:00Z", 12.50},
+		{"ana@example.com", "Ana", "Lopez", "GA", 2, "cash", "2026-07-01T10:00:00Z", nil},
+		{"bob@example.com", "Bob", "Ng", "ga", 4, "transfer", "2026-07-02T10:00:00Z", 12.50},
 	})
 
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
@@ -285,9 +291,9 @@ func TestSaleImportCommitFileRejectsInvalidRows(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Invalid Commit Fest", "invalid-commit-fest")
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
-	csv := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
-		"ana@example.com,Ana,GA,2,cash,2026-07-01T10:00:00Z,\n" +
-		"bad,,Nope,0,x,2030-01-01T00:00:00Z,\n"
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T10:00:00Z,\n" +
+		"bad,,,Nope,0,x,2030-01-01T00:00:00Z,\n"
 
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
 		"sales.csv", []byte(csv), map[string]string{"idempotency_key": "file-bad-1", "source": "direct"}, authHeader(sessionID))
@@ -325,8 +331,8 @@ func TestSaleImportPreviewOversellBlocksThenRaiseThenCommit(t *testing.T) {
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 5)
 
 	// Requests 8 against capacity 5 → overage 3, commit blocked.
-	csv := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
-		"ana@example.com,Ana,GA,8,cash,2026-07-01T10:00:00Z,\n"
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,Lopez,GA,8,cash,2026-07-01T10:00:00Z,\n"
 
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
 		"sales.csv", []byte(csv), nil, authHeader(sessionID))
@@ -390,8 +396,8 @@ func TestSaleImportDuplicateFlagSkipVsKeep(t *testing.T) {
 	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
 	// Seed an existing active sale for Ana on 2026-07-01.
-	seed := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
-		"ana@example.com,Ana,GA,2,cash,2026-07-01T10:00:00Z,\n"
+	seed := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T10:00:00Z,\n"
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
 		"seed.csv", []byte(seed), map[string]string{"idempotency_key": "dup-seed", "source": "direct"}, authHeader(sessionID))
 	if resp.StatusCode != http.StatusCreated {
@@ -399,9 +405,9 @@ func TestSaleImportDuplicateFlagSkipVsKeep(t *testing.T) {
 	}
 
 	// Second file: Ana repeats the same email+type+date (row 2, dup); Carol is new (row 3).
-	second := "customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
-		"ana@example.com,Ana,GA,2,cash,2026-07-01T18:00:00Z,\n" +
-		"carol@example.com,Carol,GA,1,cash,2026-07-03T10:00:00Z,\n"
+	second := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T18:00:00Z,\n" +
+		"carol@example.com,Carol,Diaz,GA,1,cash,2026-07-03T10:00:00Z,\n"
 
 	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
 		"second.csv", []byte(second), nil, authHeader(sessionID))
@@ -443,7 +449,7 @@ func TestSaleImportDuplicateFlagSkipVsKeep(t *testing.T) {
 
 	// Keep the duplicate this time (no skip, new key): Ana's repeat is recorded.
 	resp, body = postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
-		"keep.csv", []byte("customer_email,customer_name,ticket_type,quantity,payment_method,sold_at,amount\nana@example.com,Ana,GA,2,cash,2026-07-01T20:00:00Z,\n"),
+		"keep.csv", []byte("customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,amount\nana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T20:00:00Z,\n"),
 		map[string]string{"idempotency_key": "dup-keep", "source": "direct"}, authHeader(sessionID))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("keep commit status = %d error=%+v", resp.StatusCode, body.Error)
@@ -463,8 +469,8 @@ func TestSaleImportPreviewMalformedFile(t *testing.T) {
 	createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
 
 	// Missing the required sold_at column.
-	csv := "customer_email,customer_name,ticket_type,quantity,payment_method\n" +
-		"ana@example.com,Ana,GA,2,cash\n"
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash\n"
 
 	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
 		"sales.csv", []byte(csv), nil, authHeader(sessionID))

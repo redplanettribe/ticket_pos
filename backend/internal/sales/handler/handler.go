@@ -35,13 +35,14 @@ func New(svc *service.Service) *Handler {
 }
 
 type importSaleRow struct {
-	CustomerEmail string `json:"customer_email"`
-	CustomerName  string `json:"customer_name"`
-	TicketTypeID  string `json:"ticket_type_id"`
-	Quantity      int    `json:"quantity"`
-	PaymentMethod string `json:"payment_method"`
-	SoldAt        string `json:"sold_at"`
-	AmountCents   *int   `json:"amount_cents"`
+	CustomerEmail     string `json:"customer_email"`
+	CustomerFirstName string `json:"customer_first_name"`
+	CustomerLastName  string `json:"customer_last_name"`
+	TicketTypeID      string `json:"ticket_type_id"`
+	Quantity          int    `json:"quantity"`
+	PaymentMethod     string `json:"payment_method"`
+	SoldAt            string `json:"sold_at"`
+	AmountCents       *int   `json:"amount_cents"`
 }
 
 type commitImportBody struct {
@@ -464,8 +465,11 @@ func validateImport(source string, body commitImportBody) ([]platform.FieldError
 		} else if _, err := mail.ParseAddress(row.CustomerEmail); err != nil {
 			fields = append(fields, platform.FieldError{Field: prefix + "customer_email", Message: "must be a valid email"})
 		}
-		if strings.TrimSpace(row.CustomerName) == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "customer_name", Message: "is required"})
+		if strings.TrimSpace(row.CustomerFirstName) == "" {
+			fields = append(fields, platform.FieldError{Field: prefix + "customer_first_name", Message: "is required"})
+		}
+		if strings.TrimSpace(row.CustomerLastName) == "" {
+			fields = append(fields, platform.FieldError{Field: prefix + "customer_last_name", Message: "is required"})
 		}
 		if strings.TrimSpace(row.TicketTypeID) == "" {
 			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Message: "is required"})
@@ -489,13 +493,14 @@ func validateImport(source string, body commitImportBody) ([]platform.FieldError
 		}
 
 		rows = append(rows, service.ImportSaleInput{
-			CustomerEmail: strings.TrimSpace(row.CustomerEmail),
-			CustomerName:  strings.TrimSpace(row.CustomerName),
-			TicketTypeID:  strings.TrimSpace(row.TicketTypeID),
-			Quantity:      row.Quantity,
-			PaymentMethod: row.PaymentMethod,
-			SoldAt:        soldAt,
-			AmountCents:   row.AmountCents,
+			CustomerEmail:     strings.TrimSpace(row.CustomerEmail),
+			CustomerFirstName: strings.TrimSpace(row.CustomerFirstName),
+			CustomerLastName:  strings.TrimSpace(row.CustomerLastName),
+			TicketTypeID:      strings.TrimSpace(row.TicketTypeID),
+			Quantity:          row.Quantity,
+			PaymentMethod:     row.PaymentMethod,
+			SoldAt:            soldAt,
+			AmountCents:       row.AmountCents,
 		})
 	}
 

@@ -24,12 +24,13 @@ type ActorContext struct {
 
 // ImportSaleInput is one Direct Sale row to record.
 type ImportSaleInput struct {
-	CustomerEmail string
-	CustomerName  string
-	TicketTypeID  string
-	Quantity      int
-	PaymentMethod string
-	SoldAt        time.Time
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
+	TicketTypeID      string
+	Quantity          int
+	PaymentMethod     string
+	SoldAt            time.Time
 	// AmountCents overrides the catalog unit price snapshot; nil uses the catalog price.
 	AmountCents *int
 }
@@ -92,11 +93,12 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, event
 			return nil, err
 		}
 		commitSales = append(commitSales, repository.CommitSale{
-			CustomerEmail:   row.CustomerEmail,
-			CustomerName:    row.CustomerName,
-			PaymentMethod:   row.PaymentMethod,
-			SoldAt:          row.SoldAt,
-			ConfirmationRef: ref,
+			CustomerEmail:     row.CustomerEmail,
+			CustomerFirstName: row.CustomerFirstName,
+			CustomerLastName:  row.CustomerLastName,
+			PaymentMethod:     row.PaymentMethod,
+			SoldAt:            row.SoldAt,
+			ConfirmationRef:   ref,
 			Line: repository.CommitLine{
 				TicketTypeID:   row.TicketTypeID,
 				Quantity:       row.Quantity,
@@ -130,7 +132,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, event
 		for _, cs := range commitSales {
 			_ = s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
 				To:           cs.CustomerEmail,
-				CustomerName: cs.CustomerName,
+				CustomerName: displayName(cs.CustomerFirstName, cs.CustomerLastName),
 				EventName:    eventName,
 				Reference:    cs.ConfirmationRef,
 			})
@@ -219,7 +221,7 @@ func (s *Service) UndoImport(ctx context.Context, actor ActorContext, eventID, b
 		for _, rs := range reversed.Sales {
 			_ = s.email.SendSaleVoided(ctx, platform.SaleVoided{
 				To:           rs.CustomerEmail,
-				CustomerName: rs.CustomerName,
+				CustomerName: displayName(rs.CustomerFirstName, rs.CustomerLastName),
 				EventName:    eventName,
 				Reference:    rs.ConfirmationRef,
 			})
@@ -354,13 +356,14 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 	saleRows := make([]ImportSaleInput, 0, len(validated.Rows))
 	for _, row := range validated.Rows {
 		saleRows = append(saleRows, ImportSaleInput{
-			CustomerEmail: row.CustomerEmail,
-			CustomerName:  row.CustomerName,
-			TicketTypeID:  row.TicketTypeID,
-			Quantity:      row.Quantity,
-			PaymentMethod: row.PaymentMethod,
-			SoldAt:        row.SoldAtTime(),
-			AmountCents:   row.AmountCents,
+			CustomerEmail:     row.CustomerEmail,
+			CustomerFirstName: row.CustomerFirstName,
+			CustomerLastName:  row.CustomerLastName,
+			TicketTypeID:      row.TicketTypeID,
+			Quantity:          row.Quantity,
+			PaymentMethod:     row.PaymentMethod,
+			SoldAt:            row.SoldAtTime(),
+			AmountCents:       row.AmountCents,
 		})
 	}
 
@@ -456,6 +459,13 @@ func mapReverseError(err error) error {
 		return sales.ErrImportAlreadyReversed(reversed.BatchID)
 	}
 	return err
+}
+
+// displayName joins a Customer's first and last name into the single "First
+// Last" form used wherever one display name is needed (Sale Confirmation and
+// void notices). The Customer name is stored split; only display joins it.
+func displayName(first, last string) string {
+	return strings.TrimSpace(strings.TrimSpace(first) + " " + strings.TrimSpace(last))
 }
 
 // generateConfirmationRef returns a short, human-readable, collision-resistant
