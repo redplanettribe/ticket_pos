@@ -27,6 +27,8 @@ import {
   type SalesListResponse,
 } from "@/lib/sales-api";
 
+import { useSalesRefreshSignal } from "./sales-refresh";
+
 type SalesListProps = {
   eventId: string;
   // The current page, read from the URL by the server and passed in as the
@@ -42,6 +44,10 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Bumped by the import section on a successful commit/undo; re-runs the fetch
+  // below against the current view (same page/searchParams) so the list reflects
+  // the change without losing the owner's filters/sort/page.
+  const refreshSignal = useSalesRefreshSignal();
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +72,7 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
     return () => {
       cancelled = true;
     };
-  }, [eventId, page]);
+  }, [eventId, page, refreshSignal]);
 
   const goToPage = useCallback(
     (next: number) => {

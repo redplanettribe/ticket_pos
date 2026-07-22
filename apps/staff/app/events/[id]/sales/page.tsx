@@ -7,6 +7,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { loadSession } from "../../../staff-page-shell";
 import { ImportSalesSection } from "../import-sales-section";
 import { SalesList } from "../sales-list";
+import { SalesRefreshProvider } from "../sales-refresh";
 
 type EventSalesPageProps = {
   params: Promise<{ id: string }>;
@@ -48,9 +49,13 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
   const timezone = token ? await fetchEventTimezone(id, token) : null;
 
   return (
-    <div className="space-y-6">
-      <SalesList eventId={id} page={parsePage(page)} timezone={timezone} />
-      {canManageImports ? <ImportSalesSection eventId={id} /> : null}
-    </div>
+    // SalesRefreshProvider lets the owner-only import section signal the Sales
+    // list to re-fetch its current view after a successful commit/undo.
+    <SalesRefreshProvider>
+      <div className="space-y-6">
+        <SalesList eventId={id} page={parsePage(page)} timezone={timezone} />
+        {canManageImports ? <ImportSalesSection eventId={id} /> : null}
+      </div>
+    </SalesRefreshProvider>
   );
 }

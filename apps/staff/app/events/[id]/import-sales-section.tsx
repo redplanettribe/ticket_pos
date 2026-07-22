@@ -34,6 +34,8 @@ import {
   type ImportPreviewResult,
 } from "@/lib/imports-api";
 
+import { useSalesRefreshNotify } from "./sales-refresh";
+
 type ImportSalesSectionProps = {
   eventId: string;
 };
@@ -53,6 +55,10 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
   const [undoTarget, setUndoTarget] = useState<ImportHistoryEntry | null>(null);
   const [notifyBuyers, setNotifyBuyers] = useState(false);
   const [undoing, setUndoing] = useState(false);
+
+  // Signals the sibling Sales list to re-fetch its current view after a
+  // successful commit/undo (paired with the existing success toast).
+  const notifySalesRefresh = useSalesRefreshNotify();
 
   const currency = ticketTypes[0]?.currency ?? "USD";
 
@@ -175,6 +181,8 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
           : `Imported ${result.sale_count} sale${result.sale_count === 1 ? "" : "s"}`,
       );
       await Promise.all([loadTicketTypes(), loadHistory()]);
+      // Newly imported sales are now visible: refresh the Sales list's current view.
+      notifySalesRefresh();
     } catch (commitError) {
       const message = commitError instanceof Error ? commitError.message : "Failed to import sales";
       setError(message);
@@ -211,6 +219,8 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
       );
       setUndoTarget(null);
       await Promise.all([loadTicketTypes(), loadHistory()]);
+      // Reversed sales now leave the default active view: refresh the Sales list.
+      notifySalesRefresh();
     } catch (undoError) {
       const message = undoError instanceof Error ? undoError.message : "Failed to undo import";
       toast.error(message);
