@@ -68,12 +68,99 @@ export function parseSaleDir(raw: string | undefined): SaleSortDir {
   return raw === "asc" || raw === "desc" ? raw : DEFAULT_SALE_DIR;
 }
 
-// fetchSalesList proxies the Sales list endpoint via the BFF for the given page
-// and sort. sort/dir are omitted when they match the default so shared URLs stay
-// clean, matching the URL state the list writes.
+// SalesFilters mirrors the endpoint's filter query params. Each field is carried
+// in the URL so the view is shareable and survives a refresh. status defaults to
+// "active"; every other field is empty when that dimension is unfiltered.
+export type SalesFilters = {
+  status: string;
+  ticketTypeId: string;
+  soldFrom: string;
+  soldTo: string;
+  q: string;
+  channel: string;
+  source: string;
+  paymentMethod: string;
+};
+
+export const DEFAULT_SALES_STATUS = "active";
+
+export const EMPTY_SALES_FILTERS: SalesFilters = {
+  status: DEFAULT_SALES_STATUS,
+  ticketTypeId: "",
+  soldFrom: "",
+  soldTo: "",
+  q: "",
+  channel: "",
+  source: "",
+  paymentMethod: "",
+};
+
+// appendSalesFilters writes the non-default filter values onto a params object.
+// status is emitted only when it differs from the default so the common view
+// keeps a clean URL (the API defaults to active).
+function appendSalesFilters(params: URLSearchParams, filters: SalesFilters): void {
+  if (filters.status && filters.status !== DEFAULT_SALES_STATUS) {
+    params.set("status", filters.status);
+  }
+  if (filters.ticketTypeId) params.set("ticket_type_id", filters.ticketTypeId);
+  if (filters.soldFrom) params.set("sold_from", filters.soldFrom);
+  if (filters.soldTo) params.set("sold_to", filters.soldTo);
+  if (filters.q) params.set("q", filters.q);
+  if (filters.channel) params.set("channel", filters.channel);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.paymentMethod) params.set("payment_method", filters.paymentMethod);
+}
+
+// appendSalesSort writes the sort/dir params, omitting them when they match the
+// default (sold_at desc) so the common view keeps a clean, shareable URL.
+function appendSalesSort(params: URLSearchParams, sort: SaleSortField, dir: SaleSortDir): void {
+  if (sort !== DEFAULT_SALE_SORT || dir !== DEFAULT_SALE_DIR) {
+    params.set("sort", sort);
+    params.set("dir", dir);
+  }
+}
+
+// salesListQuery builds the canonical query string for the Sales list URL: the
+// page (omitted when 1) plus any active filters and non-default sort/dir. Driving
+// both the address bar and the fetch from one builder keeps them in lockstep.
+export function salesListQuery(
+  page: number,
+  filters: SalesFilters,
+  sort: SaleSortField = DEFAULT_SALE_SORT,
+  dir: SaleSortDir = DEFAULT_SALE_DIR,
+): string {
+  const params = new URLSearchParams();
+  if (page > 1) params.set("page", String(page));
+  appendSalesFilters(params, filters);
+  appendSalesSort(params, sort, dir);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+// hasActiveSalesFilters reports whether the view is narrowed beyond the default
+// (active status, no other filters) — used to tailor the empty state.
+export function hasActiveSalesFilters(filters: SalesFilters): boolean {
+  return (
+    filters.status !== DEFAULT_SALES_STATUS ||
+    Boolean(
+      filters.ticketTypeId ||
+        filters.soldFrom ||
+        filters.soldTo ||
+        filters.q ||
+        filters.channel ||
+        filters.source ||
+        filters.paymentMethod,
+    )
+  );
+}
+
+// fetchSalesList proxies the Sales list endpoint via the BFF for the given page,
+// filters, and sort. Filters and non-default sort/dir are appended so the fetch
+// matches the URL state the list writes.
 export async function fetchSalesList(
   eventId: string,
   page: number,
+  filters: SalesFilters,
   sort: SaleSortField = DEFAULT_SALE_SORT,
   dir: SaleSortDir = DEFAULT_SALE_DIR,
 ): Promise<SalesListResponse> {
@@ -81,10 +168,8 @@ export async function fetchSalesList(
     page: String(page),
     page_size: String(SALES_PAGE_SIZE),
   });
-  if (sort !== DEFAULT_SALE_SORT || dir !== DEFAULT_SALE_DIR) {
-    params.set("sort", sort);
-    params.set("dir", dir);
-  }
+  appendSalesFilters(params, filters);
+  appendSalesSort(params, sort, dir);
   return fetchEventsJSON<SalesListResponse>(`/api/events/${eventId}/sales?${params.toString()}`);
 }
 

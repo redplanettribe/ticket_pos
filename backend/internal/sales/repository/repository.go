@@ -605,11 +605,31 @@ type SaleRow struct {
 }
 
 // ListSalesQuery selects a page of an Event's Ticket Sales for the Sales list.
+// Every filter beyond OrganizationID/EventID/Status is optional: a zero value
+// (empty string or nil bound) leaves that dimension unfiltered.
 type ListSalesQuery struct {
 	OrganizationID string
 	EventID        string
 	// Status narrows to Ticket Sales in this lifecycle state (e.g. "active").
 	Status string
+	// TicketTypeID, when set, keeps only sales that INCLUDE this Ticket Type —
+	// matched via an EXISTS sub-query so a multi-line sale is never fanned out or
+	// counted twice, and its full Ticket Type rollup is preserved.
+	TicketTypeID string
+	// SoldFrom/SoldTo bound sold_at as a half-open interval [SoldFrom, SoldTo):
+	// SoldFrom is the inclusive lower bound and SoldTo the exclusive upper bound,
+	// both already resolved to absolute time by the caller (the Event timezone is
+	// applied in the service). Either may be nil.
+	SoldFrom *time.Time
+	SoldTo   *time.Time
+	// Search is a case-insensitive substring matched over customer email, the
+	// joined customer name, and confirmation_ref (empty means no search).
+	Search string
+	// Channel, Source, PaymentMethod are single-valued equality filters (empty
+	// means unfiltered).
+	Channel       string
+	Source        string
+	PaymentMethod string
 	// Sort and Dir are the validated sort column and direction (the service
 	// guarantees they are allowlisted; see salesSortColumns). Sort selects the
 	// primary ORDER BY expression; Dir is "asc" or "desc".
@@ -617,6 +637,16 @@ type ListSalesQuery struct {
 	Dir    string
 	Limit  int
 	Offset int
+}
+
+// likeEscape escapes the LIKE/ILIKE metacharacters (\, %, _) in a search term so
+// it is matched as a literal substring rather than a pattern. The backslash is
+// Postgres's default ILIKE escape character.
+func likeEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 // salesSortColumns maps an allowlisted sort key to the ordered list of primary
@@ -663,8 +693,66 @@ func salesOrderBy(sort, dir string) string {
 // amount is SUM(quantity × unit_price_cents) and its Ticket Types roll up into
 // one ordered list. total is the unpaginated match count via COUNT(*) OVER()
 // (ADR-0006).
+//
+// Optional filters (ticket type, sold-at range, search, channel/source/payment
+// method) are appended to the WHERE clause; the ticket-type filter uses an
+// EXISTS sub-query so it narrows sales without touching the rollup or fanning
+// the row out.
 func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, `
+	// $1..$3 are the always-present event/org/status scope; further filters
+	// append their own placeholders so the query only mentions active filters.
+	args := []any{q.EventID, q.OrganizationID, q.Status}
+	var conds []string
+	addCond := func(format string, val any) {
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf(format, len(args)))
+	}
+
+	if q.TicketTypeID != "" {
+		addCond(`EXISTS (
+			SELECT 1 FROM ticket_sale_lines f
+			WHERE f.ticket_sale_id = ts.id AND f.ticket_type_id = $%d
+		)`, q.TicketTypeID)
+	}
+	if q.SoldFrom != nil {
+		addCond(`ts.sold_at >= $%d`, *q.SoldFrom)
+	}
+	if q.SoldTo != nil {
+		addCond(`ts.sold_at < $%d`, *q.SoldTo)
+	}
+	if q.Search != "" {
+		// Case-insensitive substring over email, joined name, and confirmation
+		// ref, scoped within the already event_id-narrowed set. A pg_trgm
+		// trigram index (ADR-0006) is the documented upgrade path if a single
+		// Event's volume ever makes this scan too slow.
+		args = append(args, "%"+likeEscape(q.Search)+"%")
+		p := len(args)
+		conds = append(conds, fmt.Sprintf(`(
+			ts.customer_email ILIKE $%d
+			OR (ts.customer_first_name || ' ' || ts.customer_last_name) ILIKE $%d
+			OR ts.confirmation_ref ILIKE $%d
+		)`, p, p, p))
+	}
+	if q.Channel != "" {
+		addCond(`ts.channel = $%d`, q.Channel)
+	}
+	if q.Source != "" {
+		addCond(`ts.source = $%d`, q.Source)
+	}
+	if q.PaymentMethod != "" {
+		addCond(`ts.payment_method = $%d`, q.PaymentMethod)
+	}
+
+	filterSQL := ""
+	if len(conds) > 0 {
+		filterSQL = " AND " + strings.Join(conds, " AND ")
+	}
+	args = append(args, q.Limit)
+	limitP := len(args)
+	args = append(args, q.Offset)
+	offsetP := len(args)
+
+	query := fmt.Sprintf(`
 		SELECT
 			ts.id,
 			ts.customer_first_name,
@@ -697,10 +785,12 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			JOIN ticket_types tt ON tt.id = tsl.ticket_type_id
 			WHERE tsl.ticket_sale_id = ts.id
 		) lines ON TRUE
-		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = $3
+		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = $3%s
 		`+salesOrderBy(q.Sort, q.Dir)+`
-		LIMIT $4 OFFSET $5
-	`, q.EventID, q.OrganizationID, q.Status, q.Limit, q.Offset)
+		LIMIT $%d OFFSET $%d
+	`, filterSQL, limitP, offsetP)
+
+	rows, err := r.db.Pool.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}

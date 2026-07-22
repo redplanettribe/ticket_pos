@@ -1,25 +1,55 @@
 import { cookies } from "next/headers";
 
 import { callBackend } from "@/lib/api";
-import type { EventDetail } from "@/lib/events-api";
+import type { EventDetail, TicketType } from "@/lib/events-api";
+import { DEFAULT_SALES_STATUS, type SalesFilters } from "@/lib/sales-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 import { parseSaleDir, parseSaleSort } from "@/lib/sales-api";
 
 import { loadSession } from "../../../staff-page-shell";
 import { ImportSalesSection } from "../import-sales-section";
-import { SalesList } from "../sales-list";
+import { SalesList, type TicketTypeOption } from "../sales-list";
 import { SalesRefreshProvider } from "../sales-refresh";
+
+type SalesSearchParams = {
+  page?: string;
+  status?: string;
+  ticket_type_id?: string;
+  sold_from?: string;
+  sold_to?: string;
+  q?: string;
+  channel?: string;
+  source?: string;
+  payment_method?: string;
+  sort?: string;
+  dir?: string;
+};
 
 type EventSalesPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ page?: string; sort?: string; dir?: string }>;
+  searchParams: Promise<SalesSearchParams>;
 };
 
 // parsePage reads the URL page number, flooring at 1 (matches the API).
 function parsePage(raw: string | undefined): number {
   const parsed = Number.parseInt(raw ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+}
+
+// parseFilters reads the filter values out of the URL (the source of truth so
+// the view is shareable and survives a refresh); the backend re-validates them.
+function parseFilters(searchParams: SalesSearchParams): SalesFilters {
+  return {
+    status: searchParams.status === "reversed" ? "reversed" : DEFAULT_SALES_STATUS,
+    ticketTypeId: searchParams.ticket_type_id ?? "",
+    soldFrom: searchParams.sold_from ?? "",
+    soldTo: searchParams.sold_to ?? "",
+    q: searchParams.q ?? "",
+    channel: searchParams.channel ?? "",
+    source: searchParams.source ?? "",
+    paymentMethod: searchParams.payment_method ?? "",
+  };
 }
 
 // fetchEventTimezone loads just the Event timezone (for sold-at formatting),
@@ -36,9 +66,24 @@ async function fetchEventTimezone(eventId: string, token: string): Promise<strin
   }
 }
 
+// fetchTicketTypeOptions loads the Event's Ticket Types for the ticket-type
+// filter dropdown, tolerating failure so the list still renders (just without
+// that filter's options).
+async function fetchTicketTypeOptions(eventId: string, token: string): Promise<TicketTypeOption[]> {
+  try {
+    const envelope = await callBackend<TicketType[]>(`/api/v1/staff/events/${eventId}/ticket-types`, {
+      method: "GET",
+      sessionToken: token,
+    });
+    return (envelope.data ?? []).map((type) => ({ id: type.id, name: type.name }));
+  } catch {
+    return [];
+  }
+}
+
 export default async function EventSalesPage({ params, searchParams }: EventSalesPageProps) {
   const { id } = await params;
-  const { page, sort, dir } = await searchParams;
+  const resolvedSearchParams = await searchParams;
   const session = await loadSession();
   const role = session?.active_member?.role;
 
@@ -48,7 +93,9 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
 
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const timezone = token ? await fetchEventTimezone(id, token) : null;
+  const [timezone, ticketTypes] = token
+    ? await Promise.all([fetchEventTimezone(id, token), fetchTicketTypeOptions(id, token)])
+    : [null, []];
 
   return (
     // SalesRefreshProvider lets the owner-only import section signal the Sales
@@ -57,9 +104,11 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
       <div className="space-y-6">
         <SalesList
           eventId={id}
-          page={parsePage(page)}
-          sort={parseSaleSort(sort)}
-          dir={parseSaleDir(dir)}
+          page={parsePage(resolvedSearchParams.page)}
+          filters={parseFilters(resolvedSearchParams)}
+          ticketTypes={ticketTypes}
+          sort={parseSaleSort(resolvedSearchParams.sort)}
+          dir={parseSaleDir(resolvedSearchParams.dir)}
           timezone={timezone}
         />
         {canManageImports ? <ImportSalesSection eventId={id} /> : null}

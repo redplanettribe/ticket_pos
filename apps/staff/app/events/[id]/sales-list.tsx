@@ -13,31 +13,45 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  Label,
   Skeleton,
 } from "@ticket-pos/ui";
 
 import { formatPriceCents } from "@/lib/events-api";
 import {
   channelSourceLabel,
-  DEFAULT_SALE_DIR,
-  DEFAULT_SALE_SORT,
+  EMPTY_SALES_FILTERS,
   fetchSalesList,
   formatSaleTimestamp,
+  hasActiveSalesFilters,
   paymentMethodLabel,
   rollupTicketTypes,
+  salesListQuery,
   type SaleListRow,
   type SaleSortDir,
   type SaleSortField,
+  type SalesFilters,
   type SalesListResponse,
 } from "@/lib/sales-api";
 
 import { useSalesRefreshSignal } from "./sales-refresh";
+
+// TicketTypeOption is the minimal Ticket Type shape the ticket-type filter needs.
+export type TicketTypeOption = {
+  id: string;
+  name: string;
+};
 
 type SalesListProps = {
   eventId: string;
   // The current page, read from the URL by the server and passed in as the
   // source of truth so page state lives in the URL.
   page: number;
+  // The active filters, likewise read from the URL so the view is shareable and
+  // survives a refresh.
+  filters: SalesFilters;
+  // The Event's Ticket Types, for the ticket-type filter dropdown.
+  ticketTypes: TicketTypeOption[];
   // The current sort column and direction, also read from the URL so the sort is
   // shareable and survives a refresh.
   sort: SaleSortField;
@@ -46,28 +60,13 @@ type SalesListProps = {
   timezone: string | null;
 };
 
-// buildSalesQuery renders the Sales list URL query string, omitting page and
-// sort/dir when they match their defaults so a shared link stays clean.
-function buildSalesQuery(page: number, sort: SaleSortField, dir: SaleSortDir): string {
-  const params = new URLSearchParams();
-  if (page > 1) {
-    params.set("page", String(page));
-  }
-  if (sort !== DEFAULT_SALE_SORT || dir !== DEFAULT_SALE_DIR) {
-    params.set("sort", sort);
-    params.set("dir", dir);
-  }
-  const qs = params.toString();
-  return qs ? `?${qs}` : "";
-}
-
 // defaultDirFor is the direction a newly selected sort column starts in: newest
 // or largest first for the date/amount columns, A→Z for the customer column.
 function defaultDirFor(field: SaleSortField): SaleSortDir {
   return field === "customer" ? "asc" : "desc";
 }
 
-export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps) {
+export function SalesList({ eventId, page, filters, ticketTypes, sort, dir, timezone }: SalesListProps) {
   const router = useRouter();
   const [result, setResult] = useState<SalesListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,11 +77,15 @@ export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps
   // the change without losing the owner's filters/sort/page.
   const refreshSignal = useSalesRefreshSignal();
 
+  // The URL query is the fetch key: refetch whenever the page, any filter, or the
+  // sort changes (the server re-renders these props from the address bar).
+  const filterKey = salesListQuery(page, filters, sort, dir);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchSalesList(eventId, page, sort, dir)
+    fetchSalesList(eventId, page, filters, sort, dir)
       .then((data) => {
         if (!cancelled) {
           setResult(data);
@@ -101,7 +104,11 @@ export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps
     return () => {
       cancelled = true;
     };
-  }, [eventId, page, sort, dir, refreshSignal]);
+    // filterKey encodes eventId-independent page+filter+sort state; eventId is
+    // listed explicitly so a different Event also refetches, and refreshSignal so
+    // a commit/undo re-fetches the current view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, filterKey, refreshSignal]);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -110,22 +117,35 @@ export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps
         return;
       }
       // Page state lives in the URL so the view survives a refresh and is shareable;
-      // the current sort is preserved as we page.
-      router.push(`/events/${eventId}/sales${buildSalesQuery(target, sort, dir)}`);
+      // the current filters and sort are preserved as we page.
+      router.push(`/events/${eventId}/sales${salesListQuery(target, filters, sort, dir)}`);
     },
-    [eventId, page, sort, dir, router],
+    [eventId, page, filters, sort, dir, router],
   );
 
   const toggleSort = useCallback(
     (field: SaleSortField) => {
       // Clicking the active column flips its direction; a new column starts in its
-      // natural default direction. Sorting resets to page 1 since the order changes.
+      // natural default direction. Sorting resets to page 1 since the order changes,
+      // but the active filters are preserved.
       const nextDir: SaleSortDir =
         field === sort ? (dir === "asc" ? "desc" : "asc") : defaultDirFor(field);
-      router.push(`/events/${eventId}/sales${buildSalesQuery(1, field, nextDir)}`);
+      router.push(`/events/${eventId}/sales${salesListQuery(1, filters, field, nextDir)}`);
     },
-    [eventId, sort, dir, router],
+    [eventId, filters, sort, dir, router],
   );
+
+  // applyFilters merges a filter change into the URL, resetting to page 1 (a new
+  // filter starts a fresh result set) while preserving the current sort. Each
+  // change is a history entry so the back button steps through filter changes.
+  const applyFilters = useCallback(
+    (patch: Partial<SalesFilters>) => {
+      router.push(`/events/${eventId}/sales${salesListQuery(1, { ...filters, ...patch }, sort, dir)}`);
+    },
+    [eventId, filters, sort, dir, router],
+  );
+
+  const filtersActive = hasActiveSalesFilters(filters);
 
   function toggleRow(id: string) {
     setExpanded((current) => {
@@ -150,8 +170,16 @@ export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <SalesFilterBar
+          filters={filters}
+          ticketTypes={ticketTypes}
+          filtersActive={filtersActive}
+          onApply={applyFilters}
+        />
         {error ? (
-          <p className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">{error}</p>
+          <p className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
+            Couldn&apos;t load sales: {error}
+          </p>
         ) : loading ? (
           <div className="space-y-2">
             {Array.from({ length: 4 }).map((_, index) => (
@@ -160,7 +188,9 @@ export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps
           </div>
         ) : !result || result.data.length === 0 ? (
           <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No sales recorded for this Event yet.
+            {filtersActive
+              ? "No sales match these filters."
+              : "No sales recorded for this Event yet."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -232,6 +262,186 @@ function SortableHeader({ label, field, sort, dir, onSort }: SortableHeaderProps
         </span>
       </button>
     </th>
+  );
+}
+
+const SELECT_CLASS =
+  "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm";
+
+const CHANNEL_OPTIONS = [
+  { value: "online", label: "Online" },
+  { value: "in_person", label: "In person" },
+  { value: "import", label: "Import" },
+];
+
+const SOURCE_OPTIONS = [
+  { value: "direct", label: "Direct" },
+  { value: "external_platform", label: "External platform" },
+];
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: "cash", label: "Cash" },
+  { value: "transfer", label: "Transfer" },
+];
+
+type SalesFilterBarProps = {
+  filters: SalesFilters;
+  ticketTypes: TicketTypeOption[];
+  filtersActive: boolean;
+  onApply: (patch: Partial<SalesFilters>) => void;
+};
+
+// SalesFilterBar renders the filter controls. Selects and dates apply on change
+// (each a URL/history step); the search box applies on submit so typing does not
+// flood the history. All changes flow up through onApply, which drives the URL.
+function SalesFilterBar({ filters, ticketTypes, filtersActive, onApply }: SalesFilterBarProps) {
+  const [search, setSearch] = useState(filters.q);
+
+  // Keep the search box in sync when the URL changes underneath us (e.g. the
+  // back button or a Clear).
+  useEffect(() => {
+    setSearch(filters.q);
+  }, [filters.q]);
+
+  return (
+    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <form
+          className="flex flex-col gap-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onApply({ q: search.trim() });
+          }}
+        >
+          <Label htmlFor="sales-search">Search</Label>
+          <div className="flex gap-2">
+            <Input
+              id="sales-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Name, email, or reference"
+              className="h-9"
+            />
+            <Button type="submit" variant="outline" size="sm">
+              Search
+            </Button>
+          </div>
+        </form>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-status">Status</Label>
+          <select
+            id="sales-status"
+            className={SELECT_CLASS}
+            value={filters.status}
+            onChange={(event) => onApply({ status: event.target.value })}
+          >
+            <option value="active">Active</option>
+            <option value="reversed">Reversed</option>
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-ticket-type">Ticket type</Label>
+          <select
+            id="sales-ticket-type"
+            className={SELECT_CLASS}
+            value={filters.ticketTypeId}
+            onChange={(event) => onApply({ ticketTypeId: event.target.value })}
+          >
+            <option value="">All ticket types</option>
+            {ticketTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-channel">Channel</Label>
+          <select
+            id="sales-channel"
+            className={SELECT_CLASS}
+            value={filters.channel}
+            onChange={(event) => onApply({ channel: event.target.value })}
+          >
+            <option value="">All channels</option>
+            {CHANNEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-source">Source</Label>
+          <select
+            id="sales-source"
+            className={SELECT_CLASS}
+            value={filters.source}
+            onChange={(event) => onApply({ source: event.target.value })}
+          >
+            <option value="">All sources</option>
+            {SOURCE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-payment-method">Payment method</Label>
+          <select
+            id="sales-payment-method"
+            className={SELECT_CLASS}
+            value={filters.paymentMethod}
+            onChange={(event) => onApply({ paymentMethod: event.target.value })}
+          >
+            <option value="">All payment methods</option>
+            {PAYMENT_METHOD_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-sold-from">Sold from</Label>
+          <Input
+            id="sales-sold-from"
+            type="date"
+            value={filters.soldFrom}
+            max={filters.soldTo || undefined}
+            onChange={(event) => onApply({ soldFrom: event.target.value })}
+            className="h-9"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="sales-sold-to">Sold to</Label>
+          <Input
+            id="sales-sold-to"
+            type="date"
+            value={filters.soldTo}
+            min={filters.soldFrom || undefined}
+            onChange={(event) => onApply({ soldTo: event.target.value })}
+            className="h-9"
+          />
+        </div>
+      </div>
+
+      {filtersActive ? (
+        <div className="flex justify-end">
+          <Button type="button" variant="ghost" size="sm" onClick={() => onApply(EMPTY_SALES_FILTERS)}>
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

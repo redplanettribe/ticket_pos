@@ -3,9 +3,42 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"testing"
 )
+
+// setEventTimezone stamps the Event's timezone directly (createDraftEvent leaves
+// it unset), so the sold-at date-range filter can be exercised against a
+// non-UTC zone.
+func setEventTimezone(t *testing.T, env *testEnv, eventID, tz string) {
+	t.Helper()
+	if _, err := env.db.Exec(`UPDATE events SET timezone = $1 WHERE id = $2`, tz, eventID); err != nil {
+		t.Fatalf("set event timezone: %v", err)
+	}
+}
+
+// undoBatch reverses a committed Sale Import batch (marking its Ticket Sales
+// reversed) so the status filter can be exercised.
+func undoBatch(t *testing.T, env *testEnv, sessionID, eventID, batchID string) {
+	t.Helper()
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/sale-imports/"+batchID+"/undo",
+		map[string]any{"notify_buyers": false}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("undo batch status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+// listSalesEmails returns the sorted customer emails of a Sales list response,
+// for order-independent set assertions.
+func listSalesEmails(list salesListEnvelope) []string {
+	emails := make([]string, 0, len(list.Data))
+	for _, row := range list.Data {
+		emails = append(emails, row.CustomerEmail)
+	}
+	sort.Strings(emails)
+	return emails
+}
 
 // saleListRow mirrors one Sales list row emitted by
 // GET /api/v1/staff/events/{id}/sales.
@@ -376,5 +409,264 @@ func TestSalesListAccess(t *testing.T) {
 	resp, _ = env.get(t, "/api/v1/staff/events/"+eventID+"/sales", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status=%d, want 401", resp.StatusCode)
+	}
+}
+
+// TestSalesListStatusFilter proves the status filter defaults to active (hiding
+// reversed sales) and that status=reversed reveals them.
+func TestSalesListStatusFilter(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Status Fest", "status-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	// Two batches; the second is undone so its sales become reversed.
+	commitBatch(t, env, sessionID, eventID, "active-batch", []map[string]any{
+		{"customer_email": "keep@example.com", "customer_first_name": "Keep", "customer_last_name": "Active", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	reversedBatch := commitBatch(t, env, sessionID, eventID, "reversed-batch", []map[string]any{
+		{"customer_email": "gone@example.com", "customer_first_name": "Gone", "customer_last_name": "Reversed", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+	undoBatch(t, env, sessionID, eventID, reversedBatch)
+
+	// Default view: only the active sale.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales", authHeader(sessionID))
+	def := salesList(t, body)
+	if got := listSalesEmails(def); len(got) != 1 || got[0] != "keep@example.com" {
+		t.Fatalf("default status = %v, want [keep@example.com]", got)
+	}
+
+	// status=active is the explicit form of the default.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?status=active", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "keep@example.com" {
+		t.Fatalf("status=active = %v, want [keep@example.com]", got)
+	}
+
+	// status=reversed reveals the reversed sale (and only it).
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?status=reversed", authHeader(sessionID))
+	rev := salesList(t, body)
+	if got := listSalesEmails(rev); len(got) != 1 || got[0] != "gone@example.com" {
+		t.Fatalf("status=reversed = %v, want [gone@example.com]", got)
+	}
+	if rev.Data[0].Status != "reversed" {
+		t.Fatalf("reversed row status = %q, want reversed", rev.Data[0].Status)
+	}
+}
+
+// TestSalesListTicketTypeFilter proves the ticket-type filter returns every sale
+// that includes the type exactly once — including a multi-line sale that also
+// holds another type — with its full rollup preserved (no fan-out).
+func TestSalesListTicketTypeFilter(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Type Fest", "type-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "type-batch", []map[string]any{
+		{"customer_email": "ga-only@example.com", "customer_first_name": "Ga", "customer_last_name": "Only", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "vip-only@example.com", "customer_first_name": "Vip", "customer_last_name": "Only", "ticket_type_id": vipID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+		{"customer_email": "both@example.com", "customer_first_name": "Both", "customer_last_name": "Types", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
+	})
+	// Give "both" a second line (VIP) so it includes both types.
+	if _, err := env.db.Exec(`
+		INSERT INTO ticket_sale_lines (ticket_sale_id, ticket_type_id, quantity, unit_price_cents, created_at)
+		SELECT ts.id, $1, 1, 5000, NOW()
+		FROM ticket_sales ts
+		WHERE ts.event_id = $2 AND ts.customer_email = 'both@example.com'
+	`, vipID, eventID); err != nil {
+		t.Fatalf("seed extra line: %v", err)
+	}
+
+	// Filtering by VIP returns the vip-only and the both sale — each once.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?ticket_type_id="+vipID, authHeader(sessionID))
+	list := salesList(t, body)
+	if got := listSalesEmails(list); len(got) != 2 || got[0] != "both@example.com" || got[1] != "vip-only@example.com" {
+		t.Fatalf("ticket_type=VIP = %v, want [both, vip-only]", got)
+	}
+	if list.Pagination.Total != 2 {
+		t.Fatalf("ticket_type=VIP total = %d, want 2 (each sale once)", list.Pagination.Total)
+	}
+	// The both sale keeps its full rollup (GA ×2 and VIP ×1), not just the
+	// filtered type.
+	var both saleListRow
+	for _, row := range list.Data {
+		if row.CustomerEmail == "both@example.com" {
+			both = row
+		}
+	}
+	names := map[string]int{}
+	for _, tt := range both.TicketTypes {
+		names[tt.TicketTypeName] = tt.Quantity
+	}
+	if len(both.TicketTypes) != 2 || names["GA"] != 2 || names["VIP"] != 1 {
+		t.Fatalf("both rollup = %v, want GA:2 VIP:1 (full rollup preserved)", names)
+	}
+
+	// Filtering by GA returns ga-only and both.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?ticket_type_id="+gaID, authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 2 || got[0] != "both@example.com" || got[1] != "ga-only@example.com" {
+		t.Fatalf("ticket_type=GA = %v, want [both, ga-only]", got)
+	}
+}
+
+// TestSalesListDateRangeFilter proves sold_from/sold_to are interpreted in the
+// Event timezone as a half-open interval, inclusive of the end date's whole day,
+// with either bound optionally omitted.
+func TestSalesListDateRangeFilter(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Date Fest", "date-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	// America/New_York is UTC-4 in July (EDT), so 2026-07-01 local midnight is
+	// 2026-07-01T04:00Z and the day ends just before 2026-07-02T04:00Z.
+	setEventTimezone(t, env, eventID, "America/New_York")
+
+	commitBatch(t, env, sessionID, eventID, "date-batch", []map[string]any{
+		// 06-30 23:59 EDT — before 07-01.
+		{"customer_email": "before@example.com", "customer_first_name": "B", "customer_last_name": "Efore", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T03:59:00Z"},
+		// 07-01 00:00 EDT — the inclusive lower boundary.
+		{"customer_email": "start@example.com", "customer_first_name": "S", "customer_last_name": "Tart", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T04:00:00Z"},
+		// 07-01 23:59 EDT — last moment of the end day (must be included).
+		{"customer_email": "end@example.com", "customer_first_name": "E", "customer_last_name": "Nd", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T03:59:00Z"},
+		// 07-02 00:00 EDT — the exclusive upper boundary (must be excluded).
+		{"customer_email": "after@example.com", "customer_first_name": "A", "customer_last_name": "Fter", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T04:00:00Z"},
+	})
+
+	// Both bounds on 07-01: only start and end.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?sold_from=2026-07-01&sold_to=2026-07-01", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 2 || got[0] != "end@example.com" || got[1] != "start@example.com" {
+		t.Fatalf("range 07-01..07-01 = %v, want [end, start]", got)
+	}
+
+	// Open upper bound (only sold_from): start, end, after.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?sold_from=2026-07-01", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 3 || got[0] != "after@example.com" || got[1] != "end@example.com" || got[2] != "start@example.com" {
+		t.Fatalf("range from 07-01 = %v, want [after, end, start]", got)
+	}
+
+	// Open lower bound (only sold_to): before, start, end.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?sold_to=2026-07-01", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 3 || got[0] != "before@example.com" || got[1] != "end@example.com" || got[2] != "start@example.com" {
+		t.Fatalf("range to 07-01 = %v, want [before, end, start]", got)
+	}
+}
+
+// TestSalesListSearchFilter proves the q filter matches a case-insensitive
+// substring over customer name, email, and confirmation reference.
+func TestSalesListSearchFilter(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Search Fest", "search-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "search-batch", []map[string]any{
+		{"customer_email": "maria.garcia@example.com", "customer_first_name": "María", "customer_last_name": "García", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "john@other.test", "customer_first_name": "John", "customer_last_name": "Smith", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+
+	// Name substring, case-insensitive.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?q=garc", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "maria.garcia@example.com" {
+		t.Fatalf("q=garc = %v, want [maria.garcia@example.com]", got)
+	}
+
+	// Email substring on the other row.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?q=OTHER.test", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "john@other.test" {
+		t.Fatalf("q=OTHER.test = %v, want [john@other.test]", got)
+	}
+
+	// Confirmation reference: read one row's ref, then search for it.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales", authHeader(sessionID))
+	all := salesList(t, body)
+	var ref, refEmail string
+	for _, row := range all.Data {
+		if row.CustomerEmail == "john@other.test" {
+			ref = row.ConfirmationRef
+			refEmail = row.CustomerEmail
+		}
+	}
+	if ref == "" {
+		t.Fatalf("no confirmation_ref to search")
+	}
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?q="+ref, authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != refEmail {
+		t.Fatalf("q=%s (ref) = %v, want [%s]", ref, got, refEmail)
+	}
+}
+
+// TestSalesListChannelSourcePaymentAndCombination proves the channel/source/
+// payment-method filters function (degenerate today: every sale is
+// import/direct) and that multiple filters combine to narrow the set.
+func TestSalesListChannelSourcePaymentAndCombination(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Combo Fest", "combo-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "combo-batch", []map[string]any{
+		{"customer_email": "cash-ga@example.com", "customer_first_name": "Cash", "customer_last_name": "Ga", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "transfer-vip@example.com", "customer_first_name": "Xfer", "customer_last_name": "Vip", "ticket_type_id": vipID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-05T10:00:00Z"},
+	})
+
+	// channel=import matches every sale; a wrong channel matches none.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?channel=import", authHeader(sessionID))
+	if list := salesList(t, body); len(list.Data) != 2 {
+		t.Fatalf("channel=import rows = %d, want 2", len(list.Data))
+	}
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?channel=online", authHeader(sessionID))
+	if list := salesList(t, body); len(list.Data) != 0 {
+		t.Fatalf("channel=online rows = %d, want 0", len(list.Data))
+	}
+
+	// source=direct matches all; payment_method=cash narrows to one.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?source=direct", authHeader(sessionID))
+	if list := salesList(t, body); len(list.Data) != 2 {
+		t.Fatalf("source=direct rows = %d, want 2", len(list.Data))
+	}
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?payment_method=cash", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "cash-ga@example.com" {
+		t.Fatalf("payment_method=cash = %v, want [cash-ga@example.com]", got)
+	}
+
+	// Combination: VIP + transfer + date window isolates the one matching sale;
+	// adding an excluding payment method yields nothing.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?ticket_type_id="+vipID+"&payment_method=transfer&sold_from=2026-07-04", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "transfer-vip@example.com" {
+		t.Fatalf("combined filter = %v, want [transfer-vip@example.com]", got)
+	}
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?ticket_type_id="+vipID+"&payment_method=cash", authHeader(sessionID))
+	if list := salesList(t, body); len(list.Data) != 0 {
+		t.Fatalf("VIP+cash rows = %d, want 0 (no such sale)", len(list.Data))
+	}
+}
+
+// TestSalesListInvalidFilters proves invalid enum and date filter values are
+// rejected with a VALIDATION_FAILED envelope rather than silently ignored.
+func TestSalesListInvalidFilters(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Invalid Fest", "invalid-fest")
+	createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	cases := []string{
+		"status=deleted",
+		"channel=carrier-pigeon",
+		"source=telepathy",
+		"payment_method=barter",
+		"sold_from=07-2026-01",
+		"sold_to=not-a-date",
+		"ticket_type_id=not-a-uuid",
+	}
+	for _, qs := range cases {
+		resp, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?"+qs, authHeader(sessionID))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s status=%d, want 400", qs, resp.StatusCode)
+		}
+		if body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
+			t.Fatalf("%s error = %+v, want VALIDATION_FAILED", qs, body.Error)
+		}
 	}
 }
