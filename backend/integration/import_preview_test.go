@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -67,6 +68,30 @@ func xlsxWithRows(t *testing.T, rows [][]any) []byte {
 		if err := f.SetSheetRow(sheet, cell, &r); err != nil {
 			t.Fatalf("set row: %v", err)
 		}
+	}
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("write xlsx: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// xlsxRenamedSalesSheet builds a multi-sheet workbook whose data tab is NOT
+// named "Sales" (as if the organizer renamed or deleted it), so the parser can
+// no longer find the Sales sheet by name.
+func xlsxRenamedSalesSheet(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
+	if err := f.SetSheetName("Sheet1", "Instructions"); err != nil {
+		t.Fatalf("rename sheet: %v", err)
+	}
+	if _, err := f.NewSheet("MySales"); err != nil {
+		t.Fatalf("new sheet: %v", err)
+	}
+	headers := []any{"customer_email", "customer_first_name", "customer_last_name", "ticket_type", "quantity", "payment_method", "sold_at", "amount"}
+	if err := f.SetSheetRow("MySales", "A1", &headers); err != nil {
+		t.Fatalf("set header: %v", err)
 	}
 	buf, err := f.WriteToBuffer()
 	if err != nil {
@@ -479,5 +504,31 @@ func TestSaleImportPreviewMalformedFile(t *testing.T) {
 	}
 	if body.Error == nil || body.Error.Code != "IMPORT_FILE_INVALID" {
 		t.Fatalf("error = %+v, want IMPORT_FILE_INVALID", body.Error)
+	}
+	// The whole-file rejection reason is human-readable and names the missing
+	// column, not a generic dead-end.
+	if !strings.Contains(body.Error.Message, "sold_at") {
+		t.Fatalf("message = %q, want it to name the missing sold_at column", body.Error.Message)
+	}
+}
+
+func TestSaleImportPreviewRenamedSalesSheet(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Renamed Sheet Fest", "renamed-sheet-fest")
+	createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	// A multi-sheet workbook whose Sales tab was renamed → dedicated reason.
+	content := xlsxRenamedSalesSheet(t)
+	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports/preview",
+		"renamed.xlsx", content, nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "IMPORT_FILE_INVALID" {
+		t.Fatalf("error = %+v, want IMPORT_FILE_INVALID", body.Error)
+	}
+	if !strings.Contains(body.Error.Message, "Sales") {
+		t.Fatalf("message = %q, want it to name the Sales sheet", body.Error.Message)
 	}
 }

@@ -58,12 +58,32 @@ type RawRow struct {
 // ErrTooLarge reports that a file exceeds MaxRows data rows.
 var ErrTooLarge = fmt.Errorf("import file exceeds %d rows", MaxRows)
 
-// ErrUnreadable reports a malformed or unrecognised file.
+// ErrUnreadable reports a malformed or unrecognised file. Reason is a
+// human-readable sentence the organizer sees on the preview panel, so the
+// backend owns the friendly whole-file rejection text.
 type ErrUnreadable struct{ Reason string }
 
-func (e *ErrUnreadable) Error() string { return "import file is unreadable: " + e.Reason }
+func (e *ErrUnreadable) Error() string { return e.Reason }
 
 func unreadable(reason string) error { return &ErrUnreadable{Reason: reason} }
+
+// Friendly whole-file rejection reasons. Each is a complete sentence the
+// organizer reads verbatim; the sales service carries them into the domain
+// error's message and details.reason.
+var (
+	// ErrSalesSheetNotFound reports a multi-sheet workbook that has no sheet
+	// named "Sales" — typically a renamed or deleted Sales tab.
+	ErrSalesSheetNotFound = unreadable("Couldn't find the 'Sales' sheet. Please use the downloaded template and keep the Sales tab.")
+
+	errEmptyFile   = unreadable("The file is empty. Add your sales rows to the downloaded template and upload again.")
+	errCorruptFile = unreadable("The file couldn't be read. Please upload a .csv or .xlsx exported from the downloaded template.")
+)
+
+// missingColumnsReason names the required columns that are absent so the
+// organizer can fix the exact headers.
+func missingColumnsReason(missing []string) error {
+	return unreadable("The file is missing required columns: " + strings.Join(missing, ", ") + ". Please use the downloaded template.")
+}
 
 // Parse reads an uploaded Sale Import file into rows, dispatching on the file
 // name's extension (.xlsx vs .csv) and falling back to content sniffing. It
@@ -99,10 +119,10 @@ func parseCSV(data []byte) ([]RawRow, error) {
 
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, unreadable(err.Error())
+		return nil, errCorruptFile
 	}
 	if len(records) == 0 {
-		return nil, unreadable("file has no header row")
+		return nil, errEmptyFile
 	}
 
 	index, err := mapHeaders(records[0])
@@ -127,24 +147,23 @@ func parseCSV(data []byte) ([]RawRow, error) {
 func parseXLSX(data []byte) ([]RawRow, error) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
-		return nil, unreadable(err.Error())
+		return nil, errCorruptFile
 	}
 	defer func() { _ = f.Close() }()
 
-	sheets := f.GetSheetList()
-	if len(sheets) == 0 {
-		return nil, unreadable("workbook has no sheets")
+	sheet, err := selectSalesSheet(f)
+	if err != nil {
+		return nil, err
 	}
-	sheet := sheets[0]
 
 	// Read raw cell values so date cells surface as their serial numbers rather
 	// than a locale-formatted string; Validate coerces them.
 	records, err := f.GetRows(sheet, excelize.Options{RawCellValue: true})
 	if err != nil {
-		return nil, unreadable(err.Error())
+		return nil, errCorruptFile
 	}
 	if len(records) == 0 {
-		return nil, unreadable("sheet has no header row")
+		return nil, errEmptyFile
 	}
 
 	index, err := mapHeaders(records[0])
@@ -164,6 +183,27 @@ func parseXLSX(data []byte) ([]RawRow, error) {
 		rows = append(rows, rowFromCells(i+1, cells, index))
 	}
 	return rows, nil
+}
+
+// selectSalesSheet resolves which worksheet holds the Sale Import rows: the
+// sheet named "Sales" if present; otherwise the sole sheet of a single-sheet
+// workbook (plain exports / CSV-origin files); otherwise ErrSalesSheetNotFound.
+// Selecting by name lets a future Instructions sheet sit first without breaking
+// uploads and hardens the format against sheet reordering.
+func selectSalesSheet(f *excelize.File) (string, error) {
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return "", errEmptyFile
+	}
+	for _, name := range sheets {
+		if strings.EqualFold(strings.TrimSpace(name), templateSheet) {
+			return name, nil
+		}
+	}
+	if len(sheets) == 1 {
+		return sheets[0], nil
+	}
+	return "", ErrSalesSheetNotFound
 }
 
 // mapHeaders resolves each recognised column to its zero-based position and
@@ -186,7 +226,7 @@ func mapHeaders(header []string) (map[string]int, error) {
 		}
 	}
 	if len(missing) > 0 {
-		return nil, unreadable("missing required columns: " + strings.Join(missing, ", "))
+		return nil, missingColumnsReason(missing)
 	}
 	return index, nil
 }

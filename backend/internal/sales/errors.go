@@ -1,7 +1,11 @@
 // Package sales holds sales domain errors and shared types.
 package sales
 
-import "github.com/peter/ticket_pos/backend/internal/platform/apperror"
+import (
+	"fmt"
+
+	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
+)
 
 type domainError struct {
 	code    string
@@ -31,17 +35,20 @@ func ErrTicketTypeNotFound(ticketTypeID string) apperror.DomainError {
 }
 
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
-// parsed (wrong format, missing columns, corrupt contents).
+// parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
+// contents). The reason is a human-readable sentence produced by the importfile
+// parser; it becomes the message the organizer sees so both the preview UI and
+// any API consumer get the specific dead-end without translating error codes.
 func ErrImportFileUnreadable(reason string) apperror.DomainError {
-	return newDomainError("IMPORT_FILE_INVALID", "Import file could not be read.", map[string]any{
+	return newDomainError("IMPORT_FILE_INVALID", reason, map[string]any{
 		"reason": reason,
 	})
 }
 
 // ErrImportFileTooLarge is returned when an uploaded Sale Import file exceeds the
-// per-batch row limit.
+// per-batch row limit. The message states the limit; details carries it too.
 func ErrImportFileTooLarge(limit int) apperror.DomainError {
-	return newDomainError("IMPORT_FILE_TOO_LARGE", "Import file has too many rows.", map[string]any{
+	return newDomainError("IMPORT_FILE_TOO_LARGE", fmt.Sprintf("Import file has too many rows. The maximum is %d rows per import.", limit), map[string]any{
 		"limit": limit,
 	})
 }

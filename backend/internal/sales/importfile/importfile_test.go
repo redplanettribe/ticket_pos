@@ -56,6 +56,122 @@ func TestParseMissingLastNameColumnIsUnreadable(t *testing.T) {
 	}
 }
 
+// xlsxWorkbook builds an in-memory .xlsx. sheets maps sheet name → rows (each
+// row is the ordered cell values); order preserves the given sheet names, with
+// the first becoming the active sheet.
+func xlsxWorkbook(t *testing.T, order []string, sheets map[string][][]string) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
+	// The workbook starts with "Sheet1"; rename it to the first requested sheet
+	// and create the rest in order.
+	if err := f.SetSheetName("Sheet1", order[0]); err != nil {
+		t.Fatalf("rename sheet: %v", err)
+	}
+	for _, name := range order[1:] {
+		if _, err := f.NewSheet(name); err != nil {
+			t.Fatalf("new sheet %s: %v", name, err)
+		}
+	}
+	for name, rows := range sheets {
+		for i, row := range rows {
+			cell, err := excelize.CoordinatesToCellName(1, i+1)
+			if err != nil {
+				t.Fatalf("coords: %v", err)
+			}
+			r := make([]any, len(row))
+			for j, v := range row {
+				r[j] = v
+			}
+			if err := f.SetSheetRow(name, cell, &r); err != nil {
+				t.Fatalf("set row on %s: %v", name, err)
+			}
+		}
+	}
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("write xlsx: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func importHeader() []string {
+	return []string{"customer_email", "customer_first_name", "customer_last_name", "ticket_type", "quantity", "payment_method", "sold_at", "amount"}
+}
+
+func TestParseXLSXSelectsSalesSheetByName(t *testing.T) {
+	// A decoy sheet sits first (as a future Instructions sheet would); the Sales
+	// sheet is selected by name, not position.
+	data := xlsxWorkbook(t, []string{"Instructions", "Sales"}, map[string][][]string{
+		"Instructions": {{"read me first"}},
+		"Sales": {
+			importHeader(),
+			{"ana@example.com", "Ana", "Lopez", "GA", "2", "cash", "2026-07-01T10:00:00Z", "10.50"},
+		},
+	})
+	rows, err := Parse("export.xlsx", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(rows) != 1 || rows[0].CustomerEmail != "ana@example.com" || rows[0].CustomerLastName != "Lopez" {
+		t.Fatalf("rows = %+v, want the Sales sheet row", rows)
+	}
+}
+
+func TestParseXLSXMissingSalesSheet(t *testing.T) {
+	// Multi-sheet workbook whose Sales tab was renamed → dedicated error.
+	data := xlsxWorkbook(t, []string{"Instructions", "MySales"}, map[string][][]string{
+		"Instructions": {{"read me first"}},
+		"MySales":      {importHeader()},
+	})
+	_, err := Parse("export.xlsx", bytes.NewReader(data))
+	if !IsUnreadable(err) {
+		t.Fatalf("err = %v, want unreadable (missing Sales sheet)", err)
+	}
+	if !strings.Contains(err.Error(), "Sales") {
+		t.Fatalf("reason = %q, want it to name the Sales sheet", err.Error())
+	}
+}
+
+func TestParseXLSXSingleSheetFallback(t *testing.T) {
+	// A plain single-sheet export (e.g. CSV-origin) without a "Sales" sheet is
+	// still read.
+	data := xlsxWorkbook(t, []string{"Sheet1"}, map[string][][]string{
+		"Sheet1": {
+			importHeader(),
+			{"ana@example.com", "Ana", "Lopez", "GA", "1", "cash", "2026-07-01T10:00:00Z", ""},
+		},
+	})
+	rows, err := Parse("plain.xlsx", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+}
+
+func TestParseFriendlyReasons(t *testing.T) {
+	// Missing columns names the absent headers.
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,payment_method\n"
+	_, err := Parse("sales.csv", strings.NewReader(csv))
+	if !IsUnreadable(err) || !strings.Contains(err.Error(), "quantity") || !strings.Contains(err.Error(), "sold_at") {
+		t.Fatalf("missing-columns reason = %v, want it to name quantity and sold_at", err)
+	}
+
+	// Empty file (no rows at all).
+	_, err = Parse("empty.csv", strings.NewReader(""))
+	if err != errEmptyFile {
+		t.Fatalf("empty reason = %v, want errEmptyFile", err)
+	}
+
+	// Corrupt .xlsx (ZIP magic but not a real workbook).
+	_, err = Parse("corrupt.xlsx", bytes.NewReader([]byte("PK\x03\x04 not really a workbook")))
+	if err != errCorruptFile {
+		t.Fatalf("corrupt reason = %v, want errCorruptFile", err)
+	}
+}
+
 func TestParseRowLimit(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at\n")
