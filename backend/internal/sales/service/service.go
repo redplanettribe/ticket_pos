@@ -228,10 +228,16 @@ type SalesListResult struct {
 }
 
 // ListSalesParams is a validated, clamped Sales list request (page and size are
-// already floored/clamped by the handler per ADR-0006).
+// already floored/clamped, and sort/dir already resolved against the allowlists,
+// by the handler per ADR-0006).
 type ListSalesParams struct {
 	Page     int
 	PageSize int
+	// Sort is the resolved sort column (one of sold_at, recorded_at, customer,
+	// amount) and Dir the direction ("asc"/"desc"); both default to the newest-first
+	// sold_at ordering.
+	Sort string
+	Dir  string
 }
 
 // ListSales returns a page of the Event's active Ticket Sales for the Sales
@@ -253,6 +259,8 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 		// The default view shows only active sales (those that count against
 		// capacity); status filtering arrives in a later ticket.
 		Status: "active",
+		Sort:   params.Sort,
+		Dir:    params.Dir,
 		Limit:  params.PageSize,
 		Offset: (params.Page - 1) * params.PageSize,
 	})

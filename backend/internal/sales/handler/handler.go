@@ -212,13 +212,15 @@ const (
 // list — one row per Ticket Sale — in the ADR-0006 nested envelope.
 //
 // @Summary      List an Event's Ticket Sales
-// @Description  Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
+// @Description  Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id         path   string  true   "Event ID"
 // @Param        page       query  int     false  "Page number (1-based; floors at 1)"
 // @Param        page_size  query  int     false  "Page size (default 50, max 100)"
+// @Param        sort       query  string  false  "Sort column (default sold_at)"  Enums(sold_at, recorded_at, customer, amount)
+// @Param        dir        query  string  false  "Sort direction (default desc)"  Enums(asc, desc)
 // @Success      200  {object}  platform.Envelope
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
@@ -237,6 +239,8 @@ func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.ListSales(r.Context(), actorFromRequest(r), eventID, service.ListSalesParams{
 		Page:     pageParam(query.Get("page")),
 		PageSize: pageSizeParam(query.Get("page_size")),
+		Sort:     sortParam(query.Get("sort")),
+		Dir:      dirParam(query.Get("dir")),
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -253,6 +257,41 @@ func pageParam(raw string) int {
 		return 1
 	}
 	return n
+}
+
+// Sales list sort allowlists (ADR-0006): `sort` and `dir` are validated against
+// these fixed sets; an unknown value normalizes to the default (sold_at desc) so
+// a hand-edited or stale shared URL stays usable rather than erroring.
+const (
+	defaultSort = "sold_at"
+	defaultDir  = "desc"
+)
+
+var allowedSorts = map[string]bool{
+	"sold_at":     true,
+	"recorded_at": true,
+	"customer":    true,
+	"amount":      true,
+}
+
+// sortParam resolves the `sort` query value against the allowlist, defaulting to
+// sold_at when missing or unknown.
+func sortParam(raw string) string {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if allowedSorts[v] {
+		return v
+	}
+	return defaultSort
+}
+
+// dirParam resolves the `dir` query value to "asc" or "desc", defaulting to desc
+// when missing or unknown.
+func dirParam(raw string) string {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "asc" || v == "desc" {
+		return v
+	}
+	return defaultDir
 }
 
 // pageSizeParam parses the `page_size` query value, defaulting to 50 and
