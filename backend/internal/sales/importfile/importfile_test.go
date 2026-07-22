@@ -358,4 +358,102 @@ func TestTemplateRoundTrip(t *testing.T) {
 	if refName != "GA" {
 		t.Fatalf("ref A1 = %q, want GA", refName)
 	}
+
+	// The Instructions sheet greets the organizer: it exists, sits first, and is
+	// the active sheet; Sales is still second and the hidden ref stays last.
+	sheets := f.GetSheetList()
+	if len(sheets) < 3 || sheets[0] != templateInstructionsSheet || sheets[1] != templateSheet {
+		t.Fatalf("sheet order = %v, want Instructions first then Sales", sheets)
+	}
+	if idx := f.GetActiveSheetIndex(); idx != 0 {
+		t.Fatalf("active sheet index = %d, want 0 (Instructions)", idx)
+	}
+	if guide, err := f.GetCellValue(templateInstructionsSheet, "A1"); err != nil || guide == "" {
+		t.Fatalf("Instructions A1 = %q err=%v, want a non-empty how-to line", guide, err)
+	}
+
+	// The data-validations survive the round trip; index them by their range.
+	dvs, err := f.GetDataValidations(templateSheet)
+	if err != nil {
+		t.Fatalf("get data validations: %v", err)
+	}
+	byRange := map[string]*excelize.DataValidation{}
+	for _, dv := range dvs {
+		byRange[dv.Sqref] = dv
+	}
+	errStyle := func(dv *excelize.DataValidation) string {
+		if dv == nil || dv.ErrorStyle == nil {
+			return ""
+		}
+		return *dv.ErrorStyle
+	}
+
+	// The new value checks all use Warning style (never Stop) so paste survives
+	// and the server preview stays the authoritative gate.
+	warnCases := []struct {
+		name, sqref, typ, op, formula string
+	}{
+		{"quantity >= 1", "E2:E10001", "whole", "greaterThanOrEqual", "1"},
+		{"amount >= 0", "H2:H10001", "decimal", "greaterThanOrEqual", "0"},
+		{"sold_at <= TODAY()", "G2:G10001", "date", "lessThanOrEqual", "TODAY()"},
+	}
+	for _, c := range warnCases {
+		dv := byRange[c.sqref]
+		if dv == nil {
+			t.Fatalf("%s: no validation over %s", c.name, c.sqref)
+		}
+		if dv.Type != c.typ || dv.Operator != c.op || dv.Formula1 != c.formula {
+			t.Fatalf("%s: type/op/formula = %q/%q/%q, want %q/%q/%q", c.name, dv.Type, dv.Operator, dv.Formula1, c.typ, c.op, c.formula)
+		}
+		if got := errStyle(dv); got != "warning" {
+			t.Fatalf("%s: error style = %q, want warning (never stop)", c.name, got)
+		}
+	}
+
+	// The ticket_type and payment_method dropdowns are preserved as list checks.
+	if dv := byRange["D2:D10001"]; dv == nil || dv.Type != "list" {
+		t.Fatalf("ticket_type dropdown missing/changed: %+v", dv)
+	}
+	if dv := byRange["F2:F10001"]; dv == nil || dv.Type != "list" {
+		t.Fatalf("payment_method dropdown missing/changed: %+v", dv)
+	}
+
+	// Every visible column carries an input-message tooltip (prompt), including
+	// the columns whose only validation exists to hold the tooltip.
+	visibleRanges := map[string]string{
+		"customer_email":      "A2:A10001",
+		"customer_first_name": "B2:B10001",
+		"customer_last_name":  "C2:C10001",
+		"ticket_type":         "D2:D10001",
+		"quantity":            "E2:E10001",
+		"payment_method":      "F2:F10001",
+		"sold_at":             "G2:G10001",
+		"amount":              "H2:H10001",
+	}
+	for name, sqref := range visibleRanges {
+		dv := byRange[sqref]
+		if dv == nil || !dv.ShowInputMessage || dv.Prompt == nil || *dv.Prompt == "" {
+			t.Fatalf("%s (%s): missing input-message tooltip", name, sqref)
+		}
+	}
+	// The amount tooltip must disclose the otherwise-invisible blank→price rule.
+	if p := byRange["H2:H10001"].Prompt; p == nil || !strings.Contains(*p, "price") {
+		t.Fatalf("amount tooltip = %v, want it to mention using the Ticket Type's price when blank", p)
+	}
+
+	// Header-row notes describe each of the eight visible columns.
+	comments, err := f.GetComments(templateSheet)
+	if err != nil {
+		t.Fatalf("get comments: %v", err)
+	}
+	if len(comments) != len(templateHeaders)-1 { // all visible headers, excludes hidden ticket_type_id
+		t.Fatalf("header comments = %d, want %d", len(comments), len(templateHeaders)-1)
+	}
+
+	// The generated template still parses back through the normal upload path.
+	if rows, err := Parse("template.xlsx", bytes.NewReader(data)); err != nil {
+		t.Fatalf("re-parse generated template: %v", err)
+	} else if len(rows) != 0 {
+		t.Fatalf("empty template parsed %d data rows, want 0", len(rows))
+	}
 }
