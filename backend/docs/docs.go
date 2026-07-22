@@ -2516,7 +2516,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales": {
             "get": {
-                "description": "Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.",
+                "description": "Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -2541,6 +2541,32 @@ const docTemplate = `{
                         "name": "page_size",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Sort column (default sold_at)",
+                        "in": "query",
+                        "name": "sort",
+                        "schema": {
+                            "enum": [
+                                "sold_at",
+                                "recorded_at",
+                                "customer",
+                                "amount"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sort direction (default desc)",
+                        "in": "query",
+                        "name": "dir",
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string"
                         }
                     }
                 ],

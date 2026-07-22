@@ -1507,7 +1507,7 @@ export interface paths {
         };
         /**
          * List an Event's Ticket Sales
-         * @description Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
+         * @description Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
          */
         get: {
             parameters: {
@@ -1516,6 +1516,10 @@ export interface paths {
                     page?: number;
                     /** @description Page size (default 50, max 100) */
                     page_size?: number;
+                    /** @description Sort column (default sold_at) */
+                    sort?: "sold_at" | "recorded_at" | "customer" | "amount";
+                    /** @description Sort direction (default desc) */
+                    dir?: "asc" | "desc";
                 };
                 header?: never;
                 path: {

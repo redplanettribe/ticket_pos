@@ -4,6 +4,8 @@ import { callBackend } from "@/lib/api";
 import type { EventDetail } from "@/lib/events-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
+import { parseSaleDir, parseSaleSort } from "@/lib/sales-api";
+
 import { loadSession } from "../../../staff-page-shell";
 import { ImportSalesSection } from "../import-sales-section";
 import { SalesList } from "../sales-list";
@@ -11,7 +13,7 @@ import { SalesRefreshProvider } from "../sales-refresh";
 
 type EventSalesPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; sort?: string; dir?: string }>;
 };
 
 // parsePage reads the URL page number, flooring at 1 (matches the API).
@@ -36,7 +38,7 @@ async function fetchEventTimezone(eventId: string, token: string): Promise<strin
 
 export default async function EventSalesPage({ params, searchParams }: EventSalesPageProps) {
   const { id } = await params;
-  const { page } = await searchParams;
+  const { page, sort, dir } = await searchParams;
   const session = await loadSession();
   const role = session?.active_member?.role;
 
@@ -53,7 +55,13 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
     // list to re-fetch its current view after a successful commit/undo.
     <SalesRefreshProvider>
       <div className="space-y-6">
-        <SalesList eventId={id} page={parsePage(page)} timezone={timezone} />
+        <SalesList
+          eventId={id}
+          page={parsePage(page)}
+          sort={parseSaleSort(sort)}
+          dir={parseSaleDir(dir)}
+          timezone={timezone}
+        />
         {canManageImports ? <ImportSalesSection eventId={id} /> : null}
       </div>
     </SalesRefreshProvider>

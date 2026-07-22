@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -609,17 +610,59 @@ type ListSalesQuery struct {
 	EventID        string
 	// Status narrows to Ticket Sales in this lifecycle state (e.g. "active").
 	Status string
+	// Sort and Dir are the validated sort column and direction (the service
+	// guarantees they are allowlisted; see salesSortColumns). Sort selects the
+	// primary ORDER BY expression; Dir is "asc" or "desc".
+	Sort   string
+	Dir    string
 	Limit  int
 	Offset int
 }
 
+// salesSortColumns maps an allowlisted sort key to the ordered list of primary
+// ORDER BY columns for that sort. Because these values come from a fixed
+// allowlist enforced upstream, they are safe to interpolate into the query.
+// `customer` orders by last then first name; `amount` orders by the per-sale
+// summed line total computed in the lateral subquery. Every sort carries a
+// trailing `ts.id` tiebreaker (added when the clause is built) so equal primary
+// values keep a stable order across pages.
+var salesSortColumns = map[string][]string{
+	"sold_at":     {"ts.sold_at"},
+	"recorded_at": {"ts.created_at"},
+	"customer":    {"ts.customer_last_name", "ts.customer_first_name"},
+	"amount":      {"lines.amount_cents"},
+}
+
+// salesOrderBy builds the ORDER BY clause for a Sales list query from the
+// validated sort key and direction, always appending the `ts.id` tiebreaker in
+// the same direction so equal primary values do not reorder between pages
+// (ADR-0006). Unknown values fall back to the default sold_at ordering.
+func salesOrderBy(sort, dir string) string {
+	cols, ok := salesSortColumns[sort]
+	if !ok {
+		cols = salesSortColumns["sold_at"]
+	}
+	direction := "DESC"
+	if strings.EqualFold(dir, "asc") {
+		direction = "ASC"
+	}
+	// Apply the direction to each primary column, then the id tiebreaker.
+	parts := make([]string, 0, len(cols)+1)
+	for _, c := range cols {
+		parts = append(parts, c+" "+direction)
+	}
+	parts = append(parts, "ts.id "+direction)
+	return "ORDER BY " + strings.Join(parts, ", ")
+}
+
 // ListSales returns one page of an Event's Ticket Sales for the Sales list, one
-// row per Ticket Sale, newest first (sold_at DESC with an id tiebreaker so equal
-// timestamps do not reorder between pages). The Ticket Sale Lines are aggregated
-// per sale in a lateral subquery so a multi-line sale stays a single row (no
-// join fan-out): its amount is SUM(quantity × unit_price_cents) and its Ticket
-// Types roll up into one ordered list. total is the unpaginated match count via
-// COUNT(*) OVER() (ADR-0006).
+// row per Ticket Sale, ordered by the query's sort/dir (defaulting to sold_at
+// DESC) with an id tiebreaker so equal primary values do not reorder between
+// pages — see salesOrderBy. The Ticket Sale Lines are aggregated per sale in a
+// lateral subquery so a multi-line sale stays a single row (no join fan-out): its
+// amount is SUM(quantity × unit_price_cents) and its Ticket Types roll up into
+// one ordered list. total is the unpaginated match count via COUNT(*) OVER()
+// (ADR-0006).
 func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT
@@ -655,7 +698,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			WHERE tsl.ticket_sale_id = ts.id
 		) lines ON TRUE
 		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = $3
-		ORDER BY ts.sold_at DESC, ts.id DESC
+		`+salesOrderBy(q.Sort, q.Dir)+`
 		LIMIT $4 OFFSET $5
 	`, q.EventID, q.OrganizationID, q.Status, q.Limit, q.Offset)
 	if err != nil {

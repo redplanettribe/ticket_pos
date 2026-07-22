@@ -19,11 +19,15 @@ import {
 import { formatPriceCents } from "@/lib/events-api";
 import {
   channelSourceLabel,
+  DEFAULT_SALE_DIR,
+  DEFAULT_SALE_SORT,
   fetchSalesList,
   formatSaleTimestamp,
   paymentMethodLabel,
   rollupTicketTypes,
   type SaleListRow,
+  type SaleSortDir,
+  type SaleSortField,
   type SalesListResponse,
 } from "@/lib/sales-api";
 
@@ -34,11 +38,36 @@ type SalesListProps = {
   // The current page, read from the URL by the server and passed in as the
   // source of truth so page state lives in the URL.
   page: number;
+  // The current sort column and direction, also read from the URL so the sort is
+  // shareable and survives a refresh.
+  sort: SaleSortField;
+  dir: SaleSortDir;
   // The Event timezone, used to render sold-at (null falls back to the viewer's).
   timezone: string | null;
 };
 
-export function SalesList({ eventId, page, timezone }: SalesListProps) {
+// buildSalesQuery renders the Sales list URL query string, omitting page and
+// sort/dir when they match their defaults so a shared link stays clean.
+function buildSalesQuery(page: number, sort: SaleSortField, dir: SaleSortDir): string {
+  const params = new URLSearchParams();
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+  if (sort !== DEFAULT_SALE_SORT || dir !== DEFAULT_SALE_DIR) {
+    params.set("sort", sort);
+    params.set("dir", dir);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// defaultDirFor is the direction a newly selected sort column starts in: newest
+// or largest first for the date/amount columns, A→Z for the customer column.
+function defaultDirFor(field: SaleSortField): SaleSortDir {
+  return field === "customer" ? "asc" : "desc";
+}
+
+export function SalesList({ eventId, page, sort, dir, timezone }: SalesListProps) {
   const router = useRouter();
   const [result, setResult] = useState<SalesListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,7 +82,7 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchSalesList(eventId, page)
+    fetchSalesList(eventId, page, sort, dir)
       .then((data) => {
         if (!cancelled) {
           setResult(data);
@@ -72,7 +101,7 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
     return () => {
       cancelled = true;
     };
-  }, [eventId, page, refreshSignal]);
+  }, [eventId, page, sort, dir, refreshSignal]);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -80,11 +109,22 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
       if (target === page) {
         return;
       }
-      // Page state lives in the URL so the view survives a refresh and is shareable.
-      const query = target === 1 ? "" : `?page=${target}`;
-      router.push(`/events/${eventId}/sales${query}`);
+      // Page state lives in the URL so the view survives a refresh and is shareable;
+      // the current sort is preserved as we page.
+      router.push(`/events/${eventId}/sales${buildSalesQuery(target, sort, dir)}`);
     },
-    [eventId, page, router],
+    [eventId, page, sort, dir, router],
+  );
+
+  const toggleSort = useCallback(
+    (field: SaleSortField) => {
+      // Clicking the active column flips its direction; a new column starts in its
+      // natural default direction. Sorting resets to page 1 since the order changes.
+      const nextDir: SaleSortDir =
+        field === sort ? (dir === "asc" ? "desc" : "asc") : defaultDirFor(field);
+      router.push(`/events/${eventId}/sales${buildSalesQuery(1, field, nextDir)}`);
+    },
+    [eventId, sort, dir, router],
   );
 
   function toggleRow(id: string) {
@@ -106,7 +146,7 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
       <CardHeader>
         <CardTitle>Sales</CardTitle>
         <CardDescription>
-          Every individual Ticket Sale recorded for this Event, most recent first.
+          Every individual Ticket Sale recorded for this Event. Click a column heading to sort.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -128,10 +168,11 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
               <thead>
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="w-8 py-2 pr-2" />
-                  <th className="py-2 pr-4 font-medium">Customer</th>
+                  <SortableHeader label="Customer" field="customer" sort={sort} dir={dir} onSort={toggleSort} />
                   <th className="py-2 pr-4 font-medium">Ticket types</th>
-                  <th className="py-2 pr-4 font-medium">Amount</th>
-                  <th className="py-2 pr-4 font-medium">Sold</th>
+                  <SortableHeader label="Amount" field="amount" sort={sort} dir={dir} onSort={toggleSort} />
+                  <SortableHeader label="Sold" field="sold_at" sort={sort} dir={dir} onSort={toggleSort} />
+                  <SortableHeader label="Recorded" field="recorded_at" sort={sort} dir={dir} onSort={toggleSort} />
                   <th className="py-2 pr-4 font-medium">Channel</th>
                   <th className="py-2 pr-4 font-medium">Reference</th>
                 </tr>
@@ -159,6 +200,38 @@ export function SalesList({ eventId, page, timezone }: SalesListProps) {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+type SortableHeaderProps = {
+  label: string;
+  field: SaleSortField;
+  sort: SaleSortField;
+  dir: SaleSortDir;
+  onSort: (field: SaleSortField) => void;
+};
+
+// SortableHeader is a column header that toggles the Sales list sort. The active
+// column shows a direction arrow; clicking flips it, clicking another column
+// switches to it. aria-sort exposes the state to assistive tech.
+function SortableHeader({ label, field, sort, dir, onSort }: SortableHeaderProps) {
+  const active = sort === field;
+  return (
+    <th
+      className="py-2 pr-4 font-medium"
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
+      >
+        {label}
+        <span aria-hidden className={active ? "text-foreground" : "text-muted-foreground/40"}>
+          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 }
 
@@ -193,18 +266,15 @@ function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
         <td className="py-3 pr-4">{rollupTicketTypes(sale.ticket_types)}</td>
         <td className="py-3 pr-4 tabular-nums">{formatPriceCents(sale.amount_cents, sale.currency)}</td>
         <td className="py-3 pr-4">{formatSaleTimestamp(sale.sold_at, timezone)}</td>
+        <td className="py-3 pr-4 text-muted-foreground">{formatSaleTimestamp(sale.recorded_at, timezone)}</td>
         <td className="py-3 pr-4">{channelSourceLabel(sale.channel, sale.source)}</td>
         <td className="py-3 pr-4 font-mono text-xs">{sale.confirmation_ref}</td>
       </tr>
       {expanded ? (
         <tr className="bg-muted/30">
           <td />
-          <td className="py-3 pr-4 text-muted-foreground" colSpan={6}>
+          <td className="py-3 pr-4 text-muted-foreground" colSpan={7}>
             <div className="flex flex-wrap gap-x-8 gap-y-1">
-              <span>
-                <span className="font-medium text-foreground">Recorded:</span>{" "}
-                {formatSaleTimestamp(sale.recorded_at, timezone)}
-              </span>
               <span>
                 <span className="font-medium text-foreground">Payment method:</span>{" "}
                 {paymentMethodLabel(sale.payment_method)}

@@ -42,12 +42,49 @@ export type SalesListResponse = {
 
 export const SALES_PAGE_SIZE = 50;
 
-// fetchSalesList proxies the Sales list endpoint via the BFF for the given page.
-export async function fetchSalesList(eventId: string, page: number): Promise<SalesListResponse> {
+// SaleSortField is an allowlisted Sales list sort column; SaleSortDir a direction.
+// Both mirror the backend allowlists (ADR-0006) and are carried in the URL.
+export type SaleSortField = "sold_at" | "recorded_at" | "customer" | "amount";
+export type SaleSortDir = "asc" | "desc";
+
+export const SALE_SORT_FIELDS: readonly SaleSortField[] = [
+  "sold_at",
+  "recorded_at",
+  "customer",
+  "amount",
+];
+
+export const DEFAULT_SALE_SORT: SaleSortField = "sold_at";
+export const DEFAULT_SALE_DIR: SaleSortDir = "desc";
+
+// parseSaleSort resolves a raw URL value to an allowlisted sort field, falling
+// back to the default (sold_at) — mirrors the backend so the UI and API agree.
+export function parseSaleSort(raw: string | undefined): SaleSortField {
+  return SALE_SORT_FIELDS.includes(raw as SaleSortField) ? (raw as SaleSortField) : DEFAULT_SALE_SORT;
+}
+
+// parseSaleDir resolves a raw URL value to a direction, falling back to desc.
+export function parseSaleDir(raw: string | undefined): SaleSortDir {
+  return raw === "asc" || raw === "desc" ? raw : DEFAULT_SALE_DIR;
+}
+
+// fetchSalesList proxies the Sales list endpoint via the BFF for the given page
+// and sort. sort/dir are omitted when they match the default so shared URLs stay
+// clean, matching the URL state the list writes.
+export async function fetchSalesList(
+  eventId: string,
+  page: number,
+  sort: SaleSortField = DEFAULT_SALE_SORT,
+  dir: SaleSortDir = DEFAULT_SALE_DIR,
+): Promise<SalesListResponse> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(SALES_PAGE_SIZE),
   });
+  if (sort !== DEFAULT_SALE_SORT || dir !== DEFAULT_SALE_DIR) {
+    params.set("sort", sort);
+    params.set("dir", dir);
+  }
   return fetchEventsJSON<SalesListResponse>(`/api/events/${eventId}/sales?${params.toString()}`);
 }
 

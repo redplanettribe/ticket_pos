@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 )
 
@@ -196,6 +197,136 @@ func TestSalesListPaginationAndClamp(t *testing.T) {
 	floored := salesList(t, body)
 	if floored.Pagination.Page != 1 {
 		t.Fatalf("page floor = %d, want 1", floored.Pagination.Page)
+	}
+}
+
+// sortedEmails returns the customer emails of a sorted Sales list request, in
+// the order the endpoint emitted them.
+func sortedEmails(t *testing.T, env *testEnv, sessionID, eventID, sort, dir string) []string {
+	t.Helper()
+	resp, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?sort="+sort+"&dir="+dir, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sales list sort=%s dir=%s status=%d error=%+v", sort, dir, resp.StatusCode, body.Error)
+	}
+	list := salesList(t, body)
+	emails := make([]string, 0, len(list.Data))
+	for _, row := range list.Data {
+		emails = append(emails, row.CustomerEmail)
+	}
+	return emails
+}
+
+// TestSalesListSortFields proves each allowlisted sort column orders the Sales
+// list in both directions: sold_at, recorded_at (created_at), customer name, and
+// amount (summed lines). recorded_at is seeded distinct from sold_at so the two
+// orders differ, proving the endpoint sorts by the requested column.
+func TestSalesListSortFields(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Sort Fest", "sort-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "sort-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Adams", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+		{"customer_email": "cara@example.com", "customer_first_name": "Cara", "customer_last_name": "Zimmer", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
+	})
+
+	// Set recorded-at (created_at) independent of sold_at: ana newest, cara middle,
+	// bob oldest — a different order than any sold_at/amount/customer ordering.
+	for email, createdAt := range map[string]string{
+		"ana@example.com":  "2026-06-03T00:00:00Z",
+		"cara@example.com": "2026-06-02T00:00:00Z",
+		"bob@example.com":  "2026-06-01T00:00:00Z",
+	} {
+		if _, err := env.db.Exec(`UPDATE ticket_sales SET created_at = $1 WHERE event_id = $2 AND customer_email = $3`, createdAt, eventID, email); err != nil {
+			t.Fatalf("set created_at for %s: %v", email, err)
+		}
+	}
+
+	cases := []struct {
+		sort string
+		dir  string
+		want []string
+	}{
+		{"sold_at", "desc", []string{"cara@example.com", "bob@example.com", "ana@example.com"}},
+		{"sold_at", "asc", []string{"ana@example.com", "bob@example.com", "cara@example.com"}},
+		{"recorded_at", "desc", []string{"ana@example.com", "cara@example.com", "bob@example.com"}},
+		{"recorded_at", "asc", []string{"bob@example.com", "cara@example.com", "ana@example.com"}},
+		{"customer", "asc", []string{"bob@example.com", "ana@example.com", "cara@example.com"}},  // Adams, Lopez, Zimmer
+		{"customer", "desc", []string{"cara@example.com", "ana@example.com", "bob@example.com"}}, // Zimmer, Lopez, Adams
+		{"amount", "desc", []string{"ana@example.com", "cara@example.com", "bob@example.com"}},   // 3000, 2000, 1000
+		{"amount", "asc", []string{"bob@example.com", "cara@example.com", "ana@example.com"}},    // 1000, 2000, 3000
+	}
+	for _, tc := range cases {
+		got := sortedEmails(t, env, sessionID, eventID, tc.sort, tc.dir)
+		if len(got) != len(tc.want) {
+			t.Fatalf("sort=%s dir=%s rows=%v, want %v", tc.sort, tc.dir, got, tc.want)
+		}
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Fatalf("sort=%s dir=%s order=%v, want %v", tc.sort, tc.dir, got, tc.want)
+			}
+		}
+	}
+
+	// An invalid sort or dir normalizes to the default (sold_at desc) rather than
+	// erroring, keeping shared/edited URLs robust.
+	if got := sortedEmails(t, env, sessionID, eventID, "bogus", "sideways"); len(got) != 3 ||
+		got[0] != "cara@example.com" || got[2] != "ana@example.com" {
+		t.Fatalf("invalid sort/dir order=%v, want default sold_at desc", got)
+	}
+}
+
+// TestSalesListSortTiebreakerStableAcrossPages seeds sales that all share the
+// same primary sort value (identical sold_at) and pages through them one at a
+// time. The id tiebreaker must give every page a stable slot so the union of
+// pages covers each sale exactly once — no duplicates, none missing.
+func TestSalesListSortTiebreakerStableAcrossPages(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Tie Fest", "tie-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	// Four sales with an identical sold_at — only the id tiebreaker separates them.
+	commitBatch(t, env, sessionID, eventID, "tie-batch", []map[string]any{
+		{"customer_email": "w@example.com", "customer_first_name": "W", "customer_last_name": "Same", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "x@example.com", "customer_first_name": "X", "customer_last_name": "Same", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "y@example.com", "customer_first_name": "Y", "customer_last_name": "Same", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "z@example.com", "customer_first_name": "Z", "customer_last_name": "Same", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+
+	// Page through 2 at a time across every sort field; each must yield all four
+	// ids exactly once with no overlap between the two pages.
+	for _, sort := range []string{"sold_at", "recorded_at", "customer", "amount"} {
+		seen := map[string]int{}
+		var order []string
+		for page := 1; page <= 2; page++ {
+			url := "/api/v1/staff/events/" + eventID + "/sales?page=" + strconv.Itoa(page) + "&page_size=2&sort=" + sort + "&dir=asc"
+			resp, body := env.get(t, url, authHeader(sessionID))
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("sort=%s page=%d status=%d error=%+v", sort, page, resp.StatusCode, body.Error)
+			}
+			list := salesList(t, body)
+			if list.Pagination.Total != 4 {
+				t.Fatalf("sort=%s total=%d, want 4", sort, list.Pagination.Total)
+			}
+			if len(list.Data) != 2 {
+				t.Fatalf("sort=%s page=%d rows=%d, want 2", sort, page, len(list.Data))
+			}
+			for _, row := range list.Data {
+				seen[row.ID]++
+				order = append(order, row.ID)
+			}
+		}
+		if len(seen) != 4 {
+			t.Fatalf("sort=%s saw %d distinct ids across pages, want 4 (order=%v)", sort, len(seen), order)
+		}
+		for id, n := range seen {
+			if n != 1 {
+				t.Fatalf("sort=%s id %s appeared %d times across pages, want 1", sort, id, n)
+			}
+		}
 	}
 }
 
