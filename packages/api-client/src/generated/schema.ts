@@ -1507,7 +1507,7 @@ export interface paths {
         };
         /**
          * List an Event's Ticket Sales
-         * @description Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
+         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive search over customer email/name/confirmation_ref, and channel/source/payment_method. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
          */
         get: {
             parameters: {
@@ -1516,6 +1516,22 @@ export interface paths {
                     page?: number;
                     /** @description Page size (default 50, max 100) */
                     page_size?: number;
+                    /** @description Ticket Sale status */
+                    status?: "active" | "reversed";
+                    /** @description Keep only sales that include this Ticket Type */
+                    ticket_type_id?: string;
+                    /** @description Sold-at range start (YYYY-MM-DD, Event timezone, inclusive) */
+                    sold_from?: string;
+                    /** @description Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day) */
+                    sold_to?: string;
+                    /** @description Case-insensitive substring over customer email, name, and confirmation_ref */
+                    q?: string;
+                    /** @description Sales Channel */
+                    channel?: "online" | "in_person" | "import";
+                    /** @description Sales Source */
+                    source?: "direct" | "external_platform";
+                    /** @description Payment Method */
+                    payment_method?: "cash" | "transfer";
                 };
                 header?: never;
                 path: {
@@ -1528,6 +1544,15 @@ export interface paths {
             responses: {
                 /** @description OK */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };

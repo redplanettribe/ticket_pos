@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
@@ -208,18 +210,37 @@ const (
 	maxPageSize     = 100
 )
 
-// ListSales returns a page of the Event's active Ticket Sales for the Sales
-// list — one row per Ticket Sale — in the ADR-0006 nested envelope.
+// Sales list filter allowlists. Channel/source/payment method are degenerate
+// today (every sale is import/direct) but validated so the filters function.
+var (
+	salesStatusValues        = []string{"active", "reversed"}
+	salesChannelValues       = []string{"online", "in_person", "import"}
+	salesSourceValues        = []string{"direct", "external_platform"}
+	salesPaymentMethodValues = []string{"cash", "transfer"}
+)
+
+// ListSales returns a page of the Event's Ticket Sales for the Sales list — one
+// row per Ticket Sale — in the ADR-0006 nested envelope, narrowed by the query
+// filters.
 //
 // @Summary      List an Event's Ticket Sales
-// @Description  Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
+// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive search over customer email/name/confirmation_ref, and channel/source/payment_method. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id         path   string  true   "Event ID"
-// @Param        page       query  int     false  "Page number (1-based; floors at 1)"
-// @Param        page_size  query  int     false  "Page size (default 50, max 100)"
+// @Param        id              path   string  true   "Event ID"
+// @Param        page            query  int     false  "Page number (1-based; floors at 1)"
+// @Param        page_size       query  int     false  "Page size (default 50, max 100)"
+// @Param        status          query  string  false  "Ticket Sale status"  Enums(active, reversed)
+// @Param        ticket_type_id  query  string  false  "Keep only sales that include this Ticket Type"
+// @Param        sold_from       query  string  false  "Sold-at range start (YYYY-MM-DD, Event timezone, inclusive)"
+// @Param        sold_to         query  string  false  "Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day)"
+// @Param        q               query  string  false  "Case-insensitive substring over customer email, name, and confirmation_ref"
+// @Param        channel         query  string  false  "Sales Channel"  Enums(online, in_person, import)
+// @Param        source          query  string  false  "Sales Source"  Enums(direct, external_platform)
+// @Param        payment_method  query  string  false  "Payment Method"  Enums(cash, transfer)
 // @Success      200  {object}  platform.Envelope
+// @Failure      400  {object}  platform.Envelope
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Failure      404  {object}  platform.Envelope
@@ -234,15 +255,97 @@ func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query()
-	result, err := h.svc.ListSales(r.Context(), actorFromRequest(r), eventID, service.ListSalesParams{
-		Page:     pageParam(query.Get("page")),
-		PageSize: pageSizeParam(query.Get("page_size")),
-	})
+	params, fields := parseSalesFilters(query)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	params.Page = pageParam(query.Get("page"))
+	params.PageSize = pageSizeParam(query.Get("page_size"))
+
+	result, err := h.svc.ListSales(r.Context(), actorFromRequest(r), eventID, params)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// parseSalesFilters validates the Sales list filter query params, returning the
+// service params and any field errors (invalid enum values and malformed dates
+// are rejected per the repo's VALIDATION_FAILED convention). Blank/absent
+// filters are left unset; status defaults to active in the service.
+func parseSalesFilters(query url.Values) (service.ListSalesParams, []platform.FieldError) {
+	var fields []platform.FieldError
+
+	status := validateEnum(query.Get("status"), "status", salesStatusValues, &fields)
+	channel := validateEnum(query.Get("channel"), "channel", salesChannelValues, &fields)
+	source := validateEnum(query.Get("source"), "source", salesSourceValues, &fields)
+	paymentMethod := validateEnum(query.Get("payment_method"), "payment_method", salesPaymentMethodValues, &fields)
+	soldFrom := validateDate(query.Get("sold_from"), "sold_from", &fields)
+	soldTo := validateDate(query.Get("sold_to"), "sold_to", &fields)
+
+	return service.ListSalesParams{
+		Status:        status,
+		TicketTypeID:  validateUUID(query.Get("ticket_type_id"), "ticket_type_id", &fields),
+		SoldFrom:      soldFrom,
+		SoldTo:        soldTo,
+		Search:        strings.TrimSpace(query.Get("q")),
+		Channel:       channel,
+		Source:        source,
+		PaymentMethod: paymentMethod,
+	}, fields
+}
+
+// validateEnum trims a query value and checks it against an allowlist, appending
+// a field error when it is present but not allowed. A blank value is valid
+// (unfiltered) and returned as "".
+func validateEnum(raw, field string, allowed []string, fields *[]platform.FieldError) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	for _, a := range allowed {
+		if value == a {
+			return value
+		}
+	}
+	*fields = append(*fields, platform.FieldError{
+		Field:   field,
+		Message: "must be one of " + strings.Join(allowed, ", "),
+	})
+	return ""
+}
+
+// validateUUID trims a query value and checks it is a well-formed UUID (the
+// ticket_type_id column is UUID NOT NULL, so a malformed value would otherwise
+// error at the database as a 500 rather than a VALIDATION_FAILED 400). A blank
+// value is valid (unfiltered) and returned as "".
+func validateUUID(raw, field string, fields *[]platform.FieldError) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if _, err := uuid.Parse(value); err != nil {
+		*fields = append(*fields, platform.FieldError{Field: field, Message: "must be a valid id"})
+		return ""
+	}
+	return value
+}
+
+// validateDate trims a query value and checks it parses as a "YYYY-MM-DD"
+// calendar date, appending a field error otherwise. A blank value is valid
+// (open bound) and returned as "".
+func validateDate(raw, field string, fields *[]platform.FieldError) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if _, err := time.Parse("2006-01-02", value); err != nil {
+		*fields = append(*fields, platform.FieldError{Field: field, Message: "must be a date (YYYY-MM-DD)"})
+		return ""
+	}
+	return value
 }
 
 // pageParam parses the `page` query value, flooring at 1: a missing, invalid, or

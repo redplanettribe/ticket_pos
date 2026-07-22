@@ -227,19 +227,33 @@ type SalesListResult struct {
 	Pagination Pagination     `json:"pagination"`
 }
 
-// ListSalesParams is a validated, clamped Sales list request (page and size are
-// already floored/clamped by the handler per ADR-0006).
+// ListSalesParams is a validated, clamped Sales list request. Page and size are
+// already floored/clamped by the handler per ADR-0006; the filter fields have
+// been validated against their allowlists (Status, Channel, Source,
+// PaymentMethod) or as calendar dates (SoldFrom/SoldTo, "YYYY-MM-DD"). An empty
+// filter field means that dimension is unfiltered. Status defaults to "active".
 type ListSalesParams struct {
 	Page     int
 	PageSize int
+
+	Status        string
+	TicketTypeID  string
+	SoldFrom      string
+	SoldTo        string
+	Search        string
+	Channel       string
+	Source        string
+	PaymentMethod string
 }
 
-// ListSales returns a page of the Event's active Ticket Sales for the Sales
-// list, newest first (sold_at descending, ADR-0006). It is read-only and
-// scoped to the acting Member's Organization; a page beyond the last returns an
-// empty data slice with the true total so the UI can still show the count.
+// ListSales returns a page of the Event's Ticket Sales for the Sales list,
+// newest first (sold_at descending, ADR-0006), narrowed by the supplied
+// filters. It is read-only and scoped to the acting Member's Organization; a
+// page beyond the last returns an empty data slice with the true total so the
+// UI can still show the count. The sold-at date range is interpreted in the
+// Event timezone (defaulting to UTC).
 func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID string, params ListSalesParams) (*SalesListResult, error) {
-	_, ok, err := s.repo.GetEventName(ctx, actor.OrganizationID, eventID)
+	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -247,14 +261,26 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 		return nil, sales.ErrEventNotFound()
 	}
 
+	status := params.Status
+	if status == "" {
+		status = "active"
+	}
+	loc := resolveEventLocation(event.Timezone)
+	soldFrom, soldTo := dateRangeBounds(params.SoldFrom, params.SoldTo, loc)
+
 	rows, total, err := s.repo.ListSales(ctx, repository.ListSalesQuery{
 		OrganizationID: actor.OrganizationID,
 		EventID:        eventID,
-		// The default view shows only active sales (those that count against
-		// capacity); status filtering arrives in a later ticket.
-		Status: "active",
-		Limit:  params.PageSize,
-		Offset: (params.Page - 1) * params.PageSize,
+		Status:         status,
+		TicketTypeID:   params.TicketTypeID,
+		SoldFrom:       soldFrom,
+		SoldTo:         soldTo,
+		Search:         params.Search,
+		Channel:        params.Channel,
+		Source:         params.Source,
+		PaymentMethod:  params.PaymentMethod,
+		Limit:          params.PageSize,
+		Offset:         (params.Page - 1) * params.PageSize,
 	})
 	if err != nil {
 		return nil, err
@@ -541,13 +567,37 @@ func (s *Service) loadImportContext(ctx context.Context, orgID, eventID string) 
 		})
 	}
 
-	loc := time.UTC
-	if event.Timezone != "" {
-		if parsed, err := time.LoadLocation(event.Timezone); err == nil {
-			loc = parsed
+	return event, types, resolveEventLocation(event.Timezone), nil
+}
+
+// resolveEventLocation resolves an Event timezone name to a *time.Location,
+// defaulting to UTC when the timezone is unset or unrecognized.
+func resolveEventLocation(tz string) *time.Location {
+	if tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
 		}
 	}
-	return event, types, loc, nil
+	return time.UTC
+}
+
+// dateRangeBounds turns validated "YYYY-MM-DD" sold-at bounds into a half-open
+// absolute-time interval [from, to) interpreted in the Event timezone: from is
+// local midnight of the start date (inclusive) and to is local midnight of the
+// day AFTER the end date (exclusive), so the end date's whole day is included.
+// Either bound may be blank, yielding a nil (open) bound. Blank or unparseable
+// values yield nil, as the handler has already validated the format.
+func dateRangeBounds(from, to string, loc *time.Location) (*time.Time, *time.Time) {
+	var fromT, toT *time.Time
+	if d, err := time.ParseInLocation("2006-01-02", from, loc); from != "" && err == nil {
+		start := d
+		fromT = &start
+	}
+	if d, err := time.ParseInLocation("2006-01-02", to, loc); to != "" && err == nil {
+		end := d.AddDate(0, 0, 1)
+		toT = &end
+	}
+	return fromT, toT
 }
 
 func mapCommitError(err error) error {

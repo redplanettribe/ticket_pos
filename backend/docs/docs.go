@@ -2516,7 +2516,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales": {
             "get": {
-                "description": "Returns a page of the Event's active Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.",
+                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive search over customer email/name/confirmation_ref, and channel/source/payment_method. Default order is sold_at descending with an id tiebreaker. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -2542,6 +2542,87 @@ const docTemplate = `{
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "description": "Ticket Sale status",
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "enum": [
+                                "active",
+                                "reversed"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Keep only sales that include this Ticket Type",
+                        "in": "query",
+                        "name": "ticket_type_id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sold-at range start (YYYY-MM-DD, Event timezone, inclusive)",
+                        "in": "query",
+                        "name": "sold_from",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day)",
+                        "in": "query",
+                        "name": "sold_to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Case-insensitive substring over customer email, name, and confirmation_ref",
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sales Channel",
+                        "in": "query",
+                        "name": "channel",
+                        "schema": {
+                            "enum": [
+                                "online",
+                                "in_person",
+                                "import"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sales Source",
+                        "in": "query",
+                        "name": "source",
+                        "schema": {
+                            "enum": [
+                                "direct",
+                                "external_platform"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Payment Method",
+                        "in": "query",
+                        "name": "payment_method",
+                        "schema": {
+                            "enum": [
+                                "cash",
+                                "transfer"
+                            ],
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -2554,6 +2635,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "401": {
                         "content": {
