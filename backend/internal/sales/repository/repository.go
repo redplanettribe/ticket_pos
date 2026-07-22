@@ -411,11 +411,13 @@ func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*Revers
 	}
 
 	// Latest-only: reject unless the target is the newest batch on the Event.
+	// Order by the monotonic seq so "latest" is deterministic even when two
+	// batches share a created_at (see migration 012).
 	var latestID string
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM sale_import_batches
 		WHERE event_id = $1 AND organization_id = $2
-		ORDER BY created_at DESC, id DESC
+		ORDER BY seq DESC
 		LIMIT 1
 	`, in.EventID, in.OrganizationID).Scan(&latestID)
 	if err != nil {
@@ -547,7 +549,7 @@ func (r *Repository) ListImportBatches(ctx context.Context, orgID, eventID strin
 		FROM sale_import_batches b
 		LEFT JOIN members m ON m.id = b.created_by_member_id
 		WHERE b.event_id = $1 AND b.organization_id = $2
-		ORDER BY b.created_at DESC, b.id DESC
+		ORDER BY b.seq DESC
 	`, eventID, orgID)
 	if err != nil {
 		return nil, err

@@ -367,9 +367,9 @@ func TestDirectSaleImportHistoryListsBatchesNewestFirst(t *testing.T) {
 	}
 
 	// Commit two batches: the first records one sale, the second two, so the
-	// resulting sale_count distinguishes them (the harness clock is fixed, so
-	// created_at ties — the endpoint's ordering is verified by production
-	// distinct timestamps; here we assert the batches and their counts as a set).
+	// resulting sale_count distinguishes them. The harness clock is fixed, so the
+	// batches share a created_at; ordering is by the monotonic seq (migration
+	// 012), so newest-first is deterministic — the last-committed batch leads.
 	batchSales := [][]map[string]any{
 		{
 			{"customer_email": "one@example.com", "customer_first_name": "One", "customer_last_name": "Uno", "ticket_type_id": ttID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
@@ -408,9 +408,7 @@ func TestDirectSaleImportHistoryListsBatchesNewestFirst(t *testing.T) {
 	if len(history) != 2 {
 		t.Fatalf("history = %d, want 2", len(history))
 	}
-	counts := map[int]bool{}
 	for _, h := range history {
-		counts[h.SaleCount] = true
 		if h.Source != "direct" || h.Status != "committed" {
 			t.Fatalf("unexpected batch: %+v", h)
 		}
@@ -421,8 +419,10 @@ func TestDirectSaleImportHistoryListsBatchesNewestFirst(t *testing.T) {
 			t.Fatalf("actor_email = %v, want admin@example.com", h.ActorEmail)
 		}
 	}
-	if !counts[1] || !counts[2] {
-		t.Fatalf("history sale counts = %v, want {1,2}", counts)
+	// Newest first: the second batch (2 sales) leads the first (1 sale),
+	// deterministically ordered by seq despite the shared created_at.
+	if history[0].SaleCount != 2 || history[1].SaleCount != 1 {
+		t.Fatalf("history order = [%d, %d], want newest-first [2, 1]", history[0].SaleCount, history[1].SaleCount)
 	}
 }
 
