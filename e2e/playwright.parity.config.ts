@@ -8,8 +8,26 @@ export default defineConfig({
   testDir: "./parity",
   forbidOnly: !!process.env.CI,
   use: {
-    baseURL: process.env.STOREFRONT_URL ?? "http://localhost:64603",
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // One project per app: they are separate images on separate host ports, so
+  // each suite needs its own baseURL.
+  projects: [
+    {
+      name: "storefront",
+      testMatch: /storefront\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.STOREFRONT_URL ?? "http://localhost:64603",
+      },
+    },
+    {
+      name: "staff",
+      testMatch: /staff\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.STAFF_URL ?? "http://localhost:64604",
+      },
+    },
+  ],
 });

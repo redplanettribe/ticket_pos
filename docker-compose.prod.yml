@@ -123,6 +123,24 @@ services:
       api:
         condition: service_healthy
 
+  staff:
+    build:
+      # Repo root: the app transpiles workspace packages from packages/.
+      context: .
+      dockerfile: apps/staff/Dockerfile
+    image: ticket-pos-staff:parity
+    ports:
+      - "64604:3001"
+    environment:
+      # Staff's browser bundle never calls the Go API directly - it calls
+      # Staff's own route handlers, which hold the session cookie and proxy
+      # onwards over the Compose network. So this is server-only and runtime,
+      # and Staff needs no NEXT_PUBLIC_* build args at all.
+      API_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data_18:
   minio_data:

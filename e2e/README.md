@@ -27,10 +27,15 @@ make prod          # start the production-parity stack
 make test-parity   # or: pnpm --filter @ticket-pos/e2e test:parity
 ```
 
-It targets `http://localhost:64603` (override with `STOREFRONT_URL`) and asserts that the **shipped
+It has one project per app: `storefront` targets `http://localhost:64603` (override with `STOREFRONT_URL`)
+and `staff` targets `http://localhost:64604` (override with `STAFF_URL`). Both assert that the **shipped
 container image** serves real pages. That is not redundant with the dev-server suite: standalone output
 traces its dependencies out of the pnpm workspace at build time, and getting that wrong fails at container
 start rather than at build, so it can only be caught by exercising the image.
+
+The Staff spec follows the signed-out redirect to `/login` rather than asserting a page renders: Staff's
+middleware reads the httpOnly session cookie, and both middleware execution and cookie flags differ
+between `next dev` and a production build.
 
 ## CI
 

@@ -84,7 +84,7 @@ Deployment reaches into the application in five places. None are large; all are 
 |---|---|---|
 | Build `/migrate` alongside `/server` | `backend/Dockerfile` | Job needs the binary; only `/server` is copied today |
 | `output: "standalone"` + `outputFileTracingRoot` | `apps/*/next.config.ts` | Image size / cold start |
-| Dockerfile per frontend | `apps/staff/`, `apps/storefront/` | None exist |
+| Dockerfile per frontend | `apps/staff/`, `apps/storefront/` | Done — both exist and run in the parity stack |
 | Attach OIDC ID token to API calls | `apps/*/lib/api.ts` | ~20 lines; skipped locally |
 | Bump local Postgres to match prod major | `docker-compose.yml`, CI | Otherwise migrations are validated against a different engine |
 
@@ -101,6 +101,16 @@ Established by the Storefront (`apps/storefront/Dockerfile`) and reused by Staff
 - **`NEXT_PUBLIC_*` are build arguments.** `next build` inlines them into the client bundle; supplying
   them at runtime leaves them empty. Cloud Build must pass them with `--build-arg`, not the Cloud Run
   service. Server-only configuration (`API_URL`) stays a runtime environment variable.
+
+Staff (`apps/staff/Dockerfile`) follows it with two differences worth knowing:
+
+- **No `NEXT_PUBLIC_*` build arguments.** Staff's browser bundle never calls the Go API directly; it calls
+  Staff's own route handlers, which hold the httpOnly session cookie and proxy onwards with the server-only
+  runtime `API_URL`. There is nothing public to inline.
+- **The session cookie is `Secure` in the image**, because `sessionCookieOptions()` keys off
+  `NODE_ENV === "production"`. Browsers accept `Secure` cookies from `http://localhost`, so the parity
+  stack signs in over plain HTTP; any other plain-HTTP hostname would silently drop the cookie and loop
+  the visitor back to `/login`. In production Cloud Run terminates TLS, so the flag is correct as-is.
 
 ## Bucket CORS
 

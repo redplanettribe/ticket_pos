@@ -64,6 +64,7 @@ build.
 make prod                              # build and start (Ctrl-C to stop)
 curl http://localhost:64680/health     # => {"status":"ok"}
 open http://localhost:64603            # Storefront, from its production image
+open http://localhost:64604            # Staff, from its production image
 make test-parity                       # browser smoke tests against the stack
 make prod-down                         # stop
 ```
@@ -80,16 +81,17 @@ run at the same time as `make dev`:
 | MinIO API | 64600 | 9000 |
 | MinIO Console | 64601 | 9001 |
 | Storefront | 64603 | 3000 |
+| Staff | 64604 | 3001 |
 | API | 64680 | 8080 |
 
 The API here runs with `APP_ENV=production` and `RUN_MIGRATIONS=false`, exactly as in production: the
-`migrate` service owns the schema, and the server never migrates on boot. Staff joins this stack later.
+`migrate` service owns the schema, and the server never migrates on boot.
 See [docs/gcp-deployment.md](./docs/gcp-deployment.md).
 
 ### Frontend production images
 
-`apps/storefront/Dockerfile` builds from the **repo root**, because the app transpiles workspace packages
-whose sources live in `packages/`. It produces a Next [standalone](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
+`apps/storefront/Dockerfile` and `apps/staff/Dockerfile` build from the **repo root**, because the app transpiles workspace packages
+whose sources live in `packages/`. They produce a Next [standalone](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
 image (~240MB including the Node base, versus ~1GB for a full `node_modules` image), which is what keeps
 Cloud Run cold starts off the Customer's first paint.
 
@@ -98,11 +100,19 @@ Two things are easy to get wrong here:
 - **`outputFileTracingRoot` must point at the workspace root.** pnpm links `@ticket-pos/ui` into
   `node_modules` as a symlink to `packages/ui`; tracing rooted at the app directory omits the real files
   and the image fails at **container start** with `MODULE_NOT_FOUND`, having built cleanly. Because the
-  tracing root is the workspace root, the standalone entrypoint is `apps/storefront/server.js`, not
+  tracing root is the workspace root, the standalone entrypoint is `apps/<app>/server.js`, not
   `server.js`.
 - **`NEXT_PUBLIC_*` values are build arguments, not runtime environment variables.** `next build` inlines
   them into the client bundle; setting them at runtime leaves them empty in the shipped bundle. Server-only
-  configuration such as `API_URL` is read at runtime and belongs in `environment:`.
+  configuration such as `API_URL` is read at runtime and belongs in `environment:`. Staff has no
+  `NEXT_PUBLIC_*` at all: its browser bundle only ever calls Staff's own route handlers, which hold the
+  httpOnly session cookie and proxy onwards server-side.
+
+Staff's session cookie is flagged `Secure` whenever `NODE_ENV=production`, which is always true in the
+image. That still works in the parity stack over plain HTTP because browsers treat `http://localhost` as
+a trustworthy origin and store `Secure` cookies set from it — verified by signing in against the parity
+image. Reaching the parity Staff over a non-localhost hostname (a LAN IP, for instance) would drop the
+cookie and loop back to `/login`.
 
 `make test-parity` is the check that matters — a successful `docker build` proves nothing about either.
 
