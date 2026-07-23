@@ -52,7 +52,7 @@ graph TB
 | Tenancy model | Multi-tenant SaaS; single deployment; rows scoped by `organization_id` |
 | Backend shape | Modular monolith in Go (single binary) |
 | Runtimes at launch | Three: Go API, Storefront Next.js, Staff Next.js |
-| Database | PostgreSQL |
+| Database | PostgreSQL 18 (Cloud SQL `POSTGRES_18`); Compose, the integration harness, and CI all pin the same major |
 | Data access | Hand-written SQL via `database/sql`; no ORM; no query code generation |
 | Migrations | Plain `.sql` files; small in-repo migration runner |
 | Tenancy enforcement | Application layer; explicit `organization_id` in repositories; no RLS at launch |
@@ -534,7 +534,7 @@ One file row = one Ticket Sale = one Ticket Sale Line. Grouping lines into one s
 
 | Service | Role |
 |---------|------|
-| **postgres** | Database |
+| **postgres** | Database (`postgres:18-alpine`; PGDATA lives under `/var/lib/postgresql/18/docker`, so the volume mounts `/var/lib/postgresql`) |
 | **backend** | Go API with [Air](https://github.com/air-verse/air) live reload (`Dockerfile.dev`; source mounted) |
 | **storefront** | Storefront Next.js dev server |
 | **staff** | Staff Next.js dev server |
