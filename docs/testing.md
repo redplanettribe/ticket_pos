@@ -15,6 +15,11 @@ Domain vocabulary lives in [CONTEXT.md](../CONTEXT.md).
 | **Repository integration (exception)** | `backend/internal/<domain>/repository/` | Concurrency and locking only: atomic capacity decrement, idempotency replay races, Sale Import batch locking |
 | **E2E smoke** | `e2e/` with Playwright and Docker Compose | Thin cross-runtime journeys only; see [E2E boundary](#e2e-boundary) |
 
+E2E smoke has two suites. `e2e/tests/` runs against the dev stack (`make dev`). `e2e/parity/` runs against
+the production-parity stack (`make prod`, then `make test-parity`) and is the only layer that exercises the
+shipped container images — Next standalone output traces its dependencies out of the pnpm workspace at
+build time, and a mistrace fails at container start rather than at build, so nothing else can catch it.
+
 HTTP integration is the default.
 Repository tests are a narrow exception and must always be paired with at least one HTTP test that proves the user-visible outcome (correct capacity, conflict response, import rejection envelope, and similar).
 
@@ -111,6 +116,7 @@ Avoid deprecated synonyms such as "user" for Member or "order" for Ticket Sale.
 |--------|---------|
 | `make test` | Fast local feedback: non-integration Go tests (excluding `backend/integration/`) plus JavaScript tests via `pnpm turbo test` |
 | `make test-integration` | Full HTTP integration suite: `go test ./integration/...` (requires Docker) |
+| `make test-parity` | Playwright smoke tests against the production-parity stack (requires `make prod`) |
 | `make ci` | Pre-push parity with CI: full Go suite including integration, `go vet`, and `pnpm turbo lint typecheck build` |
 
 Pull request CI runs the full Go test suite including integration tests with Docker available.

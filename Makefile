@@ -1,4 +1,4 @@
-.PHONY: dev down test test-integration ci migrate swagger api-client openapi openapi-sync-check
+.PHONY: dev down prod prod-down test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check
 
 export GOTOOLCHAIN := local
 
@@ -25,12 +25,25 @@ dev:
 down:
 	docker compose down
 
+# Production-parity stack: the API from the production image, migrated by that
+# same image's migrate entrypoint as a one-shot. Runs alongside `make dev`.
+prod:
+	docker compose -f docker-compose.prod.yml up --build
+
+prod-down:
+	docker compose -f docker-compose.prod.yml down
+
 test:
 	cd backend && go test $$(go list ./... | grep -v '/integration$$')
 	pnpm turbo test
 
 test-integration:
 	cd backend && go test ./integration/...
+
+# Browser smoke tests against the production-parity stack. Requires `make prod`
+# to be up: these run against the shipped container images, not dev servers.
+test-parity:
+	pnpm --filter @ticket-pos/e2e test:parity
 
 ci:
 	cd backend && go test ./... && go vet ./...

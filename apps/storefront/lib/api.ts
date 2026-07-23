@@ -8,6 +8,115 @@ function apiBaseUrl(): string {
   return url.replace(/\/$/, "");
 }
 
+// --- Service-to-service authentication (ADR 0008) -------------------------
+//
+// The Go API is deployed with unauthenticated invocation disabled, so every
+// server-side call from this app must carry a Google-signed OIDC ID token
+// naming the API service URL as its audience, fetched from the Cloud Run
+// metadata server.
+//
+// Locally there is no metadata server. We detect the platform from K_SERVICE,
+// which Cloud Run always sets, rather than probing the metadata address — a
+// probe to a link-local address that nothing answers can stall for a long time.
+
+const METADATA_TOKEN_URL =
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity";
+const METADATA_TIMEOUT_MS = 5_000;
+// Refresh a little before expiry so an in-flight request never carries a token
+// that expires mid-flight.
+const TOKEN_EXPIRY_MARGIN_MS = 60_000;
+// Google ID tokens live one hour; used only if the token has no readable exp.
+const TOKEN_FALLBACK_TTL_MS = 45 * 60_000;
+
+/**
+ * ServiceAuthError marks a failure to obtain this service's own credential.
+ * It is thrown rather than swallowed: an unauthenticated call would be
+ * rejected by Cloud Run with a confusing 403 that looks like an app bug.
+ */
+export class ServiceAuthError extends Error {
+  constructor(audience: string, cause: unknown) {
+    super(`Failed to obtain an OIDC ID token for ${audience}: ${String(cause)}`);
+    this.name = "ServiceAuthError";
+    this.cause = cause;
+  }
+}
+
+let cachedToken: { token: string; expiresAtMs: number } | null = null;
+let inflightToken: Promise<string> | null = null;
+
+function runningOnCloudRun(): boolean {
+  return Boolean(process.env.K_SERVICE);
+}
+
+function tokenExpiryMs(token: string): number {
+  try {
+    // base64url -> base64; atob exists in every runtime this module can be
+    // bundled for, Buffer does not.
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(payload)) as { exp?: number };
+    if (typeof claims.exp === "number") {
+      return claims.exp * 1000;
+    }
+  } catch {
+    // fall through to the conservative default
+  }
+  return Date.now() + TOKEN_FALLBACK_TTL_MS;
+}
+
+async function requestIdToken(audience: string): Promise<string> {
+  const url = `${METADATA_TOKEN_URL}?audience=${encodeURIComponent(audience)}`;
+  const response = await fetch(url, {
+    headers: { "Metadata-Flavor": "Google" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`metadata server responded ${response.status}`);
+  }
+  const token = (await response.text()).trim();
+  if (!token) {
+    throw new Error("metadata server returned an empty token");
+  }
+  cachedToken = { token, expiresAtMs: tokenExpiryMs(token) };
+  return token;
+}
+
+/**
+ * serviceIdToken returns the ID token to present to the API, or null when this
+ * process is not running on Cloud Run (local development, tests, the parity
+ * stack), where the API accepts unauthenticated callers. Off-platform it costs
+ * nothing: no network call is attempted.
+ */
+async function serviceIdToken(): Promise<string | null> {
+  if (!runningOnCloudRun()) {
+    return null;
+  }
+  if (cachedToken && cachedToken.expiresAtMs - TOKEN_EXPIRY_MARGIN_MS > Date.now()) {
+    return cachedToken.token;
+  }
+  const audience = apiBaseUrl();
+  inflightToken ??= requestIdToken(audience).finally(() => {
+    inflightToken = null;
+  });
+  try {
+    return await inflightToken;
+  } catch (error) {
+    throw new ServiceAuthError(audience, error);
+  }
+}
+
+/**
+ * serviceAuthHeaders builds the headers carrying this service's credential.
+ *
+ * The token goes in X-Serverless-Authorization, not Authorization: Cloud Run
+ * checks that header for IAM when present and strips it before the container
+ * sees the request, leaving Authorization untouched for end-user credentials.
+ */
+async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
+  const token = await serviceIdToken();
+  return token ? { "X-Serverless-Authorization": `Bearer ${token}` } : undefined;
+}
+
 export type PublicOrganization = {
   name: string;
   slug: string;
@@ -91,8 +200,12 @@ export type ListEventsParams = {
 };
 
 async function fetchData<T>(path: string): Promise<T | null> {
+  // Deliberately outside the try: a missing service credential is a
+  // deployment fault and must surface, while an API that is merely down or
+  // unhappy still degrades to an empty page.
+  const headers = await serviceAuthHeaders();
   try {
-    const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store" });
+    const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store", headers });
     const envelope = (await response.json()) as APIEnvelope<T>;
     if (!response.ok || envelope.error) {
       return null;

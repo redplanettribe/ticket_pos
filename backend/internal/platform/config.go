@@ -19,6 +19,8 @@ type Config struct {
 	S3SecretKey   string
 	S3Bucket      string
 	S3Region      string
+	ResendAPIKey  string
+	EmailFrom     string
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -40,6 +42,8 @@ func LoadConfig() (Config, error) {
 		S3SecretKey:   os.Getenv("S3_SECRET_KEY"),
 		S3Bucket:      os.Getenv("S3_BUCKET"),
 		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
+		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
+		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
 	}
 	return cfg, nil
 }
