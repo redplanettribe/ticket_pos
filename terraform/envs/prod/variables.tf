@@ -30,3 +30,16 @@ variable "github_repository" {
   type        = string
   default     = "redplanettribe/ticket_pos"
 }
+
+variable "resend_api_key" {
+  description = "Resend API key. Set via TF_VAR_resend_api_key from a sourced .env; empty keeps the API on the logging email sender."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "email_from" {
+  description = "RFC 5322 From header for outbound mail; must be on a Resend-verified domain."
+  type        = string
+  default     = "Multiticketing <noreply@send.multiticketing.com>"
+}

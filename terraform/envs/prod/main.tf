@@ -27,4 +27,12 @@ module "ticket_pos" {
   # exactly this repo, so a fork or any other repo under the same owner cannot
   # mint deploy tokens.
   github_repository = var.github_repository
+
+  # Resend API key, supplied via TF_VAR_resend_api_key (from a sourced, gitignored
+  # .env — never a committed tfvars). Empty by default, which keeps the API on the
+  # logging email sender; a non-empty value creates the secret version and mounts
+  # it on the service. TF_VAR_ populates root variables only, so it must be
+  # declared here and threaded through — not just on the module.
+  resend_api_key = var.resend_api_key
+  email_from     = var.email_from
 }
