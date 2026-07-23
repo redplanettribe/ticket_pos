@@ -36,6 +36,17 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Terraform (state may contain secrets; .terraform.lock.hcl IS committed)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
 # Playwright
 e2e/test-results/
 e2e/playwright-report/
