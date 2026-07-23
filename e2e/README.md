@@ -17,6 +17,21 @@ pnpm test
 The default `baseURL` is `http://localhost:64300` (Storefront).
 Start the full stack with `make dev` before running browser tests against a live environment.
 
+## Parity suite
+
+`parity/` is a second suite with its own config (`playwright.parity.config.ts`), run separately so
+`pnpm test` stays runnable without Docker:
+
+```bash
+make prod          # start the production-parity stack
+make test-parity   # or: pnpm --filter @ticket-pos/e2e test:parity
+```
+
+It targets `http://localhost:64603` (override with `STOREFRONT_URL`) and asserts that the **shipped
+container image** serves real pages. That is not redundant with the dev-server suite: standalone output
+traces its dependencies out of the pnpm workspace at build time, and getting that wrong fails at container
+start rather than at build, so it can only be caught by exercising the image.
+
 ## CI
 
 Fast PR checks do not run E2E here.

@@ -41,6 +41,7 @@ make prod      # start the production-parity stack (see below)
 make prod-down # stop the production-parity stack
 make test              # fast Go unit tests (no integration) + JS package tests
 make test-integration  # HTTP integration tests (requires Docker)
+make test-parity       # browser smoke tests against the parity stack (requires `make prod`)
 make ci                # full pre-push checks (Go suite including integration, vet, lint, build)
 make migrate   # apply database migrations
 make swagger   # regenerate API docs from Go annotations
@@ -53,14 +54,17 @@ pnpm install   # install JS workspace dependencies
 
 ## Production-parity stack
 
-`make dev` runs the API from `Dockerfile.dev` with live reload, so it never exercises the image that
-actually ships. `docker-compose.prod.yml` is a separate stack that runs the **production** API image and
-applies migrations the way Cloud Run will — as a one-shot job using the same image's migrate entrypoint,
-completing before the server starts. Use it to check that a change survives a real image build.
+`make dev` runs the API and the frontends from dev servers with live reload, so it never exercises the
+images that actually ship. `docker-compose.prod.yml` is a separate stack that runs the **production**
+images and applies migrations the way Cloud Run will — as a one-shot job using the same image's migrate
+entrypoint, completing before the server starts. Use it to check that a change survives a real image
+build.
 
 ```bash
 make prod                              # build and start (Ctrl-C to stop)
 curl http://localhost:64680/health     # => {"status":"ok"}
+open http://localhost:64603            # Storefront, from its production image
+make test-parity                       # browser smoke tests against the stack
 make prod-down                         # stop
 ```
 
@@ -75,11 +79,32 @@ run at the same time as `make dev`:
 | Postgres | 64632 | 5432 |
 | MinIO API | 64600 | 9000 |
 | MinIO Console | 64601 | 9001 |
+| Storefront | 64603 | 3000 |
 | API | 64680 | 8080 |
 
 The API here runs with `APP_ENV=production` and `RUN_MIGRATIONS=false`, exactly as in production: the
-`migrate` service owns the schema, and the server never migrates on boot. Scope is the API only — the
-Storefront and Staff apps join this stack later. See [docs/gcp-deployment.md](./docs/gcp-deployment.md).
+`migrate` service owns the schema, and the server never migrates on boot. Staff joins this stack later.
+See [docs/gcp-deployment.md](./docs/gcp-deployment.md).
+
+### Frontend production images
+
+`apps/storefront/Dockerfile` builds from the **repo root**, because the app transpiles workspace packages
+whose sources live in `packages/`. It produces a Next [standalone](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
+image (~240MB including the Node base, versus ~1GB for a full `node_modules` image), which is what keeps
+Cloud Run cold starts off the Customer's first paint.
+
+Two things are easy to get wrong here:
+
+- **`outputFileTracingRoot` must point at the workspace root.** pnpm links `@ticket-pos/ui` into
+  `node_modules` as a symlink to `packages/ui`; tracing rooted at the app directory omits the real files
+  and the image fails at **container start** with `MODULE_NOT_FOUND`, having built cleanly. Because the
+  tracing root is the workspace root, the standalone entrypoint is `apps/storefront/server.js`, not
+  `server.js`.
+- **`NEXT_PUBLIC_*` values are build arguments, not runtime environment variables.** `next build` inlines
+  them into the client bundle; setting them at runtime leaves them empty in the shipped bundle. Server-only
+  configuration such as `API_URL` is read at runtime and belongs in `environment:`.
+
+`make test-parity` is the check that matters — a successful `docker build` proves nothing about either.
 
 ## Monorepo layout
 

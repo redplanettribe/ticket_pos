@@ -1,0 +1,28 @@
+# Build context for the frontend images is the repo root. Keep host-built
+# artifacts out: node_modules would clobber the image's own pnpm install
+# (host binaries are the wrong platform), and .next would be copied over a
+# fresh build.
+node_modules
+**/node_modules
+.next
+**/.next
+**/.next-build
+**/.turbo
+**/dist
+**/out
+
+.git
+.github
+.claude
+.cursor
+
+backend
+terraform
+e2e/test-results
+e2e/playwright-report
+e2e/blob-report
+
+**/*.log
+**/.env
+**/.env.*
+**/.DS_Store
