@@ -144,7 +144,8 @@ export function parsePriceToCents(value: string): number | null {
   return Math.round(parsed * 100);
 }
 
-export const COMMON_TIMEZONES = [
+// Fallback for runtimes without Intl.supportedValuesOf (older browsers/Node).
+const FALLBACK_TIMEZONES = [
   "America/New_York",
   "America/Chicago",
   "America/Denver",
@@ -155,6 +156,84 @@ export const COMMON_TIMEZONES = [
   "Europe/London",
   "Europe/Paris",
 ];
+
+// The full IANA timezone list, straight from the JS engine's tz database, so
+// organizers can pick any zone rather than a curated handful. The backend
+// validates against Go's embedded IANA database, so both stay in sync.
+export const AVAILABLE_TIMEZONES: string[] = (() => {
+  const withValues = Intl as typeof Intl & {
+    supportedValuesOf?: (key: string) => string[];
+  };
+  if (typeof withValues.supportedValuesOf === "function") {
+    try {
+      const zones = withValues.supportedValuesOf("timeZone");
+      if (zones.length > 0) {
+        return zones.includes("UTC") ? zones : ["UTC", ...zones];
+      }
+    } catch {
+      // fall through to the static list
+    }
+  }
+  return FALLBACK_TIMEZONES;
+})();
+
+export type TimezoneOption = {
+  value: string;
+  label: string;
+  hint: string;
+  offsetMinutes: number;
+};
+
+/** Current UTC offset of a zone, in minutes (DST-aware for "now"). */
+function timezoneOffsetMinutes(timeZone: string, date: Date): number {
+  // Format the same instant as UTC and as the target zone, then diff. This is
+  // the standard offset trick that avoids parsing locale-specific strings.
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = Object.fromEntries(dtf.formatToParts(date).map((p) => [p.type, p.value]));
+  const asUTC = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    // "24" can appear at midnight in some engines; normalise to 0.
+    Number(parts.hour) % 24,
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return Math.round((asUTC - date.getTime()) / 60000);
+}
+
+function formatOffset(offsetMinutes: number): string {
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(abs / 60)).padStart(2, "0");
+  const minutes = String(abs % 60).padStart(2, "0");
+  return `GMT${sign}${hours}:${minutes}`;
+}
+
+/**
+ * Build display-ready timezone options: a readable label, a GMT-offset hint,
+ * sorted west-to-east then alphabetically. Computed once per date at call time.
+ */
+export function getTimezoneOptions(date: Date = new Date()): TimezoneOption[] {
+  return AVAILABLE_TIMEZONES.map((value) => {
+    const offsetMinutes = timezoneOffsetMinutes(value, date);
+    return {
+      value,
+      label: value.replace(/_/g, " "),
+      hint: formatOffset(offsetMinutes),
+      offsetMinutes,
+    };
+  }).sort((a, b) => a.offsetMinutes - b.offsetMinutes || a.value.localeCompare(b.value));
+}
 
 export async function fetchEventsJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {

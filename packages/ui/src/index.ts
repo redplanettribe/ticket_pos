@@ -19,6 +19,7 @@ export {
   CardHeader,
   CardTitle,
 } from "./components/ui/card";
+export { Combobox, type ComboboxOption } from "./components/ui/combobox";
 export {
   Dialog,
   DialogClose,

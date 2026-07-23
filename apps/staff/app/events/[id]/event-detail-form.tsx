@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   Alert,
@@ -13,6 +13,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Combobox,
   FormField,
   Input,
   Textarea,
@@ -20,9 +21,9 @@ import {
 } from "@ticket-pos/ui";
 
 import {
-  COMMON_TIMEZONES,
   dateTimeLocalToISO,
   fetchEventsJSON,
+  getTimezoneOptions,
   isoToDateTimeLocal,
   type EventDetail,
   type EventPatchBody,
@@ -50,6 +51,8 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
   const [venueAddress, setVenueAddress] = useState("");
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
+
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
   const applyEvent = useCallback((event: EventDetail) => {
     const tz = event.timezone ?? "America/New_York";
@@ -171,18 +174,14 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
             />
           </FormField>
           <FormField id="detail-timezone" label="Timezone">
-            <select
-              id="detail-timezone"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            <Combobox
+              options={timezoneOptions}
               value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-            >
-              {COMMON_TIMEZONES.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
-              ))}
-            </select>
+              onValueChange={setTimezone}
+              placeholder="Select a timezone"
+              searchPlaceholder="Search timezones…"
+              emptyText="No matching timezone."
+            />
           </FormField>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField id="detail-starts-at" label="Starts at">

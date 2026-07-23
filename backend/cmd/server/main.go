@@ -7,6 +7,11 @@ import (
 	"net/http"
 	"time"
 
+	// Embed the IANA timezone database into the binary so time.LoadLocation
+	// works on minimal runtime images (alpine here ships no tzdata package),
+	// which event timezone validation relies on.
+	_ "time/tzdata"
+
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/server"
 
