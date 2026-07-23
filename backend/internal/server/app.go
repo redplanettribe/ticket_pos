@@ -152,8 +152,14 @@ func (a *App) Close() error {
 }
 
 func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailSender {
-	// Production email provider is TBD; log OTP codes until a provider is configured.
-	_ = cfg
+	// The presence of a Resend key is the switch: prod injects it from Secret
+	// Manager, local dev and tests set none and keep logging OTP codes to the
+	// console. Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR 0009.
+	if cfg.ResendAPIKey != "" {
+		logger.Info("email sender: resend", "from", cfg.EmailFrom)
+		return platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+	}
+	logger.Info("email sender: logging (no RESEND_API_KEY set)")
 	return &platform.LoggingEmailSender{Logger: logger}
 }
 

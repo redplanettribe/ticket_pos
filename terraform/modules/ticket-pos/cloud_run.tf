@@ -253,6 +253,29 @@ resource "google_cloud_run_v2_service" "api" {
         value = local.storage_s3_region
       }
 
+      # Not a secret: the From header is public on every email sent.
+      env {
+        name  = "EMAIL_FROM"
+        value = var.email_from
+      }
+
+      # Mounted only when a Resend key version exists (email.tf). Absent, the API
+      # falls back to the logging sender — so this env appearing is precisely what
+      # switches production email on. Referencing "latest" when no version existed
+      # would crash the service at boot, hence the guard.
+      dynamic "env" {
+        for_each = var.resend_api_key == "" ? [] : [1]
+        content {
+          name = "RESEND_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.resend_api_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
       # /health is the one endpoint that answers without auth or a session, and
       # it is what tells Cloud Run the instance is ready to take traffic. Without
       # a startup probe Cloud Run only waits for the port to open, which happens
