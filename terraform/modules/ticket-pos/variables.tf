@@ -366,6 +366,22 @@ variable "frontend_memory" {
   default     = "512Mi"
 }
 
+# --- CI deploy (Workload Identity Federation) ---------------------------------
+
+variable "github_repository" {
+  description = "The `owner/repo` GitHub Actions may impersonate the deploy service account from. This single value is the WIF attribute condition AND the impersonation principalSet, so it must name one repository exactly. A value matching a whole org, or a wildcard, would let any repository under that owner mint deploy tokens."
+  type        = string
+  default     = "redplanettribe/ticket_pos"
+
+  validation {
+    # Exactly one `owner/repo`, no wildcard, no extra path segments. This is the
+    # guard that keeps the federation from ever being scoped broader than a
+    # single repository.
+    condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
+    error_message = "github_repository must be a single owner/repo (no wildcards, no trailing path). Scoping WIF to anything broader lets other repositories impersonate the deploy identity."
+  }
+}
+
 variable "staff_domain" {
   description = "Hostname for the Staff console, e.g. pos.multiticketing.com. Null skips the domain mapping and leaves Staff reachable only on its run.app URL."
   type        = string

@@ -140,6 +140,18 @@ output "storefront_service_account_email" {
   value       = google_service_account.storefront.email
 }
 
+# --- CI deploy (Workload Identity Federation) ---------------------------------
+
+output "deploy_service_account_email" {
+  description = "Identity GitHub Actions impersonates via WIF. Holds artifactregistry.writer on the images repo, run.developer on the three services and the migrate Job, and serviceAccountUser on the four runtime SAs — nothing else. Set as `service_account` in google-github-actions/auth."
+  value       = google_service_account.deploy.email
+}
+
+output "workload_identity_provider" {
+  description = "Full resource name of the GitHub OIDC provider. Set as `workload_identity_provider` in google-github-actions/auth. Impersonation is restricted to var.github_repository by the provider's attribute condition and the SA's principalSet binding."
+  value       = google_iam_workload_identity_pool_provider.github.name
+}
+
 # The whole point of not delegating DNS to Cloud DNS: these have to be created by
 # hand at Namecheap, so Terraform prints them rather than leaving an operator to
 # find them in the console. Empty until the mappings report their resource

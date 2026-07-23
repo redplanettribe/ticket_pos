@@ -1,0 +1,169 @@
+# Keyless production deploy (#49, ADR 0007 decision 6).
+#
+# A push to main builds all three images, runs the migrate Job to completion, and
+# only then rolls new revisions. Authentication is Workload Identity Federation:
+# GitHub mints a short-lived OIDC token, GCP's STS exchanges it for a short-lived
+# access token as the deploy service account, and nothing long-lived — no JSON
+# key — is ever stored. The Terraform in terraform/modules/ticket-pos/deploy_ci.tf
+# restricts that exchange to THIS repository (assertion.repository ==
+# 'redplanettribe/ticket_pos') at both the provider and the impersonation binding.
+#
+# This workflow automates exactly the manual sequence in terraform/README.md
+# ("Deploying by hand"): build & push -> migrate --wait -> deploy. The order is
+# load-bearing. If the migration fails, --wait exits non-zero, the job fails, and
+# the three services keep serving their previous revisions against a schema that
+# still matches them. Nothing is deployed against a schema that never applied.
+#
+# Terraform does NOT own the running image (template[0].containers[0].image is in
+# ignore_changes on all three services and the Job), so these gcloud deploys do
+# not drift Terraform: a `terraform plan` after a deploy stays clean. Everything
+# else about each service — service account, secrets, VPC egress, scaling — comes
+# from Terraform and is deliberately NOT passed here; a gcloud flag that
+# contradicts the configuration wins only until the next apply, then reverts.
+#
+# ── Rollback ────────────────────────────────────────────────────────────────
+# Every image is tagged with its commit SHA (never `latest`), which is what makes
+# a rollback a one-line command. To roll back a service to a known-good commit:
+#
+#   gcloud run deploy prod-ticket-pos-api \
+#     --region us-east1 \
+#     --image us-east1-docker.pkg.dev/multiticketing/ticket-pos/api:<good-sha>
+#
+# (repeat for staff/storefront as needed). No Terraform change is involved.
+# Rolling a *migration* back is not a command — that is what the expand-and-
+# contract discipline in terraform/README.md buys: every migration must stay
+# backward-compatible with the revision currently serving.
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# One deploy at a time. A second push while a deploy is mid-flight queues behind
+# it rather than racing it to the same services and Job.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: multiticketing
+  REGION: us-east1
+  # us-east1-docker.pkg.dev/multiticketing/ticket-pos — the repository Terraform
+  # created (google_artifact_registry_repository.images).
+  IMAGE_REPO: us-east1-docker.pkg.dev/multiticketing/ticket-pos
+  MIGRATE_JOB: prod-ticket-pos-migrate
+  API_SERVICE: prod-ticket-pos-api
+  STAFF_SERVICE: prod-ticket-pos-staff
+  STOREFRONT_SERVICE: prod-ticket-pos-storefront
+
+jobs:
+  deploy:
+    name: Build, migrate, deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Required for Workload Identity Federation: lets the job request a GitHub
+      # OIDC token to exchange for a GCP access token. `contents: read` is the
+      # only other scope — the deploy needs to read the repo and nothing more.
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # WIF, not a key. No `credentials_json`, no service account key file. The
+      # provider and service account below are outputs of the prod Terraform
+      # (`terraform output workload_identity_provider` /
+      # `deploy_service_account_email`); STS only issues a token here because the
+      # OIDC assertion's repository claim is redplanettribe/ticket_pos.
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: multiticketing
+          workload_identity_provider: projects/706310105744/locations/global/workloadIdentityPools/prod-github-actions/providers/github-oidc
+          service_account: prod-ticket-pos-deploy@multiticketing.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      # Images are tagged with the commit SHA, never `latest`: an immutable tag is
+      # what makes the rollback above a one-line command and makes "which build is
+      # running" answerable. The same api image is used by both the migrate Job
+      # and the API service (one digest, two entrypoints — see cloud_run.tf).
+      - name: Build and push the API image
+        run: |
+          docker build --platform linux/amd64 \
+            -t "${IMAGE_REPO}/api:${GITHUB_SHA}" \
+            -f backend/Dockerfile backend
+          docker push "${IMAGE_REPO}/api:${GITHUB_SHA}"
+
+      # Build context is the repo root for both frontends: they transpile
+      # workspace packages under packages/ and share the workspace-wide pnpm
+      # lockfile (docs/gcp-deployment.md, "Frontend image pattern").
+      #
+      # NEXT_PUBLIC_API_URL is deliberately NOT passed. The storefront's only
+      # reader of it is apiBaseUrl() in apps/storefront/lib/api.ts, which is
+      # `process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? <localhost>`
+      # and runs SERVER-SIDE only — API_URL is set at runtime on the Cloud Run
+      # service by Terraform and always wins. No browser code calls the Go API
+      # directly (client fetches hit relative /api/... route handlers), so there
+      # is nothing public to inline. Passing it would be a build arg baked into
+      # the image that never gets read; omitting it is correct, not a shortcut.
+      - name: Build and push the Storefront image
+        run: |
+          docker build --platform linux/amd64 \
+            -t "${IMAGE_REPO}/storefront:${GITHUB_SHA}" \
+            -f apps/storefront/Dockerfile .
+          docker push "${IMAGE_REPO}/storefront:${GITHUB_SHA}"
+
+      # Staff has no NEXT_PUBLIC_* build args at all: its browser bundle calls its
+      # own route handlers, which proxy to the API server-side with the runtime
+      # API_URL (docs/gcp-deployment.md).
+      - name: Build and push the Staff image
+        run: |
+          docker build --platform linux/amd64 \
+            -t "${IMAGE_REPO}/staff:${GITHUB_SHA}" \
+            -f apps/staff/Dockerfile .
+          docker push "${IMAGE_REPO}/staff:${GITHUB_SHA}"
+
+      # Migrate BEFORE any revision is deployed, and wait for it. The Job runs the
+      # same api image (its /migrate entrypoint), pinned to this SHA. `--wait`
+      # exits non-zero if the migration fails, which fails this step and stops the
+      # workflow here — the three services are still on their previous revisions,
+      # against a schema that still matches them. This is the whole reason the
+      # step is separate from and ahead of the deploys.
+      - name: Run database migrations to completion
+        run: |
+          gcloud run jobs update "${MIGRATE_JOB}" \
+            --region "${REGION}" \
+            --image "${IMAGE_REPO}/api:${GITHUB_SHA}"
+          gcloud run jobs execute "${MIGRATE_JOB}" \
+            --region "${REGION}" \
+            --wait
+
+      # Only now, with the schema applied, roll the new revisions. Only --image is
+      # passed: SA, secrets, VPC egress and scaling all come from Terraform and
+      # must not be overridden here (terraform/README.md). Because image is in
+      # Terraform's ignore_changes, none of these deploys drift a later plan.
+      - name: Deploy the API
+        run: |
+          gcloud run deploy "${API_SERVICE}" \
+            --region "${REGION}" \
+            --image "${IMAGE_REPO}/api:${GITHUB_SHA}"
+
+      - name: Deploy the Storefront
+        run: |
+          gcloud run deploy "${STOREFRONT_SERVICE}" \
+            --region "${REGION}" \
+            --image "${IMAGE_REPO}/storefront:${GITHUB_SHA}"
+
+      - name: Deploy the Staff console
+        run: |
+          gcloud run deploy "${STAFF_SERVICE}" \
+            --region "${REGION}" \
+            --image "${IMAGE_REPO}/staff:${GITHUB_SHA}"

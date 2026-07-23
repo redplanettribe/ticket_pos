@@ -74,3 +74,18 @@ output "dns_records" {
   description = "Records to create at Namecheap for the custom domains."
   value       = module.ticket_pos.dns_records
 }
+
+# --- CI deploy (Workload Identity Federation) ---------------------------------
+# These two are the values the deploy workflow's google-github-actions/auth step
+# needs. Neither is a secret: the provider name is a resource path and the SA
+# email is public. There is no key to output because none is ever created.
+
+output "deploy_service_account_email" {
+  description = "Identity GitHub Actions impersonates. Set as `service_account` in the deploy workflow's auth step."
+  value       = module.ticket_pos.deploy_service_account_email
+}
+
+output "workload_identity_provider" {
+  description = "Full resource name of the GitHub OIDC provider. Set as `workload_identity_provider` in the deploy workflow's auth step."
+  value       = module.ticket_pos.workload_identity_provider
+}

@@ -24,3 +24,9 @@ variable "storefront_domain" {
   type        = string
   default     = "discover.multiticketing.com"
 }
+
+variable "github_repository" {
+  description = "The single `owner/repo` GitHub Actions deploys from. Scopes the Workload Identity Federation attribute condition and impersonation principalSet to exactly this repository."
+  type        = string
+  default     = "redplanettribe/ticket_pos"
+}

@@ -19,4 +19,12 @@ module "ticket_pos" {
   # mappings is only half the job — see `terraform output dns_records`.
   staff_domain      = var.staff_domain
   storefront_domain = var.storefront_domain
+
+  # The one repository GitHub Actions may impersonate the deploy service account
+  # from (#49). Pinned here explicitly rather than left to the module default so
+  # the single security-critical string is visible in the prod root itself: the
+  # WIF attribute condition and the impersonation principalSet are both scoped to
+  # exactly this repo, so a fork or any other repo under the same owner cannot
+  # mint deploy tokens.
+  github_repository = var.github_repository
 }

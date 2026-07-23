@@ -193,10 +193,59 @@ the next `terraform apply` would roll production back to whatever tag was last w
 configuration, and `terraform plan` would never be clean after a deploy. Changing `api_image_tag`
 therefore does not deploy anything — use the sequence below.
 
-## Deploying by hand
+## Deploying
 
-Until the GitHub Actions pipeline (#49) lands, a deploy is these four steps, in this order. Run them
-from the repository root.
+A push to `main` deploys the system automatically: `.github/workflows/deploy.yml` builds all three
+images, runs the migrate Job to completion, and then rolls the new revisions. It authenticates with
+**Workload Identity Federation** — no service account key exists anywhere. The manual sequence below is
+what the workflow automates step-for-step, kept for a break-glass deploy from a laptop.
+
+### The keyless CI path (#49)
+
+`terraform/modules/ticket-pos/deploy_ci.tf` provisions a Workload Identity Pool, a GitHub OIDC provider,
+and a dedicated deploy service account (`prod-ticket-pos-deploy`). The security of the whole thing is one
+property: **only this repository may impersonate the deploy identity.** Two independent controls enforce
+it, and both name `redplanettribe/ticket_pos` explicitly:
+
+- the provider's attribute condition `assertion.repository == 'redplanettribe/ticket_pos'` — a token from
+  any other repo is rejected by STS before a service account is chosen;
+- the impersonation binding's principalSet `…/attribute.repository/redplanettribe/ticket_pos` — scoped to
+  the repo attribute, not the whole pool and not the owner.
+
+A condition scoped to the org, or omitted, would let any repository under the owner mint deploy tokens.
+The repo slug is pinned once in `var.github_repository` and reused by both, and validated to be a single
+`owner/repo` with no wildcard.
+
+The deploy SA holds exactly: `artifactregistry.writer` on the images repo, `run.developer` (not
+`run.admin` — it cannot set IAM policy, so it can never make the API public) on the three services and the
+migrate Job, and `serviceAccountUser` on the four runtime SAs (needed to deploy a service or update a Job
+that *runs as* another SA). No project-wide Owner/Editor, no secret access, no database reach.
+
+The two values the workflow needs are Terraform outputs, neither secret:
+
+```bash
+terraform -chdir=envs/prod output workload_identity_provider
+terraform -chdir=envs/prod output deploy_service_account_email
+```
+
+### Rolling back
+
+Every image is tagged with its commit SHA, never `latest` — that is what makes a rollback one command.
+Redeploy a previous known-good SHA (find it in the Actions history or `git log`):
+
+```bash
+gcloud run deploy prod-ticket-pos-api \
+  --region us-east1 \
+  --image us-east1-docker.pkg.dev/multiticketing/ticket-pos/api:<good-sha>
+```
+
+Repeat for `prod-ticket-pos-staff` / `prod-ticket-pos-storefront` as needed. No Terraform change is
+involved (image is in `ignore_changes`). Rolling a *migration* back is not a command — expand-and-contract
+is what buys the ability to redeploy old code against the newer schema.
+
+### Deploying by hand
+
+A break-glass deploy is these four steps, in this order. Run them from the repository root.
 
 ```bash
 PROJECT=multiticketing
@@ -274,5 +323,7 @@ back is not a command — that is what the expand-and-contract rule above buys.
 
 ## What is not here yet
 
-Workload IAM for the frontends, the Staff and Storefront services, domain mappings, and the deploy
-pipeline are tracked as issues #48-#49.
+The frontend `run.invoker` grants (#48) and the keyless deploy pipeline (#49) have landed — see
+[Deploying](#deploying). What remains out of scope is recorded in
+[docs/gcp-deployment.md](../docs/gcp-deployment.md): regional HA, the partner API load balancer, and a
+real email provider (which currently blocks staff sign-in on a deployed environment).
