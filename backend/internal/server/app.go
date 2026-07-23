@@ -87,7 +87,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 
 	if cfg.RunMigrations {
-		if err := migrate.Up(ctx, db.Pool); err != nil {
+		if err := migrate.Up(ctx, db.Pool, cfg.AppEnv != "production"); err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("migrations: %w", err)
 		}

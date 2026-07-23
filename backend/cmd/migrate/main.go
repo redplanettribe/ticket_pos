@@ -25,7 +25,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := migrate.Up(ctx, db.Pool); err != nil {
+	if err := migrate.Up(ctx, db.Pool, cfg.AppEnv != "production"); err != nil {
 		log.Fatalf("migrations: %v", err)
 	}
 

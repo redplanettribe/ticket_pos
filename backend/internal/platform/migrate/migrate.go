@@ -11,8 +11,15 @@ import (
 	"github.com/peter/ticket_pos/backend/migrations"
 )
 
-// Up applies pending SQL migrations from backend/migrations.
-func Up(ctx context.Context, db *sql.DB) error {
+// devSeedMarker identifies migrations that only exist to seed local/dev data
+// (e.g. 002_seed_dev_organization.sql). They are skipped entirely unless the
+// caller opts in via includeDevSeeds, so a fresh production database is never
+// seeded with the demo Organization and its Events.
+const devSeedMarker = "_seed_dev_"
+
+// Up applies pending SQL migrations from backend/migrations. Dev seed
+// migrations (see devSeedMarker) are applied only when includeDevSeeds is true.
+func Up(ctx context.Context, db *sql.DB, includeDevSeeds bool) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
@@ -29,6 +36,9 @@ func Up(ctx context.Context, db *sql.DB) error {
 	sort.Strings(entries)
 
 	for _, name := range entries {
+		if !includeDevSeeds && strings.Contains(name, devSeedMarker) {
+			continue
+		}
 		version := strings.TrimSuffix(name, ".sql")
 		var exists bool
 		if err := db.QueryRowContext(ctx,
