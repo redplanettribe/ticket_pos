@@ -85,7 +85,7 @@ Deployment reaches into the application in five places. None are large; all are 
 | Build `/migrate` alongside `/server` | `backend/Dockerfile` | Job needs the binary; only `/server` is copied today |
 | `output: "standalone"` + `outputFileTracingRoot` | `apps/*/next.config.ts` | Image size / cold start |
 | Dockerfile per frontend | `apps/staff/`, `apps/storefront/` | Done — both exist and run in the parity stack |
-| Attach OIDC ID token to API calls | `apps/*/lib/api.ts` | ~20 lines; skipped locally |
+| Attach OIDC ID token to API calls | `apps/*/lib/api.ts` | Done — see below; skipped locally |
 | Bump local Postgres to match prod major | `docker-compose.yml`, CI | Otherwise migrations are validated against a different engine |
 
 ### Frontend image pattern
@@ -111,6 +111,30 @@ Staff (`apps/staff/Dockerfile`) follows it with two differences worth knowing:
   `NODE_ENV === "production"`. Browsers accept `Secure` cookies from `http://localhost`, so the parity
   stack signs in over plain HTTP; any other plain-HTTP hostname would silently drop the cookie and loop
   the visitor back to `/login`. In production Cloud Run terminates TLS, so the flag is correct as-is.
+
+### Service-to-service ID tokens
+
+Both frontends fetch a Google-signed ID token from the metadata server and attach it to every
+server-side API call. It lives in each app's shared fetch layer only — `callBackend`/`fetchBackendRaw`
+in Staff, `fetchData` in Storefront — because nothing else in either app addresses the Go API. Four
+details are load-bearing:
+
+- **The token goes in `X-Serverless-Authorization`, not `Authorization`.** Cloud Run checks that header
+  for IAM when present and strips it before the container sees the request. Staff's `Authorization`
+  header already carries the end-user session token, which the Go API reads; displacing it would leave
+  IAM satisfied and every authenticated endpoint returning 401.
+- **The platform is detected from `K_SERVICE`, not by probing the metadata address.** Off-platform there
+  is no listener on `169.254.169.254`/`metadata.google.internal`, and a fetch at it can stall rather than
+  refuse. Absent `K_SERVICE`, no network call is made at all — the local and parity stacks pay nothing.
+- **Failure throws.** A `ServiceAuthError` beats an unauthenticated call that Cloud Run bounces with a
+  bare 403, which reads like an application bug. In Storefront the token is acquired outside the
+  `try/catch` that degrades API failures to an empty page, so this one failure is not swallowed.
+- **The audience is the API's own Cloud Run URL** (`API_URL`), and the token is cached until a minute
+  before its `exp`.
+
+Verified locally only in the negative: `make prod` + `make test-parity` exercise the skip path. The
+production path is confirmed by hand at first deploy — see
+[manual-verification-oidc.md](manual-verification-oidc.md).
 
 ## Bucket CORS
 
@@ -164,7 +188,10 @@ attribute condition must be scoped to.
    `us-east1` at apply time; the enum is reported client-side by gcloud.
 2. ~~Domain-mapping support in `us-east1`~~ — confirmed supported.
 3. `terraform` is not installed locally.
-4. **OTP email delivery blocks real production use** (see out of scope). `EmailSender` has only a logging
+4. ~~Frontends attaching ID tokens to API calls~~ — landed in `apps/*/lib/api.ts`. The production half is
+   unverifiable locally; confirm it at first deploy with
+   [manual-verification-oidc.md](manual-verification-oidc.md).
+5. **OTP email delivery blocks real production use** (see out of scope). `EmailSender` has only a logging
    implementation, so staff cannot sign in to a deployed environment. Deployed and usable are different
    milestones; this decision is not yet made.
 

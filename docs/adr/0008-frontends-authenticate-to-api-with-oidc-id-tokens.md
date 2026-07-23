@@ -15,8 +15,11 @@ addresses object storage rather than the API.
 
 ## Consequences
 
-- The frontends' API layer attaches an `Authorization: Bearer` header in production and skips it locally,
-  where no metadata server exists. This is application code that exists only for deployment reasons.
+- The frontends' API layer attaches the token in production and skips it locally, where no metadata
+  server exists. This is application code that exists only for deployment reasons. The header is
+  `X-Serverless-Authorization`, not `Authorization`: Cloud Run honours it for IAM and strips it before the
+  container, which leaves `Authorization` carrying the end-user session token the API already reads.
+  Putting the ID token in `Authorization` would satisfy IAM and break every authenticated endpoint.
 - The API's own session and role authorization is unchanged. This is defence in depth, not the only lock.
 - **Integration Partner endpoints cannot be served by this service.** Cloud Run IAM is per-service, not
   per-path, and a load balancer cannot mint ID tokens. Partner access requires a second Cloud Run service
