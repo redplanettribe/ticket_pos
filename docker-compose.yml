@@ -65,6 +65,11 @@ services:
       S3_SECRET_KEY: minio123
       S3_BUCKET: ticket-pos
       S3_REGION: us-east-1
+      # Compose reads the root .env for these. Empty RESEND_API_KEY (the default)
+      # keeps the backend on the logging email sender; set it in .env to send real
+      # mail via Resend from the dev stack. See .env.example.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Multiticketing <noreply@send.multiticketing.com>}
     depends_on:
       postgres:
         condition: service_healthy
