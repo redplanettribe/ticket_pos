@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { APIError, callBackend } from "@/lib/api";
 import { resolveAuthForkRedirectPath } from "@/lib/auth-fork";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
@@ -16,27 +17,33 @@ type SessionData = {
   memberships: Array<{ member_id: string; organization_name?: string }>;
 };
 
-type SessionEnvelope = {
-  data: SessionData | null;
-  error: { code: string } | null;
-};
-
 function isPathMatch(pathname: string, paths: string[]): boolean {
   return paths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
-async function fetchSession(request: NextRequest): Promise<SessionData | null> {
-  const sessionUrl = new URL("/api/auth/session", request.url);
-  const response = await fetch(sessionUrl, {
-    headers: {
-      cookie: request.headers.get("cookie") ?? "",
-    },
-  });
-  if (!response.ok) {
-    return null;
+// Resolve the session by calling the Go API directly — the same call
+// app/api/auth/session/route.ts makes — rather than fetching this app's own
+// /api/auth/session route. The middleware must never hairpin a fetch to its own
+// public URL: on Cloud Run that self-call fails at the TLS layer
+// (ERR_SSL_WRONG_VERSION_NUMBER) and 500s every authenticated request. callBackend
+// carries the OIDC service token (ADR 0008) and is runtime-agnostic.
+async function fetchSession(sessionToken: string): Promise<SessionData | null> {
+  try {
+    const envelope = await callBackend<SessionData>("/api/v1/auth/session", {
+      method: "GET",
+      sessionToken,
+    });
+    return envelope.data;
+  } catch (error) {
+    // A rejected session (stale/invalid cookie → 401) is an expected outcome:
+    // the caller redirects to /login and clears the cookie. A genuine transport
+    // or auth-token failure is different, so let it surface rather than masquerade
+    // as "signed out".
+    if (error instanceof APIError) {
+      return null;
+    }
+    throw error;
   }
-  const envelope = (await response.json()) as SessionEnvelope;
-  return envelope.data;
 }
 
 export async function middleware(request: NextRequest) {
@@ -64,7 +71,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const session = await fetchSession(request);
+  const session = await fetchSession(sessionToken);
   if (!session) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
