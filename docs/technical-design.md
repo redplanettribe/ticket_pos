@@ -76,6 +76,7 @@ graph TB
 ticket_pos/
   backend/                  # Go module (stdlib-first)
     cmd/server/
+    cmd/migrate/
     internal/
       catalog/
       sales/
@@ -91,6 +92,7 @@ ticket_pos/
     ui/                       # Shared design system (Tailwind + shadcn primitives)
   openapi/                    # OpenAPI 3 spec (contract source of truth)
   docker-compose.yml
+  docker-compose.prod.yml     # production-parity stack (production image + migrate job)
   Makefile
   turbo.json
   package.json                # pnpm workspaces root
@@ -542,6 +544,28 @@ One file row = one Ticket Sale = one Ticket Sale Line. Grouping lines into one s
 The backend dev container watches `.go` files and rebuilds/restarts the API on change.
 Production builds use `backend/Dockerfile` (compiled binary, no Air).
 
+### Production-parity stack
+
+`docker-compose.prod.yml` is a second, independent stack (Compose project `ticket-pos-prod`) that runs the
+API from the **production** image and applies migrations the way Cloud Run will — see
+[gcp-deployment.md](./gcp-deployment.md). It exists so image-only breakage is caught locally rather than at
+first deploy. It covers the API only; the Next.js apps join it later.
+
+`backend/Dockerfile` builds **both** binaries, `/server` and `/migrate`, into one image. Cloud Run deploys
+the API service and the migration Job from that same digest, differing only in entrypoint; migrations are
+`go:embed`ed into the binary, so nothing else travels with it.
+
+| Service | Role |
+|---------|------|
+| **postgres** | Same `postgres:18-alpine` as dev, own volume |
+| **minio** / **minio-init** | S3-compatible storage, bucket bootstrap |
+| **migrate** | One-shot: production image, `/migrate` entrypoint, `DATABASE_URL` its only input. Stands in for the Cloud Run Job |
+| **api** | Production image, `/server` entrypoint, `APP_ENV=production` and `RUN_MIGRATIONS=false` |
+
+`api` waits on `migrate` via `service_completed_successfully`, so the schema is always current before the
+server boots and the server never migrates. Host ports are distinct from the dev stack, so both can run at
+once.
+
 ### Make
 
 `Makefile` provides the primary developer entrypoints:
@@ -550,6 +574,8 @@ Production builds use `backend/Dockerfile` (compiled binary, no Air).
 |--------|---------|
 | `make dev` | Start the full Compose stack |
 | `make down` | Stop services |
+| `make prod` | Start the production-parity stack (`docker-compose.prod.yml`) |
+| `make prod-down` | Stop the production-parity stack |
 | `make test` | Run fast Go unit tests (excluding integration) and JS tests |
 | `make test-integration` | Run HTTP integration tests (`backend/integration/`) |
 | `make ci` | Run full pre-push checks locally (Go suite including integration, vet, turbo lint/typecheck/build) |
