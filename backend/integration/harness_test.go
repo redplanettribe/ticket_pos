@@ -49,7 +49,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	pg, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:18-alpine",
 		postgres.WithDatabase("ticket_pos"),
 		postgres.WithUsername("ticket_pos"),
 		postgres.WithPassword("ticket_pos"),

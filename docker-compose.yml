@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ticket_pos
       POSTGRES_PASSWORD: ticket_pos
@@ -8,7 +8,9 @@ services:
     ports:
       - "64432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Postgres 18 images keep PGDATA at /var/lib/postgresql/<major>/docker,
+      # so the whole /var/lib/postgresql tree is the persisted path.
+      - postgres_data_18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ticket_pos -d ticket_pos"]
       interval: 5s
@@ -122,7 +124,7 @@ services:
         condition: service_completed_successfully
 
 volumes:
-  postgres_data:
+  postgres_data_18:
   minio_data:
   root_node_modules:
   backend_go_mod_cache:
