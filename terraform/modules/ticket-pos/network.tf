@@ -6,8 +6,8 @@
 # the peering needs an IP range on our side reserved for it up front. That is
 # "private services access": reserve a range, then peer it. Both steps below.
 #
-# No subnets are created here. Private services access needs none, and the
-# subnet Cloud Run's direct VPC egress will attach to belongs with Cloud Run (#47).
+# Private services access needs no subnet of its own. The one subnet below
+# exists for Cloud Run's direct VPC egress.
 resource "google_compute_network" "main" {
   project = var.project_id
   name    = "${var.environment}-ticket-pos"
@@ -40,4 +40,37 @@ resource "google_service_networking_connection" "private_services" {
   # leaves the connection in a state Terraform cannot resolve. ABANDON removes
   # it from state and leaves the peering to be cleaned up after the instance.
   deletion_policy = "ABANDON"
+}
+
+# The subnet Cloud Run attaches to for *direct VPC egress*, the mechanism that
+# lets a Cloud Run instance open a socket to the database's private IP.
+#
+# Direct VPC egress, not a Serverless VPC Access connector: a connector is a
+# managed instance group of at least two e2-micro VMs that bill continuously
+# whether or not anything is running, roughly $10/month against a deployment
+# whose entire budget is ~$30. Direct egress attaches the instance to this
+# subnet itself and costs nothing.
+#
+# The price is address consumption: every running instance holds an address from
+# this range for its lifetime, and scaling churn holds a few beyond that. A /24
+# leaves ~250 usable, far above the instance ceilings configured here, and a
+# subnet range cannot be narrowed after creation.
+#
+# It must not overlap 10.240.0.0/24, which is reserved for the Cloud SQL peering.
+resource "google_compute_subnetwork" "cloud_run" {
+  project = var.project_id
+  name    = "${var.environment}-ticket-pos-run"
+  region  = var.region
+  network = google_compute_network.main.id
+
+  ip_cidr_range = var.cloud_run_subnet_cidr
+
+  # Reaching *.googleapis.com — Secret Manager at startup, storage.googleapis.com
+  # for presigned uploads — over Google's internal network rather than a public
+  # address. Egress is PRIVATE_RANGES_ONLY, so in the normal case that traffic
+  # never enters this subnet at all; this is what keeps the service working if
+  # egress is ever widened, without also needing the Cloud NAT ADR 0007 declined.
+  private_ip_google_access = true
+
+  description = "Direct VPC egress for Cloud Run in ${var.environment}"
 }

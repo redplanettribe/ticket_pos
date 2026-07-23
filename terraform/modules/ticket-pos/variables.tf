@@ -144,3 +144,137 @@ variable "storage_cors_max_age_seconds" {
   type        = number
   default     = 3600
 }
+
+variable "storage_s3_region" {
+  description = "Region name the API signs S3-compatible requests with. GCS checks it against the bucket location in the SigV4 credential scope of a presigned URL, so a mismatch fails uploads rather than reads. Defaults to the deployment region, which is where the bucket is."
+  type        = string
+  default     = null
+}
+
+# --- Network ------------------------------------------------------------------
+
+variable "cloud_run_subnet_cidr" {
+  description = "Range for the subnet Cloud Run uses for direct VPC egress. Every running instance holds one address. Must not overlap the 10.240.0.0/24 reserved for the Cloud SQL peering, and cannot be narrowed after creation."
+  type        = string
+  default     = "10.241.0.0/24"
+
+  validation {
+    condition     = can(cidrhost(var.cloud_run_subnet_cidr, 0))
+    error_message = "cloud_run_subnet_cidr must be a valid CIDR block."
+  }
+}
+
+# --- API service and migrate Job ----------------------------------------------
+
+variable "api_image_name" {
+  description = "Image name within the Artifact Registry repository. The service and the migrate Job run this same image, differing only in entrypoint."
+  type        = string
+  default     = "api"
+}
+
+variable "api_image_tag" {
+  description = "Tag used when the service and Job are first created. Terraform does not own the running image afterwards — deploys roll a new revision and the image field is in ignore_changes — so changing this does not deploy anything."
+  type        = string
+  default     = "latest"
+}
+
+variable "api_min_instances" {
+  description = "Instances kept warm. Zero means the deployment costs nothing while idle and the first request after idling pays a cold start."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.api_min_instances >= 0
+    error_message = "api_min_instances cannot be negative."
+  }
+}
+
+variable "api_max_instances" {
+  description = "Ceiling on concurrent instances. Bounds both the bill and the number of Postgres connection pools opened against a db-g1-small."
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.api_max_instances >= 1
+    error_message = "api_max_instances must be at least 1."
+  }
+}
+
+variable "api_concurrency" {
+  description = "Requests one instance serves at a time. Raising it trades instance count for pressure on each instance's database pool."
+  type        = number
+  default     = 80
+
+  validation {
+    condition     = var.api_concurrency >= 1 && var.api_concurrency <= 1000
+    error_message = "api_concurrency must be between 1 and 1000."
+  }
+}
+
+variable "api_request_timeout_seconds" {
+  description = "How long Cloud Run waits for a response before killing the request. Cloud Run's own default; lowering it would put a new ceiling on the slowest existing endpoint (sale import parses an uploaded file in memory) that nothing else in the system imposes."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.api_request_timeout_seconds >= 1 && var.api_request_timeout_seconds <= 3600
+    error_message = "api_request_timeout_seconds must be between 1 and 3600."
+  }
+}
+
+variable "api_cpu" {
+  description = "CPU limit per API instance. Billed only while a request is in flight."
+  type        = string
+  default     = "1"
+}
+
+variable "api_memory" {
+  description = "Memory limit per API instance. This is what an idle instance is billed for when min_instances is above zero."
+  type        = string
+  default     = "512Mi"
+}
+
+variable "api_log_level" {
+  description = "LOG_LEVEL for the API and the migrate Job. One of debug, info, warn, error."
+  type        = string
+  default     = "info"
+
+  validation {
+    condition     = contains(["debug", "info", "warn", "error"], var.api_log_level)
+    error_message = "api_log_level must be one of debug, info, warn, error."
+  }
+}
+
+variable "migrate_cpu" {
+  description = "CPU limit for a migration task."
+  type        = string
+  default     = "1"
+}
+
+variable "migrate_memory" {
+  description = "Memory limit for a migration task."
+  type        = string
+  default     = "512Mi"
+}
+
+variable "migrate_timeout_seconds" {
+  description = "How long a migration task may run before Cloud Run kills it. Note that cmd/migrate imposes its own 30s context deadline, so this is the outer bound, not the effective one."
+  type        = number
+  default     = 900
+
+  validation {
+    condition     = var.migrate_timeout_seconds >= 1
+    error_message = "migrate_timeout_seconds must be at least 1."
+  }
+}
+
+variable "migrate_max_retries" {
+  description = "Retries after a failed migration task. Zero on purpose: a failed migration is a thing to read, not to repeat."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.migrate_max_retries >= 0
+    error_message = "migrate_max_retries cannot be negative."
+  }
+}

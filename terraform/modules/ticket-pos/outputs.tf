@@ -10,7 +10,7 @@ output "artifact_registry_host" {
 
 output "image_repository_url" {
   description = "Prefix for image tags: append `/<image>:<tag>` when pushing or deploying."
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
+  value       = local.image_repository_url
 }
 
 # No secret value is an output. Outputs are stored in state and printed by
@@ -19,8 +19,13 @@ output "image_repository_url" {
 # What follows are the names and addresses needed to *find* them.
 
 output "network_id" {
-  description = "Self link of the VPC. Cloud Run's direct VPC egress (#47) attaches a subnet to this network."
+  description = "Self link of the VPC."
   value       = google_compute_network.main.id
+}
+
+output "cloud_run_subnet_id" {
+  description = "Self link of the subnet Cloud Run attaches to for direct VPC egress."
+  value       = google_compute_subnetwork.cloud_run.id
 }
 
 output "database_instance_name" {
@@ -48,6 +53,11 @@ output "database_user" {
   value       = google_sql_user.app.name
 }
 
+output "database_url_secret_id" {
+  description = "Full resource name of the Secret Manager secret holding the whole DATABASE_URL the API and the migrate Job mount."
+  value       = google_secret_manager_secret.database_url.id
+}
+
 output "database_password_secret_id" {
   description = "Full resource name of the Secret Manager secret holding the database password."
   value       = google_secret_manager_secret.database_password.id
@@ -60,7 +70,7 @@ output "storage_bucket_name" {
 
 output "storage_endpoint" {
   description = "S3-compatible endpoint for GCS. Value of the API's S3_ENDPOINT and S3_PUBLIC_URL."
-  value       = "https://storage.googleapis.com"
+  value       = local.storage_endpoint
 }
 
 output "storage_service_account_email" {
@@ -76,4 +86,36 @@ output "storage_access_key_secret_id" {
 output "storage_secret_key_secret_id" {
   description = "Full resource name of the Secret Manager secret holding the HMAC secret key."
   value       = google_secret_manager_secret.storage_secret_key.id
+}
+
+# --- Cloud Run ----------------------------------------------------------------
+
+output "api_service_name" {
+  description = "Cloud Run service name for the API. What `gcloud run deploy` and `gcloud run services describe` take."
+  value       = google_cloud_run_v2_service.api.name
+}
+
+output "api_service_url" {
+  description = "HTTPS URL of the API service. It rejects every request that does not carry a Google-signed OIDC ID token from a principal holding roles/run.invoker on it (ADR 0008); granting that role is #48."
+  value       = google_cloud_run_v2_service.api.uri
+}
+
+output "api_service_account_email" {
+  description = "Dedicated runtime identity of the API service. Holds Cloud SQL client, objectAdmin on the media bucket, and secretAccessor on its own three secrets — nothing else."
+  value       = google_service_account.api.email
+}
+
+output "api_image" {
+  description = "Image reference the service and Job were created with. Push here before the first apply; afterwards Terraform no longer owns which image runs."
+  value       = local.api_image
+}
+
+output "migrate_job_name" {
+  description = "Cloud Run Job name. `gcloud run jobs execute <name> --region <region> --wait` applies the schema."
+  value       = google_cloud_run_v2_job.migrate.name
+}
+
+output "migrate_service_account_email" {
+  description = "Dedicated runtime identity of the migrate Job. Reads only the database URL secret."
+  value       = google_service_account.migrate.email
 }
