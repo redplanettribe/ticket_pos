@@ -1,0 +1,108 @@
+# Production-parity stack: the API runs from the production image
+# (backend/Dockerfile), and migrations are applied by a one-shot running that
+# same image's migrate entrypoint — exactly how Cloud Run runs them as a Job.
+#
+# Separate project name and host ports so it can run alongside `make dev`.
+# See README "Production-parity stack".
+name: ticket-pos-prod
+
+# The API and the migration job are the same image, differing only in
+# entrypoint — the anchor keeps that literally true.
+x-api-image: &api-image
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  image: ticket-pos-api:parity
+
+x-database-url: &database-url postgres://ticket_pos:ticket_pos@postgres:5432/ticket_pos?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ticket_pos
+      POSTGRES_PASSWORD: ticket_pos
+      POSTGRES_DB: ticket_pos
+    ports:
+      - "64632:5432"
+    volumes:
+      # Postgres 18 images keep PGDATA at /var/lib/postgresql/<major>/docker,
+      # so the whole /var/lib/postgresql tree is the persisted path.
+      - postgres_data_18:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticket_pos -d ticket_pos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "64600:9000"
+      - "64601:9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+      MINIO_SERVER_URL: http://localhost:64600
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minio minio123 &&
+      mc mb local/ticket-pos --ignore-existing &&
+      mc anonymous set download local/ticket-pos/covers &&
+      mc anonymous set download local/ticket-pos/logos
+      "
+
+  # One-shot schema migration. Stands in for the Cloud Run Job: same image as
+  # the API, migrate entrypoint, database URL as its only required input.
+  migrate:
+    <<: *api-image
+    entrypoint: ["/migrate"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *api-image
+    ports:
+      - "64680:8080"
+    environment:
+      APP_ENV: production
+      # Migrations are the migrate job's responsibility, never the server's.
+      RUN_MIGRATIONS: "false"
+      DATABASE_URL: *database-url
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_URL: http://localhost:64600
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+      S3_BUCKET: ticket-pos
+      S3_REGION: us-east-1
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data_18:
+  minio_data:

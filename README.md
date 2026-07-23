@@ -37,6 +37,8 @@ Other common commands:
 
 ```bash
 make down      # stop Docker Compose services
+make prod      # start the production-parity stack (see below)
+make prod-down # stop the production-parity stack
 make test              # fast Go unit tests (no integration) + JS package tests
 make test-integration  # HTTP integration tests (requires Docker)
 make ci                # full pre-push checks (Go suite including integration, vet, lint, build)
@@ -48,6 +50,36 @@ pnpm install   # install JS workspace dependencies
 ```
 
 `make migrate` applies the SQL migrations in `backend/migrations/`. It defaults to the local Docker Compose Postgres (host port 64432), so that container must be running (`make dev`, or just the Postgres service). It's idempotent — safe to re-run. Point it at another database by exporting `DATABASE_URL`, e.g. `DATABASE_URL=postgres://user:pass@host:5432/db?sslmode=disable make migrate`.
+
+## Production-parity stack
+
+`make dev` runs the API from `Dockerfile.dev` with live reload, so it never exercises the image that
+actually ships. `docker-compose.prod.yml` is a separate stack that runs the **production** API image and
+applies migrations the way Cloud Run will — as a one-shot job using the same image's migrate entrypoint,
+completing before the server starts. Use it to check that a change survives a real image build.
+
+```bash
+make prod                              # build and start (Ctrl-C to stop)
+curl http://localhost:64680/health     # => {"status":"ok"}
+make prod-down                         # stop
+```
+
+To start from an empty database, drop its volumes too:
+`docker compose -f docker-compose.prod.yml down -v`.
+
+It runs under its own Compose project (`ticket-pos-prod`) with its own volumes and host ports, so it can
+run at the same time as `make dev`:
+
+| Service | Host port | Container port |
+|---|---|---|
+| Postgres | 64632 | 5432 |
+| MinIO API | 64600 | 9000 |
+| MinIO Console | 64601 | 9001 |
+| API | 64680 | 8080 |
+
+The API here runs with `APP_ENV=production` and `RUN_MIGRATIONS=false`, exactly as in production: the
+`migrate` service owns the schema, and the server never migrates on boot. Scope is the API only — the
+Storefront and Staff apps join this stack later. See [docs/gcp-deployment.md](./docs/gcp-deployment.md).
 
 ## Monorepo layout
 
