@@ -290,10 +290,19 @@ resource "google_cloud_run_v2_service" "api" {
     #
     # client/client_version are stamped by gcloud on every deploy and would drift
     # for the same reason.
+    #
+    # `scaling` here is the *service-level* block, not template[0].scaling which
+    # this module does declare. The Cloud Run v2 API synthesises a service-level
+    # scaling block (zeroed) on every service whether or not one was requested,
+    # so leaving it undeclared makes every plan propose removing it — a diff that
+    # never converges and would mask real drift. Confirmed against the first live
+    # apply, not anticipated: plan reported `manual_instance_count = 0 -> null`
+    # and `min_instance_count = 0 -> null` immediately after a successful apply.
     ignore_changes = [
       template[0].containers[0].image,
       client,
       client_version,
+      scaling,
     ]
   }
 }
