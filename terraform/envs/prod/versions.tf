@@ -6,6 +6,13 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 6.0"
     }
+
+    # Generates the database password. Its state is the password, which is why
+    # the state bucket is private and versioned.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # Backend configuration cannot use variables or expressions, so the bucket

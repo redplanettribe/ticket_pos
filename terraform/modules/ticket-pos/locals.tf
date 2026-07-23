@@ -6,4 +6,8 @@ locals {
     application = "ticket-pos"
     environment = var.environment
   }
+
+  # Bucket names are globally unique across all of GCS, so the project id is the
+  # cheapest available disambiguator.
+  storage_bucket_name = coalesce(var.storage_bucket_name, "${var.project_id}-ticket-pos-${var.environment}")
 }
