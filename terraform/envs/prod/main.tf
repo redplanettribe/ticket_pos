@@ -12,4 +12,11 @@ module "ticket_pos" {
   # straight to the bucket with presigned URLs, so this is the origin the
   # bucket's CORS policy has to accept. It is a prod fact, hence it lives here.
   storage_cors_origins = [var.staff_origin]
+
+  # The hostnames the two browser-facing surfaces answer on. Prod facts, so they
+  # live here; the module treats them as optional and skips the domain mappings
+  # when they are null. DNS for these is served by Namecheap, so creating the
+  # mappings is only half the job — see `terraform output dns_records`.
+  staff_domain      = var.staff_domain
+  storefront_domain = var.storefront_domain
 }

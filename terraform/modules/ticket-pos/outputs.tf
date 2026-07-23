@@ -119,3 +119,43 @@ output "migrate_service_account_email" {
   description = "Dedicated runtime identity of the migrate Job. Reads only the database URL secret."
   value       = google_service_account.migrate.email
 }
+
+output "staff_service_url" {
+  description = "Staff's run.app URL. Works immediately; the custom domain does not until DNS resolves."
+  value       = google_cloud_run_v2_service.staff.uri
+}
+
+output "storefront_service_url" {
+  description = "Storefront's run.app URL."
+  value       = google_cloud_run_v2_service.storefront.uri
+}
+
+output "staff_service_account_email" {
+  description = "Staff's runtime identity. This is one of exactly two principals holding run.invoker on the API."
+  value       = google_service_account.staff.email
+}
+
+output "storefront_service_account_email" {
+  description = "Storefront's runtime identity."
+  value       = google_service_account.storefront.email
+}
+
+# The whole point of not delegating DNS to Cloud DNS: these have to be created by
+# hand at Namecheap, so Terraform prints them rather than leaving an operator to
+# find them in the console. Empty until the mappings report their resource
+# records, which is immediately after create.
+output "dns_records" {
+  description = "DNS records to create at the registrar for the custom domains. Each entry is the record set Cloud Run expects for that hostname."
+  value = {
+    for k, m in merge(
+      length(google_cloud_run_domain_mapping.staff) > 0 ? { (var.staff_domain) = google_cloud_run_domain_mapping.staff[0] } : {},
+      length(google_cloud_run_domain_mapping.storefront) > 0 ? { (var.storefront_domain) = google_cloud_run_domain_mapping.storefront[0] } : {},
+      ) : k => [
+      for r in m.status[0].resource_records : {
+        type   = r.type
+        name   = r.name
+        rrdata = r.rrdata
+      }
+    ]
+  }
+}

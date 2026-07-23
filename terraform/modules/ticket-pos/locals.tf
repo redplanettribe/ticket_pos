@@ -27,6 +27,9 @@ locals {
 
   api_image = "${local.image_repository_url}/${var.api_image_name}:${var.api_image_tag}"
 
+  staff_image      = "${local.image_repository_url}/${var.staff_image_name}:${var.frontend_image_tag}"
+  storefront_image = "${local.image_repository_url}/${var.storefront_image_name}:${var.frontend_image_tag}"
+
   # The bucket lives in var.region (storage.tf uses upper(var.region) as its
   # location), so that is what presigned URLs must be signed for unless a caller
   # deliberately overrides it.

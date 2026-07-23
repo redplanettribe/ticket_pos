@@ -59,3 +59,18 @@ output "secret_ids" {
     storage_secret_key = module.ticket_pos.storage_secret_key_secret_id
   }
 }
+
+output "staff_service_url" {
+  description = "Staff's run.app URL."
+  value       = module.ticket_pos.staff_service_url
+}
+
+output "storefront_service_url" {
+  description = "Storefront's run.app URL."
+  value       = module.ticket_pos.storefront_service_url
+}
+
+output "dns_records" {
+  description = "Records to create at Namecheap for the custom domains."
+  value       = module.ticket_pos.dns_records
+}

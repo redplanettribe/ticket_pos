@@ -278,3 +278,102 @@ variable "migrate_max_retries" {
     error_message = "migrate_max_retries cannot be negative."
   }
 }
+
+# --- Frontends ------------------------------------------------------------------
+
+variable "staff_image_name" {
+  description = "Image name within the Artifact Registry repository for the Staff Next server."
+  type        = string
+  default     = "staff"
+}
+
+variable "storefront_image_name" {
+  description = "Image name within the Artifact Registry repository for the Storefront Next server."
+  type        = string
+  default     = "storefront"
+}
+
+variable "frontend_image_tag" {
+  description = "Tag used when the frontend services are first created. As with api_image_tag, Terraform does not own the running image afterwards, so changing this deploys nothing."
+  type        = string
+  default     = "latest"
+}
+
+variable "staff_min_instances" {
+  description = "Minimum Staff instances. Zero means Members pay a cold start on the first request after an idle period."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.staff_min_instances >= 0
+    error_message = "staff_min_instances cannot be negative."
+  }
+}
+
+variable "staff_max_instances" {
+  description = "Ceiling on Staff instances, and so on the bill."
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.staff_max_instances >= 1
+    error_message = "staff_max_instances must be at least 1."
+  }
+}
+
+variable "storefront_min_instances" {
+  description = "Minimum Storefront instances. Zero costs a cold start on the surface where a slow first paint costs a ticket sale; raise it before an on-sale."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.storefront_min_instances >= 0
+    error_message = "storefront_min_instances cannot be negative."
+  }
+}
+
+variable "storefront_max_instances" {
+  description = "Ceiling on Storefront instances."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.storefront_max_instances >= 1
+    error_message = "storefront_max_instances must be at least 1."
+  }
+}
+
+variable "frontend_concurrency" {
+  description = "Requests served concurrently per frontend instance. Next servers are IO-bound proxies here, so this can be far higher than the API's limit — they hold no database connections."
+  type        = number
+  default     = 80
+
+  validation {
+    condition     = var.frontend_concurrency >= 1 && var.frontend_concurrency <= 1000
+    error_message = "frontend_concurrency must be between 1 and 1000."
+  }
+}
+
+variable "frontend_cpu" {
+  description = "CPU limit per frontend instance."
+  type        = string
+  default     = "1"
+}
+
+variable "frontend_memory" {
+  description = "Memory limit per frontend instance. Next standalone servers idle around 100-150MiB."
+  type        = string
+  default     = "512Mi"
+}
+
+variable "staff_domain" {
+  description = "Hostname for the Staff console, e.g. pos.multiticketing.com. Null skips the domain mapping and leaves Staff reachable only on its run.app URL."
+  type        = string
+  default     = null
+}
+
+variable "storefront_domain" {
+  description = "Hostname for the Storefront, e.g. discover.multiticketing.com. Null skips the domain mapping."
+  type        = string
+  default     = null
+}
