@@ -103,6 +103,26 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  storefront:
+    build:
+      # Repo root: the app transpiles workspace packages from packages/.
+      context: .
+      dockerfile: apps/storefront/Dockerfile
+      args:
+        # Baked into the client bundle by `next build`; must be the URL the
+        # browser can reach, not the Compose network name.
+        NEXT_PUBLIC_API_URL: http://localhost:64680
+    image: ticket-pos-storefront:parity
+    ports:
+      - "64603:3000"
+    environment:
+      # Server-side calls stay on the Compose network. This one is read at
+      # runtime, so it belongs here rather than in build args.
+      API_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data_18:
   minio_data:

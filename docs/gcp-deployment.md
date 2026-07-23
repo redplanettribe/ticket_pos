@@ -88,6 +88,20 @@ Deployment reaches into the application in five places. None are large; all are 
 | Attach OIDC ID token to API calls | `apps/*/lib/api.ts` | ~20 lines; skipped locally |
 | Bump local Postgres to match prod major | `docker-compose.yml`, CI | Otherwise migrations are validated against a different engine |
 
+### Frontend image pattern
+
+Established by the Storefront (`apps/storefront/Dockerfile`) and reused by Staff.
+
+- **Build context is the repo root.** The apps transpile workspace packages from `packages/`, and the
+  pnpm lockfile is workspace-wide.
+- **`outputFileTracingRoot` is the workspace root.** pnpm links workspace packages as symlinks, so
+  tracing rooted at the app directory silently omits their real files. It builds cleanly and fails at
+  container start with `MODULE_NOT_FOUND` — the reason acceptance for these images is "boots and serves",
+  not "builds". The tracing root also sets the standalone entrypoint: `apps/<app>/server.js`.
+- **`NEXT_PUBLIC_*` are build arguments.** `next build` inlines them into the client bundle; supplying
+  them at runtime leaves them empty. Cloud Build must pass them with `--build-arg`, not the Cloud Run
+  service. Server-only configuration (`API_URL`) stays a runtime environment variable.
+
 ## Bucket CORS
 
 `ObjectStorage.PresignPut` means the **browser** uploads directly to the bucket

@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down test test-integration ci migrate swagger api-client openapi openapi-sync-check
+.PHONY: dev down prod prod-down test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check
 
 export GOTOOLCHAIN := local
 
@@ -39,6 +39,11 @@ test:
 
 test-integration:
 	cd backend && go test ./integration/...
+
+# Browser smoke tests against the production-parity stack. Requires `make prod`
+# to be up: these run against the shipped container images, not dev servers.
+test-parity:
+	pnpm --filter @ticket-pos/e2e test:parity
 
 ci:
 	cd backend && go test ./... && go vet ./...
