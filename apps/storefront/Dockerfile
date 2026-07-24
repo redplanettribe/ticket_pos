@@ -11,7 +11,7 @@
 # runtime environment variable has no effect - the value would be empty in the
 # shipped bundle.
 
-FROM node:22-alpine AS base
+FROM node:26-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
@@ -49,7 +49,7 @@ RUN pnpm --filter @ticket-pos/storefront exec next build
 # Standalone output is laid out relative to outputFileTracingRoot (the
 # workspace root), so the server entrypoint is apps/storefront/server.js and
 # the traced workspace packages sit alongside it under packages/.
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
