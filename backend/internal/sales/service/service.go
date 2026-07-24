@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base32"
 	"errors"
 	"strings"
@@ -50,16 +51,34 @@ type ImportResult struct {
 	Replayed  bool   `json:"replayed"`
 }
 
-// Service implements sales business rules.
-type Service struct {
-	repo  *repository.Repository
-	email platform.EmailSender
-	now   func() time.Time
+// CustomerService is what sales needs from Customer identity, and it is
+// implemented by the customers service: cross-module calls go through services,
+// never repositories, so email normalisation and Confirmation Link policy both
+// live on the far side of this seam and every Sales Channel gets the same rules.
+type CustomerService interface {
+	// UpsertForSale creates or reuses the platform-global Customer for a Ticket
+	// Sale and returns the Customer id, inside the transaction that records the
+	// sale.
+	UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, now time.Time) (string, error)
+	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
+	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
+	// when it has no schedule; how long the link then lives is the customers
+	// module's decision, not this one's.
+	ConfirmationLinkURL(ticketSaleID string, eventEnd time.Time) (string, error)
 }
 
-// New returns a sales service.
-func New(repo *repository.Repository, email platform.EmailSender) *Service {
-	return &Service{repo: repo, email: email, now: time.Now}
+// Service implements sales business rules.
+type Service struct {
+	repo      *repository.Repository
+	customers CustomerService
+	email     platform.EmailSender
+	now       func() time.Time
+}
+
+// New returns a sales service. The customers service is required: every Ticket
+// Sale, on every Sales Channel, creates or reuses a Customer.
+func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender) *Service {
+	return &Service{repo: repo, customers: customers, email: email, now: time.Now}
 }
 
 // WithClock overrides the clock (tests).
@@ -72,20 +91,23 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // Ticket Sale with one Line, capacity decrements atomically, and each customer is
 // emailed a Sale Confirmation. The batch is all-or-nothing and idempotent.
 func (s *Service) CommitImport(ctx context.Context, actor ActorContext, eventID string, input CommitImportInput) (*ImportResult, error) {
-	eventName, ok, err := s.repo.GetEventName(ctx, actor.OrganizationID, eventID)
+	// The Event's schedule is loaded, not just its name: each Sale Confirmation
+	// carries a Confirmation Link whose lifetime is derived from when the Event
+	// finishes.
+	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, sales.ErrEventNotFound()
 	}
-	return s.commit(ctx, actor, eventID, eventName, input.Source, input.IdempotencyKey, input.Sales)
+	return s.commit(ctx, actor, eventID, event, input.Source, input.IdempotencyKey, input.Sales)
 }
 
 // commit records the prepared sales as one all-or-nothing, idempotent batch and
 // emails a Sale Confirmation per newly-recorded sale. It is the shared core of
 // the JSON and file commit paths.
-func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, eventName, source, idempotencyKey string, saleRows []ImportSaleInput) (*ImportResult, error) {
+func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string, event *repository.EventImportContext, source, idempotencyKey string, saleRows []ImportSaleInput) (*ImportResult, error) {
 	commitSales := make([]repository.CommitSale, 0, len(saleRows))
 	for _, row := range saleRows {
 		ref, err := generateConfirmationRef()
@@ -115,6 +137,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, event
 		IdempotencyKey:    idempotencyKey,
 		Sales:             commitSales,
 		Now:               s.now(),
+		UpsertCustomer:    s.customers.UpsertForSale,
 	})
 	if err != nil {
 		return nil, mapCommitError(err)
@@ -127,19 +150,39 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID, event
 		Replayed:  batch.Replayed,
 	}
 
-	// A replay records nothing new, so it must not re-send confirmations.
+	// A replay records nothing new, so it must not re-send confirmations. The
+	// loop is over what was actually written rather than what was prepared,
+	// because a Confirmation Link names a Ticket Sale by its database id and
+	// that id does not exist until the batch commits.
 	if !batch.Replayed {
-		for _, cs := range commitSales {
+		for _, rs := range batch.Recorded {
 			_ = s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
-				To:           cs.CustomerEmail,
-				CustomerName: displayName(cs.CustomerFirstName, cs.CustomerLastName),
-				EventName:    eventName,
-				Reference:    cs.ConfirmationRef,
+				To:               rs.CustomerEmail,
+				CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
+				EventName:        event.Name,
+				Reference:        rs.ConfirmationRef,
+				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
 			})
 		}
 	}
 
 	return result, nil
+}
+
+// confirmationLink mints the Confirmation Link for a recorded Ticket Sale, or
+// returns empty if it cannot.
+//
+// The only way signing fails is a service with no key, which NewApp refuses to
+// build in production — so this is unreachable in a correctly deployed system.
+// It degrades rather than propagates because the Ticket Sale is already recorded
+// and committed by this point: a Sale Confirmation without its link is worth far
+// more to the Customer than no email at all.
+func (s *Service) confirmationLink(ticketSaleID string, eventEnd time.Time) string {
+	link, err := s.customers.ConfirmationLinkURL(ticketSaleID, eventEnd)
+	if err != nil {
+		return ""
+	}
+	return link
 }
 
 // ImportHistoryEntry is one committed Sale Import batch in an Event's history.
@@ -451,7 +494,7 @@ type dupKey struct {
 
 func makeDupKey(email, typeID string, soldAt time.Time, loc *time.Location) dupKey {
 	return dupKey{
-		email:  strings.ToLower(strings.TrimSpace(email)),
+		email:  platform.NormalizeEmail(email),
 		typeID: typeID,
 		date:   soldAt.In(loc).Format("2006-01-02"),
 	}
@@ -523,7 +566,7 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 		})
 	}
 
-	result, err := s.commit(ctx, actor, eventID, event.Name, input.Source, input.IdempotencyKey, saleRows)
+	result, err := s.commit(ctx, actor, eventID, event, input.Source, input.IdempotencyKey, saleRows)
 	if err != nil {
 		return nil, nil, err
 	}

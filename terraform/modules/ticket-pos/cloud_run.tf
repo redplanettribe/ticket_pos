@@ -259,6 +259,38 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.email_from
       }
 
+      # The Storefront origin every Confirmation Link points at. Same source as
+      # the Storefront's own metadataBase, and set here rather than derived from
+      # the Storefront service's URI, which would make the two services depend on
+      # each other. Empty until a custom domain is mapped.
+      env {
+        name  = "STOREFRONT_BASE_URL"
+        value = var.storefront_domain != null ? "https://${var.storefront_domain}" : ""
+      }
+
+      # The platform-wide cap on passcode emails per window — the control that
+      # still holds when an attacker's per-key identity is unreliable. Wired here
+      # so it can be retuned mid-incident by editing a variable, rather than
+      # needing a code deploy at exactly the wrong moment. Empty means "use the
+      # API's own default"; the API treats a blank value as unset and only
+      # rejects a malformed or non-positive one.
+      env {
+        name  = "OTP_GLOBAL_CEILING"
+        value = var.otp_global_ceiling != null ? tostring(var.otp_global_ceiling) : ""
+      }
+
+      # Required, not optional: without it the API refuses to start in production
+      # rather than sign Confirmation Links with a default (confirmation_link.tf).
+      env {
+        name = "CONFIRMATION_LINK_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.confirmation_link_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+
       # Mounted only when a Resend key version exists (email.tf). Absent, the API
       # falls back to the logging sender — so this env appearing is precisely what
       # switches production email on. Referencing "latest" when no version existed
@@ -304,6 +336,8 @@ resource "google_cloud_run_v2_service" "api" {
     google_secret_manager_secret_iam_member.api_database_url,
     google_secret_manager_secret_iam_member.api_storage_access_key,
     google_secret_manager_secret_iam_member.api_storage_secret_key,
+    google_secret_manager_secret_version.confirmation_link_secret,
+    google_secret_manager_secret_iam_member.api_confirmation_link_secret,
   ]
 
   lifecycle {

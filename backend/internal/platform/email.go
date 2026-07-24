@@ -13,6 +13,12 @@ type SaleConfirmation struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// ConfirmationLink opens this one Ticket Sale on the Storefront without
+	// signing in. It is the path most Customers will ever take back to their
+	// purchase: no form, no passcode, no typing. Empty only if the link could not
+	// be signed, in which case the receipt still goes out — a missing link is
+	// worth less than no email at all.
+	ConfirmationLink string
 }
 
 // SaleVoided is the cancellation notice emailed to a Customer when a Ticket Sale
@@ -48,8 +54,11 @@ func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string) 
 }
 
 // SendSaleConfirmation logs the Sale Confirmation for local development and testing.
+// The Confirmation Link is logged alongside the reference for the same reason
+// the OTP code is: locally there is no mailbox, and the link is the whole point
+// of the email.
 func (s *LoggingEmailSender) SendSaleConfirmation(_ context.Context, c SaleConfirmation) error {
-	s.Logger.Info("sale confirmation sent", "email", c.To, "reference", c.Reference, "event", c.EventName)
+	s.Logger.Info("sale confirmation sent", "email", c.To, "reference", c.Reference, "event", c.EventName, "confirmation_link", c.ConfirmationLink)
 	return nil
 }
 
@@ -83,6 +92,7 @@ type CaptureEmailSender struct {
 	mu                sync.Mutex
 	LastTo            string
 	LastCode          string
+	otpSends          int
 	SaleConfirmations []SaleConfirmation
 	VoidedSales       []SaleVoided
 }
@@ -93,6 +103,7 @@ func (s *CaptureEmailSender) SendOTP(_ context.Context, to string, code string) 
 	defer s.mu.Unlock()
 	s.LastTo = to
 	s.LastCode = code
+	s.otpSends++
 	return nil
 }
 
@@ -130,12 +141,22 @@ func (s *CaptureEmailSender) Voided() []SaleVoided {
 	return out
 }
 
+// OTPSendCount returns how many passcode emails were delivered. Tests that care
+// about a send being suppressed assert on this rather than on the last code,
+// which a refused request leaves untouched either way.
+func (s *CaptureEmailSender) OTPSendCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.otpSends
+}
+
 // Reset clears captured email between tests.
 func (s *CaptureEmailSender) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.LastTo = ""
 	s.LastCode = ""
+	s.otpSends = 0
 	s.SaleConfirmations = nil
 	s.VoidedSales = nil
 }

@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
+import { clientIpHeaders } from "@/lib/client-ip";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    // The per-IP OTP limit counts whatever we send here, so this must be
+    // derived (see lib/client-ip.ts) and never forwarded from the browser.
     const envelope = await callBackend<{ message: string }>("/api/v1/auth/otp/request", {
       method: "POST",
       body: JSON.stringify(body),
-      headers: {
-        "X-Forwarded-For": request.headers.get("x-forwarded-for") ?? "",
-      },
+      headers: clientIpHeaders(request.headers),
     });
     return NextResponse.json(envelope);
   } catch (error) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,11 +15,15 @@ import (
 	cataloghandler "github.com/peter/ticket_pos/backend/internal/catalog/handler"
 	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
+	customershandler "github.com/peter/ticket_pos/backend/internal/customers/handler"
+	customersrepo "github.com/peter/ticket_pos/backend/internal/customers/repository"
+	customerssvc "github.com/peter/ticket_pos/backend/internal/customers/service"
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
+	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 	saleshandler "github.com/peter/ticket_pos/backend/internal/sales/handler"
 	salesrepo "github.com/peter/ticket_pos/backend/internal/sales/repository"
@@ -27,19 +32,23 @@ import (
 
 // App holds wired application dependencies.
 type App struct {
-	Config          platform.Config
-	Logger          *slog.Logger
-	DB              *platform.DB
-	EmailSender     platform.EmailSender
-	IdentityRepo    *identityrepo.Repository
-	IdentityService *identitysvc.Service
-	IdentityHandler *identityhandler.Handler
-	CatalogRepo     *catalogrepo.Repository
-	CatalogService  *catalogsvc.Service
-	CatalogHandler  *cataloghandler.Handler
-	SalesRepo       *salesrepo.Repository
-	SalesService    *salessvc.Service
-	SalesHandler    *saleshandler.Handler
+	Config           platform.Config
+	Logger           *slog.Logger
+	DB               *platform.DB
+	EmailSender      platform.EmailSender
+	OTPService       *otp.Service
+	IdentityRepo     *identityrepo.Repository
+	IdentityService  *identitysvc.Service
+	IdentityHandler  *identityhandler.Handler
+	CatalogRepo      *catalogrepo.Repository
+	CatalogService   *catalogsvc.Service
+	CatalogHandler   *cataloghandler.Handler
+	SalesRepo        *salesrepo.Repository
+	SalesService     *salessvc.Service
+	SalesHandler     *saleshandler.Handler
+	CustomersRepo    *customersrepo.Repository
+	CustomersService *customerssvc.Service
+	CustomersHandler *customershandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -108,9 +117,19 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		}
 	}
 
+	// One OTP service is shared by every consumer; each names its own purpose
+	// when issuing and verifying, so the challenges never mix.
+	//
+	// It also carries the global outbound ceiling, which spans both purposes:
+	// it exists to protect one shared sending domain, not to be fair between
+	// surfaces (ADR 0009, PRD decision 12).
+	otpService := otp.New(otp.NewRepository(db), emailSender, platformLogger).
+		WithGlobalCeiling(cfg.OTPGlobalCeiling)
+	platformLogger.Info("otp global ceiling", "sends_per_window", otpService.GlobalCeiling())
+
 	identityRepo := identityrepo.New(db)
 	catalogRepo := catalogrepo.New(db)
-	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, emailSender, platformLogger)
+	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, otpService, platformLogger)
 	if options.clock != nil {
 		identityService = identityService.WithClock(options.clock)
 	}
@@ -122,27 +141,54 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	catalogHandler := cataloghandler.New(catalogService)
 
+	confirmationLinkSecret, err := confirmationLinkSecret(cfg, platformLogger)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	// A Confirmation Link is only as useful as the origin it points at. Losing
+	// the link entirely would be worse than a wrong host, so this warns rather
+	// than refuses — but it must not pass silently either.
+	if cfg.AppEnv == "production" && cfg.StorefrontBaseURL == platform.DevStorefrontBaseURL {
+		platformLogger.Warn("storefront base url: falling back to the development origin (no STOREFRONT_BASE_URL set); Confirmation Links will point at localhost")
+	}
+
+	customersRepo := customersrepo.New(db)
+	customersService := customerssvc.New(customersRepo, otpService, platformLogger, customerssvc.ConfirmationLinkConfig{
+		Secret:            confirmationLinkSecret,
+		StorefrontBaseURL: cfg.StorefrontBaseURL,
+	})
+	if options.clock != nil {
+		customersService = customersService.WithClock(options.clock)
+	}
+	customersHandler := customershandler.New(customersService)
+
 	salesRepo := salesrepo.New(db)
-	salesService := salessvc.New(salesRepo, emailSender)
+	salesService := salessvc.New(salesRepo, customersService, emailSender)
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)
 	}
 	salesHandler := saleshandler.New(salesService)
 
 	return &App{
-		Config:          cfg,
-		Logger:          logger,
-		DB:              db,
-		EmailSender:     emailSender,
-		IdentityRepo:    identityRepo,
-		IdentityService: identityService,
-		IdentityHandler: identityHandler,
-		CatalogRepo:     catalogRepo,
-		CatalogService:  catalogService,
-		CatalogHandler:  catalogHandler,
-		SalesRepo:       salesRepo,
-		SalesService:    salesService,
-		SalesHandler:    salesHandler,
+		Config:           cfg,
+		Logger:           logger,
+		DB:               db,
+		EmailSender:      emailSender,
+		OTPService:       otpService,
+		IdentityRepo:     identityRepo,
+		IdentityService:  identityService,
+		IdentityHandler:  identityHandler,
+		CatalogRepo:      catalogRepo,
+		CatalogService:   catalogService,
+		CatalogHandler:   catalogHandler,
+		SalesRepo:        salesRepo,
+		SalesService:     salesService,
+		SalesHandler:     salesHandler,
+		CustomersRepo:    customersRepo,
+		CustomersService: customersService,
+		CustomersHandler: customersHandler,
 	}, nil
 }
 
@@ -161,6 +207,34 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 	}
 	logger.Info("email sender: logging (no RESEND_API_KEY set)")
 	return &platform.LoggingEmailSender{Logger: logger}
+}
+
+// confirmationLinkSecret resolves the key every Confirmation Link is signed
+// with.
+//
+// In production a missing key is a startup failure. That is deliberate and it is
+// the second place the check appears — LoadConfig refuses the same thing — so a
+// Config assembled in code rather than read from the environment cannot slip
+// past it. The alternative, signing with a constant baked into the binary, would
+// mean anyone with a copy of the source could mint a link to any Ticket Sale.
+//
+// Everywhere else — local development, the parity stack, tests — an ephemeral
+// random key is generated per process and the fact is logged. Links then stop
+// working across a restart, which is the correct nuisance: it is visible
+// immediately and cannot be mistaken for a shared default.
+func confirmationLinkSecret(cfg platform.Config, logger platform.Logger) ([]byte, error) {
+	if secret := strings.TrimSpace(cfg.ConfirmationLinkSecret); secret != "" {
+		return []byte(secret), nil
+	}
+	if cfg.AppEnv == "production" {
+		return nil, fmt.Errorf("CONFIRMATION_LINK_SECRET is required in production")
+	}
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, fmt.Errorf("generate development confirmation link secret: %w", err)
+	}
+	logger.Warn("confirmation link secret: generated for this process (no CONFIRMATION_LINK_SECRET set); links will not survive a restart")
+	return secret, nil
 }
 
 func newObjectStorage(cfg platform.Config) (storage.ObjectStorage, error) {

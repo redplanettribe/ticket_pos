@@ -29,19 +29,22 @@ graph TB
         CAT[catalog]
         SAL[sales]
         ID[identity]
+        CUS[customers]
         INT[integrations]
         API --> CAT
         API --> SAL
         API --> ID
+        API --> CUS
         API --> INT
     end
     DB[(PostgreSQL)]
-    SF -->|public routes| API
+    SF -->|public + customer routes| API
     ST -->|staff routes| API
     IP -->|integration routes| API
     CAT --> DB
     SAL --> DB
     ID --> DB
+    CUS --> DB
     INT --> DB
 ```
 
@@ -59,7 +62,7 @@ graph TB
 | API style | REST + OpenAPI 3, versioned at `/api/v1/...` |
 | Staff auth | Email OTP → Postgres session → httpOnly cookie; Staff app is a BFF; open signup with create-org onboarding |
 | Integration auth | API keys or OAuth2 client credentials on Go API (separate from staff sessions) |
-| Customer auth | Guest checkout at launch |
+| Customer auth | Platform-global Customer, created for the person rather than by them; email OTP or a signed Confirmation Link → Postgres Customer Session → httpOnly cookie; Storefront is a BFF. Separate from staff identity (ADR 0010) |
 | Payments | Provider-agnostic boundary; no vendor chosen |
 | Email (OTP) | Pluggable `EmailSender`; dummy provider logs codes to terminal in dev |
 | Capacity accounting | Atomic decrement in Postgres transactions; row locks for multi-type sales |
@@ -81,6 +84,7 @@ ticket_pos/
       catalog/
       sales/
       identity/
+      customers/
       integrations/
       platform/
     migrations/
@@ -135,9 +139,10 @@ backend/
   internal/
     catalog/       # Events, Ticket Types
     sales/         # Online, in-person, and import sales; capacity logic
-    identity/      # Organizations, members, roles, OTP, sessions
+    identity/      # Organizations, members, roles, Staff Sessions
+    customers/     # Customer records, Customer Sessions, Confirmation Links, Customer Area reads
     integrations/  # Partner credentials and integration route wiring
-    platform/      # DB pool, tx helpers, httputil (envelope + error mapping), tenancy middleware, Logger
+    platform/      # DB pool, tx helpers, httputil (envelope + error mapping), tenancy middleware, OTP, Logger
   migrations/      # Plain SQL migration files
 ```
 
@@ -230,12 +235,13 @@ When one Ticket Sale spans multiple Ticket Types (a cart with several Ticket Sal
 ### REST + OpenAPI 3
 
 The OpenAPI spec in `openapi/` is the **contract source of truth**.
-It covers all three route groups on the same domain model.
+It covers all four route groups on the same domain model.
 
 | Route group | Prefix (illustrative) | Used by | Auth |
 |-------------|----------------------|---------|------|
 | **Public** | `/api/v1/public/...` | Storefront | None (org resolved from URL slug) |
 | **Staff** | `/api/v1/staff/...` | Staff BFF | Staff session |
+| **Customer** | `/api/v1/customer/...` | Storefront BFF | Customer Session (none on OTP request/verify and Confirmation Link redemption, where the credential is the request) |
 | **Integration** | `/api/v1/integrations/...` | Integration Partners | API key or OAuth2 client credentials |
 
 ### Versioning
@@ -455,8 +461,25 @@ type EmailSender interface {
 
 ### Customers
 
-- **Guest checkout** at launch.
-- No customer account or login is required to complete an Online Sale.
+- **Guest checkout** at launch: no account is required to complete an Online Sale.
+- A **Customer** record is nevertheless created or reused by *every* Ticket Sale on every Sales
+  Channel, keyed on a normalised, platform-global unique email (ADR 0010). That is where essentially
+  every record comes from; a completed passcode mints one too, on the same email, for someone who
+  signs in before their first purchase. Nobody registers on either path; the account is invisible,
+  and `ticket_sales.customer_id` is `NOT NULL`.
+- Signing in therefore only ever means proving ownership of an email address — almost always one a
+  record already exists for. Two credentials do that, with deliberately different reach:
+  - a **one-time passcode**, which yields a full **Customer Session** (sliding 180 days) spanning
+    every Ticket Sale the Customer owns across every Organization, and is the only thing that sets
+    `verified_at`;
+  - a **Confirmation Link** carried in the **Sale Confirmation** — a stateless token signed with
+    `CONFIRMATION_LINK_SECRET`, valid until its Event ends plus a grace window so it still works at
+    the gate, and minting only a ~24h session scoped to that one Ticket Sale.
+- Customer identity is entirely separate from staff identity: separate tables, separate session
+  records, separate cookies on separate origins. They share only the OTP mechanism, scoped by a
+  `purpose` so a code minted for one surface cannot be redeemed on the other.
+- A record created on someone's behalf is inert until verified: it receives no email beyond the Sale
+  Confirmation its own sale triggered, and cannot be signed into.
 
 ## Client applications
 
@@ -466,6 +489,7 @@ type EmailSender interface {
 - **SEO-first**: event and ticket type pages use SSR/ISR for crawlable content, canonical URLs, and Open Graph metadata.
 - **Path-based tenancy**: `/{orgSlug}/events/{eventSlug}`.
 - Calls the Go API **public** routes.
+- Also acts as a **BFF** for Customer identity: the browser calls only the Storefront's own `/api/customer/...` route handlers, which hold the httpOnly Customer Session cookie and call the Go API **customer** routes (ADR 0008).
 - Hosted on its own runtime (separate from Go and Staff).
 
 Subdomains and custom domains per Organization are deferred.
@@ -621,7 +645,7 @@ The following are explicitly out of scope for this technical design at launch:
 | OAuth / SSO for staff | Email OTP at launch |
 | Kubernetes | Simple deployments until scale requires it |
 | Metrics and distributed tracing | Structured logs + request IDs at launch |
-| Customer accounts | Guest checkout only |
+| Customer preferences, notifications, and profile editing | Customer identity ships read-only (ADR 0010); these hang off a stable Customer id later |
 | Stripe Terminal / in-person card capture | In-person sales recorded in POS; card capture TBD |
 | JSON / async Sale Import | Synchronous `.csv` / `.xlsx` upload at launch |
 | Per-event Integration scope | Org-wide per business intent |

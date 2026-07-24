@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 
+	customersmiddleware "github.com/peter/ticket_pos/backend/internal/customers/middleware"
 	identitymiddleware "github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	platformhandler "github.com/peter/ticket_pos/backend/internal/platform/handler"
 )
@@ -15,6 +16,37 @@ func RegisterRoutes(mux *http.ServeMux, app *App) {
 	registerAuthRoutes(mux, app)
 	registerStaffRoutes(mux, app)
 	registerPublicRoutes(mux, app)
+	registerCustomerRoutes(mux, app)
+}
+
+// registerCustomerRoutes wires the Storefront's Customer identity surface.
+//
+// It shares nothing with the staff routes above but the API version prefix: its
+// own handler, its own service, its own session table, and its own middleware. A
+// Staff Session token presented on these routes authenticates nothing, and a
+// Customer Session token presented on a staff route authenticates nothing
+// (ADR 0010).
+func registerCustomerRoutes(mux *http.ServeMux, app *App) {
+	h := app.CustomersHandler
+	svc := app.CustomersService
+
+	// Sign-in is unauthenticated by definition: these two mint the credential.
+	mux.HandleFunc("POST /api/v1/customer/auth/otp/request", h.RequestOTP)
+	mux.HandleFunc("POST /api/v1/customer/auth/otp/verify", h.VerifyOTP)
+	// The Confirmation Link's token is itself the credential, so this route is
+	// unauthenticated too. It reads Authorization when present, but only to
+	// notice that the caller already holds something wider than a link.
+	mux.HandleFunc("POST /api/v1/customer/auth/confirmation-link", h.RedeemConfirmationLink)
+
+	// signedIn gates a route on a valid Customer Session and extends its sliding
+	// window. Everything behind it is scoped to the Customer on that session.
+	signedIn := customersmiddleware.RequireCustomerSession(svc)
+
+	mux.Handle("GET /api/v1/customer/auth/session", signedIn(http.HandlerFunc(h.GetSession)))
+	mux.Handle("POST /api/v1/customer/auth/logout", signedIn(http.HandlerFunc(h.Logout)))
+	// The Customer Area read. There is deliberately no Customer, email, or
+	// Organization in this path: the session is the only scope.
+	mux.Handle("GET /api/v1/customer/ticket-sales", signedIn(http.HandlerFunc(h.ListTicketSales)))
 }
 
 func registerPublicRoutes(mux *http.ServeMux, app *App) {

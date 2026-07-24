@@ -92,6 +92,13 @@ services:
       S3_SECRET_KEY: minio123
       S3_BUCKET: ticket-pos
       S3_REGION: us-east-1
+      # APP_ENV=production above means the API refuses to start without a
+      # Confirmation Link signing key. A fixed, obviously-fake value keeps the
+      # parity stack reproducible; it is not a secret and must never be a real
+      # one, which is exactly why it is spelled out here rather than defaulted.
+      CONFIRMATION_LINK_SECRET: parity-stack-not-a-real-secret
+      # Where the parity Storefront answers, so Confirmation Links are followable.
+      STOREFRONT_BASE_URL: http://localhost:64603
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 5s

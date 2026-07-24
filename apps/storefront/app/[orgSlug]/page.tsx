@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Breadcrumb, PageHeader, StorefrontShell } from "@ticket-pos/ui";
 
 import { EmptyState, EventGrid } from "@/components/event-grid";
+import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { getOrganizationEvents } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,11 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
   const { organization, upcoming, past } = data;
 
   return (
-    <StorefrontShell organizationName={organization.name} organizationLogoUrl={organization.logo_url}>
+    <StorefrontShell
+      organizationName={organization.name}
+      organizationLogoUrl={organization.logo_url}
+      customerNav={<HeaderCustomerNav />}
+    >
       <div className="mx-auto w-full max-w-6xl space-y-10 px-4 py-10 sm:py-12">
         <Breadcrumb
           items={[{ label: "Discover events", href: "/" }, { label: organization.name }]}

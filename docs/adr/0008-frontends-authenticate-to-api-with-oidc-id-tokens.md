@@ -21,6 +21,13 @@ addresses object storage rather than the API.
   container, which leaves `Authorization` carrying the end-user session token the API already reads.
   Putting the ID token in `Authorization` would satisfy IAM and break every authenticated endpoint.
 - The API's own session and role authorization is unchanged. This is defence in depth, not the only lock.
+- **The API can trust a header set by a BFF, and only for that reason.** Rate limiting needs the end
+  user's IP, and `X-Forwarded-For` cannot supply it: Google's frontend appends to whatever the caller
+  sent, so a browser controls the leftmost entry. The API therefore ignores forwarding headers entirely
+  and reads `X-BFF-Client-IP`, which each BFF derives from the forwarding chain and sets itself. That
+  header is worth believing only because no browser can reach the API at all — remove the invoker
+  requirement above and it becomes forgeable. A BFF must never forward the browser's copy of any
+  forwarding header.
 - **Integration Partner endpoints cannot be served by this service.** Cloud Run IAM is per-service, not
   per-path, and a load balancer cannot mint ID tokens. Partner access requires a second Cloud Run service
   from the same image, unauthenticated, behind an external load balancer — with a route profile so it

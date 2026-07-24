@@ -7,29 +7,14 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 )
 
-type domainError struct {
-	code    string
-	message string
-	details any
-}
-
-func (e *domainError) Error() string   { return e.message }
-func (e *domainError) Code() string    { return e.code }
-func (e *domainError) Message() string { return e.message }
-func (e *domainError) Details() any    { return e.details }
-
-func newDomainError(code, message string, details any) apperror.DomainError {
-	return &domainError{code: code, message: message, details: details}
-}
-
 // ErrEventNotFound is returned when the target Event does not exist in the active Organization.
 func ErrEventNotFound() apperror.DomainError {
-	return newDomainError("EVENT_NOT_FOUND", "Event not found.", nil)
+	return apperror.New("EVENT_NOT_FOUND", "Event not found.", nil)
 }
 
 // ErrTicketTypeNotFound is returned when a row references a Ticket Type not on the Event.
 func ErrTicketTypeNotFound(ticketTypeID string) apperror.DomainError {
-	return newDomainError("TICKET_TYPE_NOT_FOUND", "Ticket Type not found on this Event.", map[string]any{
+	return apperror.New("TICKET_TYPE_NOT_FOUND", "Ticket Type not found on this Event.", map[string]any{
 		"ticket_type_id": ticketTypeID,
 	})
 }
@@ -40,7 +25,7 @@ func ErrTicketTypeNotFound(ticketTypeID string) apperror.DomainError {
 // parser; it becomes the message the organizer sees so both the preview UI and
 // any API consumer get the specific dead-end without translating error codes.
 func ErrImportFileUnreadable(reason string) apperror.DomainError {
-	return newDomainError("IMPORT_FILE_INVALID", reason, map[string]any{
+	return apperror.New("IMPORT_FILE_INVALID", reason, map[string]any{
 		"reason": reason,
 	})
 }
@@ -48,7 +33,7 @@ func ErrImportFileUnreadable(reason string) apperror.DomainError {
 // ErrImportFileTooLarge is returned when an uploaded Sale Import file exceeds the
 // per-batch row limit. The message states the limit; details carries it too.
 func ErrImportFileTooLarge(limit int) apperror.DomainError {
-	return newDomainError("IMPORT_FILE_TOO_LARGE", fmt.Sprintf("Import file has too many rows. The maximum is %d rows per import.", limit), map[string]any{
+	return apperror.New("IMPORT_FILE_TOO_LARGE", fmt.Sprintf("Import file has too many rows. The maximum is %d rows per import.", limit), map[string]any{
 		"limit": limit,
 	})
 }
@@ -56,7 +41,7 @@ func ErrImportFileTooLarge(limit int) apperror.DomainError {
 // ErrImportBatchNotFound is returned when the target Sale Import batch does not
 // exist on the Event.
 func ErrImportBatchNotFound(batchID string) apperror.DomainError {
-	return newDomainError("IMPORT_BATCH_NOT_FOUND", "Sale Import batch not found on this Event.", map[string]any{
+	return apperror.New("IMPORT_BATCH_NOT_FOUND", "Sale Import batch not found on this Event.", map[string]any{
 		"batch_id": batchID,
 	})
 }
@@ -64,7 +49,7 @@ func ErrImportBatchNotFound(batchID string) apperror.DomainError {
 // ErrImportNotLatestBatch is returned when an undo targets a batch that is not
 // the most recent one on the Event. Only the latest batch is reversible.
 func ErrImportNotLatestBatch(batchID string) apperror.DomainError {
-	return newDomainError("IMPORT_NOT_LATEST_BATCH", "Only the most recent Sale Import can be undone.", map[string]any{
+	return apperror.New("IMPORT_NOT_LATEST_BATCH", "Only the most recent Sale Import can be undone.", map[string]any{
 		"batch_id": batchID,
 	})
 }
@@ -72,7 +57,7 @@ func ErrImportNotLatestBatch(batchID string) apperror.DomainError {
 // ErrImportAlreadyReversed is returned when an undo targets a batch that has
 // already been reversed. Reversal is not repeatable.
 func ErrImportAlreadyReversed(batchID string) apperror.DomainError {
-	return newDomainError("IMPORT_ALREADY_REVERSED", "This Sale Import has already been undone.", map[string]any{
+	return apperror.New("IMPORT_ALREADY_REVERSED", "This Sale Import has already been undone.", map[string]any{
 		"batch_id": batchID,
 	})
 }
@@ -85,5 +70,5 @@ func ErrImportBatchFailed(row int, reason string, details map[string]any) apperr
 	for k, v := range details {
 		d[k] = v
 	}
-	return newDomainError("IMPORT_BATCH_FAILED", "Import could not be completed.", d)
+	return apperror.New("IMPORT_BATCH_FAILED", "Import could not be completed.", d)
 }

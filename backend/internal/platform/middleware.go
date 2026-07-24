@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -57,20 +58,54 @@ func newRequestID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// ClientIP returns the best-effort client IP for rate limiting.
+// ClientIPHeader carries the end user's IP address as derived by the BFF that
+// proxied the request. It is deliberately not X-Forwarded-For.
+//
+// Only a Next.js BFF of ours may set it. Do not forward it from an inbound
+// request and do not let a handler read X-Forwarded-For instead — see ClientIP.
+const ClientIPHeader = "X-BFF-Client-IP"
+
+// ClientIP returns the client IP to attribute a request to, for rate limiting.
+//
+// WHY THIS DOES NOT READ X-Forwarded-For — do not "simplify" it back:
+//
+// X-Forwarded-For is client-supplied data. Google's frontend *appends* to any
+// value the caller sent rather than replacing it, and the Cloud Load Balancing
+// documentation states outright that it does not verify anything preceding the
+// entries it adds. So the leftmost entry — the conventional "real client" slot —
+// is whatever the browser typed. Reading it let anyone rotate a fabricated
+// address per request and erase the per-IP OTP allowance entirely. Cloud Run's
+// own documentation does not pin the composition down, so we assume the
+// pessimistic case: attacker-controlled content can be present anywhere to the
+// left of the hops our own infrastructure added.
+//
+// ClientIPHeader is trustworthy where X-Forwarded-For is not, and the reason is
+// not visible in this file: per ADR 0008 the API runs with unauthenticated
+// invocation disabled, so Cloud Run rejects every caller that cannot present an
+// OIDC ID token holding roles/run.invoker. No browser reaches this process. The
+// only senders are the Staff and Storefront BFFs, each of which sets the header
+// itself from the forwarding chain and never forwards a browser's copy.
+//
+// A missing or malformed value falls back to the transport peer address. In
+// production that is Google's frontend, which buckets all traffic together and
+// therefore tightens the limit rather than loosening it; locally, where nothing
+// sets forwarding headers at all, it is the developer's own address, which is
+// the behaviour that has always applied.
 func ClientIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		return strings.TrimSpace(parts[0])
+	if ip := strings.TrimSpace(r.Header.Get(ClientIPHeader)); ip != "" {
+		if net.ParseIP(ip) != nil {
+			return ip
+		}
 	}
-	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
-		return realIP
+	return remoteAddrHost(r.RemoteAddr)
+}
+
+func remoteAddrHost(remoteAddr string) string {
+	addr := strings.TrimSpace(remoteAddr)
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
 	}
-	host := strings.TrimSpace(r.RemoteAddr)
-	if idx := strings.LastIndex(host, ":"); idx > 0 {
-		return host[:idx]
-	}
-	return host
+	return addr
 }
 
 // BearerToken extracts the token from Authorization: Bearer <token>.

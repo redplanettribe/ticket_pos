@@ -70,6 +70,7 @@ Business scenarios in [business-intent.md](./business-intent.md) map to slices a
 | V7 | Org Admin invites members and assigns Event Staff to specific Events | Event Staff delegated catalog + sales on assigned Events | H1–H10 | Partial |
 | V8 | Integration Partner manages events, catalog, and sales via API keys | Partner-managed events scenario | I1–I8, I10 | Not started |
 | V9 | Production email and payment, deploy pipeline, full-path E2E smoke | Success criteria: zero to selling in one session | J1–J7 | Not started |
+| VC | Customer signs in to the Storefront and sees the Ticket Sales they own, or opens one straight from their Sale Confirmation | Buyers get a durable identity; the foundation reminders and preferences hang off | K1–K9 | Done |
 
 ### Milestone groupings
 
@@ -132,6 +133,13 @@ Parity with staff catalog and sales routes, not a separate product surface.
 Real email and payment providers, hosting, and cross-channel E2E smoke.
 Staff dashboard (J7) is nice-to-have before launch, not a blocker for V4–V6.
 
+**VC - Customer login.**
+Lettered rather than numbered because it does not sit in the V0–V9 line: it shipped ahead of the
+online purchase it will eventually attach to, and deliberately so.
+Because *any* Ticket Sale mints a Customer — a Sale Import or a door sale, not only a future
+checkout — the login is useful the day it lands rather than dark code waiting on V5.
+It changes nothing about how a purchase is made.
+
 ---
 
 
@@ -190,13 +198,17 @@ Vertical slice: **V1**.
 | B10 | Onboarding UI (create org when zero memberships)              | Done        |
 | B11 | Organization picker UI (two or more memberships)              | Done        |
 | B12 | Protected staff routes and auth redirects                     | Done        |
-| B13 | OTP rate limiting and attempt lockout                         | Partial     |
+| B13 | OTP rate limiting and attempt lockout                         | Done        |
 | B14 | Sliding 14-day session expiry                                 | Partial     |
 | B15 | Dev seed organization and pre-provisioned member              | Done        |
 | B16 | Auth E2E tests (Playwright)                                   | Not started |
 
 
 Related PRD: [prd-staff-authentication.md](./prd-staff-authentication.md).
+
+B13 covers per-email, per-IP, and verify-attempt limits. It is now exceeded rather than merely met:
+the OTP primitive moved to a platform package with a `purpose` scope and a platform-wide outbound
+ceiling when Customer login landed (section K).
 
 ---
 
@@ -395,6 +407,38 @@ Platform spine items map to **V0**; staff auth hardening maps to **V1**.
 
 
 
+## K. Customer identity (Storefront login)
+
+Vertical slice: **VC**.
+
+Reverses the earlier "guest checkout only" stance: a **Customer** is now a real, platform-global
+record created *by* the sale rather than by a signup form, and buyers can prove they own it.
+Nothing here changes checkout — guest purchase remains, and V5 is unaffected.
+
+
+| #   | Feature                                                                    | Status |
+| --- | -------------------------------------------------------------------------- | ------ |
+| K1  | Trusted client IP through the BFFs (fixes a live per-IP rate-limit bypass)  | Done   |
+| K2  | OTP primitive extracted to a platform package with a `purpose` scope        | Done   |
+| K3  | Platform-wide outbound OTP ceiling and its operational signal               | Done   |
+| K4  | `customers` schema; every Ticket Sale creates or reuses a Customer          | Done   |
+| K5  | Customer OTP sign-in and the Customer Session (sliding 180 days)            | Done   |
+| K6  | Customer Area read: upcoming and past Ticket Sales across all Organizations | Done   |
+| K7  | Storefront sign-in page, Customer Area, and header sign-in state            | Done   |
+| K8  | Confirmation Link in every Sale Confirmation (sale-scoped, short session)   | Done   |
+| K9  | Customer auth E2E (Playwright)                                             | Not started |
+
+
+Related PRD: [prd-customer-login.md](./prd-customer-login.md). Identity model: [ADR 0010](./adr/0010-customer-identity-platform-global-and-separate-from-staff.md).
+
+K9 is deferred deliberately: B16 (staff auth E2E) is still not started, so there is no auth E2E
+pattern to follow yet.
+
+
+---
+
+
+
 ## Out of scope (not on this roadmap)
 
 The following are explicitly deferred per business intent and technical design.
@@ -404,7 +448,6 @@ The following are explicitly deferred per business intent and technical design.
 | ----------------------------------------------------------------------------- | ----------------------------------------- |
 | Per-event Integration scope                                                   | Org-wide at launch                        |
 | Different permission sets for Org Admin, Event Owner, and Integration Partner | Equivalent at launch                      |
-| Customer accounts                                                             | Guest checkout only                       |
 | Ticket tier as separate from Ticket Type                                      | Same concept; use Ticket Type only        |
 | Informational-only sale imports                                               | All imports count against capacity        |
 | JSON or async sale import                                                     | CSV and synchronous at launch             |

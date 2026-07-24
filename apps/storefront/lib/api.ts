@@ -1,6 +1,7 @@
-type APIEnvelope<T> = {
+export type APIEnvelope<T> = {
   data: T | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; details?: unknown } | null;
+  request_id?: string;
 };
 
 function apiBaseUrl(): string {
@@ -115,6 +116,72 @@ async function serviceIdToken(): Promise<string | null> {
 async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
   const token = await serviceIdToken();
   return token ? { "X-Serverless-Authorization": `Bearer ${token}` } : undefined;
+}
+
+/**
+ * APIError carries a failed envelope from the Go API so a route handler can
+ * relay the API's own `error.code` and `error.message` to the browser instead of
+ * inventing copy (docs/design/README.md: show API messages faithfully).
+ */
+export class APIError extends Error {
+  code: string;
+  details?: unknown;
+  requestId: string;
+  status: number;
+
+  constructor(status: number, error: NonNullable<APIEnvelope<unknown>["error"]>, requestId: string) {
+    super(error.message);
+    this.code = error.code;
+    this.details = error.details;
+    this.requestId = requestId;
+    this.status = status;
+  }
+}
+
+/**
+ * callBackend proxies one request to the Go API and returns its envelope,
+ * throwing APIError when the call failed.
+ *
+ * It is the counterpart of the read-only fetchData below: fetchData degrades a
+ * failure to an empty page, which is right for anonymous browsing and wrong for
+ * sign-in, where the visitor must be told exactly why a passcode was rejected.
+ *
+ * `sessionToken` is the Customer Session token held in this app's httpOnly
+ * cookie. It goes in Authorization; the service credential goes in
+ * X-Serverless-Authorization, and the two never displace each other (ADR 0008).
+ */
+export async function callBackend<T>(
+  path: string,
+  init: RequestInit & { sessionToken?: string } = {},
+): Promise<APIEnvelope<T>> {
+  const headers = new Headers(init.headers);
+  if (!headers.has("Content-Type") && init.body) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (init.sessionToken) {
+    headers.set("Authorization", `Bearer ${init.sessionToken}`);
+  }
+  if (!headers.has("X-Request-ID")) {
+    headers.set("X-Request-ID", crypto.randomUUID());
+  }
+  const serviceHeaders = new Headers(await serviceAuthHeaders());
+  serviceHeaders.forEach((value, key) => headers.set(key, value));
+
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    ...init,
+    cache: "no-store",
+    headers,
+  });
+
+  const envelope = (await response.json()) as APIEnvelope<T>;
+  if (!response.ok || envelope.error) {
+    throw new APIError(
+      response.status,
+      envelope.error ?? { code: "INTERNAL_ERROR", message: "Request failed" },
+      envelope.request_id ?? crypto.randomUUID(),
+    );
+  }
+  return envelope;
 }
 
 export type PublicOrganization = {

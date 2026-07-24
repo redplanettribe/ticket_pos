@@ -81,12 +81,26 @@ func WriteDomainError(w http.ResponseWriter, requestID string, err error) error 
 
 func domainHTTPStatus(code string) int {
 	switch code {
-	case "OTP_RATE_LIMITED", "OTP_ATTEMPTS_EXCEEDED":
+	// OTP_GLOBAL_CEILING_REACHED shares the status with the per-key limits but
+	// never the code: same "come back later" for the caller, a different signal
+	// entirely for whoever is reading the logs.
+	case "OTP_RATE_LIMITED", "OTP_ATTEMPTS_EXCEEDED", "OTP_GLOBAL_CEILING_REACHED":
 		return http.StatusTooManyRequests
 	case "OTP_INVALID", "OTP_EXPIRED":
 		return http.StatusUnauthorized
 	case "SESSION_NOT_FOUND", "SESSION_EXPIRED":
 		return http.StatusUnauthorized
+	// A Customer Session failing is reported with its own codes: it is an
+	// unrelated record on an unrelated surface to a Staff Session (ADR 0010).
+	case "CUSTOMER_SESSION_NOT_FOUND", "CUSTOMER_SESSION_EXPIRED":
+		return http.StatusUnauthorized
+	// A Confirmation Link is a credential, so a bad or spent one is 401 for the
+	// same reason a bad passcode is: the caller failed to prove anything.
+	case "CONFIRMATION_LINK_INVALID", "CONFIRMATION_LINK_EXPIRED":
+		return http.StatusUnauthorized
+	// No signing key configured is a deployment fault, not the caller's.
+	case "CONFIRMATION_LINK_UNAVAILABLE":
+		return http.StatusInternalServerError
 	case "FORBIDDEN":
 		return http.StatusForbidden
 	case "NOT_FOUND", "ORGANIZATION_NOT_FOUND", "MEMBER_NOT_FOUND", "EVENT_NOT_FOUND":

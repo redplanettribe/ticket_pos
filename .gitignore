@@ -41,11 +41,16 @@ coverage/
 *.tfstate
 *.tfstate.*
 *.tfplan
+# Rover output (plan JSON embeds state, secrets included)
+**/.rover/
 crash.log
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Agent worktrees (checkouts of this same repo, never content of their own)
+.claude/worktrees/
 
 # Playwright
 e2e/test-results/

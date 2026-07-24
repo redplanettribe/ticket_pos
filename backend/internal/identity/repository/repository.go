@@ -19,18 +19,6 @@ const (
 	RoleEventStaff MemberRole = "event_staff"
 )
 
-// OTPChallenge is a stored OTP verification challenge.
-type OTPChallenge struct {
-	ID          string
-	Email       string
-	CodeHash    string
-	RequestIP   string
-	ExpiresAt   time.Time
-	Attempts    int
-	Invalidated bool
-	CreatedAt   time.Time
-}
-
 // Session is a server-side staff session.
 type Session struct {
 	ID             string
@@ -59,87 +47,6 @@ type Repository struct {
 // New returns a repository backed by the given database pool.
 func New(db *platform.DB) *Repository {
 	return &Repository{db: db}
-}
-
-// CountOTPRequestsByEmail counts OTP challenges created for an email since the given time.
-func (r *Repository) CountOTPRequestsByEmail(ctx context.Context, email string, since time.Time) (int, error) {
-	var count int
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM otp_challenges
-		WHERE email = $1 AND created_at >= $2
-	`, email, since).Scan(&count)
-	return count, err
-}
-
-// CountOTPRequestsByIP counts OTP challenges created for an IP since the given time.
-func (r *Repository) CountOTPRequestsByIP(ctx context.Context, ip string, since time.Time) (int, error) {
-	if ip == "" {
-		return 0, nil
-	}
-	var count int
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM otp_challenges
-		WHERE request_ip = $1 AND created_at >= $2
-	`, ip, since).Scan(&count)
-	return count, err
-}
-
-// CreateOTPChallenge inserts a new OTP challenge.
-func (r *Repository) CreateOTPChallenge(ctx context.Context, challenge OTPChallenge) error {
-	_, err := r.db.Pool.ExecContext(ctx, `
-		INSERT INTO otp_challenges (id, email, code_hash, request_ip, expires_at, attempts, invalidated, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, challenge.ID, challenge.Email, challenge.CodeHash, challenge.RequestIP, challenge.ExpiresAt, challenge.Attempts, challenge.Invalidated, challenge.CreatedAt)
-	return err
-}
-
-// LatestOTPChallenge returns the newest active challenge for an email.
-func (r *Repository) LatestOTPChallenge(ctx context.Context, email string) (*OTPChallenge, error) {
-	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, code_hash, request_ip, expires_at, attempts, invalidated, created_at
-		FROM otp_challenges
-		WHERE email = $1 AND invalidated = FALSE
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, email)
-
-	var c OTPChallenge
-	if err := row.Scan(&c.ID, &c.Email, &c.CodeHash, &c.RequestIP, &c.ExpiresAt, &c.Attempts, &c.Invalidated, &c.CreatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &c, nil
-}
-
-// IncrementOTPAttempts increments wrong-attempt count for a challenge.
-func (r *Repository) IncrementOTPAttempts(ctx context.Context, id string) (int, error) {
-	var attempts int
-	err := r.db.Pool.QueryRowContext(ctx, `
-		UPDATE otp_challenges
-		SET attempts = attempts + 1
-		WHERE id = $1
-		RETURNING attempts
-	`, id).Scan(&attempts)
-	return attempts, err
-}
-
-// InvalidateOTPChallenge marks a challenge as no longer usable.
-func (r *Repository) InvalidateOTPChallenge(ctx context.Context, id string) error {
-	_, err := r.db.Pool.ExecContext(ctx, `
-		UPDATE otp_challenges SET invalidated = TRUE WHERE id = $1
-	`, id)
-	return err
-}
-
-// InvalidateOTPChallengesForEmail invalidates all active challenges for an email.
-func (r *Repository) InvalidateOTPChallengesForEmail(ctx context.Context, email string) error {
-	_, err := r.db.Pool.ExecContext(ctx, `
-		UPDATE otp_challenges SET invalidated = TRUE
-		WHERE email = $1 AND invalidated = FALSE
-	`, email)
-	return err
 }
 
 // CreateSession inserts a new session row.

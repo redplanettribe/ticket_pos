@@ -8,6 +8,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
@@ -277,7 +278,7 @@ func (s *Service) AddMember(ctx context.Context, actor ActiveMemberContext, inpu
 		return nil, identity.ErrForbidden()
 	}
 
-	email := normalizeEmail(input.Email)
+	email := platform.NormalizeEmail(input.Email)
 	if email == "" {
 		return nil, identity.ErrMemberNotFound()
 	}
@@ -507,7 +508,7 @@ func (s *Service) LoadActiveMemberContext(ctx context.Context, sessionID string)
 	if err != nil {
 		return ActiveMemberContext{}, err
 	}
-	if membership == nil || normalizeEmail(membership.Email) != session.Email {
+	if membership == nil || platform.NormalizeEmail(membership.Email) != session.Email {
 		return ActiveMemberContext{}, identity.ErrMemberNotFound()
 	}
 

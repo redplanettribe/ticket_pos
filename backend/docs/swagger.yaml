@@ -12,6 +12,11 @@ components:
         source:
           type: string
       type: object
+    handler.confirmationLinkBody:
+      properties:
+        token:
+          type: string
+      type: object
     handler.coverUploadURLBody:
       properties:
         content_type:
@@ -67,18 +72,6 @@ components:
         sold_at:
           type: string
         ticket_type_id:
-          type: string
-      type: object
-    handler.otpRequestBody:
-      properties:
-        email:
-          type: string
-      type: object
-    handler.otpVerifyBody:
-      properties:
-        code:
-          type: string
-        email:
           type: string
       type: object
     handler.selectOrganizationBody:
@@ -143,15 +136,105 @@ components:
         message:
           type: string
       type: object
+    internal_customers_handler.otpRequestBody:
+      properties:
+        email:
+          type: string
+      type: object
+    internal_customers_handler.otpVerifyBody:
+      properties:
+        code:
+          type: string
+        email:
+          type: string
+      type: object
+    internal_customers_openapi.MessageData:
+      properties:
+        message:
+          type: string
+      type: object
+    internal_customers_service.OrganizationView:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+      type: object
+    internal_identity_handler.otpRequestBody:
+      properties:
+        email:
+          type: string
+      type: object
+    internal_identity_handler.otpVerifyBody:
+      properties:
+        code:
+          type: string
+        email:
+          type: string
+      type: object
     internal_identity_openapi.MessageData:
       properties:
         message:
+          type: string
+      type: object
+    openapi.CustomerVerifyOTPData:
+      properties:
+        session:
+          $ref: '#/components/schemas/service.CustomerSessionView'
+        session_id:
           type: string
       type: object
     openapi.EnvelopeCoverUploadURL:
       properties:
         data:
           $ref: '#/components/schemas/storage.CoverUploadResult'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerArea:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.CustomerAreaView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerLogout:
+      properties:
+        data:
+          $ref: '#/components/schemas/internal_customers_openapi.MessageData'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerOTPRequest:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.CustomerOTPRequestResult'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerSession:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.CustomerSessionView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerVerifyOTP:
+      properties:
+        data:
+          $ref: '#/components/schemas/openapi.CustomerVerifyOTPData'
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -342,6 +425,40 @@ components:
         role:
           type: string
       type: object
+    service.CustomerAreaView:
+      properties:
+        past:
+          items:
+            $ref: '#/components/schemas/service.TicketSaleView'
+          type: array
+          uniqueItems: false
+        upcoming:
+          items:
+            $ref: '#/components/schemas/service.TicketSaleView'
+          type: array
+          uniqueItems: false
+      type: object
+    service.CustomerOTPRequestResult:
+      properties:
+        message:
+          type: string
+      type: object
+    service.CustomerSessionView:
+      properties:
+        email:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        ticket_sale_id:
+          description: |-
+            TicketSaleID is null for a full Customer Session, which spans every Ticket
+            Sale the Customer owns. A Confirmation Link session names one sale here.
+          type: string
+        verified_at:
+          type: string
+      type: object
     service.EventDetail:
       properties:
         cover_image_key:
@@ -390,6 +507,23 @@ components:
         status:
           type: string
         timezone:
+          type: string
+      type: object
+    service.EventView:
+      properties:
+        ends_at:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        starts_at:
+          type: string
+        timezone:
+          type: string
+        venue_name:
           type: string
       type: object
     service.MembershipView:
@@ -547,6 +681,39 @@ components:
         name:
           type: string
       type: object
+    service.TicketSaleLineView:
+      properties:
+        quantity:
+          type: integer
+        ticket_type_name:
+          type: string
+        unit_price_cents:
+          type: integer
+      type: object
+    service.TicketSaleView:
+      properties:
+        amount_cents:
+          type: integer
+        confirmation_ref:
+          type: string
+        currency:
+          type: string
+        event:
+          $ref: '#/components/schemas/service.EventView'
+        id:
+          type: string
+        lines:
+          items:
+            $ref: '#/components/schemas/service.TicketSaleLineView'
+          type: array
+          uniqueItems: false
+        organization:
+          $ref: '#/components/schemas/internal_customers_service.OrganizationView'
+        sold_at:
+          type: string
+        status:
+          type: string
+      type: object
     service.TicketTypeDetail:
       properties:
         capacity:
@@ -630,7 +797,7 @@ paths:
             schema:
               oneOf:
               - type: object
-              - $ref: '#/components/schemas/handler.otpRequestBody'
+              - $ref: '#/components/schemas/internal_identity_handler.otpRequestBody'
                 description: Email address
                 summary: body
         description: Email address
@@ -666,7 +833,7 @@ paths:
             schema:
               oneOf:
               - type: object
-              - $ref: '#/components/schemas/handler.otpVerifyBody'
+              - $ref: '#/components/schemas/internal_identity_handler.otpVerifyBody'
                 description: Email and passcode
                 summary: body
         description: Email and passcode
@@ -720,6 +887,193 @@ paths:
       summary: Get session
       tags:
       - auth
+  /api/v1/customer/auth/confirmation-link:
+    post:
+      description: Exchanges the signed token from a Sale Confirmation for a short-lived
+        Customer Session scoped to that one Ticket Sale. Does not mark the Customer
+        verified. If a full Customer Session is presented in Authorization, it is
+        returned unchanged rather than narrowed.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.confirmationLinkBody'
+                description: Confirmation Link token
+                summary: body
+        description: Confirmation Link token
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerVerifyOTP'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      summary: Redeem a Confirmation Link
+      tags:
+      - customer
+  /api/v1/customer/auth/logout:
+    post:
+      description: Destroys the Customer Session. The token is worthless immediately;
+        a Staff Session is unaffected.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerLogout'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      security:
+      - BearerAuth: []
+      summary: Customer sign-out
+      tags:
+      - customer
+  /api/v1/customer/auth/otp/request:
+    post:
+      description: Sends a one-time passcode for Customer sign-in. The response is
+        identical whether or not the email is known, so it does not reveal who the
+        platform's Customers are.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/internal_customers_handler.otpRequestBody'
+                description: Email address
+                summary: body
+        description: Email address
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerOTPRequest'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Too Many Requests
+      summary: Request Customer passcode
+      tags:
+      - customer
+  /api/v1/customer/auth/otp/verify:
+    post:
+      description: Verifies a Customer one-time passcode, marks the Customer verified,
+        and issues a Customer Session.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/internal_customers_handler.otpVerifyBody'
+                description: Email and passcode
+                summary: body
+        description: Email and passcode
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerVerifyOTP'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Too Many Requests
+      summary: Verify Customer passcode
+      tags:
+      - customer
+  /api/v1/customer/auth/session:
+    get:
+      description: Returns which email the caller is signed in as, and extends the
+        sliding session window.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerSession'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      security:
+      - BearerAuth: []
+      summary: Get Customer Session
+      tags:
+      - customer
+  /api/v1/customer/ticket-sales:
+    get:
+      description: Returns the signed-in Customer's Ticket Sales, upcoming and past,
+        across all Organizations. Always scoped by the Customer Session, never by
+        any identifier in the request.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerArea'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      security:
+      - BearerAuth: []
+      summary: List the Customer's Ticket Sales
+      tags:
+      - customer
   /api/v1/public/events:
     get:
       description: Lists discoverable, published, not-yet-ended events across all
@@ -2243,3 +2597,6 @@ tags:
   name: auth
 - description: Staff routes for catalog, sales, and organization management
   name: staff
+- description: Customer email OTP sign-in, Customer Session, and the Customer Area
+    (Storefront)
+  name: customer

@@ -1,6 +1,7 @@
 import { PageHeader, StorefrontShell } from "@ticket-pos/ui";
 
 import { ExplorerFilters } from "@/components/explorer-filters";
+import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { ExplorerResults } from "@/components/explorer-results";
 import { EXPLORER_PAGE_SIZE, listPublicEvents, listPublicTags } from "@/lib/api";
 import { isWhenPreset, whenToRange } from "@/lib/when";
@@ -33,7 +34,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   ]);
 
   return (
-    <StorefrontShell>
+    <StorefrontShell customerNav={<HeaderCustomerNav />}>
       <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 sm:py-12">
         <PageHeader
           title="Discover events"

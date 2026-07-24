@@ -14,6 +14,7 @@ import (
 type noopLogger struct{}
 
 func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
 func (noopLogger) Error(string, ...any) {}
 
 // newTestSender points a ResendEmailSender at a stub server standing in for

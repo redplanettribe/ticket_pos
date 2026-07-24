@@ -46,6 +46,12 @@ type CommitSale struct {
 	Line              CommitLine
 }
 
+// UpsertCustomer creates or reuses the Customer for one Ticket Sale inside the
+// batch's transaction and returns the Customer id. The sales service supplies it,
+// bound to the customers service, so the cross-module call goes through that
+// module's service rather than its repository.
+type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, now time.Time) (string, error)
+
 // CommitInput is a fully-prepared Direct Sale Import to record atomically.
 type CommitInput struct {
 	EventID           string
@@ -55,6 +61,23 @@ type CommitInput struct {
 	IdempotencyKey    string
 	Sales             []CommitSale
 	Now               time.Time
+	// UpsertCustomer resolves each sale's Customer within the batch transaction.
+	// Required: every Ticket Sale must reference a Customer.
+	UpsertCustomer UpsertCustomer
+}
+
+// RecordedSale is one Ticket Sale as actually written: its database id — which
+// only exists once the row is inserted — alongside the customer identity and
+// reference the Sale Confirmation needs.
+//
+// The id is what makes a Confirmation Link possible: the link names one Ticket
+// Sale, and until the batch commits there is no sale to name.
+type RecordedSale struct {
+	ID                string
+	ConfirmationRef   string
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -63,6 +86,9 @@ type CommittedBatch struct {
 	SaleCount int
 	Status    string
 	Replayed  bool
+	// Recorded is the sales this call actually wrote, in row order. It is empty
+	// on a replay, which recorded nothing new and must therefore re-send nothing.
+	Recorded []RecordedSale
 }
 
 // CapacityError reports that a Ticket Type would be oversold by the batch.
@@ -102,21 +128,41 @@ func (r *Repository) GetEventName(ctx context.Context, orgID, eventID string) (s
 	return name, true, nil
 }
 
-// EventImportContext is the Event metadata a Sale Import needs: its name and the
-// timezone (nullable) used to interpret naive sold_at values.
+// EventImportContext is the Event metadata a Sale Import needs: its name, the
+// timezone (nullable) used to interpret naive sold_at values, and its schedule.
 type EventImportContext struct {
 	Name     string
 	Timezone string
+	// StartsAt and EndsAt place the Event in time. A Sale Confirmation's
+	// Confirmation Link must outlive the Event it is for, so the moment the Event
+	// finishes is what its expiry is derived from. Both are nullable: an Event
+	// may be scheduled loosely or not at all.
+	StartsAt sql.NullTime
+	EndsAt   sql.NullTime
 }
 
-// GetEventImportContext returns the Event's name and timezone and whether it
-// belongs to the Organization.
+// End is the moment the Event finishes, or the zero time when it has no
+// schedule to place it by. An Event with only a start is over once it has
+// started, as far as anything downstream of this needs to know.
+func (e *EventImportContext) End() time.Time {
+	switch {
+	case e.EndsAt.Valid:
+		return e.EndsAt.Time
+	case e.StartsAt.Valid:
+		return e.StartsAt.Time
+	default:
+		return time.Time{}
+	}
+}
+
+// GetEventImportContext returns the Event's name, timezone, and schedule, and
+// whether it belongs to the Organization.
 func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID string) (*EventImportContext, bool, error) {
 	var out EventImportContext
 	var tz sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT name, timezone FROM events WHERE id = $1 AND organization_id = $2
-	`, eventID, orgID).Scan(&out.Name, &tz)
+		SELECT name, timezone, starts_at, ends_at FROM events WHERE id = $1 AND organization_id = $2
+	`, eventID, orgID).Scan(&out.Name, &tz, &out.StartsAt, &out.EndsAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -211,6 +257,9 @@ type lockedType struct {
 // Idempotency: a batch already recorded for (organization, idempotency key) is
 // returned unchanged with Replayed set, and nothing new is written.
 func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*CommittedBatch, error) {
+	if in.UpsertCustomer == nil {
+		return nil, errors.New("sales: UpsertCustomer is required — every Ticket Sale must reference a Customer")
+	}
 	if existing, err := r.findBatch(ctx, in.OrganizationID, in.IdempotencyKey); err != nil {
 		return nil, err
 	} else if existing != nil {
@@ -293,23 +342,32 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		return nil, err
 	}
 
+	recorded := make([]RecordedSale, 0, len(in.Sales))
 	for _, s := range in.Sales {
 		unitPrice := locked[s.Line.TicketTypeID].priceCents
 		if s.Line.UnitPriceCents != nil {
 			unitPrice = *s.Line.UnitPriceCents
 		}
 
+		// The Customer is created or reused in this same transaction, so a sale and
+		// the Customer it references are never recorded apart. The sale keeps its own
+		// copy of the recorded name and email verbatim; the upsert never rewrites it.
+		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, in.Now)
+		if err != nil {
+			return nil, err
+		}
+
 		var saleID string
-		err := tx.QueryRowContext(ctx, `
+		err = tx.QueryRowContext(ctx, `
 			INSERT INTO ticket_sales (
 				event_id, organization_id, channel, source, payment_method,
-				customer_email, customer_first_name, customer_last_name, sold_at, confirmation_ref, status,
+				customer_id, customer_email, customer_first_name, customer_last_name, sold_at, confirmation_ref, status,
 				import_batch_id, created_at
 			)
-			VALUES ($1, $2, 'import', $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11)
+			VALUES ($1, $2, 'import', $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Source, nullString(s.PaymentMethod),
-			s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, batchID, in.Now).Scan(&saleID)
+			customerID, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, batchID, in.Now).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}
@@ -320,6 +378,14 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		`, saleID, s.Line.TicketTypeID, s.Line.Quantity, unitPrice, in.Now); err != nil {
 			return nil, err
 		}
+
+		recorded = append(recorded, RecordedSale{
+			ID:                saleID,
+			ConfirmationRef:   s.ConfirmationRef,
+			CustomerEmail:     s.CustomerEmail,
+			CustomerFirstName: s.CustomerFirstName,
+			CustomerLastName:  s.CustomerLastName,
+		})
 	}
 
 	for _, id := range typeIDs {
@@ -335,7 +401,7 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		return nil, err
 	}
 
-	return &CommittedBatch{ID: batchID, SaleCount: len(in.Sales), Status: "committed"}, nil
+	return &CommittedBatch{ID: batchID, SaleCount: len(in.Sales), Status: "committed", Recorded: recorded}, nil
 }
 
 // ReverseInput identifies the Sale Import batch to reverse.

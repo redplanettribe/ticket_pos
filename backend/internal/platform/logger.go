@@ -6,6 +6,9 @@ import "log/slog"
 // with a no-op or capture implementation.
 type Logger interface {
 	Info(msg string, args ...any)
+	// Warn reports something that is working but should not be relied on — a
+	// development fallback standing in for configuration, for instance.
+	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
 }
 
@@ -21,6 +24,10 @@ func NewSlogLogger(l *slog.Logger) Logger {
 
 func (l *SlogLogger) Info(msg string, args ...any) {
 	l.inner.Info(msg, args...)
+}
+
+func (l *SlogLogger) Warn(msg string, args ...any) {
+	l.inner.Warn(msg, args...)
 }
 
 func (l *SlogLogger) Error(msg string, args ...any) {

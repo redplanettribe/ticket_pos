@@ -7,9 +7,21 @@ type StorefrontShellProps = {
   children: ReactNode;
   organizationName?: string;
   organizationLogoUrl?: string | null;
+  /**
+   * Customer sign-in state, rendered at the trailing edge of the header.
+   * Optional: the shell knows nothing about Customer identity, so a surface
+   * with no Customer chrome to show simply omits it and the header is exactly
+   * as it was.
+   */
+  customerNav?: ReactNode;
 };
 
-export function StorefrontShell({ children, organizationName, organizationLogoUrl }: StorefrontShellProps) {
+export function StorefrontShell({
+  children,
+  organizationName,
+  organizationLogoUrl,
+  customerNav,
+}: StorefrontShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b">
@@ -26,6 +38,7 @@ export function StorefrontShell({ children, organizationName, organizationLogoUr
               <LogoMark aria-hidden className="size-8 text-primary" />
             </a>
           )}
+          {customerNav ? <div className="ml-auto flex items-center">{customerNav}</div> : null}
         </div>
       </header>
       <div className="flex-1">{children}</div>

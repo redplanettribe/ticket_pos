@@ -1,0 +1,201 @@
+/**
+ * The Storefront's half of Customer identity: the cookie that holds a Customer
+ * Session token, and the server-side reads that turn it into a session or a
+ * Customer Area.
+ *
+ * Everything here runs on the server. The token never reaches page scripts: it
+ * lives in an httpOnly cookie that only route handlers and server components can
+ * read, so a script injection on a Storefront page has nothing to lift
+ * (ADR 0010, PRD user story 36). The browser's only way to use it is to call one
+ * of this app's own /api/customer/... route handlers, which is also the only
+ * shape ADR 0008 allows — no browser code may address the Go API.
+ *
+ * The cookie is deliberately named differently from the Staff app's
+ * `ticket_pos_session`. The two apps are separate origins and could not share a
+ * cookie in any case, but a distinct name means that reading either app's code
+ * makes the independence obvious: signing out here destroys a Customer Session
+ * and can touch nothing of a Staff Session.
+ */
+
+import { cookies } from "next/headers";
+
+import { APIError, callBackend } from "./api";
+
+/** Name of the httpOnly cookie holding the Customer Session token. */
+export const CUSTOMER_SESSION_COOKIE = "ticket_pos_customer_session";
+
+/**
+ * The Customer Session cookie's lifetime, set to the same 180 days as the API's
+ * server-side session row.
+ *
+ * The two halves are not kept in step. The API's expiry slides on every
+ * authenticated read; the cookie does not — it is written once, at sign-in or at
+ * Confirmation Link redemption, and no read path re-issues it. So the cookie
+ * expires 180 days after sign-in however active the Customer has been, and a
+ * session still alive on the server can lose its cookie underneath it. Matching
+ * the two numbers only means that a Customer who never returns loses both at
+ * once; it does not make the cookie track the server's sliding window.
+ */
+const CUSTOMER_SESSION_MAX_AGE_SECONDS = 180 * 24 * 60 * 60;
+
+/**
+ * cookieOptions mirrors the Staff app's attributes exactly (apps/staff/lib/session.ts):
+ * httpOnly so page scripts cannot read it, Secure in production, SameSite=Lax so
+ * a normal link into the Customer Area still carries it while cross-site form
+ * posts do not, and path "/" so every Storefront route sees it.
+ */
+export function customerSessionCookieOptions() {
+  const secure = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: CUSTOMER_SESSION_MAX_AGE_SECONDS,
+  };
+}
+
+/**
+ * A Confirmation Link session lasts about a day, not six months, so its cookie
+ * is capped to match. The narrowness is the point: a confirmation email gets
+ * forwarded, and the session it mints must close within a day even though the
+ * link that minted it stays valid until after the Event.
+ */
+const CONFIRMATION_LINK_SESSION_MAX_AGE_SECONDS = 24 * 60 * 60;
+
+export function confirmationLinkSessionCookieOptions() {
+  return { ...customerSessionCookieOptions(), maxAge: CONFIRMATION_LINK_SESSION_MAX_AGE_SECONDS };
+}
+
+/** Attributes that erase the cookie, used on sign-out and on a dead session. */
+export function clearedCustomerSessionCookieOptions() {
+  return { ...customerSessionCookieOptions(), maxAge: 0 };
+}
+
+/** Reads the Customer Session token from the request's cookies, if any. */
+export async function customerSessionToken(): Promise<string | undefined> {
+  const store = await cookies();
+  return store.get(CUSTOMER_SESSION_COOKIE)?.value;
+}
+
+/**
+ * CustomerSession is which email the visitor is signed in as, as the API reports
+ * it. `ticket_sale_id` is null for a full Customer Session spanning every Ticket
+ * Sale the Customer owns; a Confirmation Link session names the one sale it was
+ * minted for.
+ */
+export type CustomerSession = {
+  email: string;
+  first_name: string;
+  last_name: string;
+  verified_at: string | null;
+  ticket_sale_id: string | null;
+};
+
+export type CustomerVerifyResult = {
+  session: CustomerSession;
+  session_id: string;
+};
+
+/** One Ticket Type and the quantity bought within a Ticket Sale. */
+export type TicketSaleLine = {
+  ticket_type_name: string;
+  quantity: number;
+  unit_price_cents: number;
+};
+
+/**
+ * TicketSale is one of the Customer's purchases as the Customer Area shows it:
+ * the Event and its date, the Organization that sold it, what was bought, and
+ * the Sale Confirmation reference they can quote to a promoter.
+ */
+export type TicketSale = {
+  id: string;
+  confirmation_ref: string;
+  sold_at: string;
+  status: string;
+  amount_cents: number;
+  currency: string;
+  lines: TicketSaleLine[];
+  event: {
+    id: string;
+    name: string;
+    slug: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    timezone: string | null;
+    venue_name: string | null;
+  };
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
+/** The Customer Area read: purchases split into what is still to come and what has happened. */
+export type CustomerArea = {
+  upcoming: TicketSale[];
+  past: TicketSale[];
+};
+
+/**
+ * SessionOutcome distinguishes the three things a session read can mean, because
+ * the Storefront treats them differently: a signed-in visitor sees their Area, a
+ * visitor whose session is gone is sent to sign-in rather than shown an error
+ * (PRD user story 37), and a transport failure must not masquerade as either.
+ */
+export type SessionOutcome<T> =
+  | { status: "ok"; data: T }
+  | { status: "signed-out" }
+  | { status: "error"; message: string };
+
+/**
+ * signedOutStatuses are the API responses that mean "this token is worth
+ * nothing": expired, destroyed by a sign-out, or never valid. Any of them sends
+ * the visitor to sign-in.
+ */
+function isSignedOut(error: unknown): boolean {
+  return error instanceof APIError && error.status === 401;
+}
+
+async function readWithSession<T>(path: string): Promise<SessionOutcome<T>> {
+  const token = await customerSessionToken();
+  if (!token) {
+    // No cookie at all: the common case for every anonymous visitor, and it
+    // costs exactly nothing — no call to the API is made.
+    return { status: "signed-out" };
+  }
+
+  try {
+    const envelope = await callBackend<T>(path, { method: "GET", sessionToken: token });
+    if (!envelope.data) {
+      return { status: "signed-out" };
+    }
+    return { status: "ok", data: envelope.data };
+  } catch (error) {
+    if (isSignedOut(error)) {
+      return { status: "signed-out" };
+    }
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Could not reach the ticket service.",
+    };
+  }
+}
+
+/** Reads the current Customer Session, extending its sliding window as a side effect. */
+export async function getCustomerSession(): Promise<SessionOutcome<CustomerSession>> {
+  return readWithSession<CustomerSession>("/api/v1/customer/auth/session");
+}
+
+/**
+ * Reads the Customer Area.
+ *
+ * The request carries no Customer, email, or Organization — only the session
+ * token. The API scopes the result to the Customer on that session and to
+ * nothing else, so there is no identifier here that could widen it.
+ */
+export async function getCustomerArea(): Promise<SessionOutcome<CustomerArea>> {
+  return readWithSession<CustomerArea>("/api/v1/customer/ticket-sales");
+}

@@ -393,3 +393,14 @@ variable "storefront_domain" {
   type        = string
   default     = null
 }
+
+variable "otp_global_ceiling" {
+  description = "Platform-wide cap on passcode emails per rate-limit window. Null uses the API's own default. Exists so the ceiling can be retuned under attack without a code deploy."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.otp_global_ceiling == null || var.otp_global_ceiling > 0
+    error_message = "otp_global_ceiling must be a positive integer; the API rejects a non-positive value at startup."
+  }
+}

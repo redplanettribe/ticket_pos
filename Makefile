@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check
+.PHONY: dev down prod prod-down test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -52,3 +52,38 @@ ci:
 
 migrate:
 	cd backend && go run ./cmd/migrate
+
+# Interactive Terraform dependency graph via Rover (github.com/im2nguyen/rover).
+# Runs a read-only `terraform plan` for TF_ENV, then serves the graph until Ctrl-C.
+# Needs Docker and credentials for the target environment; the env must be
+# `terraform init`-ed already. Override: make infra-graph TF_ENV=prod ROVER_PORT=9001
+#
+# Note this is a *dependency* graph (every IAM member is a node), not an
+# architecture diagram — useful for "what depends on this secret", not for a README.
+TF_ENV ?= prod
+ROVER_PORT ?= 9000
+ROVER_IMAGE ?= im2nguyen/rover:v0.3.3
+TF_DIR = terraform/envs/$(TF_ENV)
+# plan.json embeds state, including secret values — gitignored, never commit it.
+ROVER_DIR = $(TF_DIR)/.rover
+
+infra-plan-json:
+	mkdir -p $(ROVER_DIR)
+	cd $(TF_DIR) && terraform plan -lock=false -out=.rover/plan.out
+	cd $(TF_DIR) && terraform show -json .rover/plan.out > .rover/plan.json
+
+# --user keeps Docker from leaving root-owned files in the working tree.
+infra-graph: infra-plan-json
+	@echo "Rover serving on http://localhost:$(ROVER_PORT) — Ctrl-C to stop"
+	docker run --rm -it -p $(ROVER_PORT):9000 \
+		--user $$(id -u):$$(id -g) \
+		-v $(CURDIR)/$(ROVER_DIR):/src -w /src \
+		$(ROVER_IMAGE) -planJSONPath=plan.json
+
+# Self-contained static bundle: unzip anywhere and open index.html, no Docker needed.
+infra-graph-zip: infra-plan-json
+	docker run --rm \
+		--user $$(id -u):$$(id -g) \
+		-v $(CURDIR)/$(ROVER_DIR):/src -w /src \
+		$(ROVER_IMAGE) -planJSONPath=plan.json -standalone=true
+	@echo "Wrote $(ROVER_DIR)/rover.zip"

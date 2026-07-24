@@ -18,14 +18,15 @@ _Avoid_: Icon, avatar, brand image
 A person belonging to an Organization who may hold a role such as Org Admin, Event Owner, or Event Staff.
 _Avoid_: User, account, teammate
 
-**Session**:
+**Staff Session**:
 A server-side staff sign-in record tied to an email address.
 The session may or may not have an active Member selected.
 Signing in proves email ownership; acting in an Organization requires an active Member on the session.
-_Avoid_: Login, token, cookie
+Distinct from a Customer Session, with which it shares nothing but the email-OTP method.
+_Avoid_: Session, login, token, cookie
 
 **Active Member**:
-The Member record currently selected on a staff Session.
+The Member record currently selected on a Staff Session.
 Staff API calls and workflows are scoped to the active Member's Organization and role.
 _Avoid_: Current user, active org, tenant context
 
@@ -100,8 +101,10 @@ _Avoid_: User tag, private tag, org tag
 
 **Customer**:
 A person who buys a ticket.
-Identified by a required email, first name, and last name on every Ticket Sale (across all Sales Channels), so the platform can email them a Sale Confirmation. First and last name are stored separately; where a single display name is needed they are joined as "First Last". Not otherwise modeled as an account at launch.
-_Avoid_: Buyer, purchaser, account, full name
+Identified by a platform-global email — one Customer spans every Organization they have bought from.
+A Customer record is created by any Ticket Sale on any Sales Channel, whether or not the person has ever signed in, or by a first sign-in for an email no sale has reached; every Ticket Sale belongs to one.
+Holds what the person asserts about themselves (their current name, later their preferences), while each Ticket Sale keeps its own immutable record of what was transacted. First and last name are stored separately; where a single display name is needed they are joined as "First Last".
+_Avoid_: Buyer, purchaser, account, user, full name
 
 **Ticket Sale**:
 A completed transaction in which tickets of one or more Ticket Types are sold, such as a cart checkout.
@@ -155,3 +158,26 @@ _Avoid_: Manual sale entry, external sale upload
 **Sales list**:
 The staff surface for exploring an Event's individual Ticket Sales — one row per Ticket Sale, filterable, sortable, and paginated. Visible to every Member of the Event (Org Admins, Event Owners, and Event Staff), unlike the owner-only Sale Import tool it shares a page with. Distinct from the Import history, which lists Sale Import batches rather than individual sales, and from a Storefront listing, which lists Events to the public rather than sales to staff.
 _Avoid_: Sales ledger, orders list, transactions table, report
+
+## Customer identity
+
+**Verified Customer**:
+A Customer who has proven ownership of their email by completing a one-time passcode.
+Unverified Customers exist as records — created by a Ticket Sale made on their behalf — but receive no email beyond Sale Confirmations and cannot sign in until they verify.
+_Avoid_: Registered customer, confirmed customer, active customer
+
+**Customer Session**:
+A server-side Customer sign-in record on the Storefront, tied to a verified email.
+Spans every Ticket Sale that Customer owns, across all Organizations.
+Distinct from a Staff Session, with which it shares nothing but the email-OTP method.
+_Avoid_: Session, login, token, cookie
+
+**Confirmation Link**:
+A signed link carried in a Sale Confirmation, granting access to that one Ticket Sale without signing in.
+Distinct from a Customer Session, which spans every Ticket Sale the Customer owns.
+_Avoid_: Magic link, access token, deep link
+
+**Customer Area**:
+The signed-in Storefront surface where a Customer sees their upcoming events, past Ticket Sales, and preferences.
+Distinct from a Storefront listing, which shows Events to the anonymous public.
+_Avoid_: Wallet, my tickets, account page, dashboard

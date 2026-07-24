@@ -75,7 +75,7 @@ export interface paths {
             /** @description Email address */
             requestBody: {
                 content: {
-                    "application/json": Record<string, never> | components["schemas"]["handler.otpRequestBody"];
+                    "application/json": Record<string, never> | components["schemas"]["internal_identity_handler.otpRequestBody"];
                 };
             };
             responses: {
@@ -137,7 +137,7 @@ export interface paths {
             /** @description Email and passcode */
             requestBody: {
                 content: {
-                    "application/json": Record<string, never> | components["schemas"]["handler.otpVerifyBody"];
+                    "application/json": Record<string, never> | components["schemas"]["internal_identity_handler.otpVerifyBody"];
                 };
             };
             responses: {
@@ -212,6 +212,345 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeSession"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/auth/confirmation-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a Confirmation Link
+         * @description Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Confirmation Link token */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.confirmationLinkBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyOTP"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Customer sign-out
+         * @description Destroys the Customer Session. The token is worthless immediately; a Staff Session is unaffected.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerLogout"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/auth/otp/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Customer passcode
+         * @description Sends a one-time passcode for Customer sign-in. The response is identical whether or not the email is known, so it does not reveal who the platform's Customers are.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Email address */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["internal_customers_handler.otpRequestBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerOTPRequest"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/auth/otp/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Customer passcode
+         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Email and passcode */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["internal_customers_handler.otpVerifyBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyOTP"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Customer Session
+         * @description Returns which email the caller is signed in as, and extends the sliding session window.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerSession"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Customer's Ticket Sales
+         * @description Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerArea"];
                     };
                 };
                 /** @description Unauthorized */
@@ -2434,6 +2773,9 @@ export interface components {
             sales?: components["schemas"]["handler.importSaleRow"][];
             source?: string;
         };
+        "handler.confirmationLinkBody": {
+            token?: string;
+        };
         "handler.coverUploadURLBody": {
             content_type?: string;
             file_name?: string;
@@ -2465,13 +2807,6 @@ export interface components {
             quantity?: number;
             sold_at?: string;
             ticket_type_id?: string;
-        };
-        "handler.otpRequestBody": {
-            email?: string;
-        };
-        "handler.otpVerifyBody": {
-            code?: string;
-            email?: string;
         };
         "handler.selectOrganizationBody": {
             member_id?: string;
@@ -2506,11 +2841,62 @@ export interface components {
         "internal_catalog_openapi.MessageData": {
             message?: string;
         };
+        "internal_customers_handler.otpRequestBody": {
+            email?: string;
+        };
+        "internal_customers_handler.otpVerifyBody": {
+            code?: string;
+            email?: string;
+        };
+        "internal_customers_openapi.MessageData": {
+            message?: string;
+        };
+        "internal_customers_service.OrganizationView": {
+            id?: string;
+            name?: string;
+            slug?: string;
+        };
+        "internal_identity_handler.otpRequestBody": {
+            email?: string;
+        };
+        "internal_identity_handler.otpVerifyBody": {
+            code?: string;
+            email?: string;
+        };
         "internal_identity_openapi.MessageData": {
             message?: string;
         };
+        "openapi.CustomerVerifyOTPData": {
+            session?: components["schemas"]["service.CustomerSessionView"];
+            session_id?: string;
+        };
         "openapi.EnvelopeCoverUploadURL": {
             data?: components["schemas"]["storage.CoverUploadResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerArea": {
+            data?: components["schemas"]["service.CustomerAreaView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerLogout": {
+            data?: components["schemas"]["internal_customers_openapi.MessageData"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerOTPRequest": {
+            data?: components["schemas"]["service.CustomerOTPRequestResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerSession": {
+            data?: components["schemas"]["service.CustomerSessionView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerVerifyOTP": {
+            data?: components["schemas"]["openapi.CustomerVerifyOTPData"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -2611,6 +2997,24 @@ export interface components {
             organization_slug?: string;
             role?: string;
         };
+        "service.CustomerAreaView": {
+            past?: components["schemas"]["service.TicketSaleView"][];
+            upcoming?: components["schemas"]["service.TicketSaleView"][];
+        };
+        "service.CustomerOTPRequestResult": {
+            message?: string;
+        };
+        "service.CustomerSessionView": {
+            email?: string;
+            first_name?: string;
+            last_name?: string;
+            /**
+             * @description TicketSaleID is null for a full Customer Session, which spans every Ticket
+             *     Sale the Customer owns. A Confirmation Link session names one sale here.
+             */
+            ticket_sale_id?: string;
+            verified_at?: string;
+        };
         "service.EventDetail": {
             cover_image_key?: string;
             cover_image_url?: string;
@@ -2636,6 +3040,15 @@ export interface components {
             starts_at?: string;
             status?: string;
             timezone?: string;
+        };
+        "service.EventView": {
+            ends_at?: string;
+            id?: string;
+            name?: string;
+            slug?: string;
+            starts_at?: string;
+            timezone?: string;
+            venue_name?: string;
         };
         "service.MembershipView": {
             member_id?: string;
@@ -2708,6 +3121,22 @@ export interface components {
         "service.TagView": {
             curated?: boolean;
             name?: string;
+        };
+        "service.TicketSaleLineView": {
+            quantity?: number;
+            ticket_type_name?: string;
+            unit_price_cents?: number;
+        };
+        "service.TicketSaleView": {
+            amount_cents?: number;
+            confirmation_ref?: string;
+            currency?: string;
+            event?: components["schemas"]["service.EventView"];
+            id?: string;
+            lines?: components["schemas"]["service.TicketSaleLineView"][];
+            organization?: components["schemas"]["internal_customers_service.OrganizationView"];
+            sold_at?: string;
+            status?: string;
         };
         "service.TicketTypeDetail": {
             capacity?: number;

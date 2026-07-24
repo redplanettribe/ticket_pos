@@ -3,12 +3,8 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
-	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -16,18 +12,16 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
-const (
-	otpLength            = 6
-	otpExpiry            = 10 * time.Minute
-	otpRateWindow        = 15 * time.Minute
-	maxOTPPerEmail       = 3
-	maxOTPPerIP          = 10
-	maxOTPVerifyAttempts = 5
-	sessionDuration      = 14 * 24 * time.Hour
-)
+const sessionDuration = 14 * 24 * time.Hour
+
+// otpPurpose scopes every passcode this service issues and verifies to staff
+// sign-in. A passcode minted for any other surface must never open a Staff
+// Session, so this constant is the only purpose identity ever names.
+const otpPurpose = otp.PurposeStaff
 
 // MembershipView is returned in session responses.
 type MembershipView struct {
@@ -66,7 +60,7 @@ type Service struct {
 	repo        *repository.Repository
 	catalogRepo *catalogrepo.Repository
 	storage     storage.ObjectStorage
-	email       platform.EmailSender
+	otp         *otp.Service
 	logger      platform.Logger
 	now         func() time.Time
 }
@@ -76,78 +70,31 @@ func New(
 	repo *repository.Repository,
 	catalogRepo *catalogrepo.Repository,
 	objectStorage storage.ObjectStorage,
-	email platform.EmailSender,
+	otpService *otp.Service,
 	logger platform.Logger,
 ) *Service {
 	return &Service{
 		repo:        repo,
 		catalogRepo: catalogRepo,
 		storage:     objectStorage,
-		email:       email,
+		otp:         otpService,
 		logger:      logger,
 		now:         time.Now,
 	}
 }
 
-// WithClock overrides the clock (tests).
+// WithClock overrides the clock (tests). Passcode expiry is measured by the OTP
+// service's own clock, so both move together.
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	s.otp.WithClock(now)
 	return s
 }
 
-// RequestOTP creates and delivers a one-time passcode.
+// RequestOTP delivers a staff-purpose one-time passcode.
 func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*OTPRequestResult, error) {
-	email = normalizeEmail(email)
-	now := s.now()
-
-	since := now.Add(-otpRateWindow)
-	emailCount, err := s.repo.CountOTPRequestsByEmail(ctx, email, since)
-	if err != nil {
+	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP); err != nil {
 		return nil, err
-	}
-	if emailCount >= maxOTPPerEmail {
-		return nil, identity.ErrOTPRateLimited()
-	}
-
-	ipCount, err := s.repo.CountOTPRequestsByIP(ctx, clientIP, since)
-	if err != nil {
-		return nil, err
-	}
-	if ipCount >= maxOTPPerIP {
-		return nil, identity.ErrOTPRateLimited()
-	}
-
-	code, err := generateOTPCode()
-	if err != nil {
-		return nil, err
-	}
-
-	challengeID, err := newUUID()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.repo.InvalidateOTPChallengesForEmail(ctx, email); err != nil {
-		return nil, err
-	}
-
-	challenge := repository.OTPChallenge{
-		ID:          challengeID,
-		Email:       email,
-		CodeHash:    hashOTPCode(challengeID, code),
-		RequestIP:   clientIP,
-		ExpiresAt:   now.Add(otpExpiry),
-		Attempts:    0,
-		Invalidated: false,
-		CreatedAt:   now,
-	}
-	if err := s.repo.CreateOTPChallenge(ctx, challenge); err != nil {
-		return nil, err
-	}
-
-	if err := s.email.SendOTP(ctx, email, code); err != nil {
-		s.logger.Error("send otp failed", "email", email, "error", err)
-		return nil, fmt.Errorf("send otp: %w", err)
 	}
 
 	return &OTPRequestResult{
@@ -155,45 +102,13 @@ func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*OTPR
 	}, nil
 }
 
-// VerifyOTP validates a passcode and creates a session.
+// VerifyOTP validates a staff-purpose passcode and creates a Staff Session.
+// A passcode issued for any other purpose is not accepted here.
 func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*SessionView, string, error) {
-	email = normalizeEmail(email)
+	email = platform.NormalizeEmail(email)
 	now := s.now()
 
-	challenge, err := s.repo.LatestOTPChallenge(ctx, email)
-	if err != nil {
-		return nil, "", err
-	}
-	if challenge == nil {
-		return nil, "", identity.ErrOTPInvalid(0)
-	}
-	if challenge.Invalidated {
-		return nil, "", identity.ErrOTPExpired()
-	}
-	if now.After(challenge.ExpiresAt) {
-		_ = s.repo.InvalidateOTPChallenge(ctx, challenge.ID)
-		return nil, "", identity.ErrOTPExpired()
-	}
-	if challenge.Attempts >= maxOTPVerifyAttempts {
-		_ = s.repo.InvalidateOTPChallenge(ctx, challenge.ID)
-		return nil, "", identity.ErrOTPAttemptsExceeded()
-	}
-
-	expected := hashOTPCode(challenge.ID, code)
-	if subtle.ConstantTimeCompare([]byte(expected), []byte(challenge.CodeHash)) != 1 {
-		attempts, incErr := s.repo.IncrementOTPAttempts(ctx, challenge.ID)
-		if incErr != nil {
-			return nil, "", incErr
-		}
-		if attempts >= maxOTPVerifyAttempts {
-			_ = s.repo.InvalidateOTPChallenge(ctx, challenge.ID)
-			return nil, "", identity.ErrOTPAttemptsExceeded()
-		}
-		remaining := maxOTPVerifyAttempts - attempts
-		return nil, "", identity.ErrOTPInvalid(remaining)
-	}
-
-	if err := s.repo.InvalidateOTPChallenge(ctx, challenge.ID); err != nil {
+	if err := s.otp.Verify(ctx, otpPurpose, email, code); err != nil {
 		return nil, "", err
 	}
 
@@ -314,7 +229,7 @@ func (s *Service) SelectOrganization(ctx context.Context, sessionID, memberID st
 	if err != nil {
 		return nil, err
 	}
-	if membership == nil || normalizeEmail(membership.Email) != session.Email {
+	if membership == nil || platform.NormalizeEmail(membership.Email) != session.Email {
 		return nil, identity.ErrMemberNotFound()
 	}
 
@@ -421,21 +336,8 @@ func (s *Service) buildSessionView(ctx context.Context, session *repository.Sess
 	return view, nil
 }
 
-func normalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
-}
-
 func normalizeSlug(slug string) string {
 	return strings.ToLower(strings.TrimSpace(slug))
-}
-
-func generateOTPCode() (string, error) {
-	max := big.NewInt(1000000)
-	n, err := rand.Int(rand.Reader, max)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
 func (s *Service) organizationLogoURL(logoImageKey sql.NullString) *string {
@@ -446,25 +348,10 @@ func (s *Service) organizationLogoURL(logoImageKey sql.NullString) *string {
 	return &url
 }
 
-func hashOTPCode(challengeID, code string) string {
-	sum := sha256.Sum256([]byte(challengeID + ":" + code))
-	return hex.EncodeToString(sum[:])
-}
-
 func newSessionToken() (string, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(b[:]), nil
-}
-
-func newUUID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }

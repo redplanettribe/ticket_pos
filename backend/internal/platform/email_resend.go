@@ -110,6 +110,11 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string)
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
 	subject := fmt.Sprintf("Your tickets for %s", c.EventName)
 	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\n\nPresent this reference at the event.", c.CustomerName, c.EventName, c.Reference)
+	// The Confirmation Link is the reason this email is worth keeping: it opens
+	// this purchase months later, at the gate, with one tap and no typing.
+	if c.ConfirmationLink != "" {
+		text += fmt.Sprintf("\n\nView your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.", c.ConfirmationLink)
+	}
 	if err := s.send(ctx, c.To, subject, text); err != nil {
 		s.logger.Error("resend send sale confirmation failed", "email", c.To, "reference", c.Reference, "error", err)
 		return err

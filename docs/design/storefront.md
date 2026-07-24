@@ -1,6 +1,6 @@
 # Storefront UI
 
-Customer-facing UI for discovering events and completing Online Sales.
+Customer-facing UI for discovering events, completing Online Sales, and — once signed in — reviewing what was bought.
 Path-based tenancy: `/{orgSlug}/events/{eventSlug}`.
 
 Read [foundation.md](./foundation.md) first for tokens, components, accessibility, and feedback patterns.
@@ -93,6 +93,8 @@ Document multi-event checkout as deferred if requested later.
 
 - Organization name as light chrome.
 - No large Ticket POS logo in the header.
+- Surfaces with no Organization context — the global explorer, sign-in, the **Customer Area** — show the platform mark alone, linked home.
+- Sign-in state sits at the trailing edge; see [Customer sign-in](#customer-sign-in).
 
 ### Footer
 
@@ -122,7 +124,8 @@ Sold-out types remain visible but clearly unavailable — do not hide them witho
 ## Checkout
 
 Guest checkout only at launch.
-No customer account or login.
+Buying never requires signing in — see [Customer sign-in](#customer-sign-in) for the surfaces that do.
+A **Customer** record is created or reused by the **Ticket Sale** itself, and the **Sale Confirmation** carries a **Confirmation Link** back to it.
 
 | Step | UI |
 |------|-----|
@@ -133,6 +136,74 @@ No customer account or login.
 | Failure | Banner or blocking Dialog with `error.message`; sold-out mid-checkout uses blocking tier |
 
 On `CAPACITY_EXCEEDED` during checkout: blocking Dialog; offer to return to ticket selection.
+
+## Customer sign-in
+
+**Anonymous browsing is unchanged and requires no sign-in.**
+The global explorer, Organization pages, and event pages render for an anonymous visitor exactly as they did before Customer identity existed, and stay as fast.
+Do not put a sign-in wall in front of discovery or checkout.
+
+A **Customer** never registers. The record is created by the **Ticket Sale** (see [CONTEXT.md](../../CONTEXT.md)), so signing in only ever means proving ownership of an email — ask for a passcode, never for a password and never for a signup.
+
+### Sign-in page (`/signin`)
+
+Two steps on one page, matching the Staff sign-in: email, then the 6-digit passcode, the form swapping in place rather than navigating.
+
+| Step | UI |
+|------|-----|
+| Email | Email field, "Send passcode" |
+| Passcode | Numeric passcode field (`one-time-code` autofill), "Sign in", plus "Send a new passcode" and "Use a different email" |
+
+- Passcode failures show the API's `error.message` per [foundation.md](./foundation.md) — the page adds no wording of its own for them.
+- "Send a new passcode" stays on screen for every recoverable failure (mistyped, expired, attempts exhausted). It is withheld only when asking again is the thing being refused: rate limiting and the global send ceiling.
+- Alerts above the form explain two arrivals: a **Customer Session** that ran out, and a **Confirmation Link** that was expired or invalid.
+- No sign-in state in the header here.
+- A visitor already holding a full **Customer Session** is redirected on. One holding a **Confirmation Link** session is not — widening is what they came for.
+
+### Customer Area (`/tickets`)
+
+Everything the Customer has bought, from every **Organization**, in one place. Read-only.
+
+- **Upcoming** first, then **Past**; each a list of **Ticket Sale** cards.
+- Each card carries the event name (linked to its event page), date and venue, "Presented by {Organization}" (linked to the Organization page), the **Ticket Sale Lines** as quantity × Ticket Type with line totals, the **Sale Confirmation** reference in a monospaced face, and the ticket count with the sale total. A reversed sale carries a **Reversed** badge.
+- `noindex, nofollow`: the Customer Area is private and must stay out of search results.
+- A missing or expired session redirects to the sign-in page rather than showing an error. When a session existed, the redirect says so, so sign-in can explain what happened instead of looking like a random demand.
+- A read that fails for any other reason keeps the page and shows the API's `error.message` in a banner-tier Alert.
+
+#### Empty states
+
+| Situation | Treatment |
+|-----------|-----------|
+| No Ticket Sales at all | "No tickets yet", one line of explanation, primary "Discover events" → `/` |
+| Past sales but nothing upcoming | "Nothing coming up" in a dashed panel above the Past list, secondary "Discover events" |
+
+Neither dead-ends. The first is reachable normally: completing a passcode creates the record if no Ticket Sale ever did, so an empty Area is a plausible first visit, not a fault.
+
+### Arriving by a Confirmation Link
+
+A **Confirmation Link** from a **Sale Confirmation** email has no UI of its own — it redeems and lands on the same Customer Area, narrowed to the one **Ticket Sale** it covers.
+
+| | Full Customer Session | Confirmation Link arrival |
+|---|---|---|
+| Heading | "Your tickets" | "Your purchase" |
+| Shows | Every Ticket Sale the Customer owns | Exactly the one linked sale |
+| Notice | None | "You're viewing one purchase", with "Sign in with a passcode" as the way to widen |
+| Reversed sale | **Reversed** badge on the card | Badge, plus a destructive Alert at the top of the page (banner tier) |
+
+A reversed sale gets that extra Alert because someone opening a confirmation email at the gate must not have to infer cancellation from a small label.
+
+A link that is expired or invalid sends the visitor to the sign-in page with copy for whichever it was — an expired link means this person really did buy a ticket.
+
+### Sign-in state in the header
+
+| State | Header trailing edge |
+|-------|----------------------|
+| Anonymous | "Sign in" (ghost) |
+| Signed in | The signed-in email (hidden below `sm`, full address as a `title`), "Your tickets", "Sign out" |
+
+Present on the global explorer, Organization pages, event pages, and the Customer Area; absent on the sign-in page.
+Showing the email is what keeps the signed-in identity unambiguous on a shared device.
+An anonymous visitor pays nothing for it: with no session cookie there is no API call.
 
 ## SEO and metadata
 
@@ -152,6 +223,7 @@ Warm and clear.
 | Continue to payment | Proceed to checkout module |
 | Sold out | Unavailable |
 | Your tickets | Your order items |
+| Sign in | Log in, Create an account |
 
 ## Responsive behavior
 

@@ -30,6 +30,8 @@ import (
 // @tag.description Staff email OTP authentication and session management
 // @tag.name        staff
 // @tag.description Staff routes for catalog, sales, and organization management
+// @tag.name        customer
+// @tag.description Customer email OTP sign-in, Customer Session, and the Customer Area (Storefront)
 // @securitydefinitions.apikey BearerAuth
 // @in              header
 // @name            Authorization

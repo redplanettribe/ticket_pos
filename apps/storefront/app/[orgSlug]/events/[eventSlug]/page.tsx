@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { Alert, AlertDescription, AlertTitle, Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
 
+import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
@@ -59,6 +60,7 @@ export default async function EventPage({ params }: EventPageProps) {
     <StorefrontShell
       organizationName={event.organization.name}
       organizationLogoUrl={event.organization.logo_url}
+      customerNav={<HeaderCustomerNav />}
     >
       <article className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <Breadcrumb
