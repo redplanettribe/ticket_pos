@@ -284,7 +284,11 @@ resource "google_cloud_run_v2_service" "api" {
         http_get {
           path = "/health"
         }
-        initial_delay_seconds = 5
+        # The Go binary opens :8080 and answers /health within a second of boot,
+        # so a 5s delay before the first probe was pure dead time on every cold
+        # start. One second keeps a small cushion; failure_threshold * period_seconds
+        # still gives the pool 30s to come up before the revision is failed.
+        initial_delay_seconds = 1
         period_seconds        = 5
         timeout_seconds       = 3
         failure_threshold     = 6
