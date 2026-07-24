@@ -16,7 +16,10 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Wide enough to cover the connect retry window in platform.OpenDB plus the
+	// migrations themselves, and still inside the Cloud Run Job's 900s task
+	// timeout so a hung migration is killed by something rather than nothing.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	db, err := platform.OpenDB(ctx, cfg.DatabaseURL)
