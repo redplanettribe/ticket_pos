@@ -15,7 +15,7 @@
 FROM node:26-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN npm install -g pnpm@9.15.4
 
 # --- dependencies -----------------------------------------------------------
 # Manifests only, so the install layer is cached until a package.json or the
