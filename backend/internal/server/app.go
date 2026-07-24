@@ -212,10 +212,10 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 // confirmationLinkSecret resolves the key every Confirmation Link is signed
 // with.
 //
-// In production a missing key is a startup failure. That is deliberate and it is
-// the second place the check appears — LoadConfig refuses the same thing — so a
-// Config assembled in code rather than read from the environment cannot slip
-// past it. The alternative, signing with a constant baked into the binary, would
+// In production a missing key is a startup failure. This is the only place that
+// check lives, deliberately: it belongs to the workload that signs links, not to
+// LoadConfig, which cmd/migrate also calls with APP_ENV=production and without
+// any signing key. The alternative, signing with a constant baked into the binary, would
 // mean anyone with a copy of the source could mint a link to any Ticket Sale.
 //
 // Everywhere else — local development, the parity stack, tests — an ephemeral

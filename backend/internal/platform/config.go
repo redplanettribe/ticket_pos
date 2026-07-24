@@ -60,14 +60,13 @@ func LoadConfig() (Config, error) {
 
 	appEnv := envOrDefault("APP_ENV", "development")
 
-	// A Confirmation Link is a bearer credential for a Ticket Sale. Booting
-	// production without its key would mean signing with whatever fallback the
-	// wiring chose, which is indistinguishable from having no signature at all —
-	// so it is a startup failure, loudly, rather than a silent default.
+	// A Confirmation Link is a bearer credential for a Ticket Sale, so production
+	// must never sign one with a fallback key. That requirement is enforced in
+	// server.NewApp, at the point the key is actually used, and not here: this
+	// same LoadConfig runs in cmd/migrate, whose Cloud Run Job identity reads
+	// only the connection string and has no business holding a signing key.
+	// Requiring it here failed the migrate Job on every production deploy.
 	confirmationLinkSecret := strings.TrimSpace(os.Getenv("CONFIRMATION_LINK_SECRET"))
-	if appEnv == "production" && confirmationLinkSecret == "" {
-		return Config{}, fmt.Errorf("CONFIRMATION_LINK_SECRET is required in production")
-	}
 
 	cfg := Config{
 		AppEnv:        appEnv,
