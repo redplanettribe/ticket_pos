@@ -73,6 +73,17 @@ test("Staff reaches the API from inside the parity network", async ({ request })
   expect(envelope.data).toBeNull();
 });
 
+test("Staff shows the Multiticketing brand on the sign-in page", async ({ page }) => {
+  // The authed sidebar lockup needs a real session (an emailed passcode the
+  // parity stack cannot supply), so the reachable branded surface is the
+  // sign-in page, where AuthCard renders the Multiticketing wordmark.
+  await page.goto("/login");
+
+  await expect(page).toHaveTitle(/Multiticketing/);
+  await expect(page.getByText("Multiticketing", { exact: true }).first()).toBeVisible();
+  expect(await page.locator('link[rel="icon"]').count()).toBeGreaterThan(0);
+});
+
 test("Staff serves its client bundle in the parity stack", async ({ page }) => {
   const failures: string[] = [];
   page.on("response", (response) => {

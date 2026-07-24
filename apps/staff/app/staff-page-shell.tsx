@@ -53,7 +53,7 @@ type StaffPageShellProps = {
 
 export async function StaffPageShell({ activePath, children }: StaffPageShellProps) {
   const session = await loadSession();
-  const organizationName = session?.active_member?.organization_name ?? "Ticket POS";
+  const organizationName = session?.active_member?.organization_name ?? "Multiticketing";
   const organizationLogoUrl = session?.active_member?.organization_logo_url ?? null;
 
   return (

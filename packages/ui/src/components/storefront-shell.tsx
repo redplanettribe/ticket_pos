@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { LogoMark } from "./logo";
 import { OrgAvatar } from "./org-avatar";
 
 type StorefrontShellProps = {
@@ -12,16 +13,26 @@ export function StorefrontShell({ children, organizationName, organizationLogoUr
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b">
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 py-4">
-          {organizationName ? <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} /> : null}
-          <p className="text-sm font-medium text-muted-foreground">{organizationName ?? "Ticket POS"}</p>
+        <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-2">
+          {organizationName ? (
+            <>
+              <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+              <p className="text-sm font-medium text-muted-foreground">{organizationName}</p>
+            </>
+          ) : (
+            // Global explorer: just the Multiticketing mark (no wordmark),
+            // linked home. The organizer owns the visible name on org pages.
+            <a href="/" aria-label="Multiticketing" className="inline-flex">
+              <LogoMark aria-hidden className="size-8 text-primary" />
+            </a>
+          )}
         </div>
       </header>
       <div className="flex-1">{children}</div>
       <footer className="border-t py-6">
-        <div className="mx-auto w-full max-w-5xl px-4 text-center text-sm text-muted-foreground">
-          <a href="https://ticketpos.example" className="hover:text-foreground">
-            Powered by Ticket POS
+        <div className="mx-auto w-full max-w-6xl px-4 text-center text-sm text-muted-foreground">
+          <a href="https://multiticketing.com" className="hover:text-foreground">
+            Powered by Multiticketing
           </a>
         </div>
       </footer>

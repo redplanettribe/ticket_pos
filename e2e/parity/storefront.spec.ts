@@ -63,6 +63,35 @@ test("Storefront renders an Event detail page from the parity stack", async ({ p
   await expect(page.getByRole("heading", { name: "Tickets" })).toBeVisible();
 });
 
+test("Storefront explorer tab is product-led with a favicon", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page).toHaveTitle("Multiticketing — Discover events");
+  expect(await page.locator('link[rel="icon"]').count()).toBeGreaterThan(0);
+});
+
+test("Storefront keeps Organization-led titles (no product-name leak)", async ({ page }) => {
+  // The Organization page must own its tab: its title is Organization-led and
+  // must not carry "Multiticketing" (which would happen if a title template
+  // were ever added at the layout).
+  await page.goto("/");
+  const href = await eventCards(page).first().getAttribute("href");
+  const orgSlug = (href ?? "").split("/").filter(Boolean)[0];
+  expect(orgSlug, "explorer should link into an Organization").toBeTruthy();
+
+  await page.goto(`/${orgSlug}`);
+  await expect(page).toHaveTitle(/· Events$/);
+  await expect(page).not.toHaveTitle(/Multiticketing/);
+});
+
+test("Storefront shows a subtle Powered by Multiticketing footer", async ({ page }) => {
+  await page.goto("/");
+
+  const link = page.getByRole("link", { name: "Powered by Multiticketing" });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", /multiticketing/i);
+});
+
 test("Storefront reaches the API from inside the parity network", async ({ request }) => {
   // The route handler proxies the Go API over the Compose network using the
   // runtime API_URL, and returns 502 when it cannot reach it.

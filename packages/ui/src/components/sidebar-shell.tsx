@@ -18,6 +18,8 @@ export type SidebarHeaderSlot = ReactNode | ((opts: { onNavigate?: () => void })
 
 type SidebarShellProps = {
   header: SidebarHeaderSlot;
+  /** Product branding shown at the very top of the sidebar (above the header). */
+  brand?: ReactNode;
   /** Compact content shown in the mobile top bar beside the menu button. */
   mobileHeader?: ReactNode;
   navItems: SidebarNavItem[];
@@ -28,15 +30,17 @@ type SidebarShellProps = {
 
 type SidebarContentProps = {
   header: SidebarHeaderSlot;
+  brand?: ReactNode;
   navItems: SidebarNavItem[];
   activePath?: string;
   userMenu?: ReactNode;
   onNavigate?: () => void;
 };
 
-function SidebarContent({ header, navItems, activePath, userMenu, onNavigate }: SidebarContentProps) {
+function SidebarContent({ header, brand, navItems, activePath, userMenu, onNavigate }: SidebarContentProps) {
   return (
     <>
+      {brand ? <div className="flex items-center border-b px-4 py-4">{brand}</div> : null}
       {typeof header === "function" ? header({ onNavigate }) : header}
       <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary">
         {navItems.map((item) => (
@@ -61,6 +65,7 @@ function SidebarContent({ header, navItems, activePath, userMenu, onNavigate }: 
 
 export function SidebarShell({
   header,
+  brand,
   mobileHeader,
   navItems,
   activePath,
@@ -78,13 +83,20 @@ export function SidebarShell({
         Skip to main content
       </a>
       <aside className="hidden w-60 shrink-0 border-r bg-card md:flex md:flex-col">
-        <SidebarContent header={header} navItems={navItems} activePath={activePath} userMenu={userMenu} />
+        <SidebarContent
+          header={header}
+          brand={brand}
+          navItems={navItems}
+          activePath={activePath}
+          userMenu={userMenu}
+        />
       </aside>
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent side="left" className="w-60 p-0">
           <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent
             header={header}
+            brand={brand}
             navItems={navItems}
             activePath={activePath}
             userMenu={userMenu}

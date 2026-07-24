@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 
+import { Logo } from "./logo";
 import { OrgAvatar } from "./org-avatar";
 import { SidebarShell, type SidebarNavItem } from "./sidebar-shell";
 
@@ -78,6 +79,7 @@ export function StaffShell({
   return (
     <SidebarShell
       header={header}
+      brand={<Logo withWordmark className="text-primary" markClassName="size-6" />}
       mobileHeader={mobileHeader}
       navItems={navItems}
       activePath={activePath}

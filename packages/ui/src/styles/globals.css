@@ -44,7 +44,10 @@
   --card-foreground: oklch(0.21 0.02 256);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.02 256);
-  --primary: oklch(0.49 0.19 264);
+  /* Brand blue #0e84c1, darkened to #0d7bb3 so white foreground clears WCAG AA
+     (4.67:1) on primary buttons. The exact brand blue lives in the logo,
+     favicon, and staff theme-color. */
+  --primary: oklch(0.556 0.123 239.6);
   --primary-foreground: oklch(0.99 0.002 247);
   --secondary: oklch(0.96 0.01 256);
   --secondary-foreground: oklch(0.28 0.03 256);
@@ -56,7 +59,7 @@
   --destructive-foreground: oklch(0.99 0.002 247);
   --border: oklch(0.9 0.01 256);
   --input: oklch(0.9 0.01 256);
-  --ring: oklch(0.49 0.19 264);
+  --ring: oklch(0.556 0.123 239.6);
   --success: oklch(0.55 0.15 145);
   --success-foreground: oklch(0.99 0.002 247);
   --warning: oklch(0.75 0.15 85);
