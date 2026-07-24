@@ -21,15 +21,26 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
 
   const title = `${event.name} · ${event.organization.name}`;
   const description = event.description ?? `Get tickets for ${event.name}.`;
+  const path = `/${orgSlug}/events/${eventSlug}`;
+  // Cover URLs are already absolute (object storage), so previews render even
+  // when metadataBase is unset off-platform.
+  const images = event.cover_image_url ? [event.cover_image_url] : undefined;
   return {
     title,
     description,
-    alternates: { canonical: `/${orgSlug}/events/${eventSlug}` },
+    alternates: { canonical: path },
     openGraph: {
       title,
       description,
       type: "website",
-      images: event.cover_image_url ? [{ url: event.cover_image_url }] : undefined,
+      url: path,
+      images,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images,
     },
   };
 }

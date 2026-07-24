@@ -100,6 +100,16 @@ resource "google_cloud_run_v2_service" "storefront" {
         value = google_cloud_run_v2_service.api.uri
       }
 
+      # The Storefront's own public origin, used to set Next's metadataBase so
+      # canonical and og:url resolve to absolute URLs on shared event links.
+      # Runtime-only (never NEXT_PUBLIC), so the same image serves every env.
+      # Empty until a custom domain is mapped, where Next falls back to relative
+      # URLs — og:image is already absolute, so link previews still work.
+      env {
+        name  = "STOREFRONT_BASE_URL"
+        value = var.storefront_domain != null ? "https://${var.storefront_domain}" : ""
+      }
+
       env {
         name  = "NODE_ENV"
         value = "production"
