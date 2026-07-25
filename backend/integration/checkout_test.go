@@ -550,3 +550,36 @@ func TestConfirmCheckoutUnknownPayment(t *testing.T) {
 		t.Fatalf("error=%+v, want PAYMENT_NOT_FOUND", body.Error)
 	}
 }
+
+// An Online Sale belongs to its Customer like any other Ticket Sale: after a
+// guest checkout, signing in with the same email shows it in the Customer Area
+// (parent spec #81, story 9 — the spine's Customer upsert makes it so).
+func TestOnlineSaleAppearsInCustomerArea(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, ttID := publishCheckoutEvent(t, env, sessionID, "Area Fest", "area-fest", 2500, 10)
+
+	begin := beginCheckoutOK(t, env, "test-org", "area-fest",
+		checkoutBody("area@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": ttID, "quantity": 2}))
+	confirmed := confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+	if confirmed.Status != "approved" || confirmed.ConfirmationRef == "" {
+		t.Fatalf("confirm = %+v, want approved with a confirmation ref", confirmed)
+	}
+
+	token := customerSignIn(t, env, "area@example.com")
+	area := readCustomerArea(t, env, token, "")
+	if len(area.Upcoming) != 1 || len(area.Past) != 0 {
+		t.Fatalf("customer area upcoming=%d past=%d, want exactly the one online sale upcoming",
+			len(area.Upcoming), len(area.Past))
+	}
+	sale := area.Upcoming[0]
+	if sale.ConfirmationRef != confirmed.ConfirmationRef {
+		t.Fatalf("confirmation_ref = %q, want %q", sale.ConfirmationRef, confirmed.ConfirmationRef)
+	}
+	if sale.Event.Slug != "area-fest" {
+		t.Fatalf("event slug = %q, want area-fest", sale.Event.Slug)
+	}
+	if len(sale.Lines) != 1 || sale.Lines[0].Quantity != 2 || sale.Lines[0].UnitPriceCents != 2500 {
+		t.Fatalf("lines = %+v, want 2 x GA at 2500", sale.Lines)
+	}
+}

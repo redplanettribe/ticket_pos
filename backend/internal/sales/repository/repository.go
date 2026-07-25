@@ -416,7 +416,7 @@ func (r *Repository) liveHoldsForUpdate(ctx context.Context, tx *sql.Tx, eventID
 	if err != nil {
 		return nil, err
 	}
-	return collectHeldQuantities(rows)
+	return sales.ScanHeldQuantities(rows)
 }
 
 // CommitImport records a Sale Import batch in a single transaction: the sales

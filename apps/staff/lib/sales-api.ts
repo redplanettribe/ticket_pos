@@ -194,11 +194,17 @@ const SOURCE_LABELS: Record<string, string> = {
   external_platform: "External platform",
 };
 
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash: "Cash",
-  transfer: "Transfer",
-  payphone: "PayPhone",
-};
+// The one place the Payment Method value set is spelled out for the staff app:
+// the filter options and the row-detail labels both read from it.
+export const PAYMENT_METHODS = [
+  { value: "cash", label: "Cash" },
+  { value: "transfer", label: "Transfer" },
+  { value: "payphone", label: "PayPhone" },
+] as const;
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = Object.fromEntries(
+  PAYMENT_METHODS.map((method) => [method.value, method.label]),
+);
 
 // channelSourceLabel renders the channel and (when present) source as
 // "Import · Direct".

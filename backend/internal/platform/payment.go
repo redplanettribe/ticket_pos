@@ -54,7 +54,7 @@ type PaymentConfirmInput struct {
 
 // PaymentConfirmation is the provider's verdict: approved or declined, the
 // provider's transaction id, and optionally a human-readable instrument
-// description (e.g. "visa ····1234"). Nothing stores the instrument yet; it is
+// description (e.g. "visa ····1234"), kept on the Payment for support; it is
 // part of the boundary so a future payment-detail surface needs no interface
 // change.
 type PaymentConfirmation struct {

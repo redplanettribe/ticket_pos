@@ -1,6 +1,9 @@
 package sales
 
-import "time"
+import (
+	"database/sql"
+	"time"
+)
 
 // Capacity Holds are derived from pending Payments, not stored (ADR 0013): a
 // pending Payment younger than the hold window IS the hold on its Ticket Types.
@@ -37,6 +40,24 @@ func HoldCutoff(now time.Time) time.Time {
 //     rather than double-counting against itself.
 //
 // The (status, created_at) index on payments serves this shape (migration 019).
+// ScanHeldQuantities collects the (ticket_type_id, held) rows a LiveHoldsSQL
+// query produces into a map; Ticket Types with no live hold are absent. It
+// closes the rows. Kept beside the query so every reader of the derivation
+// scans it the same way.
+func ScanHeldQuantities(rows *sql.Rows) (map[string]int, error) {
+	defer rows.Close()
+	held := map[string]int{}
+	for rows.Next() {
+		var id string
+		var qty int
+		if err := rows.Scan(&id, &qty); err != nil {
+			return nil, err
+		}
+		held[id] = qty
+	}
+	return held, rows.Err()
+}
+
 func LiveHoldsSQL(cutoffExpr, eventExpr, excludePaymentExpr string) string {
 	extra := ""
 	if eventExpr != "" {

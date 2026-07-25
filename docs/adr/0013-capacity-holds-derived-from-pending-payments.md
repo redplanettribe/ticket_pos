@@ -17,5 +17,9 @@ capacity after, reverse on conflict — makes "you paid and got nothing" a desig
   counts are conservative for those minutes. The window comfortably covers PayPhone's 10-minute
   form validity plus its 5-minute confirm window.
 - Public remaining/sold-out figures must subtract live holds, so they read the payments table.
+- The hold derivation — window, query, and row scan — is deliberately defined once in the sales
+  domain root and executed by both the sales and catalog repositories, a blessed deviation from
+  the SQL-lives-in-repositories layering rule: two independent spellings of the WHERE clause
+  would be worse than shared query text.
 - Stale pending Payments are lazily marked `expired`; nothing depends on that transition for
   correctness.

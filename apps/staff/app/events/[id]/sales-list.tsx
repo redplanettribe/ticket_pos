@@ -24,6 +24,7 @@ import {
   fetchSalesList,
   formatSaleTimestamp,
   hasActiveSalesFilters,
+  PAYMENT_METHODS,
   paymentMethodLabel,
   rollupTicketTypes,
   salesListQuery,
@@ -279,11 +280,7 @@ const SOURCE_OPTIONS = [
   { value: "external_platform", label: "External platform" },
 ];
 
-const PAYMENT_METHOD_OPTIONS = [
-  { value: "cash", label: "Cash" },
-  { value: "transfer", label: "Transfer" },
-  { value: "payphone", label: "PayPhone" },
-];
+const PAYMENT_METHOD_OPTIONS = PAYMENT_METHODS;
 
 type SalesFilterBarProps = {
   filters: SalesFilters;

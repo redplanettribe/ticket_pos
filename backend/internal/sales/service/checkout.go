@@ -228,7 +228,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	}
 
 	if !confirmation.Approved {
-		settled, err := s.repo.MarkPaymentFailed(ctx, clientTransactionID, confirmation.ProviderTransactionID, s.now())
+		settled, err := s.repo.MarkPaymentFailed(ctx, clientTransactionID, confirmation.ProviderTransactionID, confirmation.Instrument, s.now())
 		if err != nil {
 			return nil, err
 		}
@@ -246,6 +246,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	approved, err := s.repo.ApprovePaymentAndCommitSale(ctx, repository.ApprovePaymentInput{
 		ClientTransactionID:   clientTransactionID,
 		ProviderTransactionID: confirmation.ProviderTransactionID,
+		Instrument:            confirmation.Instrument,
 		PaymentMethod:         onlinePaymentMethod,
 		ConfirmationRef:       ref,
 		Now:                   s.now(),
@@ -256,7 +257,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		// incident the platform operator resolves by hand. The Payment is left
 		// approved-without-sale as the durable marker, and the log line below is
 		// the loud path the parent spec demands.
-		if _, markErr := s.repo.MarkPaymentApprovedWithoutSale(ctx, clientTransactionID, confirmation.ProviderTransactionID, s.now()); markErr != nil {
+		if _, markErr := s.repo.MarkPaymentApprovedWithoutSale(ctx, clientTransactionID, confirmation.ProviderTransactionID, confirmation.Instrument, s.now()); markErr != nil {
 			s.logger.Error("PAYMENT_APPROVED_WITHOUT_SALE: marking the incident failed too; reconcile from provider records",
 				"client_transaction_id", clientTransactionID,
 				"provider_transaction_id", confirmation.ProviderTransactionID,

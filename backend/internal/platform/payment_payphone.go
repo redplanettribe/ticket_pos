@@ -102,9 +102,9 @@ type payPhonePrepareRequest struct {
 // not use (one RedirectURL per attempt, and the card form asks nothing of the
 // Customer beyond a card).
 type payPhonePrepareResponse struct {
-	PaymentID       payPhoneID `json:"paymentId"`
-	PayWithCard     string     `json:"payWithCard"`
-	PayWithPayPhone string     `json:"payWithPayPhone"`
+	PaymentID       payPhoneNumberOrString `json:"paymentId"`
+	PayWithCard     string                 `json:"payWithCard"`
+	PayWithPayPhone string                 `json:"payWithPayPhone"`
 }
 
 // Initiate calls Prepare and returns the hosted card-payment URL. Amounts are
@@ -152,11 +152,11 @@ type payPhoneConfirmRequest struct {
 // reads: the verdict, PayPhone's transaction id for support cross-referencing,
 // and the instrument details worth showing a human.
 type payPhoneConfirmResponse struct {
-	StatusCode        int        `json:"statusCode"`
-	TransactionStatus string     `json:"transactionStatus"`
-	TransactionID     payPhoneID `json:"transactionId"`
-	CardBrand         string     `json:"cardBrand"`
-	LastDigits        payPhoneID `json:"lastDigits"`
+	StatusCode        int                    `json:"statusCode"`
+	TransactionStatus string                 `json:"transactionStatus"`
+	TransactionID     payPhoneNumberOrString `json:"transactionId"`
+	CardBrand         string                 `json:"cardBrand"`
+	LastDigits        payPhoneNumberOrString `json:"lastDigits"`
 }
 
 // Confirm calls V2/Confirm with the id PayPhone's return redirect carried and
@@ -271,13 +271,13 @@ func payPhoneInstrument(cardBrand, lastDigits string) string {
 	}
 }
 
-// payPhoneID reads an identifier field whether PayPhone sends it as a JSON
-// number or a string — its docs show numbers, but ids are opaque here and
-// treating a genuine string id as a decode failure would fail a confirm whose
-// outcome is otherwise perfectly known.
-type payPhoneID string
+// payPhoneNumberOrString reads a field PayPhone may send as a JSON number or a
+// string — ids and card last-digits alike. Its docs show numbers, but the
+// values are opaque here and treating a genuine string as a decode failure
+// would fail a confirm whose outcome is otherwise perfectly known.
+type payPhoneNumberOrString string
 
-func (v *payPhoneID) UnmarshalJSON(data []byte) error {
+func (v *payPhoneNumberOrString) UnmarshalJSON(data []byte) error {
 	trimmed := strings.TrimSpace(string(data))
 	if trimmed == "null" {
 		*v = ""
@@ -288,13 +288,13 @@ func (v *payPhoneID) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &s); err != nil {
 			return err
 		}
-		*v = payPhoneID(strings.TrimSpace(s))
+		*v = payPhoneNumberOrString(strings.TrimSpace(s))
 		return nil
 	}
 	var n json.Number
 	if err := json.Unmarshal(data, &n); err != nil {
 		return err
 	}
-	*v = payPhoneID(n.String())
+	*v = payPhoneNumberOrString(n.String())
 	return nil
 }

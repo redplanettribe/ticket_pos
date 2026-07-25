@@ -119,23 +119,7 @@ func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, cuto
 	if err != nil {
 		return nil, err
 	}
-	return collectHeldQuantities(rows)
-}
-
-// collectHeldQuantities scans (ticket_type_id, held) rows from a LiveHoldsSQL
-// query into a map.
-func collectHeldQuantities(rows *sql.Rows) (map[string]int, error) {
-	defer rows.Close()
-	held := map[string]int{}
-	for rows.Next() {
-		var id string
-		var qty int
-		if err := rows.Scan(&id, &qty); err != nil {
-			return nil, err
-		}
-		held[id] = qty
-	}
-	return held, rows.Err()
+	return sales.ScanHeldQuantities(rows)
 }
 
 // ExpireStalePayments lazily marks an Event's pending Payments created at or
@@ -223,6 +207,9 @@ func (r *Repository) GetPaymentByClientTransactionID(ctx context.Context, client
 type ApprovePaymentInput struct {
 	ClientTransactionID   string
 	ProviderTransactionID string
+	// Instrument is the provider's human-readable card description (e.g.
+	// "visa ····1234"), kept on the Payment for support lookups; may be empty.
+	Instrument string
 	// PaymentMethod is recorded on the Ticket Sale (the Payment Provider that
 	// collected the money, e.g. 'payphone').
 	PaymentMethod   string
@@ -339,9 +326,10 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		SET status = 'approved',
 		    ticket_sale_id = $2,
 		    provider_transaction_id = COALESCE(NULLIF($3, ''), provider_transaction_id),
-		    updated_at = $4
+		    instrument = COALESCE(NULLIF($4, ''), instrument),
+		    updated_at = $5
 		WHERE id = $1
-	`, paymentID, recorded[0].ID, in.ProviderTransactionID, in.Now); err != nil {
+	`, paymentID, recorded[0].ID, in.ProviderTransactionID, in.Instrument, in.Now); err != nil {
 		return nil, err
 	}
 
@@ -355,30 +343,31 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 // cancelled). It reports whether this call did the settling: false means
 // another confirm got there first and the caller should re-read the recorded
 // outcome.
-func (r *Repository) MarkPaymentFailed(ctx context.Context, clientTransactionID, providerTransactionID string, now time.Time) (bool, error) {
-	return r.settlePayment(ctx, clientTransactionID, providerTransactionID, "failed", now)
+func (r *Repository) MarkPaymentFailed(ctx context.Context, clientTransactionID, providerTransactionID, instrument string, now time.Time) (bool, error) {
+	return r.settlePayment(ctx, clientTransactionID, providerTransactionID, instrument, "failed", now)
 }
 
 // MarkPaymentApprovedWithoutSale records the incident case: the provider
 // approved the charge but the sale commit failed, so the Payment ends
 // 'approved' with no ticket_sale_id — the marker the platform operator
 // reconciles by hand. It reports whether this call did the settling.
-func (r *Repository) MarkPaymentApprovedWithoutSale(ctx context.Context, clientTransactionID, providerTransactionID string, now time.Time) (bool, error) {
-	return r.settlePayment(ctx, clientTransactionID, providerTransactionID, "approved", now)
+func (r *Repository) MarkPaymentApprovedWithoutSale(ctx context.Context, clientTransactionID, providerTransactionID, instrument string, now time.Time) (bool, error) {
+	return r.settlePayment(ctx, clientTransactionID, providerTransactionID, instrument, "approved", now)
 }
 
 // settlePayment moves an unsettled Payment to a terminal status. 'expired' is
 // settleable alongside 'pending': lazy expiry is bookkeeping, not a verdict, so
 // a late confirm still records the provider's real outcome over it — including
 // the approved-without-sale incident marker after a failed commit (ADR 0013).
-func (r *Repository) settlePayment(ctx context.Context, clientTransactionID, providerTransactionID, status string, now time.Time) (bool, error) {
+func (r *Repository) settlePayment(ctx context.Context, clientTransactionID, providerTransactionID, instrument, status string, now time.Time) (bool, error) {
 	res, err := r.db.Pool.ExecContext(ctx, `
 		UPDATE payments
 		SET status = $2,
 		    provider_transaction_id = COALESCE(NULLIF($3, ''), provider_transaction_id),
-		    updated_at = $4
+		    instrument = COALESCE(NULLIF($4, ''), instrument),
+		    updated_at = $5
 		WHERE client_transaction_id = $1 AND status IN ('pending', 'expired')
-	`, clientTransactionID, status, providerTransactionID, now)
+	`, clientTransactionID, status, providerTransactionID, instrument, now)
 	if err != nil {
 		return false, err
 	}

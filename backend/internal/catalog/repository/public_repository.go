@@ -108,27 +108,17 @@ func collectPublicEventRows(rows *sql.Rows) ([]PublicEventRow, error) {
 }
 
 // LiveCapacityHolds returns the quantities live Capacity Holds currently claim
-// per Ticket Type on an Event: pending Payments created within the hold window
-// ending at now (ADR 0013). Ticket Types with no live hold are absent from the
-// map. It runs the shared sales.LiveHoldsSQL — the public remaining figures
-// read the payments table directly, as the ADR prescribes, so the hold
-// semantics stay defined in exactly one place.
-func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, now time.Time) (map[string]int, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, sales.HoldCutoff(now))
+// per Ticket Type on an Event: pending Payments created strictly after the
+// cutoff (ADR 0013). Ticket Types with no live hold are absent from the map.
+// It runs the shared sales.LiveHoldsSQL — the public remaining figures read
+// the payments table directly, as the ADR prescribes, so the hold semantics
+// stay defined in exactly one place.
+func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, cutoff time.Time) (map[string]int, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, cutoff)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	held := map[string]int{}
-	for rows.Next() {
-		var id string
-		var qty int
-		if err := rows.Scan(&id, &qty); err != nil {
-			return nil, err
-		}
-		held[id] = qty
-	}
-	return held, rows.Err()
+	return sales.ScanHeldQuantities(rows)
 }
 
 // GetPublicOrganizationBySlug loads an Organization projection for the Storefront.

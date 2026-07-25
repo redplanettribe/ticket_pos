@@ -9,6 +9,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 const (
@@ -214,7 +215,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 	// Live Capacity Holds count against what the Storefront advertises as
 	// remaining (ADR 0013): tickets pending Payments speak for are not for sale
 	// until those Payments settle or their holds lapse.
-	held, err := s.repo.LiveCapacityHolds(ctx, row.ID, now)
+	held, err := s.repo.LiveCapacityHolds(ctx, row.ID, sales.HoldCutoff(now))
 	if err != nil {
 		return nil, err
 	}

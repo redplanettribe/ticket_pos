@@ -372,6 +372,15 @@ func TestPayPhoneCheckoutApprove(t *testing.T) {
 	if providerTxID == nil || *providerTxID != fmt.Sprint(payphoneStubTransactionID) {
 		t.Fatalf("provider_transaction_id = %v, want the Confirm transactionId %d", providerTxID, payphoneStubTransactionID)
 	}
+	// The card details PayPhone reported are kept on the Payment for support
+	// lookups (ticket #86). Read directly: no public API exposes Payment state.
+	var instrument *string
+	if err := env.db.QueryRow(`SELECT instrument FROM payments WHERE client_transaction_id = $1`, begin.ClientTransactionID).Scan(&instrument); err != nil {
+		t.Fatalf("read instrument: %v", err)
+	}
+	if instrument == nil || *instrument != "visa ····1234" {
+		t.Fatalf("instrument = %v, want the Confirm cardBrand+lastDigits as visa ····1234", instrument)
+	}
 	if got := soldCount(t, env, sessionID, eventID, gaID); got != 2 {
 		t.Fatalf("sold_count = %d, want 2", got)
 	}

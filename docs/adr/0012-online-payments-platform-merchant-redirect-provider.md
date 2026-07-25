@@ -26,3 +26,10 @@ nothing external may call the Go API), which asks the API to confirm.
   unconfirmed payment is auto-reversed by PayPhone after 5 minutes. A lost redirect therefore
   means an automatically refunded customer and a lost sale — money-safe by construction. A
   rescue reconciler (Cloud Scheduler) is a possible follow-up, not part of this decision.
+- Only an explicit provider decline marks a Payment `failed`. A provider error with an unknown
+  outcome (HTTP failure, malformed response, undocumented status) leaves the Payment `pending`
+  and the confirm retryable: marking it failed would idempotently replay "failed" to a customer
+  who may in fact have paid, while an unconfirmed charge is safely auto-reversed anyway.
+- Online Ticket Sales record Payment Method `payphone` even when the dev/test stub collected
+  the payment: the stub is a stand-in for the real provider, and the recorded value set stays
+  production-truthful rather than admitting a `stub` value.

@@ -293,7 +293,7 @@ func TestPayPhoneInstrument(t *testing.T) {
 // a string id must not fail a confirm whose outcome is otherwise known.
 func TestPayPhoneIDReadsNumbersAndStrings(t *testing.T) {
 	var out struct {
-		ID payPhoneID `json:"id"`
+		ID payPhoneNumberOrString `json:"id"`
 	}
 	for raw, want := range map[string]string{
 		`{"id": 987654}`:     "987654",
