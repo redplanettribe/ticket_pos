@@ -118,6 +118,71 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type googleVerifyBody struct {
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+	RedirectURI  string `json:"redirect_uri"`
+}
+
+// VerifyGoogle completes a Google Sign-In and issues a Customer Session.
+//
+// The three fields below are the whole of the request, and what is missing from
+// them is the point: the Storefront cannot name an email address here. It relays
+// an authorization code that only Google can turn into one, so a bug in the
+// Storefront cannot mint a session for an address of its choosing (ADR 0011).
+//
+// The route is unauthenticated because, like passcode verification, it mints the
+// credential rather than consuming one.
+//
+// @Summary      Verify a Google Sign-In
+// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+// @Tags         customer
+// @Accept       json
+// @Produce      json
+// @Param        body  body      googleVerifyBody  true  "Authorization code, PKCE verifier and redirect URI"
+// @Success      200   {object}  openapi.EnvelopeCustomerVerifyGoogle
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Router       /api/v1/customer/auth/google/verify [post]
+func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body googleVerifyBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	var fields []platform.FieldError
+	for _, required := range []struct {
+		name  string
+		value string
+	}{
+		{"code", body.Code},
+		{"code_verifier", body.CodeVerifier},
+		{"redirect_uri", body.RedirectURI},
+	} {
+		if strings.TrimSpace(required.value) == "" {
+			fields = append(fields, platform.FieldError{Field: required.name, Message: "is required"})
+		}
+	}
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
+		Session:   session,
+		SessionID: sessionID,
+	})
+}
+
 type confirmationLinkBody struct {
 	Token string `json:"token"`
 }

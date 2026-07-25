@@ -22,6 +22,7 @@ import (
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/googleauth"
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
@@ -127,9 +128,33 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		WithGlobalCeiling(cfg.OTPGlobalCeiling)
 	platformLogger.Info("otp global ceiling", "sends_per_window", otpService.GlobalCeiling())
 
+	// One Google OAuth client per surface, and they are never interchanged: Google
+	// binds an authorization code to the client that requested it, so a code
+	// obtained on the Storefront cannot be redeemed with the Staff client's
+	// credentials and vice versa. Cross-surface isolation is a property of these
+	// two sets of secrets rather than of any check below (ADR 0011).
+	googleTokenEndpoint := cfg.Google.TokenEndpoint
+	if strings.TrimSpace(googleTokenEndpoint) == "" {
+		googleTokenEndpoint = platform.GoogleTokenEndpoint
+	}
+	storefrontGoogle := googleauth.New(googleauth.Credentials{
+		ClientID:     cfg.Google.Storefront.ClientID,
+		ClientSecret: cfg.Google.Storefront.ClientSecret,
+	}, googleTokenEndpoint, platformLogger)
+	staffGoogle := googleauth.New(googleauth.Credentials{
+		ClientID:     cfg.Google.Staff.ClientID,
+		ClientSecret: cfg.Google.Staff.ClientSecret,
+	}, googleTokenEndpoint, platformLogger)
+	if googleTokenEndpoint != platform.GoogleTokenEndpoint {
+		// Only a non-production deployment can reach this; LoadConfig refuses the
+		// override outright in production. Said out loud anyway, because "which
+		// issuer does this process trust" is not a thing to have to guess at.
+		platformLogger.Warn("google sign-in: token endpoint overridden", "endpoint", googleTokenEndpoint)
+	}
+
 	identityRepo := identityrepo.New(db)
 	catalogRepo := catalogrepo.New(db)
-	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, otpService, platformLogger)
+	identityService := identitysvc.New(identityRepo, catalogRepo, objectStorage, otpService, platformLogger, staffGoogle)
 	if options.clock != nil {
 		identityService = identityService.WithClock(options.clock)
 	}
@@ -158,7 +183,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	customersService := customerssvc.New(customersRepo, otpService, platformLogger, customerssvc.ConfirmationLinkConfig{
 		Secret:            confirmationLinkSecret,
 		StorefrontBaseURL: cfg.StorefrontBaseURL,
-	})
+	}, storefrontGoogle)
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}

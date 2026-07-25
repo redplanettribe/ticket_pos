@@ -218,6 +218,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "internal_customers_handler.googleVerifyBody": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "redirect_uri": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "internal_customers_handler.otpRequestBody": {
                 "properties": {
                     "email": {
@@ -254,6 +268,20 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "internal_identity_handler.googleVerifyBody": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "code_verifier": {
+                        "type": "string"
+                    },
+                    "redirect_uri": {
                         "type": "string"
                     }
                 },
@@ -357,6 +385,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.CustomerSessionView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerVerifyGoogle": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.CustomerVerifyOTPData"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -583,6 +625,20 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeVerifyGoogle": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.VerifyOTPData"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1171,6 +1227,67 @@ const docTemplate = `{
         "url": ""
     },
     "paths": {
+        "/api/v1/auth/google/verify": {
+            "post": {
+                "description": "Exchanges an authorization code obtained on the Staff app at Google's token endpoint, using the staff OAuth client, and issues a Staff Session on the email address Google vouches for. The session and the auth-fork that follows are identical to a passcode's. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/internal_identity_handler.googleVerifyBody",
+                                        "summary": "body",
+                                        "description": "Authorization code, PKCE verifier and redirect URI"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Authorization code, PKCE verifier and redirect URI",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeVerifyGoogle"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "summary": "Verify a Google Sign-In",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
         "/api/v1/auth/logout": {
             "post": {
                 "description": "Destroys the authenticated session.",
@@ -1431,6 +1548,67 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Redeem a Confirmation Link",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/auth/google/verify": {
+            "post": {
+                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/internal_customers_handler.googleVerifyBody",
+                                        "summary": "body",
+                                        "description": "Authorization code, PKCE verifier and redirect URI"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Authorization code, PKCE verifier and redirect URI",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerVerifyGoogle"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "summary": "Verify a Google Sign-In",
                 "tags": [
                     "customer"
                 ]

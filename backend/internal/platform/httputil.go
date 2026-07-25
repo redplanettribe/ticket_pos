@@ -90,6 +90,11 @@ func domainHTTPStatus(code string) int {
 		return http.StatusUnauthorized
 	case "SESSION_NOT_FOUND", "SESSION_EXPIRED":
 		return http.StatusUnauthorized
+	// A failed Google Sign-In is 401 for the same reason a bad passcode is: the
+	// caller proved nothing. It is one code covering every cause on purpose —
+	// see googleauth.ErrSignInFailed.
+	case "GOOGLE_SIGN_IN_FAILED":
+		return http.StatusUnauthorized
 	// A Customer Session failing is reported with its own codes: it is an
 	// unrelated record on an unrelated surface to a Staff Session (ADR 0010).
 	case "CUSTOMER_SESSION_NOT_FOUND", "CUSTOMER_SESSION_EXPIRED":

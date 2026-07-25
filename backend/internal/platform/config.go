@@ -14,6 +14,10 @@ import (
 // is still using it.
 const DevStorefrontBaseURL = "http://localhost:64300"
 
+// GoogleTokenEndpoint is Google's own token endpoint, where every authorization
+// code is redeemed unless a non-production deployment says otherwise.
+const GoogleTokenEndpoint = "https://oauth2.googleapis.com/token"
+
 // Config holds application configuration loaded from the environment.
 type Config struct {
 	AppEnv        string
@@ -44,6 +48,42 @@ type Config struct {
 	// default". Tunable without a deploy-time code change because the right
 	// number moves with real traffic.
 	OTPGlobalCeiling int
+	// Google holds what the API needs to complete a Google Sign-In on either
+	// surface. See GoogleConfig.
+	Google GoogleConfig
+}
+
+// GoogleOAuthClient is one surface's registration with Google.
+//
+// Each surface has its own (ADR 0011), because Google binds an authorization
+// code to the client that requested it: a code obtained on the Storefront
+// cannot be redeemed with the Staff client's credentials, so cross-surface
+// isolation is a property of these values rather than of a check in application
+// code. A leaked Storefront secret therefore reaches no Organization.
+type GoogleOAuthClient struct {
+	ClientID     string
+	ClientSecret string
+}
+
+// GoogleConfig is the Google Sign-In configuration, one entry per surface plus
+// the endpoint they share.
+//
+// The two clients are siblings and stay siblings: neither is a default for the
+// other and there is no "the Google client". A surface that cannot name which
+// one it means has a bug, because naming the wrong one is exactly the mistake
+// ADR 0011's isolation exists to make impossible.
+type GoogleConfig struct {
+	// Storefront is the client the Customer surface signs in with.
+	Storefront GoogleOAuthClient
+	// Staff is the client the Staff surface signs in with. A code obtained on
+	// the Storefront is not redeemable with these credentials, which is where
+	// cross-surface isolation lives.
+	Staff GoogleOAuthClient
+	// TokenEndpoint is where authorization codes are redeemed. It defaults to
+	// Google's own endpoint and exists to be overridden by exactly one caller:
+	// the integration suite, which points it at a stub. LoadConfig refuses an
+	// override in production — see loadGoogleConfig.
+	TokenEndpoint string
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -68,6 +108,11 @@ func LoadConfig() (Config, error) {
 	// Requiring it here failed the migrate Job on every production deploy.
 	confirmationLinkSecret := strings.TrimSpace(os.Getenv("CONFIRMATION_LINK_SECRET"))
 
+	google, err := loadGoogleConfig(appEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		AppEnv:        appEnv,
 		DatabaseURL:   databaseURL,
@@ -90,8 +135,51 @@ func LoadConfig() (Config, error) {
 		ConfirmationLinkSecret: confirmationLinkSecret,
 
 		OTPGlobalCeiling: otpCeiling,
+		Google:           google,
 	}
 	return cfg, nil
+}
+
+// loadGoogleConfig reads the Google Sign-In settings and enforces the one guard
+// this feature ships with.
+//
+// GOOGLE_TOKEN_ENDPOINT decides which issuer the platform trusts to say who
+// somebody is. Anyone able to set it could point the exchange at a server they
+// control and mint a session for any address on either surface, which is
+// unrestricted account takeover — and it would leave no trace, because a
+// sign-in through a hostile issuer looks exactly like a real one. It exists for
+// the integration suite's stub token endpoint and for nothing else, so in
+// production it is not warned about like the Storefront origin fallback, but
+// refused: the process does not start.
+//
+// The check lives here rather than in server.NewApp because it is a refusal
+// rather than a requirement. Nothing is asked of a deployment that has not set
+// it, so cmd/migrate — which shares this loader and holds none of the API's
+// secrets — is unaffected, and every workload built from this config is covered.
+//
+// The client credentials are not required. A deployment without them starts and
+// serves every other path; Google Sign-In then refuses, which is what local
+// development without Google credentials looks like.
+func loadGoogleConfig(appEnv string) (GoogleConfig, error) {
+	tokenEndpoint := strings.TrimSpace(os.Getenv("GOOGLE_TOKEN_ENDPOINT"))
+	if tokenEndpoint != "" && appEnv == "production" {
+		return GoogleConfig{}, fmt.Errorf("GOOGLE_TOKEN_ENDPOINT must not be set when APP_ENV is production: it decides which issuer the platform trusts and exists only for tests")
+	}
+	if tokenEndpoint == "" {
+		tokenEndpoint = GoogleTokenEndpoint
+	}
+
+	return GoogleConfig{
+		Storefront: GoogleOAuthClient{
+			ClientID:     strings.TrimSpace(os.Getenv("GOOGLE_STOREFRONT_CLIENT_ID")),
+			ClientSecret: strings.TrimSpace(os.Getenv("GOOGLE_STOREFRONT_CLIENT_SECRET")),
+		},
+		Staff: GoogleOAuthClient{
+			ClientID:     strings.TrimSpace(os.Getenv("GOOGLE_STAFF_CLIENT_ID")),
+			ClientSecret: strings.TrimSpace(os.Getenv("GOOGLE_STAFF_CLIENT_SECRET")),
+		},
+		TokenEndpoint: tokenEndpoint,
+	}, nil
 }
 
 // envIntOrZero reads an optional positive integer setting. An unset variable

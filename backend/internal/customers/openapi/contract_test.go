@@ -35,6 +35,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/customer/auth/otp/request",
 		"/api/v1/customer/auth/otp/verify",
+		"/api/v1/customer/auth/google/verify",
 		"/api/v1/customer/auth/confirmation-link",
 		"/api/v1/customer/auth/session",
 		"/api/v1/customer/auth/logout",
@@ -47,6 +48,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 
 	for _, schema := range []string{
 		"openapi.EnvelopeCustomerVerifyOTP",
+		"openapi.EnvelopeCustomerVerifyGoogle",
 		"openapi.EnvelopeCustomerSession",
 		"openapi.EnvelopeCustomerArea",
 	} {
