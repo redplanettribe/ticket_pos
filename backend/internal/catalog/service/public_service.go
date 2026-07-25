@@ -162,7 +162,8 @@ func (s *Service) GetOrganizationEvents(ctx context.Context, orgSlug string) (*P
 		return nil, catalog.ErrOrganizationNotFound()
 	}
 
-	rows, err := s.repo.ListDiscoverableEventsByOrganization(ctx, org.ID)
+	now := s.now()
+	rows, err := s.repo.ListDiscoverableEventsByOrganization(ctx, org.ID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +172,6 @@ func (s *Service) GetOrganizationEvents(ctx context.Context, orgSlug string) (*P
 	if err != nil {
 		return nil, err
 	}
-
-	now := s.now()
 	result := &PublicOrganizationEvents{
 		Organization: s.publicOrgSummary(org.Name, org.Slug, org.LogoImageKey),
 		Upcoming:     make([]PublicEventCard, 0),
@@ -196,7 +195,8 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 	orgSlug = strings.ToLower(strings.TrimSpace(orgSlug))
 	eventSlug = strings.ToLower(strings.TrimSpace(eventSlug))
 
-	row, err := s.repo.GetPublishedEventBySlug(ctx, orgSlug, eventSlug)
+	now := s.now()
+	row, err := s.repo.GetPublishedEventBySlug(ctx, orgSlug, eventSlug, now)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +205,13 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 	}
 
 	types, err := s.repo.ListTicketTypesByEventID(ctx, row.OrganizationID, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	// Live Capacity Holds count against what the Storefront advertises as
+	// remaining (ADR 0013): tickets pending Payments speak for are not for sale
+	// until those Payments settle or their holds lapse.
+	held, err := s.repo.LiveCapacityHolds(ctx, row.ID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +226,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		Name:          row.Name,
 		Description:   nullStringPtr(row.Description),
 		CoverImageURL: s.coverURL(row.CoverImageKey),
-		HasEnded:      eventEnded(row, s.now()),
+		HasEnded:      eventEnded(row, now),
 		Organization:  s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
 		Currency:      row.OrgCurrency,
 		TicketTypes:   make([]PublicTicketType, 0, len(types)),
@@ -238,7 +245,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 	detail.VenueAddress = nullStringPtr(row.VenueAddress)
 
 	for _, tt := range types {
-		remaining := tt.Capacity - tt.SoldCount
+		remaining := tt.Capacity - tt.SoldCount - held[tt.ID]
 		if remaining < 0 {
 			remaining = 0
 		}
