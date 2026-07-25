@@ -237,17 +237,18 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 
 // newPaymentProvider selects the Payment Provider by credential presence,
 // mirroring newEmailSender (ADR 0009, ADR 0012): PayPhone credentials set means
-// PayPhone, unset means the stub whose payment page is a Storefront
-// interstitial — so the full checkout works locally with zero setup.
-//
-// TODO(#86): the real PayPhone client does not exist yet, so a deployment that
-// HAS set credentials still gets the stub — said out loud at startup rather
-// than silently, because "configured but stubbed" is exactly the state a
-// production operator must not have to guess at.
+// the real PayPhone client, unset means the stub whose payment page is a
+// Storefront interstitial — so the full checkout works locally with zero setup.
 func newPaymentProvider(cfg platform.Config, logger platform.Logger) platform.PaymentProvider {
 	if cfg.PayPhone.Configured() {
-		logger.Warn("payment provider: PAYPHONE_* credentials are set but the PayPhone client is not implemented yet (ticket #86); using the stub provider")
-		return platform.NewStubPaymentProvider(cfg.StorefrontBaseURL)
+		if cfg.PayPhone.BaseURL != "" && cfg.PayPhone.BaseURL != platform.PayPhoneBaseURL {
+			// Only a non-production deployment can reach this; LoadConfig refuses
+			// the override outright in production. Said out loud anyway, because
+			// "which server do these payments go to" is not a thing to guess at.
+			logger.Warn("payment provider: payphone base url overridden", "base_url", cfg.PayPhone.BaseURL)
+		}
+		logger.Info("payment provider: payphone", "store_id", cfg.PayPhone.StoreID)
+		return platform.NewPayPhoneProvider(cfg.PayPhone.APIToken, cfg.PayPhone.StoreID, cfg.PayPhone.BaseURL, logger)
 	}
 	logger.Info("payment provider: stub (no PAYPHONE_* credentials set)")
 	return platform.NewStubPaymentProvider(cfg.StorefrontBaseURL)

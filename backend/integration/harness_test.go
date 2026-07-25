@@ -127,8 +127,18 @@ func TestMain(m *testing.M) {
 		service:    app.IdentityService,
 	}
 
+	// A second app over the SAME database, wired with PayPhone credentials and
+	// the base-URL override pointed at a fake PayPhone server, so the real
+	// provider is selected exactly as production selects it. Started after the
+	// shared app so migrations have already run. See checkout_payphone_test.go.
+	if err := startPayPhoneEnv(ctx, connStr, email); err != nil {
+		fmt.Fprintf(os.Stderr, "payphone env: %v\n", err)
+		os.Exit(1)
+	}
+
 	code := m.Run()
 
+	stopPayPhoneEnv()
 	googleStub.server.Close()
 	srv.Close()
 	_ = app.Close()
@@ -147,6 +157,7 @@ func setupTest(t *testing.T) *testEnv {
 	// in months, so its tests move time far further than any staff test does.
 	sharedApp.CustomersService.WithClock(func() time.Time { return fixedClock })
 	googleStub.reset()
+	payphoneStub.reset()
 	return sharedEnv
 }
 

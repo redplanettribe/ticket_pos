@@ -18,6 +18,10 @@ const DevStorefrontBaseURL = "http://localhost:64300"
 // code is redeemed unless a non-production deployment says otherwise.
 const GoogleTokenEndpoint = "https://oauth2.googleapis.com/token"
 
+// PayPhoneBaseURL is PayPhone's own API origin, where every payment is prepared
+// and confirmed unless a non-production deployment says otherwise.
+const PayPhoneBaseURL = "https://pay.payphonetodoesposible.com"
+
 // Config holds application configuration loaded from the environment.
 type Config struct {
 	AppEnv        string
@@ -65,6 +69,11 @@ type Config struct {
 type PayPhoneConfig struct {
 	APIToken string
 	StoreID  string
+	// BaseURL is where payments are prepared and confirmed. It defaults to
+	// PayPhone's own origin and exists to be overridden by exactly one caller:
+	// the integration suite, which points it at a fake PayPhone server.
+	// LoadConfig refuses an override in production — see loadPayPhoneConfig.
+	BaseURL string
 }
 
 // Configured reports whether PayPhone credentials are present — the switch that
@@ -133,6 +142,11 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	payPhone, err := loadPayPhoneConfig(appEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		AppEnv:        appEnv,
 		DatabaseURL:   databaseURL,
@@ -156,10 +170,7 @@ func LoadConfig() (Config, error) {
 
 		OTPGlobalCeiling: otpCeiling,
 		Google:           google,
-		PayPhone: PayPhoneConfig{
-			APIToken: strings.TrimSpace(os.Getenv("PAYPHONE_API_TOKEN")),
-			StoreID:  strings.TrimSpace(os.Getenv("PAYPHONE_STORE_ID")),
-		},
+		PayPhone:         payPhone,
 	}
 	return cfg, nil
 }
@@ -203,6 +214,39 @@ func loadGoogleConfig(appEnv string) (GoogleConfig, error) {
 			ClientSecret: strings.TrimSpace(os.Getenv("GOOGLE_STAFF_CLIENT_SECRET")),
 		},
 		TokenEndpoint: tokenEndpoint,
+	}, nil
+}
+
+// loadPayPhoneConfig reads the PayPhone settings and enforces the same
+// base-URL rule loadGoogleConfig does for the token endpoint.
+//
+// PAYPHONE_API_BASE_URL decides which server the platform believes collected a
+// Customer's money. Anyone able to set it could point Prepare and Confirm at a
+// server they control and "approve" payments no one ever made — free tickets,
+// and nothing in the logs to distinguish them from real sales. It exists for
+// the integration suite's fake PayPhone server and for nothing else, so in
+// production it is refused: the process does not start.
+//
+// The check lives here rather than in server.NewApp for the same reason the
+// Google one does: it is a refusal, not a requirement, so cmd/migrate — which
+// shares this loader and holds no payment credentials — is unaffected.
+//
+// The credentials themselves are not required. A deployment without them
+// starts on the stub Payment Provider, which is what local development looks
+// like (ADR 0012).
+func loadPayPhoneConfig(appEnv string) (PayPhoneConfig, error) {
+	baseURL := strings.TrimSpace(os.Getenv("PAYPHONE_API_BASE_URL"))
+	if baseURL != "" && appEnv == "production" {
+		return PayPhoneConfig{}, fmt.Errorf("PAYPHONE_API_BASE_URL must not be set when APP_ENV is production: it decides which server the platform believes collected the money and exists only for tests")
+	}
+	if baseURL == "" {
+		baseURL = PayPhoneBaseURL
+	}
+
+	return PayPhoneConfig{
+		APIToken: strings.TrimSpace(os.Getenv("PAYPHONE_API_TOKEN")),
+		StoreID:  strings.TrimSpace(os.Getenv("PAYPHONE_STORE_ID")),
+		BaseURL:  baseURL,
 	}, nil
 }
 

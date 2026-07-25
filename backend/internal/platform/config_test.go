@@ -92,6 +92,82 @@ func TestGoogleClientsAreReadPerSurface(t *testing.T) {
 	}
 }
 
+// PAYPHONE_API_BASE_URL decides which server the platform believes collected a
+// Customer's money. Same shape as the Google token endpoint above, same one
+// rule: it may move outside production and nowhere else, and the process
+// refuses to come up rather than serve with it set.
+
+func TestPayPhoneBaseURLDefaultsToPayPhone(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("PAYPHONE_API_BASE_URL", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.PayPhone.BaseURL != PayPhoneBaseURL {
+		t.Fatalf("payphone base url = %q, want %q", cfg.PayPhone.BaseURL, PayPhoneBaseURL)
+	}
+}
+
+func TestPayPhoneBaseURLOverrideFailsStartupInProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("PAYPHONE_API_BASE_URL", "https://payments.example.com")
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("LoadConfig succeeded with PAYPHONE_API_BASE_URL set in production; it must refuse to start")
+	}
+	if !strings.Contains(err.Error(), "PAYPHONE_API_BASE_URL") {
+		t.Fatalf("error = %v, want it to name PAYPHONE_API_BASE_URL so the operator can see what to remove", err)
+	}
+}
+
+func TestPayPhoneBaseURLOverrideIsAllowedOutsideProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("PAYPHONE_API_BASE_URL", "http://127.0.0.1:1234")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.PayPhone.BaseURL != "http://127.0.0.1:1234" {
+		t.Fatalf("payphone base url = %q, want the override — the integration suite's fake server depends on it", cfg.PayPhone.BaseURL)
+	}
+}
+
+// The credentials select the provider (ADR 0012): both present means PayPhone,
+// anything less means the stub. They are ordinary secrets and not required — a
+// deployment without them starts and sells through the stub.
+func TestPayPhoneCredentialsSelectTheProvider(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("PAYPHONE_API_TOKEN", "payphone-token")
+	t.Setenv("PAYPHONE_STORE_ID", "store-123")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.PayPhone.Configured() {
+		t.Fatalf("payphone = %+v, want Configured with both credentials set", cfg.PayPhone)
+	}
+
+	// Half a credential pair is not a configuration; it must select the stub
+	// rather than a PayPhone client that cannot authenticate.
+	t.Setenv("PAYPHONE_STORE_ID", "")
+	cfg, err = LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig without a store id: %v — the platform must start without it", err)
+	}
+	if cfg.PayPhone.Configured() {
+		t.Fatalf("payphone = %+v, want not Configured with only a token", cfg.PayPhone)
+	}
+}
+
 // The client credentials are ordinary secrets and are not required: a
 // deployment without them serves every other path, and Google Sign-In refuses.
 func TestGoogleStorefrontCredentialsAreOptional(t *testing.T) {
