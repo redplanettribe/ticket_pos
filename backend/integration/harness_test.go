@@ -156,6 +156,10 @@ func setupTest(t *testing.T) *testEnv {
 	// Customer identity has its own clock: Customer Session lifetime is measured
 	// in months, so its tests move time far further than any staff test does.
 	sharedApp.CustomersService.WithClock(func() time.Time { return fixedClock })
+	// Sales and catalog share the Capacity Hold window (ADR 0013): hold tests
+	// move both clocks past it together, so both are reset together.
+	sharedApp.SalesService.WithClock(func() time.Time { return fixedClock })
+	sharedApp.CatalogService.WithClock(func() time.Time { return fixedClock })
 	googleStub.reset()
 	payphoneStub.reset()
 	return sharedEnv

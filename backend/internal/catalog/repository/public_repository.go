@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // PublicOrganization is a read-only Organization projection for Storefront listings.
@@ -51,18 +53,28 @@ const publicEventColumns = `
 	tt.min_price, tt.all_sold_out, tt.ticket_count
 `
 
-const publicEventFrom = `
+// publicEventFrom is the shared FROM clause of the public Event queries. Its
+// Ticket Type aggregates are hold-aware (ADR 0013): a Ticket Type counts as
+// sold out once sold_count plus the quantities live Capacity Holds claim reach
+// capacity, so the Storefront never advertises tickets that pending Payments
+// already speak for. The holds sub-select is the shared sales.LiveHoldsSQL —
+// reading the payments table directly, as the ADR prescribes for the public
+// figures. cutoffExpr is the placeholder carrying the hold-window cutoff.
+func publicEventFrom(cutoffExpr string) string {
+	return `
 	FROM events e
 	JOIN organizations o ON o.id = e.organization_id
 	LEFT JOIN LATERAL (
 		SELECT
-			MIN(price_cents) AS min_price,
-			BOOL_AND(sold_count >= capacity) AS all_sold_out,
+			MIN(tt.price_cents) AS min_price,
+			BOOL_AND(tt.sold_count + COALESCE(h.held, 0) >= tt.capacity) AS all_sold_out,
 			COUNT(*) AS ticket_count
-		FROM ticket_types
-		WHERE event_id = e.id
+		FROM ticket_types tt
+		LEFT JOIN (` + sales.LiveHoldsSQL(cutoffExpr, "", "") + `) h ON h.ticket_type_id = tt.id
+		WHERE tt.event_id = e.id
 	) tt ON TRUE
 `
+}
 
 func scanPublicEventRow(rows interface {
 	Scan(dest ...any) error
@@ -93,6 +105,30 @@ func collectPublicEventRows(rows *sql.Rows) ([]PublicEventRow, error) {
 		items = append(items, *row)
 	}
 	return items, rows.Err()
+}
+
+// LiveCapacityHolds returns the quantities live Capacity Holds currently claim
+// per Ticket Type on an Event: pending Payments created within the hold window
+// ending at now (ADR 0013). Ticket Types with no live hold are absent from the
+// map. It runs the shared sales.LiveHoldsSQL — the public remaining figures
+// read the payments table directly, as the ADR prescribes, so the hold
+// semantics stay defined in exactly one place.
+func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, now time.Time) (map[string]int, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, sales.HoldCutoff(now))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	held := map[string]int{}
+	for rows.Next() {
+		var id string
+		var qty int
+		if err := rows.Scan(&id, &qty); err != nil {
+			return nil, err
+		}
+		held[id] = qty
+	}
+	return held, rows.Err()
 }
 
 // GetPublicOrganizationBySlug loads an Organization projection for the Storefront.
@@ -127,7 +163,7 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+publicEventColumns+`
-		`+publicEventFrom+`
+		`+publicEventFrom("$9")+`
 		WHERE e.status = 'published'
 		  AND e.discoverable = TRUE
 		  AND COALESCE(e.ends_at, e.starts_at) >= $1
@@ -158,6 +194,7 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 		cursorID,
 		filter.Limit,
 		tagKeys,
+		sales.HoldCutoff(filter.Now),
 	)
 	if err != nil {
 		return nil, err
@@ -166,16 +203,17 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 }
 
 // ListDiscoverableEventsByOrganization returns all published, discoverable Events
-// for one Organization (upcoming and past), soonest first.
-func (r *Repository) ListDiscoverableEventsByOrganization(ctx context.Context, orgID string) ([]PublicEventRow, error) {
+// for one Organization (upcoming and past), soonest first. now anchors the
+// hold-window cutoff for the sold-out aggregates.
+func (r *Repository) ListDiscoverableEventsByOrganization(ctx context.Context, orgID string, now time.Time) ([]PublicEventRow, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+publicEventColumns+`
-		`+publicEventFrom+`
+		`+publicEventFrom("$2")+`
 		WHERE e.organization_id = $1
 		  AND e.status = 'published'
 		  AND e.discoverable = TRUE
 		ORDER BY e.starts_at ASC, e.id ASC
-	`, orgID)
+	`, orgID, sales.HoldCutoff(now))
 	if err != nil {
 		return nil, err
 	}
@@ -184,15 +222,16 @@ func (r *Repository) ListDiscoverableEventsByOrganization(ctx context.Context, o
 
 // GetPublishedEventBySlug loads a single published Event by Organization and Event
 // slug for the Storefront event page. Discoverability is not required: a published
-// Event is always reachable by direct link.
-func (r *Repository) GetPublishedEventBySlug(ctx context.Context, orgSlug, eventSlug string) (*PublicEventRow, error) {
+// Event is always reachable by direct link. now anchors the hold-window cutoff
+// for the sold-out aggregates.
+func (r *Repository) GetPublishedEventBySlug(ctx context.Context, orgSlug, eventSlug string, now time.Time) (*PublicEventRow, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
 		SELECT `+publicEventColumns+`
-		`+publicEventFrom+`
+		`+publicEventFrom("$3")+`
 		WHERE o.slug = $1
 		  AND e.slug = $2
 		  AND e.status = 'published'
-	`, orgSlug, eventSlug)
+	`, orgSlug, eventSlug, sales.HoldCutoff(now))
 	result, err := scanPublicEventRow(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // Repository provides SQL access for sales data.
@@ -67,6 +68,12 @@ type CommitSalesInput struct {
 	// UpsertCustomer resolves each sale's Customer within the transaction.
 	// Required: every Ticket Sale must reference a Customer.
 	UpsertCustomer UpsertCustomer
+	// ExcludePaymentID names the Payment whose own commit this is, so its live
+	// Capacity Hold is not counted against it — the hold converts into
+	// sold_count instead of double-counting (ADR 0013). Empty for channels that
+	// commit without a Payment (import, and in-person later), which must
+	// respect every live hold.
+	ExcludePaymentID string
 }
 
 // CommitInput is a fully-prepared Direct Sale Import to record atomically.
@@ -312,15 +319,26 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		locked[id] = lt
 	}
 
-	// Capacity check under lock: no Ticket Type may be pushed past capacity.
+	// Capacity check under lock: no Ticket Type may be pushed past capacity,
+	// counting both sold_count and the quantities live Capacity Holds claim
+	// (ADR 0013) — minus this commit's own Payment, whose hold is converting
+	// into sold_count right here. Reading the holds AFTER the ticket_types row
+	// locks are held means any competing online commit has either finished
+	// (its sold_count increment is visible, its Payment no longer pending) or
+	// has not started converting (its hold is still visible): never both,
+	// never neither.
+	held, err := r.liveHoldsForUpdate(ctx, tx, in.EventID, sales.HoldCutoff(in.Now), in.ExcludePaymentID)
+	if err != nil {
+		return nil, err
+	}
 	for _, id := range typeIDs {
 		lt := locked[id]
-		if lt.soldCount+requested[id] > lt.capacity {
+		if lt.soldCount+held[id]+requested[id] > lt.capacity {
 			return nil, &CapacityError{
 				Row:          firstRow[id],
 				TicketTypeID: id,
 				Requested:    requested[id],
-				Available:    lt.capacity - lt.soldCount,
+				Available:    lt.capacity - lt.soldCount - held[id],
 			}
 		}
 	}
@@ -382,6 +400,23 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	}
 
 	return recorded, nil
+}
+
+// liveHoldsForUpdate returns the quantities live Capacity Holds claim per
+// Ticket Type on the Event, read inside the commit transaction, optionally
+// excluding one Payment (the one whose own commit is running).
+func (r *Repository) liveHoldsForUpdate(ctx context.Context, tx *sql.Tx, eventID string, cutoff time.Time, excludePaymentID string) (map[string]int, error) {
+	var rows *sql.Rows
+	var err error
+	if excludePaymentID == "" {
+		rows, err = tx.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, cutoff)
+	} else {
+		rows, err = tx.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", "$3"), eventID, cutoff, excludePaymentID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return collectHeldQuantities(rows)
 }
 
 // CommitImport records a Sale Import batch in a single transaction: the sales

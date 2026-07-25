@@ -18,9 +18,11 @@ import (
 // through the shared spine in the same transaction that marks the Payment
 // approved.
 //
-// Capacity at begin is CHECK-ONLY for now: a pending Payment does not yet hold
-// its quantities (derived Capacity Holds are ADR 0013, a later ticket), so the
-// under-lock check at commit remains the one that cannot be raced past.
+// Capacity at begin counts sold_count PLUS live Capacity Holds — the pending
+// Payment created here IS the hold on its quantities for the next
+// sales.CapacityHoldWindow (ADR 0013) — so a Customer on the provider's payment
+// page cannot lose their tickets to a faster buyer. The under-lock check at
+// commit remains the one that cannot be raced past.
 
 // checkoutReturnPath is the Storefront route the Payment Provider sends the
 // Customer back to when its payment page is done with them. A Storefront URL,
@@ -77,7 +79,22 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		return nil, sales.ErrEventNotFound()
 	}
 
+	now := s.now()
+	cutoff := sales.HoldCutoff(now)
+
+	// Lazy expiry (ADR 0013): pendings past the hold window get their status
+	// flipped opportunistically here. Best-effort bookkeeping only — the
+	// created_at cutoff below is what actually releases their holds — so a
+	// failure is logged and ignored rather than blocking the checkout.
+	if _, err := s.repo.ExpireStalePayments(ctx, event.ID, cutoff, now); err != nil {
+		s.logger.Warn("capacity holds: lazy expiry failed; holds are still bounded by the cutoff query", "event_id", event.ID, "error", err)
+	}
+
 	types, err := s.repo.ListTicketTypesForImport(ctx, event.OrganizationID, event.ID)
+	if err != nil {
+		return nil, err
+	}
+	held, err := s.repo.LiveCapacityHolds(ctx, event.ID, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +118,14 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		requested[tt.ID] += line.Quantity
 	}
 
-	// Capacity check-only (no hold yet): enough must remain right now. The
-	// commit-time check under row locks remains authoritative.
+	// Capacity check: sold + held + requested may not exceed capacity, so a
+	// request cannot claim tickets that live Capacity Holds already speak for.
+	// The commit-time check under row locks remains authoritative.
 	amountCents := 0
 	paymentLines := make([]repository.PaymentLine, 0, len(order))
 	for _, id := range order {
 		tt := byID[id]
-		available := tt.Capacity - tt.SoldCount
+		available := tt.Capacity - tt.SoldCount - held[id]
 		if requested[id] > available {
 			return nil, sales.ErrCapacityExceeded(id, requested[id], available)
 		}
@@ -120,7 +138,6 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	}
 
 	clientTransactionID := uuid.NewString()
-	now := s.now()
 	if _, err := s.repo.CreatePayment(ctx, repository.CreatePaymentInput{
 		EventID:             event.ID,
 		OrganizationID:      event.OrganizationID,
@@ -190,7 +207,13 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 	if payment == nil {
 		return nil, sales.ErrPaymentNotFound()
 	}
-	if payment.Status != "pending" {
+	// 'expired' is NOT settled: lazy expiry only released the Payment's
+	// Capacity Hold, it passed no verdict on the money. When the Customer
+	// returns from the provider after the window, the honest outcome is the
+	// provider's — approved commits the sale if capacity still allows
+	// (flipping expired → approved), declined records the failure. Only
+	// 'approved' and 'failed' replay their recorded outcome (ADR 0013).
+	if payment.Status != "pending" && payment.Status != "expired" {
 		return s.recordedOutcome(payment)
 	}
 
@@ -289,7 +312,7 @@ func (s *Service) recordedOutcome(p *repository.Payment) (*ConfirmCheckoutResult
 			Status:              "approved",
 			ConfirmationRef:     p.ConfirmationRef,
 		}, nil
-	default: // failed, expired
+	default: // failed ('expired' never reaches here: it is confirmable, not settled)
 		return &ConfirmCheckoutResult{ClientTransactionID: p.ClientTransactionID, Status: "failed"}, nil
 	}
 }

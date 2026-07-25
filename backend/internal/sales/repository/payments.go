@@ -5,13 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // Payments: the persistence of a Customer's attempt to pay through a Payment
 // Provider (ADR 0012). A Payment begins 'pending' at begin-checkout and settles
 // 'approved' — in the same transaction that commits its Ticket Sale through the
 // shared CommitSales spine — or 'failed'. 'expired' is the lazy fate of
-// abandoned pendings (ADR 0013, not written by anything yet).
+// abandoned pendings (ADR 0013), written opportunistically by
+// ExpireStalePayments; no correctness depends on that transition, because every
+// hold-counting query bounds holds by created_at, not by the status flip.
 
 // CheckoutEvent is what beginning a checkout needs to know about the Event: its
 // identity, whether it is sellable at all, and the Organization currency the
@@ -107,6 +111,50 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 	return paymentID, nil
 }
 
+// LiveCapacityHolds returns the quantities live Capacity Holds currently claim
+// per Ticket Type on an Event: pending Payments created strictly after the
+// cutoff (ADR 0013). Ticket Types with no live hold are absent from the map.
+func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, cutoff time.Time) (map[string]int, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	return collectHeldQuantities(rows)
+}
+
+// collectHeldQuantities scans (ticket_type_id, held) rows from a LiveHoldsSQL
+// query into a map.
+func collectHeldQuantities(rows *sql.Rows) (map[string]int, error) {
+	defer rows.Close()
+	held := map[string]int{}
+	for rows.Next() {
+		var id string
+		var qty int
+		if err := rows.Scan(&id, &qty); err != nil {
+			return nil, err
+		}
+		held[id] = qty
+	}
+	return held, rows.Err()
+}
+
+// ExpireStalePayments lazily marks an Event's pending Payments created at or
+// before the cutoff as 'expired' (ADR 0013). Purely opportunistic bookkeeping:
+// hold-counting never reads the status flip — the created_at cutoff in
+// LiveHoldsSQL is the source of truth — so a missed or failed expiry costs
+// nothing. It reports how many Payments it flipped.
+func (r *Repository) ExpireStalePayments(ctx context.Context, eventID string, cutoff, now time.Time) (int64, error) {
+	res, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE payments
+		SET status = 'expired', updated_at = $3
+		WHERE event_id = $1 AND status = 'pending' AND created_at <= $2
+	`, eventID, cutoff, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // SetPaymentProviderTransactionID records the provider's id for a Payment once
 // the provider has assigned one (at initiation for providers that do). A blank
 // id is a no-op.
@@ -199,9 +247,21 @@ type ApprovedPayment struct {
 // so two racing confirms serialize: the loser finds the Payment settled and
 // returns AlreadySettled without writing anything.
 //
+// The spine's capacity check counts sold + OTHER live Capacity Holds: this
+// Payment's id is excluded, so a Payment whose own hold is what fills the last
+// capacity still commits — the hold converts into sold_count, it never
+// double-counts against itself (ADR 0013).
+//
+// A lazily-'expired' Payment is accepted here exactly like a pending one: the
+// hold window bounds the hold, not the Payment's validity, and by this point
+// the provider has approved the charge. Honest behavior is to record the sale
+// the Customer paid for if capacity still allows, flipping expired → approved;
+// if capacity is gone the commit fails like any lost race and the caller marks
+// the approved-without-sale incident.
+//
 // Any error (a capacity race lost since begin-checkout, most plausibly) rolls
-// the whole transaction back, leaving the Payment pending: the caller owns the
-// approved-without-sale incident marking.
+// the whole transaction back, leaving the Payment as it was: the caller owns
+// the approved-without-sale incident marking.
 func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in ApprovePaymentInput) (*ApprovedPayment, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -219,7 +279,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	if err != nil {
 		return nil, err
 	}
-	if status != "pending" {
+	if status != "pending" && status != "expired" {
 		return &ApprovedPayment{AlreadySettled: true}, nil
 	}
 
@@ -255,6 +315,9 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		// An Online Sale carries no Sales Source; that qualifier belongs to the
 		// import channel alone.
 		Source: "",
+		// This Payment's own hold must convert into sold_count, not count
+		// against itself (ADR 0013).
+		ExcludePaymentID: paymentID,
 		Sales: []CommitSale{{
 			CustomerEmail:     email,
 			CustomerFirstName: firstName,
@@ -304,13 +367,17 @@ func (r *Repository) MarkPaymentApprovedWithoutSale(ctx context.Context, clientT
 	return r.settlePayment(ctx, clientTransactionID, providerTransactionID, "approved", now)
 }
 
+// settlePayment moves an unsettled Payment to a terminal status. 'expired' is
+// settleable alongside 'pending': lazy expiry is bookkeeping, not a verdict, so
+// a late confirm still records the provider's real outcome over it — including
+// the approved-without-sale incident marker after a failed commit (ADR 0013).
 func (r *Repository) settlePayment(ctx context.Context, clientTransactionID, providerTransactionID, status string, now time.Time) (bool, error) {
 	res, err := r.db.Pool.ExecContext(ctx, `
 		UPDATE payments
 		SET status = $2,
 		    provider_transaction_id = COALESCE(NULLIF($3, ''), provider_transaction_id),
 		    updated_at = $4
-		WHERE client_transaction_id = $1 AND status = 'pending'
+		WHERE client_transaction_id = $1 AND status IN ('pending', 'expired')
 	`, clientTransactionID, status, providerTransactionID, now)
 	if err != nil {
 		return false, err
