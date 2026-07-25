@@ -15,6 +15,10 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // The unit tests run under `node --experimental-strip-types`, whose CommonJS
+    // resolution needs the ".ts" written out in the import. Nothing else in the
+    // app imports that way.
+    "allowImportingTsExtensions": true,
     "jsx": "preserve",
     "incremental": true,
     "plugins": [

@@ -1,0 +1,62 @@
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+
+import { safeNext } from "@/lib/destination";
+import {
+  GOOGLE_STATE_COOKIE,
+  authorizationUrl,
+  codeChallengeS256,
+  encodePendingSignIn,
+  googleSignInConfig,
+  googleStateCookieOptions,
+  newPendingSignIn,
+} from "@/lib/google-signin";
+
+// Mints a nonce and writes a cookie on every request. Nothing about it may be
+// cached or prerendered.
+export const dynamic = "force-dynamic";
+
+/**
+ * Where the Google button sends the browser.
+ *
+ * A GET route handler rather than a page because it is a navigation that has to
+ * set a cookie, and only a route handler can do both — the same reason
+ * /tickets/confirm is one. The visitor never sees it: it mints one pending
+ * sign-in, remembers it in a cookie only the callback will ever be sent, and
+ * hands the browser to Google.
+ *
+ * Nothing secret is involved. The client ID and redirect URI in the URL below
+ * are public by design; the only thing worth protecting is the PKCE verifier,
+ * and that stays in an httpOnly cookie on this origin while Google is told
+ * nothing but its SHA-256.
+ */
+export async function GET(request: Request) {
+  const config = googleSignInConfig();
+  const destination = safeNext(new URL(request.url).searchParams.get("next"));
+
+  // No credentials configured: the button that leads here is hidden, so this is
+  // either a stale bookmark or a hand-typed URL. It is not an error worth a page
+  // — send them to the passcode form, which works with no Google account at all.
+  if (!config) {
+    return redirectTo(`/signin?next=${encodeURIComponent(destination)}`);
+  }
+
+  const pending = newPendingSignIn(destination);
+  const codeChallenge = await codeChallengeS256(pending.codeVerifier);
+
+  const store = await cookies();
+  store.set(GOOGLE_STATE_COOKIE, encodePendingSignIn(pending), googleStateCookieOptions());
+
+  return redirectTo(authorizationUrl(config, { state: pending.state, codeChallenge }));
+}
+
+/**
+ * Redirects with a bare Location header rather than NextResponse.redirect, which
+ * needs an absolute URL and would have to reconstruct this app's origin from the
+ * incoming request — behind a proxy or a container bind address, that is the
+ * wrong host. Google's URL is absolute and resolves regardless; a Storefront path
+ * is resolved by the browser against the URL it actually asked for.
+ */
+function redirectTo(location: string): NextResponse {
+  return new NextResponse(null, { status: 303, headers: { Location: location } });
+}
