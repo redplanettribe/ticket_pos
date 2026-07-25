@@ -123,7 +123,7 @@ The public-facing channel through which a Customer completes an Online Sale.
 _Avoid_: Shop, web store, e-commerce site
 
 **Online Sale**:
-A Ticket Sale completed through the Storefront.
+A Ticket Sale completed through the Storefront, recorded the moment its Payment is approved.
 _Avoid_: Web sale, e-commerce sale
 
 **In-Person Sale**:
@@ -131,8 +131,20 @@ A Ticket Sale completed at a physical point of sale by Event Staff.
 _Avoid_: Door sale, box office sale, walk-up sale
 
 **Payment Method**:
-How a Ticket Sale was paid. Recorded for Direct Sales, where the value is `cash` or `transfer` at launch. Modeled as an extensible set so further methods can be added later.
+How a Ticket Sale was paid. Recorded for Direct Sales, where the value is `cash` or `transfer`, and for Online Sales, where the value names the Payment Provider that collected the money (`payphone` at launch). Modeled as an extensible set so further methods can be added later.
 _Avoid_: Payment type, tender, channel
+
+**Payment Provider**:
+An external service that collects money from a Customer on the platform's behalf during an Online Sale — PayPhone at launch. The platform holds the single merchant account with each Payment Provider; Organizations are settled outside the system. Distinct from an External Platform, which sells tickets itself, and from an Integration Partner, which manages the system programmatically.
+_Avoid_: Gateway, processor, PSP, vendor
+
+**Payment**:
+A Customer's attempt to pay for tickets through a Payment Provider. Begins `pending` when checkout starts and ends `approved` (the moment its Ticket Sale is recorded), `failed` (declined or cancelled), or `expired` (abandoned). A Ticket Sale exists only for an approved Payment; a Payment that never completes never becomes a sale and never appears in the Sales list.
+_Avoid_: Transaction, charge, checkout session, payment intent, order
+
+**Capacity Hold**:
+The claim a pending Payment places on Ticket Type capacity so a Customer cannot pay for tickets that sold out while they were paying. Derived from the pending Payments themselves — a Payment younger than the hold window holds its quantities; an older one has lapsed. Released by the Payment ending in any state or by the window passing.
+_Avoid_: Reservation, cart lock, inventory block
 
 **Sale Confirmation**:
 A per-Ticket-Sale receipt carrying a human-readable reference code (e.g. `TP-3F9K2`), emailed to the Customer whenever a Ticket Sale is recorded. Not a per-attendee admission ticket; the model leaves room to attach individual tickets later.
