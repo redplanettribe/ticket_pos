@@ -22,7 +22,7 @@ _Avoid_: User, account, teammate
 A server-side staff sign-in record tied to an email address.
 The session may or may not have an active Member selected.
 Signing in proves email ownership; acting in an Organization requires an active Member on the session.
-Distinct from a Customer Session, with which it shares nothing but the email-OTP method.
+Distinct from a Customer Session, with which it shares nothing but its Proof of Email Ownership methods.
 _Avoid_: Session, login, token, cookie
 
 **Active Member**:
@@ -162,14 +162,14 @@ _Avoid_: Sales ledger, orders list, transactions table, report
 ## Customer identity
 
 **Verified Customer**:
-A Customer who has proven ownership of their email by completing a one-time passcode.
+A Customer who has proven ownership of their email, by One-time Passcode or by Google Sign-In.
 Unverified Customers exist as records — created by a Ticket Sale made on their behalf — but receive no email beyond Sale Confirmations and cannot sign in until they verify.
 _Avoid_: Registered customer, confirmed customer, active customer
 
 **Customer Session**:
 A server-side Customer sign-in record on the Storefront, tied to a verified email.
 Spans every Ticket Sale that Customer owns, across all Organizations.
-Distinct from a Staff Session, with which it shares nothing but the email-OTP method.
+Distinct from a Staff Session, with which it shares nothing but its Proof of Email Ownership methods.
 _Avoid_: Session, login, token, cookie
 
 **Confirmation Link**:
@@ -181,3 +181,20 @@ _Avoid_: Magic link, access token, deep link
 The signed-in Storefront surface where a Customer sees their upcoming events, past Ticket Sales, and preferences.
 Distinct from a Storefront listing, which shows Events to the anonymous public.
 _Avoid_: Wallet, my tickets, account page, dashboard
+
+## Signing in
+
+**Proof of Email Ownership**:
+A demonstration that the person at the keyboard controls a given email address.
+It is the whole of signing in on either surface: nobody registers, and no other fact about a person is asked for or established.
+_Avoid_: Authentication, login, credential, identity verification
+
+**One-time Passcode**:
+A short code sent to an email address and redeemed on the surface that asked for it, serving as Proof of Email Ownership.
+A passcode minted for one surface can never open a session on the other.
+_Avoid_: One-time password, magic code, PIN, two-factor code
+
+**Google Sign-In**:
+Proof of Email Ownership obtained from Google rather than from a One-time Passcode, and equal to one in force.
+Yields an ordinary Staff Session or Customer Session on the surface it was used from, and carries no authority to any other surface or Organization.
+_Avoid_: SSO, single sign-on, social login, OAuth login, federated identity, linked account
