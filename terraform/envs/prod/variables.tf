@@ -43,3 +43,35 @@ variable "email_from" {
   type        = string
   default     = "Multiticketing <noreply@send.multiticketing.com>"
 }
+
+# The four Google Sign-In credentials, from the `staff` and `storefront` OAuth
+# clients registered by hand in the Console (#75). Set via TF_VAR_ from a sourced
+# .env; empty leaves the feature off with the Google button hidden on both
+# surfaces. TF_VAR_ populates root variables only, so they are declared here and
+# threaded through in main.tf.
+
+variable "google_staff_client_id" {
+  description = "Client ID of the `staff` Google OAuth client."
+  type        = string
+  default     = ""
+}
+
+variable "google_staff_client_secret" {
+  description = "Client secret of the `staff` Google OAuth client. Set via TF_VAR_google_staff_client_secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "google_storefront_client_id" {
+  description = "Client ID of the `storefront` Google OAuth client."
+  type        = string
+  default     = ""
+}
+
+variable "google_storefront_client_secret" {
+  description = "Client secret of the `storefront` Google OAuth client. Set via TF_VAR_google_storefront_client_secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

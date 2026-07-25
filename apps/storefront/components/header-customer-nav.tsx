@@ -4,6 +4,7 @@ import { Button } from "@ticket-pos/ui";
 
 import { getCustomerSession } from "@/lib/customer-session";
 
+import { SignInLink } from "./sign-in-link";
 import { SignOutButton } from "./sign-out-button";
 
 /**
@@ -19,11 +20,7 @@ export async function HeaderCustomerNav() {
   const session = await getCustomerSession();
 
   if (session.status !== "ok") {
-    return (
-      <Button asChild variant="ghost" size="sm">
-        <Link href="/signin">Sign in</Link>
-      </Button>
-    );
+    return <SignInLink />;
   }
 
   return (

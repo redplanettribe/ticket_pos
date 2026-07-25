@@ -4,6 +4,68 @@
  */
 
 export interface paths {
+    "/api/v1/auth/google/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify a Google Sign-In
+         * @description Exchanges an authorization code obtained on the Staff app at Google's token endpoint, using the staff OAuth client, and issues a Staff Session on the email address Google vouches for. The session and the auth-fork that follows are identical to a passcode's. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Authorization code, PKCE verifier and redirect URI */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["internal_identity_handler.googleVerifyBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeVerifyGoogle"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -267,6 +329,68 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyOTP"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/auth/google/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify a Google Sign-In
+         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Authorization code, PKCE verifier and redirect URI */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["internal_customers_handler.googleVerifyBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyGoogle"];
                     };
                 };
                 /** @description Bad Request */
@@ -2841,6 +2965,11 @@ export interface components {
         "internal_catalog_openapi.MessageData": {
             message?: string;
         };
+        "internal_customers_handler.googleVerifyBody": {
+            code?: string;
+            code_verifier?: string;
+            redirect_uri?: string;
+        };
         "internal_customers_handler.otpRequestBody": {
             email?: string;
         };
@@ -2855,6 +2984,11 @@ export interface components {
             id?: string;
             name?: string;
             slug?: string;
+        };
+        "internal_identity_handler.googleVerifyBody": {
+            code?: string;
+            code_verifier?: string;
+            redirect_uri?: string;
         };
         "internal_identity_handler.otpRequestBody": {
             email?: string;
@@ -2892,6 +3026,11 @@ export interface components {
         };
         "openapi.EnvelopeCustomerSession": {
             data?: components["schemas"]["service.CustomerSessionView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerVerifyGoogle": {
+            data?: components["schemas"]["openapi.CustomerVerifyOTPData"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -2967,6 +3106,11 @@ export interface components {
         };
         "openapi.EnvelopeTicketTypeList": {
             data?: components["schemas"]["service.TicketTypeDetail"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeVerifyGoogle": {
+            data?: components["schemas"]["openapi.VerifyOTPData"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };

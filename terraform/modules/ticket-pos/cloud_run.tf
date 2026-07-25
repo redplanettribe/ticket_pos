@@ -308,6 +308,70 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # The Google OAuth credentials, one client per surface (google_oauth.tf).
+      # Guarded the same way as the Resend key and for the same reason: no
+      # version exists until a value is supplied, and "latest" against an empty
+      # secret is a boot crash. Absent, the API simply has no Google client to
+      # exchange a code against and the surfaces hide the button.
+      #
+      # There is deliberately NO GOOGLE_TOKEN_ENDPOINT here. It exists so tests
+      # can point the exchange at a stub, and the API refuses to start in
+      # production if it is set (PRD decision 10) — anyone who could set it could
+      # make the platform trust an issuer they control, which is unrestricted
+      # account takeover. Adding it to this file is the mistake that guard exists
+      # to catch.
+      dynamic "env" {
+        for_each = var.google_staff_client_id == "" ? [] : [1]
+        content {
+          name = "GOOGLE_STAFF_CLIENT_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.google_staff_client_id.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.google_staff_client_secret == "" ? [] : [1]
+        content {
+          name = "GOOGLE_STAFF_CLIENT_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.google_staff_client_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.google_storefront_client_id == "" ? [] : [1]
+        content {
+          name = "GOOGLE_STOREFRONT_CLIENT_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.google_storefront_client_id.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.google_storefront_client_secret == "" ? [] : [1]
+        content {
+          name = "GOOGLE_STOREFRONT_CLIENT_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.google_storefront_client_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
       # /health is the one endpoint that answers without auth or a session, and
       # it is what tells Cloud Run the instance is ready to take traffic. Without
       # a startup probe Cloud Run only waits for the port to open, which happens

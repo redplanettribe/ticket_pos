@@ -12,6 +12,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/identity"
 	"github.com/peter/ticket_pos/backend/internal/identity/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/googleauth"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
@@ -63,6 +64,11 @@ type Service struct {
 	otp         *otp.Service
 	logger      platform.Logger
 	now         func() time.Time
+	// google redeems authorization codes against the STAFF OAuth client, and
+	// only that one. It sits beside otp as the second Proof of Email Ownership
+	// this service accepts, and like otp it establishes an email and nothing
+	// more (ADR 0011).
+	google *googleauth.Client
 }
 
 // New returns an identity service.
@@ -72,6 +78,7 @@ func New(
 	objectStorage storage.ObjectStorage,
 	otpService *otp.Service,
 	logger platform.Logger,
+	google *googleauth.Client,
 ) *Service {
 	return &Service{
 		repo:        repo,
@@ -80,6 +87,7 @@ func New(
 		otp:         otpService,
 		logger:      logger,
 		now:         time.Now,
+		google:      google,
 	}
 }
 
@@ -112,6 +120,21 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*SessionVi
 		return nil, "", err
 	}
 
+	return s.signInProvenEmail(ctx, email, now)
+}
+
+// signInProvenEmail is what every Proof of Email Ownership converges on: the
+// Staff Session a proven email earns, and the auto-selection of a lone
+// membership that decides where the app lands the person next.
+//
+// Both doors end here — a One-time Passcode and a Google Sign-In — because both
+// assert the same fact and neither is worth more than the other (ADR 0011).
+// Nothing recorded here says which one was used: no column, no field on the
+// session view. That is also why the auth-fork cannot vary by sign-in method —
+// by the time anything decides where to land somebody, the method is gone.
+//
+// The email must already be normalised and proven by the caller.
+func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time) (*SessionView, string, error) {
 	sessionID, err := newSessionToken()
 	if err != nil {
 		return nil, "", err

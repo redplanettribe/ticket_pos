@@ -60,9 +60,9 @@ graph TB
 | Migrations | Plain `.sql` files; small in-repo migration runner |
 | Tenancy enforcement | Application layer; explicit `organization_id` in repositories; no RLS at launch |
 | API style | REST + OpenAPI 3, versioned at `/api/v1/...` |
-| Staff auth | Email OTP → Postgres session → httpOnly cookie; Staff app is a BFF; open signup with create-org onboarding |
+| Staff auth | Email OTP or Google Sign-In (ADR 0011) → Postgres session → httpOnly cookie; Staff app is a BFF; open signup with create-org onboarding |
 | Integration auth | API keys or OAuth2 client credentials on Go API (separate from staff sessions) |
-| Customer auth | Platform-global Customer, created for the person rather than by them; email OTP or a signed Confirmation Link → Postgres Customer Session → httpOnly cookie; Storefront is a BFF. Separate from staff identity (ADR 0010) |
+| Customer auth | Platform-global Customer, created for the person rather than by them; email OTP, Google Sign-In (ADR 0011), or a signed Confirmation Link → Postgres Customer Session → httpOnly cookie; Storefront is a BFF. Separate from staff identity (ADR 0010) |
 | Payments | Provider-agnostic boundary; no vendor chosen |
 | Email (OTP) | Pluggable `EmailSender`; dummy provider logs codes to terminal in dev |
 | Capacity accounting | Atomic decrement in Postgres transactions; row locks for multi-type sales |
@@ -241,7 +241,7 @@ It covers all four route groups on the same domain model.
 |-------------|----------------------|---------|------|
 | **Public** | `/api/v1/public/...` | Storefront | None (org resolved from URL slug) |
 | **Staff** | `/api/v1/staff/...` | Staff BFF | Staff session |
-| **Customer** | `/api/v1/customer/...` | Storefront BFF | Customer Session (none on OTP request/verify and Confirmation Link redemption, where the credential is the request) |
+| **Customer** | `/api/v1/customer/...` | Storefront BFF | Customer Session (none on OTP request/verify, Google verify, and Confirmation Link redemption, where the credential is the request) |
 | **Integration** | `/api/v1/integrations/...` | Integration Partners | API key or OAuth2 client credentials |
 
 ### Versioning
@@ -408,9 +408,12 @@ Returning all failing rows is deferred.
 
 ## Authentication
 
-### Staff (email OTP)
+### Staff (proof of email ownership)
 
-Staff authenticate via **one-time passcodes** sent to their email.
+Staff authenticate by proving they own an email address, by **One-time Passcode** or by **Google Sign-In**
+(ADR 0011). The two are equal in force and converge on the same Staff Session; nothing records which was
+used. The passcode flow is described below and is the path Google Sign-In joins once it has established a
+verified address.
 There are no passwords at launch.
 **Open signup** is supported: any valid email may request an OTP.
 A new person with no existing Member records creates an Organization during onboarding and becomes Org Admin.
@@ -464,14 +467,16 @@ type EmailSender interface {
 - **Guest checkout** at launch: no account is required to complete an Online Sale.
 - A **Customer** record is nevertheless created or reused by *every* Ticket Sale on every Sales
   Channel, keyed on a normalised, platform-global unique email (ADR 0010). That is where essentially
-  every record comes from; a completed passcode mints one too, on the same email, for someone who
-  signs in before their first purchase. Nobody registers on either path; the account is invisible,
+  every record comes from; a completed sign-in mints one too, on the same email, for someone who
+  signs in before their first purchase. Nobody registers on any path; the account is invisible,
   and `ticket_sales.customer_id` is `NOT NULL`.
 - Signing in therefore only ever means proving ownership of an email address — almost always one a
-  record already exists for. Two credentials do that, with deliberately different reach:
+  record already exists for. Three credentials do that, with deliberately different reach:
   - a **one-time passcode**, which yields a full **Customer Session** (sliding 180 days) spanning
-    every Ticket Sale the Customer owns across every Organization, and is the only thing that sets
-    `verified_at`;
+    every Ticket Sale the Customer owns across every Organization, and sets `verified_at`;
+  - a **Google Sign-In** (ADR 0011), equal in force to a passcode and converging on the same session
+    and the same `verified_at` — Google proves the email, it is not a second identity, and nothing is
+    stored about the Google account;
   - a **Confirmation Link** carried in the **Sale Confirmation** — a stateless token signed with
     `CONFIRMATION_LINK_SECRET`, valid until its Event ends plus a grace window so it still works at
     the gate, and minting only a ~24h session scoped to that one Ticket Sale.

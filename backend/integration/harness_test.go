@@ -70,9 +70,32 @@ func TestMain(m *testing.M) {
 	}
 
 	email := &platform.CaptureEmailSender{}
+
+	// The stub Google token endpoint stands in for Google for the whole package
+	// run, and is the only reason GOOGLE_TOKEN_ENDPOINT is configurable at all —
+	// which is why configuration refuses the override in production. See
+	// customer_google_signin_test.go.
+	googleStub = startGoogleTokenStub()
+
 	cfg := platform.Config{
 		DatabaseURL:   connStr,
 		RunMigrations: true,
+		Google: platform.GoogleConfig{
+			Storefront: platform.GoogleOAuthClient{
+				ClientID:     storefrontGoogleClientID,
+				ClientSecret: storefrontGoogleClientSecret,
+			},
+			// A second, distinct client, as production has. The stub honours any
+			// credentials it is shown, so this does not prove isolation — that is
+			// Google's property and the runbook's job. What it does prove is that
+			// each endpoint presents its OWN client, which is the half of the
+			// property this code is responsible for.
+			Staff: platform.GoogleOAuthClient{
+				ClientID:     staffGoogleClientID,
+				ClientSecret: staffGoogleClientSecret,
+			},
+			TokenEndpoint: googleStub.server.URL,
+		},
 	}
 
 	app, err := server.NewApp(ctx, cfg,
@@ -102,6 +125,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	googleStub.server.Close()
 	srv.Close()
 	_ = app.Close()
 	_ = pg.Terminate(ctx)
@@ -118,6 +142,7 @@ func setupTest(t *testing.T) *testEnv {
 	// Customer identity has its own clock: Customer Session lifetime is measured
 	// in months, so its tests move time far further than any staff test does.
 	sharedApp.CustomersService.WithClock(func() time.Time { return fixedClock })
+	googleStub.reset()
 	return sharedEnv
 }
 

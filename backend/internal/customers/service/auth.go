@@ -76,6 +76,21 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*CustomerS
 		return nil, "", err
 	}
 
+	return s.signInProvenEmail(ctx, email, now)
+}
+
+// signInProvenEmail is what every Proof of Email Ownership converges on: the
+// create-or-reuse-and-stamp step that makes a Verified Customer, and the full
+// Customer Session it earns.
+//
+// Both doors end here — a One-time Passcode and a Google Sign-In — because both
+// assert the same fact and neither is worth more than the other (ADR 0011).
+// Nothing recorded here says which one was used: no column, no field on the
+// session view. A person who used a passcode on Monday and Google on Tuesday
+// lands on one record with one history.
+//
+// The email must already be normalised and proven by the caller.
+func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time) (*CustomerSessionView, string, error) {
 	customer, err := s.repo.VerifyCustomer(ctx, email, now)
 	if err != nil {
 		return nil, "", err

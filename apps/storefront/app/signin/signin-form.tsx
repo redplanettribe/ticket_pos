@@ -11,6 +11,8 @@ import {
   CardTitle,
   FormField,
   Input,
+  buttonVariants,
+  cn,
 } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -42,7 +44,51 @@ type SignInFormProps = {
    * Either way the recovery is the same form, which is why they land here.
    */
   linkFailure: "expired" | "invalid" | null;
+  /**
+   * True when the visitor was just bounced back from a Google Sign-In that did
+   * not complete. One flag for every cause — cancelled picker, bad `state`,
+   * expired cookie, refused exchange — because the message must not distinguish
+   * them (PRD decision 9).
+   */
+  googleFailed: boolean;
+  /**
+   * Where the Google button points, or null when this deployment has no Google
+   * credentials and the button must not be offered at all.
+   */
+  googleSignInHref: string | null;
 };
+
+/**
+ * The one thing said about any failed Google Sign-In. It never states whether
+ * the address is known here, because the passcode request endpoint deliberately
+ * will not either.
+ */
+const GOOGLE_FAILURE_MESSAGE =
+  "We couldn't finish signing you in with Google. Try again, or use a passcode below.";
+
+/** Google's four-colour G, inline so the button needs no network request. */
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" className="h-5 w-5">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
 
 const LINK_FAILURE_MESSAGE: Record<"expired" | "invalid", string> = {
   expired:
@@ -60,7 +106,13 @@ const LINK_FAILURE_MESSAGE: Record<"expired" | "invalid", string> = {
  * this same origin. It never addresses the Go API, and it never sees a session
  * token — the token lives in an httpOnly cookie the verify route sets (ADR 0008).
  */
-export function SignInForm({ next, expired, linkFailure }: SignInFormProps) {
+export function SignInForm({
+  next,
+  expired,
+  linkFailure,
+  googleFailed,
+  googleSignInHref,
+}: SignInFormProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -169,6 +221,12 @@ export function SignInForm({ next, expired, linkFailure }: SignInFormProps) {
           </Alert>
         ) : null}
 
+        {googleFailed && !error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{GOOGLE_FAILURE_MESSAGE}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {error ? (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -179,6 +237,35 @@ export function SignInForm({ next, expired, linkFailure }: SignInFormProps) {
           <p role="status" className="rounded-lg border bg-muted/50 px-4 py-3 text-sm">
             {notice}
           </p>
+        ) : null}
+
+        {/*
+          Google leads on this surface (PRD decision 6): the population is
+          consumers on phones with a live Google session, and the mailbox
+          round-trip below is exactly what this button removes. It is a plain
+          anchor, not a fetch — /api/customer/auth/google/start is a navigation
+          that sets a cookie and redirects, and it must not be prefetched, which
+          is why this is not a next/link either.
+
+          It appears on the email step only. Once a passcode has been sent, the
+          visitor is mid-flow with their mailbox open, and offering a second door
+          there would be noise.
+        */}
+        {googleSignInHref && step === "email" ? (
+          <div className="space-y-4">
+            <a
+              href={googleSignInHref}
+              className={cn(buttonVariants({ variant: "secondary" }), "h-11 w-full gap-3")}
+            >
+              <GoogleMark />
+              Continue with Google
+            </a>
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
+              <span className="text-xs text-muted-foreground">or continue with email</span>
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
+            </div>
+          </div>
         ) : null}
 
         {step === "email" ? (

@@ -35,4 +35,15 @@ module "ticket_pos" {
   # declared here and threaded through — not just on the module.
   resend_api_key = var.resend_api_key
   email_from     = var.email_from
+
+  # Google Sign-In credentials, one client per surface (ADR 0011). Supplied the
+  # same way as the Resend key — sourced .env, never a committed tfvars — and
+  # subject to the same trap: applying without sourcing it removes the secret
+  # versions and turns the feature off. The redirect URIs are not passed; the
+  # module derives them from staff_domain and storefront_domain above, so the
+  # registered URI and the sent one cannot drift apart.
+  google_staff_client_id          = var.google_staff_client_id
+  google_staff_client_secret      = var.google_staff_client_secret
+  google_storefront_client_id     = var.google_storefront_client_id
+  google_storefront_client_secret = var.google_storefront_client_secret
 }

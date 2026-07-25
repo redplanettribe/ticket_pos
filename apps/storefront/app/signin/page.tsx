@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { StorefrontShell } from "@ticket-pos/ui";
 
 import { getCustomerSession } from "@/lib/customer-session";
+import { safeNext } from "@/lib/destination";
+import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
 
 import { SignInForm } from "./signin-form";
 
@@ -22,24 +24,15 @@ export const metadata: Metadata = {
 };
 
 type SignInPageProps = {
-  searchParams: Promise<{ next?: string; expired?: string; link?: string }>;
+  searchParams: Promise<{ next?: string; expired?: string; link?: string; google?: string }>;
 };
 
-/**
- * safeNext keeps the post-sign-in destination inside this Storefront. Anything
- * that is not a plain absolute path — a full URL, or a protocol-relative "//host"
- * — is discarded, so the sign-in page can never be used to bounce a visitor to
- * another site.
- */
-function safeNext(next: string | undefined): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/tickets";
-  }
-  return next;
-}
+// safeNext now lives in lib/destination.ts, because the Google Sign-In callback
+// applies the same guard to the destination it reads back out of its state
+// cookie. One copy, one behaviour.
 
 export default async function SignInPage({ searchParams }: SignInPageProps) {
-  const { next, expired, link } = await searchParams;
+  const { next, expired, link, google } = await searchParams;
   const destination = safeNext(next);
 
   // Already signed in: there is nothing to prove, so go where they were headed.
@@ -60,6 +53,11 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           next={destination}
           expired={expired === "1"}
           linkFailure={link === "expired" || link === "invalid" ? link : null}
+          googleFailed={google === "failed"}
+          // Absent credentials the button is not rendered at all, so a developer
+          // running `make dev` without a Google client sees the passcode form
+          // and nothing broken (PRD "Local development").
+          googleSignInHref={isGoogleSignInConfigured() ? googleSignInStartPath(destination) : null}
         />
       </div>
     </StorefrontShell>

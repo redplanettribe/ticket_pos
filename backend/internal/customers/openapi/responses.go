@@ -33,6 +33,15 @@ type EnvelopeCustomerVerifyOTP struct {
 	RequestID string                `json:"request_id"`
 }
 
+// EnvelopeCustomerVerifyGoogle documents POST /api/v1/customer/auth/google/verify
+// success responses. Its payload is the passcode path's, unchanged and
+// deliberately so: nothing on the wire records how somebody signed in.
+type EnvelopeCustomerVerifyGoogle struct {
+	Data      CustomerVerifyOTPData `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
 // EnvelopeCustomerSession documents GET /api/v1/customer/auth/session success responses.
 type EnvelopeCustomerSession struct {
 	Data      service.CustomerSessionView `json:"data"`

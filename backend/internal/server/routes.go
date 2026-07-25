@@ -33,6 +33,10 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// Sign-in is unauthenticated by definition: these two mint the credential.
 	mux.HandleFunc("POST /api/v1/customer/auth/otp/request", h.RequestOTP)
 	mux.HandleFunc("POST /api/v1/customer/auth/otp/verify", h.VerifyOTP)
+	// The second Proof of Email Ownership, and the same destination: this mints
+	// the identical Customer Session the passcode above does, on an email Google
+	// vouched for instead of one a passcode did (ADR 0011).
+	mux.HandleFunc("POST /api/v1/customer/auth/google/verify", h.VerifyGoogle)
 	// The Confirmation Link's token is itself the credential, so this route is
 	// unauthenticated too. It reads Authorization when present, but only to
 	// notice that the caller already holds something wider than a link.
@@ -63,6 +67,12 @@ func registerAuthRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
 	mux.HandleFunc("POST /api/v1/auth/otp/request", h.RequestOTP)
 	mux.HandleFunc("POST /api/v1/auth/otp/verify", h.VerifyOTP)
+	// The second Proof of Email Ownership, and the same destination: this mints
+	// the identical Staff Session the passcode above does, on an email Google
+	// vouched for instead of one a passcode did, and the app runs the same
+	// auth-fork afterwards (ADR 0011). The exchange uses the staff OAuth client,
+	// so a code obtained on the Storefront is not redeemable here.
+	mux.HandleFunc("POST /api/v1/auth/google/verify", h.VerifyGoogle)
 	mux.HandleFunc("GET /api/v1/auth/session", h.GetSession)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.Logout)
 }

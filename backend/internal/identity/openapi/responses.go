@@ -30,6 +30,15 @@ type EnvelopeVerifyOTP struct {
 	RequestID string             `json:"request_id"`
 }
 
+// EnvelopeVerifyGoogle documents POST /api/v1/auth/google/verify success
+// responses. It is the VerifyOTP payload verbatim, because the two doors mint
+// the same Staff Session and nothing on the wire says which was used.
+type EnvelopeVerifyGoogle struct {
+	Data      VerifyOTPData      `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
 // EnvelopeSession documents session-shaped success responses.
 type EnvelopeSession struct {
 	Data      service.SessionView `json:"data"`

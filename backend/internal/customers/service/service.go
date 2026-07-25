@@ -11,6 +11,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/googleauth"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 )
 
@@ -23,6 +24,11 @@ type Service struct {
 	// links is the Confirmation Link signing key and the Storefront origin those
 	// links point at. Both are configuration; see confirmationlink.go.
 	links ConfirmationLinkConfig
+	// google redeems the authorization codes the Storefront relays, against the
+	// Storefront's own Google OAuth client. It is the second Proof of Email
+	// Ownership this service accepts, alongside the passcode; see
+	// googlesignin.go.
+	google *googleauth.Client
 }
 
 // New returns a customers service.
@@ -30,13 +36,19 @@ type Service struct {
 // links is required rather than optional: this module owns Confirmation Link
 // issuing and redemption, and a service that could not sign one would fail at
 // the moment a Sale Confirmation is sent rather than at startup.
-func New(repo *repository.Repository, otpService *otp.Service, logger platform.Logger, links ConfirmationLinkConfig) *Service {
+//
+// google is required for the same shape of reason and behaves differently: a
+// deployment holding no Google credentials still gets a client, which refuses
+// every exchange with the ordinary generic error. Google Sign-In is one of two
+// doors, so its absence must not stop the other from opening.
+func New(repo *repository.Repository, otpService *otp.Service, logger platform.Logger, links ConfirmationLinkConfig, google *googleauth.Client) *Service {
 	return &Service{
 		repo:   repo,
 		otp:    otpService,
 		logger: logger,
 		now:    time.Now,
 		links:  links,
+		google: google,
 	}
 }
 
