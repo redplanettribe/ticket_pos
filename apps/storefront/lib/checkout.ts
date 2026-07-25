@@ -135,6 +135,26 @@ export function stubOutcomeURL(
   return url.toString();
 }
 
+/**
+ * parseProviderReturn reads a Payment Provider's return redirect. Each
+ * provider names our client transaction id differently — the stub sends
+ * `client_transaction_id`, PayPhone appends `clientTransactionId` (and `id`)
+ * to the response URL — so both spellings are accepted, and every query param
+ * is relayed verbatim as provider_params for the provider's Confirm call.
+ */
+export function parseProviderReturn(params: URLSearchParams): {
+  clientTransactionId: string;
+  providerParams: Record<string, string>;
+} {
+  const clientTransactionId =
+    params.get("client_transaction_id")?.trim() ?? params.get("clientTransactionId")?.trim() ?? "";
+  const providerParams: Record<string, string> = {};
+  for (const [key, value] of params.entries()) {
+    providerParams[key] = value;
+  }
+  return { clientTransactionId, providerParams };
+}
+
 // --- Checkout context ------------------------------------------------------
 
 /**

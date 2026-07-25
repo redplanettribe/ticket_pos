@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   clampQuantity,
+  parseProviderReturn,
   parseStubPaymentRequest,
   safeEventPath,
   selectionLines,
@@ -118,4 +119,25 @@ test("safeEventPath keeps a plain Storefront path and refuses anything else", ()
   assert.equal(safeEventPath("//evil.example/x"), null);
   assert.equal(safeEventPath(""), null);
   assert.equal(safeEventPath(undefined), null);
+});
+
+test("parseProviderReturn reads the stub's return shape", () => {
+  const { clientTransactionId, providerParams } = parseProviderReturn(
+    new URLSearchParams({ client_transaction_id: "ctid-1", outcome: "approved" }),
+  );
+  assert.equal(clientTransactionId, "ctid-1");
+  assert.deepEqual(providerParams, { client_transaction_id: "ctid-1", outcome: "approved" });
+});
+
+test("parseProviderReturn reads PayPhone's return shape and relays id verbatim", () => {
+  const { clientTransactionId, providerParams } = parseProviderReturn(
+    new URLSearchParams({ id: "12345", clientTransactionId: "ctid-2" }),
+  );
+  assert.equal(clientTransactionId, "ctid-2");
+  assert.deepEqual(providerParams, { id: "12345", clientTransactionId: "ctid-2" });
+});
+
+test("parseProviderReturn yields an empty id when neither spelling is present", () => {
+  const { clientTransactionId } = parseProviderReturn(new URLSearchParams({ id: "12345" }));
+  assert.equal(clientTransactionId, "");
 });

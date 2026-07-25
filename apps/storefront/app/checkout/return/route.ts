@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { APIError, confirmCheckout } from "@/lib/api";
+import { parseProviderReturn } from "@/lib/checkout";
 
 // Confirms a Payment; never cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -21,18 +22,15 @@ export const dynamic = "force-dynamic";
  * sale.
  */
 export async function GET(request: Request) {
-  const params = new URL(request.url).searchParams;
-  const clientTransactionId = params.get("client_transaction_id")?.trim() ?? "";
+  const { clientTransactionId, providerParams } = parseProviderReturn(
+    new URL(request.url).searchParams,
+  );
   if (!clientTransactionId) {
     return redirectTo("/");
   }
 
-  // Relayed verbatim, missing meaning empty: the API's providers fail closed,
-  // treating anything but a positive outcome as a decline.
-  const outcome = params.get("outcome") ?? "";
-
   try {
-    const result = await confirmCheckout(clientTransactionId, { outcome });
+    const result = await confirmCheckout(clientTransactionId, providerParams);
     if (result.status === "approved" && result.confirmation_ref) {
       return redirectTo(`/checkout/success?ref=${encodeURIComponent(result.confirmation_ref)}`);
     }
