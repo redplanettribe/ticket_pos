@@ -1,4 +1,6 @@
-import { fetchEventsJSON } from "@/lib/events-api";
+// Relative (not "@/lib") so the module graph resolves under `node --test` as
+// well as the bundler — the unit tests import this file directly.
+import { fetchEventsJSON } from "./events-api.ts";
 
 // Types mirror the Go Sales list response (internal/sales). Field names match
 // the JSON the API emits so rows render verbatim.
@@ -195,6 +197,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: "Cash",
   transfer: "Transfer",
+  payphone: "PayPhone",
 };
 
 // channelSourceLabel renders the channel and (when present) source as

@@ -2315,6 +2315,7 @@ paths:
           enum:
           - cash
           - transfer
+          - payphone
           type: string
       - description: Sort column (default sold_at)
         in: query

@@ -2144,7 +2144,7 @@ export interface paths {
                     /** @description Sales Source */
                     source?: "direct" | "external_platform";
                     /** @description Payment Method */
-                    payment_method?: "cash" | "transfer";
+                    payment_method?: "cash" | "transfer" | "payphone";
                     /** @description Sort column (default sold_at) */
                     sort?: "sold_at" | "recorded_at" | "customer" | "amount";
                     /** @description Sort direction (default desc) */

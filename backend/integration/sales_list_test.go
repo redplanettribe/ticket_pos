@@ -643,6 +643,105 @@ func TestSalesListChannelSourcePaymentAndCombination(t *testing.T) {
 	}
 }
 
+// TestSalesListOnlineSalePayPhone proves the Sales list carries Online Sales
+// (issue #87): an approved checkout appears as one row with channel online, no
+// Sales Source, and Payment Method payphone; the payment_method filter accepts
+// payphone and separates online rows from cash/transfer ones; the channel
+// filter works against a real online row; and pending or failed Payments
+// (begin without confirm, begin then decline) never appear as rows.
+func TestSalesListOnlineSalePayPhone(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Mixed Fest", "mixed-fest", 1000, 100)
+
+	// Two Direct Sales through the import flow: one cash, one transfer.
+	commitBatch(t, env, sessionID, eventID, "mixed-batch", []map[string]any{
+		{"customer_email": "cash@example.com", "customer_first_name": "Cash", "customer_last_name": "Buyer", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "transfer@example.com", "customer_first_name": "Xfer", "customer_last_name": "Buyer", "ticket_type_id": gaID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+
+	// One Online Sale the honest way: begin → confirm(approved) with the stub
+	// Payment Provider.
+	approved := beginCheckoutOK(t, env, "test-org", "mixed-fest",
+		checkoutBody("online@example.com", "Onda", "Line", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+	confirm := confirmCheckoutOK(t, env, approved.ClientTransactionID, "approved")
+	if confirm.Status != "approved" {
+		t.Fatalf("confirm status = %q, want approved", confirm.Status)
+	}
+
+	// A pending Payment (begun, never confirmed) and a failed one (declined):
+	// neither is a Ticket Sale, so neither may surface as a row.
+	beginCheckoutOK(t, env, "test-org", "mixed-fest",
+		checkoutBody("pending@example.com", "Pen", "Ding", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	declined := beginCheckoutOK(t, env, "test-org", "mixed-fest",
+		checkoutBody("declined@example.com", "Dec", "Lined", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	if got := confirmCheckoutOK(t, env, declined.ClientTransactionID, "declined"); got.Status != "failed" {
+		t.Fatalf("declined confirm status = %q, want failed", got.Status)
+	}
+
+	// Default view: exactly the three committed sales — the pending and failed
+	// Payments contribute no rows.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales", authHeader(sessionID))
+	all := salesList(t, body)
+	if got := listSalesEmails(all); len(got) != 3 ||
+		got[0] != "cash@example.com" || got[1] != "online@example.com" || got[2] != "transfer@example.com" {
+		t.Fatalf("default rows = %v, want [cash, online, transfer]", got)
+	}
+	if all.Pagination.Total != 3 {
+		t.Fatalf("total = %d, want 3", all.Pagination.Total)
+	}
+	var online saleListRow
+	for _, row := range all.Data {
+		if row.CustomerEmail == "online@example.com" {
+			online = row
+		}
+	}
+	if online.Channel != "online" {
+		t.Fatalf("online row channel = %q, want online", online.Channel)
+	}
+	if online.Source != nil {
+		t.Fatalf("online row source = %v, want none on an Online Sale", *online.Source)
+	}
+	if online.PaymentMethod == nil || *online.PaymentMethod != "payphone" {
+		t.Fatalf("online row payment_method = %v, want payphone", online.PaymentMethod)
+	}
+	if online.ConfirmationRef != confirm.ConfirmationRef {
+		t.Fatalf("online row confirmation_ref = %q, want %q", online.ConfirmationRef, confirm.ConfirmationRef)
+	}
+
+	// payment_method=payphone returns exactly the Online Sale.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?payment_method=payphone", authHeader(sessionID))
+	payphone := salesList(t, body)
+	if got := listSalesEmails(payphone); len(got) != 1 || got[0] != "online@example.com" {
+		t.Fatalf("payment_method=payphone = %v, want [online@example.com]", got)
+	}
+	if payphone.Pagination.Total != 1 {
+		t.Fatalf("payment_method=payphone total = %d, want 1", payphone.Pagination.Total)
+	}
+
+	// cash/transfer filtering is unchanged and excludes the Online Sale.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?payment_method=cash", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "cash@example.com" {
+		t.Fatalf("payment_method=cash = %v, want [cash@example.com]", got)
+	}
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?payment_method=transfer", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "transfer@example.com" {
+		t.Fatalf("payment_method=transfer = %v, want [transfer@example.com]", got)
+	}
+
+	// channel=online works against a real online row; channel=import still
+	// returns only the imported ones.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?channel=online", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 1 || got[0] != "online@example.com" {
+		t.Fatalf("channel=online = %v, want [online@example.com]", got)
+	}
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?channel=import", authHeader(sessionID))
+	if got := listSalesEmails(salesList(t, body)); len(got) != 2 ||
+		got[0] != "cash@example.com" || got[1] != "transfer@example.com" {
+		t.Fatalf("channel=import = %v, want [cash, transfer]", got)
+	}
+}
+
 // TestSalesListInvalidFilters proves invalid enum and date filter values are
 // rejected with a VALIDATION_FAILED envelope rather than silently ignored.
 func TestSalesListInvalidFilters(t *testing.T) {

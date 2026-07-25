@@ -3628,7 +3628,8 @@ const docTemplate = `{
                         "schema": {
                             "enum": [
                                 "cash",
-                                "transfer"
+                                "transfer",
+                                "payphone"
                             ],
                             "type": "string"
                         }

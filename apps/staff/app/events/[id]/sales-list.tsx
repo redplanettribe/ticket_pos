@@ -282,6 +282,7 @@ const SOURCE_OPTIONS = [
 const PAYMENT_METHOD_OPTIONS = [
   { value: "cash", label: "Cash" },
   { value: "transfer", label: "Transfer" },
+  { value: "payphone", label: "PayPhone" },
 ];
 
 type SalesFilterBarProps = {

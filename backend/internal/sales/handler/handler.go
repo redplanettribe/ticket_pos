@@ -210,13 +210,13 @@ const (
 	maxPageSize     = 100
 )
 
-// Sales list filter allowlists. Channel/source/payment method are degenerate
-// today (every sale is import/direct) but validated so the filters function.
+// Sales list filter allowlists. Payment method spans the Direct Sale values
+// (cash, transfer) plus payphone, the Payment Provider on Online Sales.
 var (
 	salesStatusValues        = []string{"active", "reversed"}
 	salesChannelValues       = []string{"online", "in_person", "import"}
 	salesSourceValues        = []string{"direct", "external_platform"}
-	salesPaymentMethodValues = []string{"cash", "transfer"}
+	salesPaymentMethodValues = []string{"cash", "transfer", "payphone"}
 )
 
 // ListSales returns a page of the Event's Ticket Sales for the Sales list — one
@@ -238,7 +238,7 @@ var (
 // @Param        q               query  string  false  "Case-insensitive substring over customer email, name, and confirmation_ref"
 // @Param        channel         query  string  false  "Sales Channel"  Enums(online, in_person, import)
 // @Param        source          query  string  false  "Sales Source"  Enums(direct, external_platform)
-// @Param        payment_method  query  string  false  "Payment Method"  Enums(cash, transfer)
+// @Param        payment_method  query  string  false  "Payment Method"  Enums(cash, transfer, payphone)
 // @Param        sort            query  string  false  "Sort column (default sold_at)"  Enums(sold_at, recorded_at, customer, amount)
 // @Param        dir             query  string  false  "Sort direction (default desc)"  Enums(asc, desc)
 // @Success      200  {object}  platform.Envelope
