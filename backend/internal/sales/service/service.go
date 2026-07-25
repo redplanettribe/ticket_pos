@@ -121,11 +121,11 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 			PaymentMethod:     row.PaymentMethod,
 			SoldAt:            row.SoldAt,
 			ConfirmationRef:   ref,
-			Line: repository.CommitLine{
+			Lines: []repository.CommitLine{{
 				TicketTypeID:   row.TicketTypeID,
 				Quantity:       row.Quantity,
 				UnitPriceCents: row.AmountCents,
-			},
+			}},
 		})
 	}
 

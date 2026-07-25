@@ -35,7 +35,9 @@ type CommitLine struct {
 	UnitPriceCents *int
 }
 
-// CommitSale is one Ticket Sale to record within a Sale Import batch.
+// CommitSale is one Ticket Sale to record on any Sales Channel: the customer
+// identity as transacted, the optional Payment Method, and the Ticket Sale
+// Lines with their unit-price snapshots.
 type CommitSale struct {
 	CustomerEmail     string
 	CustomerFirstName string
@@ -43,7 +45,7 @@ type CommitSale struct {
 	PaymentMethod     string
 	SoldAt            time.Time
 	ConfirmationRef   string
-	Line              CommitLine
+	Lines             []CommitLine
 }
 
 // UpsertCustomer creates or reuses the Customer for one Ticket Sale inside the
@@ -51,6 +53,21 @@ type CommitSale struct {
 // bound to the customers service, so the cross-module call goes through that
 // module's service rather than its repository.
 type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, now time.Time) (string, error)
+
+// CommitSalesInput is a set of prepared Ticket Sales to record on one Sales
+// Channel — the channel-agnostic sale-commit spine's input. Source qualifies
+// `import` sales; native channels leave it empty.
+type CommitSalesInput struct {
+	EventID        string
+	OrganizationID string
+	Channel        string
+	Source         string
+	Sales          []CommitSale
+	Now            time.Time
+	// UpsertCustomer resolves each sale's Customer within the transaction.
+	// Required: every Ticket Sale must reference a Customer.
+	UpsertCustomer UpsertCustomer
+}
 
 // CommitInput is a fully-prepared Direct Sale Import to record atomically.
 type CommitInput struct {
@@ -91,7 +108,8 @@ type CommittedBatch struct {
 	Recorded []RecordedSale
 }
 
-// CapacityError reports that a Ticket Type would be oversold by the batch.
+// CapacityError reports that a Ticket Type would be oversold by the committed
+// sales. Row is the index of the first sale referencing it.
 type CapacityError struct {
 	Row          int
 	TicketTypeID string
@@ -103,7 +121,7 @@ func (e *CapacityError) Error() string {
 	return fmt.Sprintf("ticket type %s oversold: requested %d, available %d", e.TicketTypeID, e.Requested, e.Available)
 }
 
-// UnknownTicketTypeError reports that a row references a Ticket Type absent from the Event.
+// UnknownTicketTypeError reports that a sale references a Ticket Type absent from the Event.
 type UnknownTicketTypeError struct {
 	Row          int
 	TicketTypeID string
@@ -248,44 +266,31 @@ type lockedType struct {
 	soldCount  int
 }
 
-// CommitImport records a Sale Import batch, its Ticket Sales and Lines, and the
-// resulting capacity decrement in a single transaction. Ticket Type rows are
-// locked FOR UPDATE before the capacity check, so concurrent sales cannot
-// oversell. The batch is all-or-nothing: any oversell rolls back everything and
-// returns a *CapacityError.
-//
-// Idempotency: a batch already recorded for (organization, idempotency key) is
-// returned unchanged with Replayed set, and nothing new is written.
-func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*CommittedBatch, error) {
+// CommitSales records prepared Ticket Sales, their Lines, and the resulting
+// capacity decrement inside the caller's transaction — the sale-commit spine
+// every Sales Channel shares. Ticket Type rows are locked FOR UPDATE before the
+// capacity check, so concurrent sales cannot oversell. All-or-nothing: any
+// oversell fails the whole call with a *CapacityError.
+func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSalesInput) ([]RecordedSale, error) {
 	if in.UpsertCustomer == nil {
 		return nil, errors.New("sales: UpsertCustomer is required — every Ticket Sale must reference a Customer")
 	}
-	if existing, err := r.findBatch(ctx, in.OrganizationID, in.IdempotencyKey); err != nil {
-		return nil, err
-	} else if existing != nil {
-		existing.Replayed = true
-		return existing, nil
-	}
 
-	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Aggregate requested quantities per Ticket Type, remembering the first row
+	// Aggregate requested quantities per Ticket Type, remembering the first sale
 	// that references each type for error reporting. Lock the involved rows in a
-	// stable order to avoid deadlocks between concurrent imports.
+	// stable order to avoid deadlocks between concurrent commits.
 	requested := map[string]int{}
 	firstRow := map[string]int{}
 	var typeIDs []string
 	for i, s := range in.Sales {
-		id := s.Line.TicketTypeID
-		if _, seen := requested[id]; !seen {
-			firstRow[id] = i
-			typeIDs = append(typeIDs, id)
+		for _, line := range s.Lines {
+			id := line.TicketTypeID
+			if _, seen := requested[id]; !seen {
+				firstRow[id] = i
+				typeIDs = append(typeIDs, id)
+			}
+			requested[id] += line.Quantity
 		}
-		requested[id] += s.Line.Quantity
 	}
 	sort.Strings(typeIDs)
 
@@ -320,6 +325,100 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		}
 	}
 
+	recorded := make([]RecordedSale, 0, len(in.Sales))
+	for _, s := range in.Sales {
+		// The Customer is created or reused in this same transaction, so a sale and
+		// the Customer it references are never recorded apart. The sale keeps its own
+		// copy of the recorded name and email verbatim; the upsert never rewrites it.
+		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, in.Now)
+		if err != nil {
+			return nil, err
+		}
+
+		var saleID string
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO ticket_sales (
+				event_id, organization_id, channel, source, payment_method,
+				customer_id, customer_email, customer_first_name, customer_last_name, sold_at, confirmation_ref, status,
+				created_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12)
+			RETURNING id
+		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
+			customerID, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, in.Now).Scan(&saleID)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, line := range s.Lines {
+			unitPrice := locked[line.TicketTypeID].priceCents
+			if line.UnitPriceCents != nil {
+				unitPrice = *line.UnitPriceCents
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO ticket_sale_lines (ticket_sale_id, ticket_type_id, quantity, unit_price_cents, created_at)
+				VALUES ($1, $2, $3, $4, $5)
+			`, saleID, line.TicketTypeID, line.Quantity, unitPrice, in.Now); err != nil {
+				return nil, err
+			}
+		}
+
+		recorded = append(recorded, RecordedSale{
+			ID:                saleID,
+			ConfirmationRef:   s.ConfirmationRef,
+			CustomerEmail:     s.CustomerEmail,
+			CustomerFirstName: s.CustomerFirstName,
+			CustomerLastName:  s.CustomerLastName,
+		})
+	}
+
+	for _, id := range typeIDs {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE ticket_types SET sold_count = sold_count + $1, updated_at = $2
+			WHERE id = $3
+		`, requested[id], in.Now, id); err != nil {
+			return nil, err
+		}
+	}
+
+	return recorded, nil
+}
+
+// CommitImport records a Sale Import batch in a single transaction: the sales
+// go through the shared CommitSales spine on the `import` channel, then the
+// batch row is written and the recorded sales are linked to it. The batch is
+// all-or-nothing: any oversell rolls back everything and returns a
+// *CapacityError.
+//
+// Idempotency: a batch already recorded for (organization, idempotency key) is
+// returned unchanged with Replayed set, and nothing new is written.
+func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*CommittedBatch, error) {
+	if existing, err := r.findBatch(ctx, in.OrganizationID, in.IdempotencyKey); err != nil {
+		return nil, err
+	} else if existing != nil {
+		existing.Replayed = true
+		return existing, nil
+	}
+
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	recorded, err := r.CommitSales(ctx, tx, CommitSalesInput{
+		EventID:        in.EventID,
+		OrganizationID: in.OrganizationID,
+		Channel:        "import",
+		Source:         in.Source,
+		Sales:          in.Sales,
+		Now:            in.Now,
+		UpsertCustomer: in.UpsertCustomer,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	var batchID string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO sale_import_batches (
@@ -342,57 +441,16 @@ func (r *Repository) CommitImport(ctx context.Context, in CommitInput) (*Committ
 		return nil, err
 	}
 
-	recorded := make([]RecordedSale, 0, len(in.Sales))
-	for _, s := range in.Sales {
-		unitPrice := locked[s.Line.TicketTypeID].priceCents
-		if s.Line.UnitPriceCents != nil {
-			unitPrice = *s.Line.UnitPriceCents
+	// Link the batch's sales to it so the import stays reversible (latest-only
+	// undo walks ticket_sales by import_batch_id).
+	if len(recorded) > 0 {
+		saleIDs := make([]string, len(recorded))
+		for i, rs := range recorded {
+			saleIDs[i] = rs.ID
 		}
-
-		// The Customer is created or reused in this same transaction, so a sale and
-		// the Customer it references are never recorded apart. The sale keeps its own
-		// copy of the recorded name and email verbatim; the upsert never rewrites it.
-		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, in.Now)
-		if err != nil {
-			return nil, err
-		}
-
-		var saleID string
-		err = tx.QueryRowContext(ctx, `
-			INSERT INTO ticket_sales (
-				event_id, organization_id, channel, source, payment_method,
-				customer_id, customer_email, customer_first_name, customer_last_name, sold_at, confirmation_ref, status,
-				import_batch_id, created_at
-			)
-			VALUES ($1, $2, 'import', $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $12)
-			RETURNING id
-		`, in.EventID, in.OrganizationID, in.Source, nullString(s.PaymentMethod),
-			customerID, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, batchID, in.Now).Scan(&saleID)
-		if err != nil {
-			return nil, err
-		}
-
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO ticket_sale_lines (ticket_sale_id, ticket_type_id, quantity, unit_price_cents, created_at)
-			VALUES ($1, $2, $3, $4, $5)
-		`, saleID, s.Line.TicketTypeID, s.Line.Quantity, unitPrice, in.Now); err != nil {
-			return nil, err
-		}
-
-		recorded = append(recorded, RecordedSale{
-			ID:                saleID,
-			ConfirmationRef:   s.ConfirmationRef,
-			CustomerEmail:     s.CustomerEmail,
-			CustomerFirstName: s.CustomerFirstName,
-			CustomerLastName:  s.CustomerLastName,
-		})
-	}
-
-	for _, id := range typeIDs {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE ticket_types SET sold_count = sold_count + $1, updated_at = $2
-			WHERE id = $3
-		`, requested[id], in.Now, id); err != nil {
+			UPDATE ticket_sales SET import_batch_id = $1 WHERE id = ANY($2)
+		`, batchID, saleIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -451,7 +509,7 @@ func (e *BatchAlreadyReversedError) Error() string {
 // ReverseBatch reverses a committed Sale Import batch in a single transaction:
 // it marks the batch's active Ticket Sales 'reversed', restores each affected
 // Ticket Type's sold_count by the reversed quantities (locking ticket_types FOR
-// UPDATE, symmetric to CommitImport), and marks the batch 'reversed'.
+// UPDATE, symmetric to CommitSales), and marks the batch 'reversed'.
 //
 // Only the most recent batch on the Event is reversible: if the target is not
 // the newest batch it returns *BatchNotLatestError; an already-reversed batch
@@ -553,7 +611,7 @@ func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*Revers
 	}
 	saleRows.Close()
 
-	// Lock the affected Ticket Types in a stable order (symmetric to CommitImport)
+	// Lock the affected Ticket Types in a stable order (symmetric to CommitSales)
 	// then restore capacity.
 	for _, id := range typeIDs {
 		var dummy int
