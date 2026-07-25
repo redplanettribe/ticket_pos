@@ -760,6 +760,8 @@ components:
           type: string
         description:
           type: string
+        id:
+          type: string
         name:
           type: string
         price_cents:

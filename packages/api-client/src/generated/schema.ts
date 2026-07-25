@@ -3444,6 +3444,7 @@ export interface components {
         "service.PublicTicketType": {
             currency?: string;
             description?: string;
+            id?: string;
             name?: string;
             price_cents?: number;
             remaining?: number;

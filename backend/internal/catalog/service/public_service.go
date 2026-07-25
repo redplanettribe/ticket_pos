@@ -40,7 +40,10 @@ type PublicEventCard struct {
 }
 
 // PublicTicketType is a Ticket Type as shown on a Storefront event page.
+// ID is exposed so the Storefront can name the Ticket Type in a begin-checkout
+// request, whose lines are keyed by ticket_type_id (issue #84).
 type PublicTicketType struct {
+	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Description *string `json:"description"`
 	PriceCents  int     `json:"price_cents"`
@@ -243,6 +246,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 			remaining = 0
 		}
 		detail.TicketTypes = append(detail.TicketTypes, PublicTicketType{
+			ID:          tt.ID,
 			Name:        tt.Name,
 			Description: nullStringPtr(tt.Description),
 			PriceCents:  tt.PriceCents,
