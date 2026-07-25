@@ -190,7 +190,8 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	customersHandler := customershandler.New(customersService)
 
 	salesRepo := salesrepo.New(db)
-	salesService := salessvc.New(salesRepo, customersService, emailSender)
+	paymentProvider := newPaymentProvider(cfg, platformLogger)
+	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, platformLogger)
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)
 	}
@@ -232,6 +233,24 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 	}
 	logger.Info("email sender: logging (no RESEND_API_KEY set)")
 	return &platform.LoggingEmailSender{Logger: logger}
+}
+
+// newPaymentProvider selects the Payment Provider by credential presence,
+// mirroring newEmailSender (ADR 0009, ADR 0012): PayPhone credentials set means
+// PayPhone, unset means the stub whose payment page is a Storefront
+// interstitial — so the full checkout works locally with zero setup.
+//
+// TODO(#86): the real PayPhone client does not exist yet, so a deployment that
+// HAS set credentials still gets the stub — said out loud at startup rather
+// than silently, because "configured but stubbed" is exactly the state a
+// production operator must not have to guess at.
+func newPaymentProvider(cfg platform.Config, logger platform.Logger) platform.PaymentProvider {
+	if cfg.PayPhone.Configured() {
+		logger.Warn("payment provider: PAYPHONE_* credentials are set but the PayPhone client is not implemented yet (ticket #86); using the stub provider")
+		return platform.NewStubPaymentProvider(cfg.StorefrontBaseURL)
+	}
+	logger.Info("payment provider: stub (no PAYPHONE_* credentials set)")
+	return platform.NewStubPaymentProvider(cfg.StorefrontBaseURL)
 }
 
 // confirmationLinkSecret resolves the key every Confirmation Link is signed

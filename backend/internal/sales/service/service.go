@@ -72,13 +72,31 @@ type Service struct {
 	repo      *repository.Repository
 	customers CustomerService
 	email     platform.EmailSender
-	now       func() time.Time
+	// provider collects money for Online Sales behind the provider-agnostic
+	// Payment Provider boundary (ADR 0012); see checkout.go.
+	provider platform.PaymentProvider
+	// storefrontBaseURL is the Storefront's public origin, where the Payment
+	// Provider sends the Customer back after its payment page (checkout.go).
+	storefrontBaseURL string
+	logger            platform.Logger
+	now               func() time.Time
 }
 
 // New returns a sales service. The customers service is required: every Ticket
-// Sale, on every Sales Channel, creates or reuses a Customer.
-func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender) *Service {
-	return &Service{repo: repo, customers: customers, email: email, now: time.Now}
+// Sale, on every Sales Channel, creates or reuses a Customer. The Payment
+// Provider is equally required: the online channel cannot sell without one, and
+// which implementation arrives here is server wiring's decision (ADR 0009,
+// ADR 0012).
+func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender, provider platform.PaymentProvider, storefrontBaseURL string, logger platform.Logger) *Service {
+	return &Service{
+		repo:              repo,
+		customers:         customers,
+		email:             email,
+		provider:          provider,
+		storefrontBaseURL: storefrontBaseURL,
+		logger:            logger,
+		now:               time.Now,
+	}
 }
 
 // WithClock overrides the clock (tests).

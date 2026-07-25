@@ -51,6 +51,26 @@ type Config struct {
 	// Google holds what the API needs to complete a Google Sign-In on either
 	// surface. See GoogleConfig.
 	Google GoogleConfig
+	// PayPhone holds the platform's single PayPhone merchant credentials
+	// (ADR 0012). Their presence selects the PayPhone Payment Provider; absent,
+	// the stub provider serves so checkout works locally with zero setup.
+	PayPhone PayPhoneConfig
+}
+
+// PayPhoneConfig is the platform's registration with PayPhone: one merchant
+// account for the whole platform, settled with Organizations off-system
+// (ADR 0012). Both values are secrets in production, injected like every other
+// secret; neither is required — a deployment without them runs on the stub
+// Payment Provider.
+type PayPhoneConfig struct {
+	APIToken string
+	StoreID  string
+}
+
+// Configured reports whether PayPhone credentials are present — the switch that
+// selects the real Payment Provider over the stub.
+func (c PayPhoneConfig) Configured() bool {
+	return c.APIToken != "" && c.StoreID != ""
 }
 
 // GoogleOAuthClient is one surface's registration with Google.
@@ -136,6 +156,10 @@ func LoadConfig() (Config, error) {
 
 		OTPGlobalCeiling: otpCeiling,
 		Google:           google,
+		PayPhone: PayPhoneConfig{
+			APIToken: strings.TrimSpace(os.Getenv("PAYPHONE_API_TOKEN")),
+			StoreID:  strings.TrimSpace(os.Getenv("PAYPHONE_STORE_ID")),
+		},
 	}
 	return cfg, nil
 }

@@ -80,6 +80,10 @@ func TestMain(m *testing.M) {
 	cfg := platform.Config{
 		DatabaseURL:   connStr,
 		RunMigrations: true,
+		// The stub Payment Provider builds its interstitial and return URLs from
+		// this origin; no PAYPHONE_* credentials are set, so the stub is selected
+		// exactly as it is in local development.
+		StorefrontBaseURL: "http://storefront.example",
 		Google: platform.GoogleConfig{
 			Storefront: platform.GoogleOAuthClient{
 				ClientID:     storefrontGoogleClientID,
@@ -149,7 +153,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE customer_sessions, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE payment_lines, payments, customer_sessions, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

@@ -696,6 +696,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/checkout/{clientTransactionId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an online checkout
+         * @description Settles the Payment named by our client transaction id, relaying the provider's return-redirect params. Idempotent: an already-settled Payment returns its recorded outcome (approved with the Sale Confirmation reference, or failed) without asking the provider or writing anything, so a refreshed return page never double-commits. On first approval the Ticket Sale is committed in the same transaction that marks the Payment approved, and the Sale Confirmation email is sent.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Client transaction id from begin-checkout */
+                    clientTransactionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Provider return-redirect params */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.confirmCheckoutBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeConfirmCheckout"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/events": {
         parameters: {
             query?: never;
@@ -855,6 +929,82 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin an online checkout
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. No authentication: guest checkout needs only email and name.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                    /** @description Event slug */
+                    eventSlug: string;
+                };
+                cookie?: never;
+            };
+            /** @description Checkout lines and customer identity */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.beginCheckoutBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBeginCheckout"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2892,10 +3042,30 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        "handler.beginCheckoutBody": {
+            customer_email?: string;
+            customer_first_name?: string;
+            customer_last_name?: string;
+            lines?: components["schemas"]["handler.checkoutLineBody"][];
+        };
+        "handler.checkoutLineBody": {
+            quantity?: number;
+            ticket_type_id?: string;
+        };
         "handler.commitImportBody": {
             idempotency_key?: string;
             sales?: components["schemas"]["handler.importSaleRow"][];
             source?: string;
+        };
+        "handler.confirmCheckoutBody": {
+            /**
+             * @description ProviderParams are the query params the provider's return redirect
+             *     carried, relayed verbatim by the Storefront return handler (for the stub:
+             *     {"outcome": "approved"|"declined"}).
+             */
+            provider_params?: {
+                [key: string]: string;
+            };
         };
         "handler.confirmationLinkBody": {
             token?: string;
@@ -3003,6 +3173,16 @@ export interface components {
         "openapi.CustomerVerifyOTPData": {
             session?: components["schemas"]["service.CustomerSessionView"];
             session_id?: string;
+        };
+        "openapi.EnvelopeBeginCheckout": {
+            data?: components["schemas"]["service.BeginCheckoutResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeConfirmCheckout": {
+            data?: components["schemas"]["service.ConfirmCheckoutResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
         };
         "openapi.EnvelopeCoverUploadURL": {
             data?: components["schemas"]["storage.CoverUploadResult"];
@@ -3140,6 +3320,18 @@ export interface components {
             organization_name?: string;
             organization_slug?: string;
             role?: string;
+        };
+        "service.BeginCheckoutResult": {
+            amount_cents?: number;
+            client_transaction_id?: string;
+            currency?: string;
+            redirect_url?: string;
+        };
+        "service.ConfirmCheckoutResult": {
+            client_transaction_id?: string;
+            confirmation_ref?: string;
+            /** @description Status is "approved" or "failed". */
+            status?: string;
         };
         "service.CustomerAreaView": {
             past?: components["schemas"]["service.TicketSaleView"][];

@@ -1,5 +1,26 @@
 components:
   schemas:
+    handler.beginCheckoutBody:
+      properties:
+        customer_email:
+          type: string
+        customer_first_name:
+          type: string
+        customer_last_name:
+          type: string
+        lines:
+          items:
+            $ref: '#/components/schemas/handler.checkoutLineBody'
+          type: array
+          uniqueItems: false
+      type: object
+    handler.checkoutLineBody:
+      properties:
+        quantity:
+          type: integer
+        ticket_type_id:
+          type: string
+      type: object
     handler.commitImportBody:
       properties:
         idempotency_key:
@@ -11,6 +32,17 @@ components:
           uniqueItems: false
         source:
           type: string
+      type: object
+    handler.confirmCheckoutBody:
+      properties:
+        provider_params:
+          additionalProperties:
+            type: string
+          description: |-
+            ProviderParams are the query params the provider's return redirect
+            carried, relayed verbatim by the Storefront return handler (for the stub:
+            {"outcome": "approved"|"declined"}).
+          type: object
       type: object
     handler.confirmationLinkBody:
       properties:
@@ -202,6 +234,24 @@ components:
         session:
           $ref: '#/components/schemas/service.CustomerSessionView'
         session_id:
+          type: string
+      type: object
+    openapi.EnvelopeBeginCheckout:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.BeginCheckoutResult'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeConfirmCheckout:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.ConfirmCheckoutResult'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
           type: string
       type: object
     openapi.EnvelopeCoverUploadURL:
@@ -459,6 +509,27 @@ components:
         organization_slug:
           type: string
         role:
+          type: string
+      type: object
+    service.BeginCheckoutResult:
+      properties:
+        amount_cents:
+          type: integer
+        client_transaction_id:
+          type: string
+        currency:
+          type: string
+        redirect_url:
+          type: string
+      type: object
+    service.ConfirmCheckoutResult:
+      properties:
+        client_transaction_id:
+          type: string
+        confirmation_ref:
+          type: string
+        status:
+          description: Status is "approved" or "failed".
           type: string
       type: object
     service.CustomerAreaView:
@@ -1190,6 +1261,60 @@ paths:
       summary: List the Customer's Ticket Sales
       tags:
       - customer
+  /api/v1/public/checkout/{clientTransactionId}/confirm:
+    post:
+      description: 'Settles the Payment named by our client transaction id, relaying
+        the provider''s return-redirect params. Idempotent: an already-settled Payment
+        returns its recorded outcome (approved with the Sale Confirmation reference,
+        or failed) without asking the provider or writing anything, so a refreshed
+        return page never double-commits. On first approval the Ticket Sale is committed
+        in the same transaction that marks the Payment approved, and the Sale Confirmation
+        email is sent.'
+      parameters:
+      - description: Client transaction id from begin-checkout
+        in: path
+        name: clientTransactionId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.confirmCheckoutBody'
+                description: Provider return-redirect params
+                summary: body
+        description: Provider return-redirect params
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeConfirmCheckout'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      summary: Confirm an online checkout
+      tags:
+      - public
   /api/v1/public/events:
     get:
       description: Lists discoverable, published, not-yet-ended events across all
@@ -1299,6 +1424,65 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Not Found
       summary: Get public event
+      tags:
+      - public
+  /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout:
+    post:
+      description: 'Starts a guest checkout on a published event: validates ticket
+        types, quantities, and remaining capacity (check-only, no hold), snapshots
+        current unit prices into a pending Payment, asks the Payment Provider to initiate,
+        and returns our client transaction id with the provider''s redirect URL. No
+        authentication: guest checkout needs only email and name.'
+      parameters:
+      - description: Organization slug
+        in: path
+        name: slug
+        required: true
+        schema:
+          type: string
+      - description: Event slug
+        in: path
+        name: eventSlug
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.beginCheckoutBody'
+                description: Checkout lines and customer identity
+                summary: body
+        description: Checkout lines and customer identity
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeBeginCheckout'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
+      summary: Begin an online checkout
       tags:
       - public
   /api/v1/public/tags:

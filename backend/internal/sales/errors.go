@@ -19,6 +19,31 @@ func ErrTicketTypeNotFound(ticketTypeID string) apperror.DomainError {
 	})
 }
 
+// ErrCapacityExceeded is returned when a checkout requests more tickets of a
+// Ticket Type than remain. Available is capacity minus sold count at the moment
+// of the check.
+func ErrCapacityExceeded(ticketTypeID string, requested, available int) apperror.DomainError {
+	return apperror.New("CAPACITY_EXCEEDED", "Not enough tickets remaining.", map[string]any{
+		"ticket_type_id": ticketTypeID,
+		"requested":      requested,
+		"available":      available,
+	})
+}
+
+// ErrPaymentNotFound is returned when no Payment carries the given client
+// transaction id.
+func ErrPaymentNotFound() apperror.DomainError {
+	return apperror.New("PAYMENT_NOT_FOUND", "Payment not found.", nil)
+}
+
+// ErrPaymentSaleCommitFailed is returned for the one loudly-logged incident
+// case: the Payment Provider approved the charge but recording the Ticket Sale
+// failed, leaving an approved Payment without a sale for the platform operator
+// to resolve by hand.
+func ErrPaymentSaleCommitFailed() apperror.DomainError {
+	return apperror.New("PAYMENT_SALE_COMMIT_FAILED", "Your payment was approved but your tickets could not be recorded. Please contact support.", nil)
+}
+
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
 // parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
 // contents). The reason is a human-readable sentence produced by the importfile

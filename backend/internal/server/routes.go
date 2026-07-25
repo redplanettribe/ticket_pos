@@ -56,11 +56,18 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
 	ch := app.CatalogHandler
+	sh := app.SalesHandler
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}", h.GetPublicOrganization)
 	mux.HandleFunc("GET /api/v1/public/events", ch.ListPublicEvents)
 	mux.HandleFunc("GET /api/v1/public/tags", ch.ListPublicTags)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events", ch.GetPublicOrganizationEvents)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events/{eventSlug}", ch.GetPublicEvent)
+	// Online checkout (ADR 0012). Guest by definition: no session is required to
+	// buy tickets, only an email and a name.
+	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout", sh.BeginCheckout)
+	// Confirm is keyed by our client transaction id rather than by slugs: the
+	// provider's return redirect carries the id and nothing else reliable.
+	mux.HandleFunc("POST /api/v1/public/checkout/{clientTransactionId}/confirm", sh.ConfirmCheckout)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {
