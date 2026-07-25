@@ -110,6 +110,30 @@ resource "google_cloud_run_v2_service" "storefront" {
         value = var.storefront_domain != null ? "https://${var.storefront_domain}" : ""
       }
 
+      # The public half of the storefront Google OAuth client (google_oauth.tf).
+      # A client ID is public information — it travels in the authorization URL
+      # the browser follows — and the /start route is a server route handler, so
+      # no NEXT_PUBLIC_ exposure is needed. The client SECRET is not here and
+      # never will be: only the API exchanges a code (ADR 0011).
+      #
+      # Mounted as a pair, and only when both are known. With them absent the
+      # Storefront hides the Google button and the passcode form is untouched.
+      dynamic "env" {
+        for_each = var.google_storefront_client_id == "" || local.google_storefront_redirect_uri == "" ? [] : [1]
+        content {
+          name  = "GOOGLE_CLIENT_ID"
+          value = var.google_storefront_client_id
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.google_storefront_client_id == "" || local.google_storefront_redirect_uri == "" ? [] : [1]
+        content {
+          name  = "GOOGLE_REDIRECT_URI"
+          value = local.google_storefront_redirect_uri
+        }
+      }
+
       env {
         name  = "NODE_ENV"
         value = "production"
@@ -167,6 +191,25 @@ resource "google_cloud_run_v2_service" "staff" {
       env {
         name  = "API_URL"
         value = google_cloud_run_v2_service.api.uri
+      }
+
+      # The public half of the staff Google OAuth client — the storefront
+      # comments above apply unchanged. A separate client ID from the
+      # Storefront's, which is what makes a Storefront code unredeemable here.
+      dynamic "env" {
+        for_each = var.google_staff_client_id == "" || local.google_staff_redirect_uri == "" ? [] : [1]
+        content {
+          name  = "GOOGLE_CLIENT_ID"
+          value = var.google_staff_client_id
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.google_staff_client_id == "" || local.google_staff_redirect_uri == "" ? [] : [1]
+        content {
+          name  = "GOOGLE_REDIRECT_URI"
+          value = local.google_staff_redirect_uri
+        }
       }
 
       # Staff sets the Session cookie `secure` when NODE_ENV is production

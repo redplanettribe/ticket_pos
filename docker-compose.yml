@@ -70,6 +70,14 @@ services:
       # mail via Resend from the dev stack. See .env.example.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Multiticketing <noreply@send.multiticketing.com>}
+      # The `development` Google OAuth client, also from the root .env. Empty (the
+      # default) leaves Google Sign-In off and the button hidden; passcode
+      # sign-in is unaffected either way. GOOGLE_TOKEN_ENDPOINT is deliberately
+      # not passed — it is a test-only override and a production footgun.
+      GOOGLE_STAFF_CLIENT_ID: ${GOOGLE_STAFF_CLIENT_ID:-}
+      GOOGLE_STAFF_CLIENT_SECRET: ${GOOGLE_STAFF_CLIENT_SECRET:-}
+      GOOGLE_STOREFRONT_CLIENT_ID: ${GOOGLE_STOREFRONT_CLIENT_ID:-}
+      GOOGLE_STOREFRONT_CLIENT_SECRET: ${GOOGLE_STOREFRONT_CLIENT_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,6 +110,11 @@ services:
     environment:
       API_URL: http://backend:8080
       NEXT_PUBLIC_API_URL: http://localhost:64080
+      # The public half of the dev OAuth client. The redirect URI is the
+      # PUBLISHED port (64300), not the container port — it is what the browser
+      # follows, and it must match the Console registration byte for byte.
+      GOOGLE_CLIENT_ID: ${GOOGLE_STOREFRONT_CLIENT_ID:-}
+      GOOGLE_REDIRECT_URI: http://localhost:64300/api/customer/auth/google/callback
     depends_on:
       backend:
         condition: service_started
@@ -122,6 +135,8 @@ services:
       - "64301:3001"
     environment:
       API_URL: http://backend:8080
+      GOOGLE_CLIENT_ID: ${GOOGLE_STAFF_CLIENT_ID:-}
+      GOOGLE_REDIRECT_URI: http://localhost:64301/api/auth/google/callback
     depends_on:
       backend:
         condition: service_started
