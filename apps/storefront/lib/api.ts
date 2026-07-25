@@ -212,6 +212,8 @@ export type PublicEventCard = {
 };
 
 export type PublicTicketType = {
+  // The Ticket Type's id, which begin-checkout lines are keyed by.
+  id: string;
   name: string;
   description: string | null;
   price_cents: number;
@@ -319,4 +321,77 @@ export async function getPublicEvent(
   return fetchData<PublicEventDetail>(
     `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}`,
   );
+}
+
+// --- Online checkout (ADR 0012) --------------------------------------------
+
+/** What the begin-checkout endpoint takes: the requested lines plus the checkout identity. */
+export type BeginCheckoutRequest = {
+  customer_email: string;
+  customer_first_name: string;
+  customer_last_name: string;
+  lines: { ticket_type_id: string; quantity: number }[];
+};
+
+/** What begin-checkout returns: our id for the attempt and where to send the Customer. */
+export type BeginCheckoutResult = {
+  client_transaction_id: string;
+  redirect_url: string;
+  amount_cents: number;
+  currency: string;
+};
+
+/** The settled outcome of a Payment, as confirm reports it. */
+export type ConfirmCheckoutResult = {
+  client_transaction_id: string;
+  status: "approved" | "failed";
+  confirmation_ref?: string;
+};
+
+/**
+ * beginCheckout starts an online checkout on a published Event. Guest by
+ * definition: no session travels with it, only the email and name entered in
+ * the checkout form. Failures throw APIError so the route handler can relay
+ * the API's own code and message.
+ */
+export async function beginCheckout(
+  orgSlug: string,
+  eventSlug: string,
+  request: BeginCheckoutRequest,
+): Promise<BeginCheckoutResult> {
+  const envelope = await callBackend<BeginCheckoutResult>(
+    `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
+    { method: "POST", body: JSON.stringify(request) },
+  );
+  if (!envelope.data) {
+    throw new APIError(
+      502,
+      { code: "INTERNAL_ERROR", message: "The checkout could not be started." },
+      envelope.request_id ?? crypto.randomUUID(),
+    );
+  }
+  return envelope.data;
+}
+
+/**
+ * confirmCheckout settles the Payment named by our client transaction id,
+ * relaying the provider's return-redirect params verbatim. Idempotent on the
+ * API side: a refreshed return page gets the recorded outcome back.
+ */
+export async function confirmCheckout(
+  clientTransactionId: string,
+  providerParams: Record<string, string>,
+): Promise<ConfirmCheckoutResult> {
+  const envelope = await callBackend<ConfirmCheckoutResult>(
+    `/api/v1/public/checkout/${encodeURIComponent(clientTransactionId)}/confirm`,
+    { method: "POST", body: JSON.stringify({ provider_params: providerParams }) },
+  );
+  if (!envelope.data) {
+    throw new APIError(
+      502,
+      { code: "INTERNAL_ERROR", message: "The payment could not be confirmed." },
+      envelope.request_id ?? crypto.randomUUID(),
+    );
+  }
+  return envelope.data;
 }

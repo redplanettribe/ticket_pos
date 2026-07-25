@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Alert, AlertDescription, AlertTitle, Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
+import { Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
@@ -126,20 +127,25 @@ export default async function EventPage({ params }: EventPageProps) {
           <h2 id="tickets-heading" className="text-lg font-semibold tracking-tight">
             Tickets
           </h2>
-          <div className="space-y-3">
-            {event.ticket_types.map((ticketType) => (
-              <TicketTypeCard key={ticketType.name} ticketType={ticketType} />
-            ))}
-          </div>
-
-          {!event.has_ended ? (
-            <Alert>
-              <AlertTitle>Checkout coming soon</AlertTitle>
-              <AlertDescription>
-                Ticket sales for this event are not open yet. Please check back shortly.
-              </AlertDescription>
-            </Alert>
-          ) : null}
+          {event.has_ended ? (
+            // An ended Event stays reachable but is no longer sellable: the
+            // Ticket Types render read-only, with no steppers and no checkout.
+            <div className="space-y-3">
+              {event.ticket_types.map((ticketType) => (
+                <TicketTypeCard key={ticketType.name} ticketType={ticketType} />
+              ))}
+            </div>
+          ) : (
+            // Draft and cancelled Events never reach this page at all — the
+            // public event read only acknowledges published Events — so the
+            // purchase UI only ever exists where selling is allowed.
+            <TicketSelection
+              orgSlug={event.organization.slug}
+              eventSlug={event.slug}
+              eventName={event.name}
+              ticketTypes={event.ticket_types}
+            />
+          )}
         </section>
       </article>
     </StorefrontShell>
