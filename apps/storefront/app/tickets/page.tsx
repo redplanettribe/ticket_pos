@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle, Button, PageHeader, StorefrontShell } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { TicketSaleCard } from "@/components/ticket-sale-card";
 import {
   customerSessionToken,
@@ -178,6 +179,18 @@ function CustomerArea({ upcoming, past }: { upcoming: TicketSale[]; past: Ticket
  * The empty state points at the explorer rather than dead-ending. A Customer can
  * reach this legitimately: signing in creates the record if a Ticket Sale never
  * did, so "no purchases yet" is a normal first visit, not a fault.
+ *
+ * The second line is the other way to land here, and the more confusing one: a
+ * Customer is keyed on their email exactly as normalised, so tickets bought
+ * under an alias belong to a different Customer and are invisible from this
+ * session (ADR 0011). Naming that case is the whole mitigation — without it the
+ * page reads as lost tickets. It is phrased as a question about what the reader
+ * did, never as a claim that some other address is known here; answering that
+ * would hand back the oracle the passcode request endpoint refuses to be.
+ *
+ * Reaching the other address means leaving this session first, which is why the
+ * second line ends in a button rather than a link — see
+ * SignInOtherAddressButton.
  */
 function NoPurchases() {
   return (
@@ -189,6 +202,10 @@ function NoPurchases() {
       <Button asChild className="mt-6">
         <Link href="/">Discover events</Link>
       </Button>
+      <p className="mx-auto mt-6 max-w-md text-sm text-muted-foreground">
+        Bought with a different email address? Tickets stay with the address they were bought
+        under. <SignInOtherAddressButton />.
+      </p>
     </div>
   );
 }
