@@ -2,7 +2,7 @@
 
 How Ticket POS runs on Google Cloud. Domain vocabulary lives in [CONTEXT.md](../CONTEXT.md).
 
-**Status:** proposed — awaiting approval before Terraform is written.
+**Status:** implemented — the Terraform under `terraform/` realizes this design; kept as the deployment design record.
 
 ## Shape
 
@@ -142,6 +142,53 @@ production path is confirmed by hand at first deploy — see
 (`event-cover-image.tsx:74`, `org-logo-image.tsx:86`). MinIO is permissive by default, so this works
 locally and fails in production with an opaque browser error unless the bucket has a `cors` block
 allowing `PUT` from `https://pos.multiticketing.com`.
+
+## PayPhone go-live checklist
+
+Online Sales charge through the platform's single PayPhone merchant account (ADR 0012). The API
+selects the real provider purely on the presence of `PAYPHONE_API_TOKEN` **and** `PAYPHONE_STORE_ID`;
+with either absent it runs the **stub** Payment Provider. Locally that is the point — checkout works
+with zero setup — but in production it is never acceptable for real sales: the Storefront's stub
+payment page is a 404 on a production build, so an unconfigured production checkout is a dead end,
+not a fake sale. Work the list in order; the domain steps have external latency.
+
+1. **Create the PayPhone account.** Register a PayPhone Business account and open the Developer
+   portal ([docs.payphone.app](https://docs.payphone.app/boton-de-pago)). Create an application for
+   the payment button ("Botón de pago"); this is what issues the credential pair.
+2. **Register the production Storefront domain.** The payment button is **domain-bound**: it only
+   works from the domain registered in the developer portal, over **HTTPS**. Register
+   `discover.multiticketing.com` (the `storefront_domain` in `terraform/envs/prod`). The response
+   URL the API sends is `https://<storefront_domain>/checkout/return` — it must be publicly
+   reachable, because PayPhone's return redirect (carrying `id` and `clientTransactionId`) is the
+   **only** confirm trigger; there are no webhooks.
+3. **Obtain the credentials.** The portal issues a Bearer **token** and a **storeId** per
+   application. Sandbox and production are different pairs:
+   - **Sandbox** credentials auto-approve — no money moves. Use them only in the dev stack for the
+     pre-go-live pass ([manual-verification-payphone.md](manual-verification-payphone.md)).
+   - **Production** credentials move real money and are the only pair that may reach Secret Manager.
+4. **Wire the secrets through Terraform.** Put the production pair in the gitignored `.env` as
+   `TF_VAR_payphone_api_token` and `TF_VAR_payphone_store_id`, then
+   `set -a; source .env; set +a` and `terraform -chdir=terraform/envs/prod apply`. The apply writes
+   both to Secret Manager and mounts them on the API service (`payphone.tf` in the module); no
+   value ever appears in a Cloud Run env var in plaintext. The same trap as the Resend key (#73)
+   applies: an apply without the `.env` sourced **removes** the secret versions and silently drops
+   production back to the stub.
+5. **Do not set `PAYPHONE_API_BASE_URL` anywhere in production.** It exists so the integration
+   suite can point Prepare/Confirm at a fake PayPhone server, and the API **refuses to start** in
+   production with it set — anyone able to point it elsewhere could "approve" payments no one ever
+   made. There is deliberately no Terraform variable for it.
+6. **Confirm `STOREFRONT_STUB_PAYMENTS` is nowhere in production.** It is the parity stack's
+   explicit opt-in that resurrects the stub interstitial on a production build
+   (`docker-compose.prod.yml`); no Terraform resource sets it, and none may.
+7. **Know the reversal behavior before the first sale.** PayPhone auto-reverses any charge not
+   confirmed within **5 minutes** of payment; the payment form URL itself expires after 10. A
+   customer who pays but never lands back on `/checkout/return` (closed tab, dead connection) is
+   automatically refunded and the sale is lost — money-safe by design, no reconciler in v1
+   (ADR 0012). Refunds of completed sales are **manual** on the PayPhone dashboard; every Payment
+   records the provider transaction id for cross-referencing.
+8. **Run the sandbox verification pass** ([manual-verification-payphone.md](manual-verification-payphone.md))
+   before switching the production credentials in, and one small real-card purchase (then a manual
+   dashboard refund) after.
 
 ## Future: Integration Partner API
 

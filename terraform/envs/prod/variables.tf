@@ -75,3 +75,22 @@ variable "google_storefront_client_secret" {
   default     = ""
   sensitive   = true
 }
+
+# The PayPhone merchant credentials (ADR 0012) — the platform's single
+# production account from the PayPhone Developer portal, never the sandbox one.
+# Set via TF_VAR_ from a sourced .env; empty leaves the API on the stub Payment
+# Provider, which in production is a dead checkout. Declared here and threaded
+# through in main.tf because TF_VAR_ populates root variables only.
+
+variable "payphone_api_token" {
+  description = "Bearer token of the platform's PayPhone merchant account. Set via TF_VAR_payphone_api_token."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "payphone_store_id" {
+  description = "Store id of the platform's PayPhone merchant account. Set via TF_VAR_payphone_store_id."
+  type        = string
+  default     = ""
+}

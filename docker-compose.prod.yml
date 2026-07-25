@@ -126,6 +126,13 @@ services:
       # Server-side calls stay on the Compose network. This one is read at
       # runtime, so it belongs here rather than in build args.
       API_URL: http://api:8080
+      # The parity API above runs with no PAYPHONE_* credentials, so it selects
+      # the stub Payment Provider — but this is a production build, where the
+      # stub's payment interstitial is a 404 unless explicitly opted into
+      # (apps/storefront/lib/stub-payments.ts). The opt-in is what keeps
+      # checkout walkable on the parity stack; a real production deployment
+      # sets neither this nor stub credentials.
+      STOREFRONT_STUB_PAYMENTS: "1"
     depends_on:
       api:
         condition: service_healthy

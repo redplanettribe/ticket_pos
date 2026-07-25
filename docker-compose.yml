@@ -78,6 +78,15 @@ services:
       GOOGLE_STAFF_CLIENT_SECRET: ${GOOGLE_STAFF_CLIENT_SECRET:-}
       GOOGLE_STOREFRONT_CLIENT_ID: ${GOOGLE_STOREFRONT_CLIENT_ID:-}
       GOOGLE_STOREFRONT_CLIENT_SECRET: ${GOOGLE_STOREFRONT_CLIENT_SECRET:-}
+      # PayPhone merchant credentials, also from the root .env. Both empty (the
+      # default) selects the stub Payment Provider, so checkout works with zero
+      # setup; set BOTH — SANDBOX credentials, never production ones — to charge
+      # through real PayPhone from the dev stack (see
+      # docs/manual-verification-payphone.md). PAYPHONE_API_BASE_URL is
+      # deliberately not passed — it is a test-only override and a production
+      # footgun, exactly like GOOGLE_TOKEN_ENDPOINT above.
+      PAYPHONE_API_TOKEN: ${PAYPHONE_API_TOKEN:-}
+      PAYPHONE_STORE_ID: ${PAYPHONE_STORE_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

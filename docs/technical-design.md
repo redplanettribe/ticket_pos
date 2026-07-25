@@ -63,7 +63,7 @@ graph TB
 | Staff auth | Email OTP or Google Sign-In (ADR 0011) → Postgres session → httpOnly cookie; Staff app is a BFF; open signup with create-org onboarding |
 | Integration auth | API keys or OAuth2 client credentials on Go API (separate from staff sessions) |
 | Customer auth | Platform-global Customer, created for the person rather than by them; email OTP, Google Sign-In (ADR 0011), or a signed Confirmation Link → Postgres Customer Session → httpOnly cookie; Storefront is a BFF. Separate from staff identity (ADR 0010) |
-| Payments | Provider-agnostic boundary; no vendor chosen |
+| Payments | Provider-agnostic `PaymentProvider` boundary in `platform/`; PayPhone (redirect flow) is the launch provider, a stub serves when credentials are absent (ADR 0012, ADR 0013) |
 | Email (OTP) | Pluggable `EmailSender`; dummy provider logs codes to terminal in dev |
 | Capacity accounting | Atomic decrement in Postgres transactions; row locks for multi-type sales |
 | Sale Import | `.csv`/`.xlsx` upload parsed server-side; synchronous; all-or-nothing per batch; `direct` source first |
@@ -205,6 +205,9 @@ Construct dependencies in `cmd/server/main.go` and inject them into handlers and
 
 Remaining capacity on a Ticket Type must stay accurate across Online Sales, In-Person Sales, and Sale Imports, including under concurrent load.
 
+Two mechanisms compose: `sold_count` records completed sales, and **Capacity Holds** derived from
+pending Payments keep in-flight online checkouts from being oversold (see below).
+
 ### Single Ticket Type sales
 
 Use an **atomic decrement** in the same transaction as inserting the Ticket Sale:
@@ -229,6 +232,24 @@ When one Ticket Sale spans multiple Ticket Types (a cart with several Ticket Sal
 - Lines are applied in order.
 - If any line would oversell, the **entire batch fails** and rolls back.
 - Partial-accept rules may be introduced later; at launch the behavior is all-or-nothing.
+
+### Capacity Holds (online checkout)
+
+A Customer must not be able to pay for tickets that sold out while they were on the provider's
+payment page. Available capacity is therefore not `capacity − sold_count` alone but
+
+```text
+available = capacity − sold_count − quantities on pending Payments younger than the hold window (~20 min)
+```
+
+Holds are **derived, not stored** ([ADR 0013](./adr/0013-capacity-holds-derived-from-pending-payments.md)):
+a pending Payment *is* the hold on its Ticket Types, expiry is a `created_at` cutoff in the query
+(`sales/holds.go` is the single definition), and committing the sale converts the Payment's own
+hold into `sold_count` under the existing row locks. There is no reservation table and no cleanup
+job — Cloud Run runs no background workers (ADR 0007). Public remaining/sold-out figures subtract
+live holds; every channel (POS, import, online) begins its commit against them. Stale pending
+Payments are lazily flipped to `expired`; correctness never depends on that transition. The window
+comfortably covers PayPhone's 10-minute form validity plus its 5-minute confirm window.
 
 ## API design
 
@@ -516,13 +537,76 @@ Subdomains and custom domains per Organization are deferred.
 
 ## Payments
 
-Payment provider integration is **intentionally open** at this stage.
+Online Sales are paid through a **Payment Provider** behind a provider-agnostic boundary
+([ADR 0012](./adr/0012-online-payments-platform-merchant-redirect-provider.md),
+[ADR 0013](./adr/0013-capacity-holds-derived-from-pending-payments.md)). The platform is the
+merchant of record: it holds the single merchant account per provider, credentials are platform
+configuration (Secret Manager in production), and Organizations are settled outside the system.
 
-The design defines a **provider-agnostic payment boundary**:
+### The PaymentProvider boundary
 
-- An Online Sale or In-Person Sale is recorded when payment capture succeeds (or when staff confirms payment for manual flows).
-- The Go `sales` module orchestrates: initiate payment → confirm result → record Ticket Sale in one transaction with capacity decrement.
-- No specific provider (Stripe, Square, etc.) is committed in this document.
+`platform.PaymentProvider` (`backend/internal/platform/payment.go`) mirrors the `EmailSender`
+pattern (ADR 0009): a small interface — `Initiate`, `Confirm`, and a reserved `Reverse` — with the
+implementation selected in `server.NewApp` by credential presence.
+
+| Implementation | Selected when | Behavior |
+|----------------|---------------|----------|
+| **PayPhone** (`payment_payphone.go`) | `PAYPHONE_API_TOKEN` and `PAYPHONE_STORE_ID` are both set | Redirect flow ("Botón de pago"): `Initiate` calls PayPhone `Prepare` server-side and returns the hosted card-payment URL; `Confirm` calls `V2/Confirm` and reports the verdict. Raw `net/http`, no vendor SDK; USD integer cents end to end |
+| **Stub** | Either credential absent | Its "hosted payment page" is a dev-only Storefront interstitial (`/checkout/stub`) with Approve and Decline actions driving the same redirect legs. A production Storefront build 404s that route unless `STOREFRONT_STUB_PAYMENTS=1` (parity stack only) |
+
+A second real provider requires only a new implementation of this interface — credentials flow
+through the implementation, never through domain code. `PAYPHONE_API_BASE_URL` exists so the
+integration suite can point the provider at a fake PayPhone server, and the API **refuses to start
+in production with it set**, exactly like `GOOGLE_TOKEN_ENDPOINT`.
+
+### The Payment aggregate
+
+A **Payment** (`payments` + `payment_lines`, migration 019) records each attempt: provider name,
+our `client_transaction_id`, the provider's ids, amount, a snapshot of Ticket Type quantities and
+unit prices (so a catalog edit mid-payment cannot change what was bought), and the checkout
+email/name. Lifecycle:
+
+```text
+pending ──approved──▶ approved   (Ticket Sale committed in the SAME transaction)
+   │ └────declined──▶ failed     (no sale, capacity untouched)
+   └──hold lapses───▶ expired    (lazily marked; a late confirm may still commit if capacity remains)
+```
+
+A Ticket Sale exists **only** for an approved Payment, committed through the channel-agnostic
+sale-commit spine (row locks, `sold_count` increment, Customer upsert) in the same transaction that
+marks the Payment approved, with Payment Method `payphone`. Confirm is **idempotent**, keyed on our
+client transaction id: a refreshed return page replays the recorded outcome and never
+double-commits. If the provider approves but the sale commit fails, the Payment is left
+approved-without-sale as a durable marker and the incident is logged loudly
+(`PAYMENT_APPROVED_WITHOUT_SALE`) for the operator to resolve by hand.
+
+### Redirect flow through the Storefront BFF
+
+Nothing external may call the Go API (ADR 0008), so the provider's return redirect lands on a
+**Storefront route handler**, which asks the API to confirm:
+
+1. `POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout` (guest, no session)
+   validates the cart against live capacity, records a `pending` Payment, calls
+   `PaymentProvider.Initiate`, and returns the hosted payment URL.
+2. The browser is redirected to the provider's payment page (top-level, never an iframe).
+3. The provider redirects back to `{storefront}/checkout/return`, whose handler relays the return
+   params to `POST /api/v1/public/checkout/{clientTransactionId}/confirm`.
+4. The API calls `PaymentProvider.Confirm` and settles the Payment; the handler lands the Customer
+   on `/checkout/success` (with the Sale Confirmation reference) or `/checkout/failed` (with a
+   retry that starts a fresh Payment under a new client transaction id).
+
+### No webhooks: the auto-reversal policy
+
+PayPhone has no webhooks; the Customer's return redirect is the **only** confirm trigger, and
+PayPhone auto-reverses any charge not confirmed within 5 minutes. A Confirm whose outcome is
+unknown (HTTP failure, unrecognized status) is an error that leaves the Payment `pending` — never a
+decline — so a page refresh retries inside the window. A lost redirect ends in auto-reversal: an
+automatically refunded Customer and a lost sale, money-safe by construction. A rescue reconciler
+(Cloud Scheduler) is a documented follow-up, not part of v1.
+
+**Refunds are out of scope** (ADR 0012): reversal of a completed Online Sale is manual on the
+provider's dashboard — every Payment stores the provider transaction id for cross-referencing —
+and the boundary reserves `Reverse` so a future flow needs no interface change.
 
 ## Sale Import
 
@@ -642,7 +726,7 @@ The following are explicitly out of scope for this technical design at launch:
 
 | Topic | Notes |
 |-------|-------|
-| Payment provider | Pluggable boundary defined; vendor TBD |
+| Payment refunds & reconciler | Refunds of Online Sales are manual on the provider dashboard; no rescue reconciler for paid-but-never-returned Customers (auto-reversal is the v1 safety net, ADR 0012) |
 | Production email provider | Dummy logger in dev; vendor TBD |
 | Postgres RLS | App-layer tenancy is sufficient at launch |
 | Async workers | Sale Import is synchronous; no separate job runtime |

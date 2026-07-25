@@ -65,8 +65,8 @@ Business scenarios in [business-intent.md](./business-intent.md) map to slices a
 | V2 | Org Admin signs in and creates an Event with Ticket Types in Staff UI | Event and catalog management | C1–C8, C13–C14 | Not started |
 | V3 | Customer explores events on the global explorer, org page, and event page (read-only) | Catalog visible on the Storefront | C9–C12, C14 | Done |
 | V4 | Staff sells at the door on POS; remaining capacity updates immediately | Door sales scenario | D1–D10, E1–E7 | Not started |
-| V5 | Customer completes guest checkout online; capacity reflects POS and online together | Online + in-person sales both required at launch | F1–F10, D6, D9 | Not started |
-| V6 | Staff imports Direct off-platform sales (cash/transfer) from CSV/Excel; capacity reduces or batch fails cleanly; buyers emailed a Sale Confirmation; latest batch undoable | Off-platform sales scenario | D1–D5, G1–G10 | Not started |
+| V5 | Customer completes guest checkout online; capacity reflects POS and online together | Online + in-person sales both required at launch | F1–F10, D6, D9 | Done |
+| V6 | Staff imports Direct off-platform sales (cash/transfer) from CSV/Excel; capacity reduces or batch fails cleanly; buyers emailed a Sale Confirmation; latest batch undoable | Off-platform sales scenario | D1–D5, G1–G10 | Done |
 | V7 | Org Admin invites members and assigns Event Staff to specific Events | Event Staff delegated catalog + sales on assigned Events | H1–H10 | Partial |
 | V8 | Integration Partner manages events, catalog, and sales via API keys | Partner-managed events scenario | I1–I8, I10 | Not started |
 | V9 | Production email and payment, deploy pipeline, full-path E2E smoke | Success criteria: zero to selling in one session | J1–J7 | Not started |
@@ -110,9 +110,13 @@ Manual payment confirmation only (no card capture).
 This is the first slice that proves capacity math; include concurrent integration tests here.
 
 **V5 - Online sale.**
-Payment provider interface plus dev stub, checkout API, storefront cart.
-Reuse sales core and idempotency from V4.
-Success criteria expect online and in-person in the same session; V5 completes that pair.
+Shipped (spec [#81](https://github.com/redplanettribe/ticket_pos/issues/81), tickets #82–#88):
+the `PaymentProvider` boundary with stub and real PayPhone implementations (ADR 0012), the Payment
+aggregate, Capacity Holds derived from pending Payments (ADR 0013), guest checkout through the
+Storefront redirect flow, and Online Sales in the staff Sales list with Payment Method `payphone`.
+Deliberately deferred from the slice: a rescue reconciler for paid-but-never-returned Customers
+(PayPhone's 5-minute auto-reversal is the v1 safety net) and programmatic refunds (manual via the
+PayPhone dashboard; the boundary reserves the operation).
 
 **V6 - Sale import (Direct source first).**
 Synchronous `.csv`/`.xlsx` upload parsed server-side, in a single transaction, all-or-nothing on oversell.
@@ -244,21 +248,21 @@ Vertical slices: **V2** (staff), **V3** (public storefront).
 
 ## D. Sales core (shared by all channels)
 
-Vertical slices: originally scoped to **V4**, but **V6** now builds D1–D5 first (the import feature pulls the shared sales spine forward — see [issue #17](https://github.com/redplanettribe/ticket_pos/issues/17)); **V5** adds idempotency for online.
+Vertical slices: originally scoped to **V4**, but **V6** built D1–D5 first (the import feature pulled the shared sales spine forward — see [issue #17](https://github.com/redplanettribe/ticket_pos/issues/17)); the Sales list initiative (#36–#39) shipped D8, and **V5** completed D6 and D9 for online (the spine was extracted channel-agnostic in the process, and D9 now subtracts live Capacity Holds per ADR 0013).
 
 
 | #   | Feature                                               | Status      |
 | --- | ----------------------------------------------------- | ----------- |
-| D1  | Sales DB schema (`ticket_sales`, `ticket_sale_lines`) | Not started |
-| D2  | Record sale service (insert sale and lines)           | Not started |
-| D3  | Atomic capacity decrement (single ticket type)        | Not started |
-| D4  | Multi-type cart: row locks and single transaction     | Not started |
-| D5  | `CAPACITY_EXCEEDED` domain error and envelope details | Not started |
-| D6  | Idempotency key storage and replay for sale creation  | Not started |
-| D7  | Sales channel enum (online, in_person, import)        | Not started |
-| D8  | List sales for an event (staff)                       | Not started |
-| D9  | Remaining capacity on ticket type responses           | Not started |
-| D10 | Concurrent sales integration tests                    | Not started |
+| D1  | Sales DB schema (`ticket_sales`, `ticket_sale_lines`) | Done        |
+| D2  | Record sale service (insert sale and lines)           | Done        |
+| D3  | Atomic capacity decrement (single ticket type)        | Done        |
+| D4  | Multi-type cart: row locks and single transaction     | Done        |
+| D5  | `CAPACITY_EXCEEDED` domain error and envelope details | Done        |
+| D6  | Idempotency key storage and replay for sale creation  | Done        |
+| D7  | Sales channel enum (online, in_person, import)        | Done        |
+| D8  | List sales for an event (staff)                       | Done        |
+| D9  | Remaining capacity on ticket type responses           | Done        |
+| D10 | Concurrent sales integration tests                    | Done        |
 
 
 ---
@@ -287,21 +291,26 @@ Vertical slice: **V4**.
 
 ## F. Online sales (Storefront)
 
-Vertical slice: **V5**.
+Vertical slice: **V5**. Spec: [issue #81](https://github.com/redplanettribe/ticket_pos/issues/81) (ADRs 0012, 0013).
+
+Shipped beyond the original rows: the real PayPhone provider behind the boundary, Capacity Holds
+derived from pending Payments, and the `payphone` Payment Method in the staff Sales list and its
+filter. Deferred from the slice: a rescue reconciler for lost redirects and programmatic refunds
+(both manual/operator concerns for now — see the V5 slice note).
 
 
 | #   | Feature                                            | Status      |
 | --- | -------------------------------------------------- | ----------- |
-| F1  | Payment provider boundary interface in Go          | Not started |
-| F2  | Dev or stub payment implementation                 | Not started |
-| F3  | Public API: initiate checkout                      | Not started |
-| F4  | Public API: confirm payment and record online sale | Not started |
-| F5  | Guest checkout (no customer account)               | Not started |
-| F6  | Storefront: ticket selection and cart UI           | Not started |
-| F7  | Storefront: checkout flow                          | Not started |
-| F8  | Storefront: sold-out and capacity errors in UI     | Not started |
-| F9  | Online sale idempotency (retry-safe checkout)      | Not started |
-| F10 | Online sale E2E test                               | Not started |
+| F1  | Payment provider boundary interface in Go          | Done        |
+| F2  | Dev or stub payment implementation                 | Done        |
+| F3  | Public API: initiate checkout                      | Done        |
+| F4  | Public API: confirm payment and record online sale | Done        |
+| F5  | Guest checkout (no customer account)               | Done        |
+| F6  | Storefront: ticket selection and cart UI           | Done        |
+| F7  | Storefront: checkout flow                          | Done        |
+| F8  | Storefront: sold-out and capacity errors in UI     | Done        |
+| F9  | Online sale idempotency (retry-safe checkout)      | Done        |
+| F10 | Online sale E2E test                               | Done        |
 
 
 ---
@@ -316,16 +325,16 @@ Builds the `direct` Sales Source on top of the sales spine (section D). `externa
 
 | #   | Feature                                                                       | Status      |
 | --- | ----------------------------------------------------------------------------- | ----------- |
-| G1  | `sale_import_batches` schema (batch record, source, actor, counts, status)    | Not started |
-| G2  | Server-side `.csv` + `.xlsx` parser (add xlsx lib; columns per technical design) | Not started |
-| G3  | Per-event `.xlsx` template with locked ticket-type dropdown + hidden id        | Not started |
-| G4  | Staff API: preview (all row errors at once + soft duplicate flags + capacity)  | Not started |
-| G5  | Staff API: commit (synchronous, single transaction, idempotency key)           | Not started |
-| G6  | All-or-nothing batch: oversell blocked; `IMPORT_BATCH_FAILED`; raise-capacity  | Not started |
-| G7  | Confirmation email per sale on commit (via `EmailSender`)                       | Not started |
-| G8  | Undo latest batch: reverse sales, restore capacity, opt-in void email          | Not started |
-| G9  | Staff UI: Event "Import sales" flow + per-event history; `/imports` → picker    | Not started |
-| G10 | Sale import integration tests (+ repository concurrency exception)             | Not started |
+| G1  | `sale_import_batches` schema (batch record, source, actor, counts, status)    | Done        |
+| G2  | Server-side `.csv` + `.xlsx` parser (add xlsx lib; columns per technical design) | Done        |
+| G3  | Per-event `.xlsx` template with locked ticket-type dropdown + hidden id        | Done        |
+| G4  | Staff API: preview (all row errors at once + soft duplicate flags + capacity)  | Done        |
+| G5  | Staff API: commit (synchronous, single transaction, idempotency key)           | Done        |
+| G6  | All-or-nothing batch: oversell blocked; `IMPORT_BATCH_FAILED`; raise-capacity  | Done        |
+| G7  | Confirmation email per sale on commit (via `EmailSender`)                       | Done        |
+| G8  | Undo latest batch: reverse sales, restore capacity, opt-in void email          | Done        |
+| G9  | Staff UI: Event "Import sales" flow + per-event history; `/imports` → picker    | Done        |
+| G10 | Sale import integration tests (+ repository concurrency exception)             | Done        |
 
 
 ---
@@ -395,7 +404,7 @@ Platform spine items map to **V0**; staff auth hardening maps to **V1**.
 | #   | Feature                                                             | Status      |
 | --- | ------------------------------------------------------------------- | ----------- |
 | J1  | Production email provider (Resend, SES, Postmark, or similar)       | Not started |
-| J2  | Production payment provider selection and wiring                    | Not started |
+| J2  | Production payment provider selection and wiring (PayPhone via Secret Manager/Terraform) | Done |
 | J3  | Production hosting and deploy pipeline                              | Not started |
 | J4  | E2E smoke: organization to event to online sale to correct capacity | Not started |
 | J5  | E2E smoke: in-person sale and import to correct capacity            | Not started |

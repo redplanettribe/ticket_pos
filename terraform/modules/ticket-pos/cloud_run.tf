@@ -372,6 +372,45 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # The PayPhone merchant credentials (payphone.tf), guarded the same way
+      # and for the same reason: no secret version exists until a value is
+      # supplied, and "latest" against an empty secret is a boot crash. The API
+      # selects the real PayPhone Payment Provider only when BOTH are present
+      # (ADR 0012); with either absent it runs the stub provider, which in
+      # production is a dead checkout — never acceptable for real sales.
+      #
+      # There is deliberately NO PAYPHONE_API_BASE_URL here. It exists so the
+      # integration suite can point Prepare/Confirm at a fake PayPhone server,
+      # and the API refuses to start in production if it is set — anyone who
+      # could point it elsewhere could "approve" payments no one ever made,
+      # which is free tickets with nothing in the logs to tell them from real
+      # sales. Adding it to this file is the mistake that guard exists to catch.
+      dynamic "env" {
+        for_each = var.payphone_api_token == "" ? [] : [1]
+        content {
+          name = "PAYPHONE_API_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.payphone_api_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.payphone_store_id == "" ? [] : [1]
+        content {
+          name = "PAYPHONE_STORE_ID"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.payphone_store_id.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
       # /health is the one endpoint that answers without auth or a session, and
       # it is what tells Cloud Run the instance is ready to take traffic. Without
       # a startup probe Cloud Run only waits for the port to open, which happens

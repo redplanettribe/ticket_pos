@@ -46,4 +46,13 @@ module "ticket_pos" {
   google_staff_client_secret      = var.google_staff_client_secret
   google_storefront_client_id     = var.google_storefront_client_id
   google_storefront_client_secret = var.google_storefront_client_secret
+
+  # PayPhone merchant credentials (ADR 0012), supplied the same way — sourced
+  # .env, never a committed tfvars — and subject to the same trap: applying
+  # without them sourced removes the secret versions and drops the API back to
+  # the stub Payment Provider, which in production is a dead checkout. There is
+  # deliberately no base-URL input: PAYPHONE_API_BASE_URL is refused by the API
+  # in production (see payphone.tf in the module).
+  payphone_api_token = var.payphone_api_token
+  payphone_store_id  = var.payphone_store_id
 }
