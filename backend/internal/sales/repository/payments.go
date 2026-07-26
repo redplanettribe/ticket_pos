@@ -26,6 +26,10 @@ type CheckoutEvent struct {
 	Name           string
 	Status         string
 	Currency       string
+	// FeeHandling is the Event's Fee Handling mode as stored, which decides
+	// whether the buyer prices this checkout quotes carry the Platform Fee and
+	// its Fee IVA (ADR 0014).
+	FeeHandling string
 }
 
 // GetCheckoutEvent resolves an Event by Organization and Event slug for the
@@ -34,11 +38,11 @@ type CheckoutEvent struct {
 func (r *Repository) GetCheckoutEvent(ctx context.Context, orgSlug, eventSlug string) (*CheckoutEvent, error) {
 	var e CheckoutEvent
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.id, e.organization_id, e.name, e.status, o.currency
+		SELECT e.id, e.organization_id, e.name, e.status, o.currency, e.fee_handling
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE o.slug = $1 AND e.slug = $2
-	`, orgSlug, eventSlug).Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Status, &e.Currency)
+	`, orgSlug, eventSlug).Scan(&e.ID, &e.OrganizationID, &e.Name, &e.Status, &e.Currency, &e.FeeHandling)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -48,12 +52,15 @@ func (r *Repository) GetCheckoutEvent(ctx context.Context, orgSlug, eventSlug st
 	return &e, nil
 }
 
-// PaymentLine is one Ticket Type, quantity, and unit-price snapshot on a
-// Payment — what the approved sale's Ticket Sale Lines are written from.
+// PaymentLine is one Ticket Type, quantity, and price snapshot on a Payment —
+// what the approved sale's Ticket Sale Lines are written from. Fee is the
+// per-unit economics frozen at begin-checkout (ADR 0014): its buyer price is
+// what the Customer pays per unit, and the withholding beside it is what the
+// Organization gives up for that unit.
 type PaymentLine struct {
-	TicketTypeID   string
-	Quantity       int
-	UnitPriceCents int
+	TicketTypeID string
+	Quantity     int
+	Fee          sales.FeeSnapshot
 }
 
 // CreatePaymentInput is a pending Payment to record at begin-checkout: the
@@ -98,9 +105,15 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 
 	for _, line := range in.Lines {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO payment_lines (payment_id, ticket_type_id, quantity, unit_price_cents, created_at)
-			VALUES ($1, $2, $3, $4, $5)
-		`, paymentID, line.TicketTypeID, line.Quantity, line.UnitPriceCents, in.Now); err != nil {
+			INSERT INTO payment_lines (
+				payment_id, ticket_type_id, quantity, unit_price_cents,
+				base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points,
+				created_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, paymentID, line.TicketTypeID, line.Quantity, line.Fee.BuyerUnitPriceCents,
+			line.Fee.BasePriceCents, line.Fee.FeeCents, line.Fee.FeeIVACents,
+			line.Fee.FeeBasisPoints, line.Fee.FeeIVABasisPoints, in.Now); err != nil {
 			return "", err
 		}
 	}
@@ -271,7 +284,8 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	}
 
 	lineRows, err := tx.QueryContext(ctx, `
-		SELECT ticket_type_id, quantity, unit_price_cents
+		SELECT ticket_type_id, quantity, unit_price_cents,
+		       base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points
 		FROM payment_lines
 		WHERE payment_id = $1
 	`, paymentID)
@@ -281,13 +295,20 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	var lines []CommitLine
 	for lineRows.Next() {
 		var typeID string
-		var quantity, unitPrice int
-		if err := lineRows.Scan(&typeID, &quantity, &unitPrice); err != nil {
+		var quantity int
+		var fee sales.FeeSnapshot
+		if err := lineRows.Scan(&typeID, &quantity, &fee.BuyerUnitPriceCents,
+			&fee.BasePriceCents, &fee.FeeCents, &fee.FeeIVACents,
+			&fee.FeeBasisPoints, &fee.FeeIVABasisPoints); err != nil {
 			lineRows.Close()
 			return nil, err
 		}
-		price := unitPrice
-		lines = append(lines, CommitLine{TicketTypeID: typeID, Quantity: quantity, UnitPriceCents: &price})
+		// The Payment's snapshot is copied onto the sale verbatim: what the
+		// Customer is paying was decided at begin-checkout, and no catalog price
+		// edit, rate change, or Fee Handling flip since then may touch it.
+		price := fee.BuyerUnitPriceCents
+		snapshot := fee
+		lines = append(lines, CommitLine{TicketTypeID: typeID, Quantity: quantity, UnitPriceCents: &price, Fee: &snapshot})
 	}
 	if err := lineRows.Err(); err != nil {
 		lineRows.Close()

@@ -13,6 +13,10 @@ type SaleConfirmation struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// AmountCents and Currency are what the Customer actually paid, so the
+	// receipt reconciles against their card statement. A comp sale is 0.
+	AmountCents int
+	Currency    string
 	// ConfirmationLink opens this one Ticket Sale on the Storefront without
 	// signing in. It is the path most Customers will ever take back to their
 	// purchase: no form, no passcode, no typing. Empty only if the link could not
@@ -58,7 +62,7 @@ func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string) 
 // the OTP code is: locally there is no mailbox, and the link is the whole point
 // of the email.
 func (s *LoggingEmailSender) SendSaleConfirmation(_ context.Context, c SaleConfirmation) error {
-	s.Logger.Info("sale confirmation sent", "email", c.To, "reference", c.Reference, "event", c.EventName, "confirmation_link", c.ConfirmationLink)
+	s.Logger.Info("sale confirmation sent", "email", c.To, "reference", c.Reference, "event", c.EventName, "amount_cents", c.AmountCents, "confirmation_link", c.ConfirmationLink)
 	return nil
 }
 

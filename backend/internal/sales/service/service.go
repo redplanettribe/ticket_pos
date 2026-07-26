@@ -78,8 +78,12 @@ type Service struct {
 	// storefrontBaseURL is the Storefront's public origin, where the Payment
 	// Provider sends the Customer back after its payment page (checkout.go).
 	storefrontBaseURL string
-	logger            platform.Logger
-	now               func() time.Time
+	// fees is the platform's configured Platform Fee schedule. Checkout reads it
+	// once per Payment and snapshots what it computed, so a later rate change
+	// never moves recorded economics (ADR 0014).
+	fees   sales.FeeRates
+	logger platform.Logger
+	now    func() time.Time
 }
 
 // New returns a sales service. The customers service is required: every Ticket
@@ -87,13 +91,14 @@ type Service struct {
 // Provider is equally required: the online channel cannot sell without one, and
 // which implementation arrives here is server wiring's decision (ADR 0009,
 // ADR 0012).
-func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender, provider platform.PaymentProvider, storefrontBaseURL string, logger platform.Logger) *Service {
+func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender, provider platform.PaymentProvider, storefrontBaseURL string, fees sales.FeeRates, logger platform.Logger) *Service {
 	return &Service{
 		repo:              repo,
 		customers:         customers,
 		email:             email,
 		provider:          provider,
 		storefrontBaseURL: storefrontBaseURL,
+		fees:              fees,
 		logger:            logger,
 		now:               time.Now,
 	}
@@ -179,6 +184,8 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 				CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
 				EventName:        event.Name,
 				Reference:        rs.ConfirmationRef,
+				AmountCents:      rs.AmountCents,
+				Currency:         event.Currency,
 				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
 			})
 		}

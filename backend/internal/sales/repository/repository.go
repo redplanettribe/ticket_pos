@@ -34,6 +34,11 @@ type CommitLine struct {
 	Quantity     int
 	// UnitPriceCents overrides the snapshot price; nil uses the catalog price.
 	UnitPriceCents *int
+	// Fee is the per-unit Platform Fee snapshot the line was sold under, frozen
+	// at begin-checkout (ADR 0014). Nil on the channels that carry no fee — the
+	// platform withholds only from money it actually held — and those lines
+	// record their unit price as the base price with nothing withheld.
+	Fee *sales.FeeSnapshot
 }
 
 // CommitSale is one Ticket Sale to record on any Sales Channel: the customer
@@ -102,6 +107,10 @@ type RecordedSale struct {
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
+	// AmountCents is what the Customer paid for this sale — the sum of its
+	// lines' buyer prices — so the Sale Confirmation can show a total that
+	// matches their card statement.
+	AmountCents int
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -158,6 +167,9 @@ func (r *Repository) GetEventName(ctx context.Context, orgID, eventID string) (s
 type EventImportContext struct {
 	Name     string
 	Timezone string
+	// Currency is the Organization's currency, which the Sale Confirmation's
+	// total is denominated in.
+	Currency string
 	// StartsAt and EndsAt place the Event in time. A Sale Confirmation's
 	// Confirmation Link must outlive the Event it is for, so the moment the Event
 	// finishes is what its expiry is derived from. Both are nullable: an Event
@@ -186,8 +198,11 @@ func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID s
 	var out EventImportContext
 	var tz sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT name, timezone, starts_at, ends_at FROM events WHERE id = $1 AND organization_id = $2
-	`, eventID, orgID).Scan(&out.Name, &tz, &out.StartsAt, &out.EndsAt)
+		SELECT e.name, e.timezone, o.currency, e.starts_at, e.ends_at
+		FROM events e
+		JOIN organizations o ON o.id = e.organization_id
+		WHERE e.id = $1 AND e.organization_id = $2
+	`, eventID, orgID).Scan(&out.Name, &tz, &out.Currency, &out.StartsAt, &out.EndsAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -368,15 +383,29 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			return nil, err
 		}
 
+		amountCents := 0
 		for _, line := range s.Lines {
 			unitPrice := locked[line.TicketTypeID].priceCents
 			if line.UnitPriceCents != nil {
 				unitPrice = *line.UnitPriceCents
 			}
+			// A line with no fee snapshot was sold on a channel the platform took
+			// no cut of: its base price is simply what it sold for.
+			fee := sales.FeeSnapshot{BasePriceCents: unitPrice}
+			if line.Fee != nil {
+				fee = *line.Fee
+			}
+			amountCents += line.Quantity * unitPrice
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO ticket_sale_lines (ticket_sale_id, ticket_type_id, quantity, unit_price_cents, created_at)
-				VALUES ($1, $2, $3, $4, $5)
-			`, saleID, line.TicketTypeID, line.Quantity, unitPrice, in.Now); err != nil {
+				INSERT INTO ticket_sale_lines (
+					ticket_sale_id, ticket_type_id, quantity, unit_price_cents,
+					base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points,
+					created_at
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			`, saleID, line.TicketTypeID, line.Quantity, unitPrice,
+				fee.BasePriceCents, fee.FeeCents, fee.FeeIVACents,
+				fee.FeeBasisPoints, fee.FeeIVABasisPoints, in.Now); err != nil {
 				return nil, err
 			}
 		}
@@ -387,6 +416,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			CustomerEmail:     s.CustomerEmail,
 			CustomerFirstName: s.CustomerFirstName,
 			CustomerLastName:  s.CustomerLastName,
+			AmountCents:       amountCents,
 		})
 	}
 

@@ -3433,6 +3433,15 @@ export interface components {
             has_ended?: boolean;
             name?: string;
             organization?: components["schemas"]["service.PublicOrganizationSummary"];
+            /**
+             * @description PriceIncludesFee reports that the quoted prices carry the platform's
+             *     service fee — true under 'pass_on' Fee Handling. It is the whole basis of
+             *     the Storefront's single muted "includes service fee" note: under 'absorb'
+             *     the buyer pays exactly what the Organization set and no fee is mentioned
+             *     anywhere. No amount is exposed; the platform's cut is never a number a
+             *     Customer sees (ADR 0014).
+             */
+            price_includes_fee?: boolean;
             slug?: string;
             starts_at?: string;
             tags?: components["schemas"]["service.TagView"][];

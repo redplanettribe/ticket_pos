@@ -204,6 +204,12 @@ func startPayPhoneEnv(ctx context.Context, connStr string, email *platform.Captu
 		// The shared app already migrated this database.
 		RunMigrations:     false,
 		StorefrontBaseURL: "http://storefront.example",
+		// The same launch fee schedule the shared app runs with, so buyer prices
+		// here are the ones the rest of the suite pins (ADR 0014).
+		Fees: platform.FeeConfig{
+			FeeBasisPoints:    platform.DefaultPlatformFeeBasisPoints,
+			FeeIVABasisPoints: platform.DefaultPlatformFeeIVABasisPoints,
+		},
 		PayPhone: platform.PayPhoneConfig{
 			APIToken: payphoneTestAPIToken,
 			StoreID:  payphoneTestStoreID,
@@ -291,8 +297,11 @@ func TestPayPhoneBeginCheckoutCallsPrepare(t *testing.T) {
 	}
 	// Integer cents, and amount equal to its one component: with no tax
 	// breakdown the whole amount rides as amountWithoutTax.
-	if req.body["amount"] != float64(3000) || req.body["amountWithoutTax"] != float64(3000) {
-		t.Fatalf("amount/amountWithoutTax = %v/%v, want 3000/3000", req.body["amount"], req.body["amountWithoutTax"])
+	// 2 × the all-in 1673¢ a 1500¢ ticket costs under 'pass_on' Fee Handling —
+	// and the whole of it still rides as amountWithoutTax in both modes, because
+	// the fee is charged to the Organization, not to the Customer (ADR 0014).
+	if req.body["amount"] != float64(3346) || req.body["amountWithoutTax"] != float64(3346) {
+		t.Fatalf("amount/amountWithoutTax = %v/%v, want 3346/3346", req.body["amount"], req.body["amountWithoutTax"])
 	}
 	if req.body["clientTransactionId"] != begin.ClientTransactionID {
 		t.Fatalf("clientTransactionId = %v, want %q", req.body["clientTransactionId"], begin.ClientTransactionID)

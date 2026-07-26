@@ -197,7 +197,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	salesRepo := salesrepo.New(db)
 	paymentProvider := newPaymentProvider(cfg, platformLogger)
-	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, platformLogger)
+	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, platformLogger)
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)
 	}

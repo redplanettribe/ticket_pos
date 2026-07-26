@@ -74,6 +74,41 @@ func TestFeeHandlingBuyerAndNetPrices(t *testing.T) {
 	}
 }
 
+// The snapshot is what checkout freezes onto a line: the buyer price it charges
+// and the withholding that price is built from, with the rates that produced
+// both. Its numbers must be exactly the ones the rest of this file pins.
+func TestFeeRatesSnapshotUnit(t *testing.T) {
+	passOn := launchRates.SnapshotUnit(sales.FeeHandlingPassOn, 799)
+	want := sales.FeeSnapshot{
+		BasePriceCents:      799,
+		BuyerUnitPriceCents: 891,
+		FeeCents:            80,
+		FeeIVACents:         12,
+		FeeBasisPoints:      1000,
+		FeeIVABasisPoints:   1500,
+	}
+	if passOn != want {
+		t.Fatalf("pass-on snapshot = %+v; want %+v", passOn, want)
+	}
+
+	// Absorb moves the buyer price only: the same withholding, taken out of the
+	// price the Organization set.
+	absorb := launchRates.SnapshotUnit(sales.FeeHandlingAbsorb, 799)
+	want.BuyerUnitPriceCents = 799
+	if absorb != want {
+		t.Fatalf("absorb snapshot = %+v; want %+v", absorb, want)
+	}
+
+	// A comp line snapshots the rates it was read under and no money.
+	comp := launchRates.SnapshotUnit(sales.FeeHandlingPassOn, 0)
+	if comp.BuyerUnitPriceCents != 0 || comp.FeeCents != 0 || comp.FeeIVACents != 0 {
+		t.Fatalf("comp snapshot = %+v; want no money in it", comp)
+	}
+	if comp.FeeBasisPoints != 1000 || comp.FeeIVABasisPoints != 1500 {
+		t.Fatalf("comp snapshot rates = %d/%d; want the rates in force", comp.FeeBasisPoints, comp.FeeIVABasisPoints)
+	}
+}
+
 func TestParseFeeHandling(t *testing.T) {
 	for _, raw := range []string{"pass_on", "absorb"} {
 		if _, ok := sales.ParseFeeHandling(raw); !ok {

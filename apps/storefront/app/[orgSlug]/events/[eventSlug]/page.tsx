@@ -134,6 +134,9 @@ export default async function EventPage({ params }: EventPageProps) {
               {event.ticket_types.map((ticketType) => (
                 <TicketTypeCard key={ticketType.name} ticketType={ticketType} />
               ))}
+              {event.price_includes_fee ? (
+                <p className="text-xs text-muted-foreground">Prices include the service fee.</p>
+              ) : null}
             </div>
           ) : (
             // Draft and cancelled Events never reach this page at all — the
@@ -144,6 +147,7 @@ export default async function EventPage({ params }: EventPageProps) {
               eventSlug={event.slug}
               eventName={event.name}
               ticketTypes={event.ticket_types}
+              priceIncludesFee={event.price_includes_fee}
             />
           )}
         </section>

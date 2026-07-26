@@ -118,6 +118,11 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		requested[tt.ID] += line.Quantity
 	}
 
+	// The Event's Fee Handling is read once, here, and frozen into the lines
+	// below: a flip while this Payment is pending must not move what the
+	// Customer is already paying (ADR 0014).
+	handling := sales.FeeHandlingOrDefault(event.FeeHandling)
+
 	// Capacity check: sold + held + requested may not exceed capacity, so a
 	// request cannot claim tickets that live Capacity Holds already speak for.
 	// The commit-time check under row locks remains authoritative.
@@ -129,11 +134,14 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		if requested[id] > available {
 			return nil, sales.ErrCapacityExceeded(id, requested[id], available)
 		}
-		amountCents += requested[id] * tt.PriceCents
+		// Per unit, then multiplied: the Customer's total is exactly the price
+		// they were quoted times the quantity, never a percentage of a total.
+		fee := s.fees.SnapshotUnit(handling, tt.PriceCents)
+		amountCents += requested[id] * fee.BuyerUnitPriceCents
 		paymentLines = append(paymentLines, repository.PaymentLine{
-			TicketTypeID:   id,
-			Quantity:       requested[id],
-			UnitPriceCents: tt.PriceCents,
+			TicketTypeID: id,
+			Quantity:     requested[id],
+			Fee:          fee,
 		})
 	}
 
@@ -287,6 +295,8 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 			CustomerName:     displayName(approved.Sale.CustomerFirstName, approved.Sale.CustomerLastName),
 			EventName:        event.Name,
 			Reference:        approved.Sale.ConfirmationRef,
+			AmountCents:      approved.Sale.AmountCents,
+			Currency:         event.Currency,
 			ConfirmationLink: s.confirmationLink(approved.Sale.ID, event.End()),
 		})
 	}

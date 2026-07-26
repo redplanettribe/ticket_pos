@@ -40,6 +40,17 @@ func ParseFeeHandling(raw string) (FeeHandling, bool) {
 	}
 }
 
+// FeeHandlingOrDefault reads a stored Fee Handling, falling back to the default
+// mode. The column's CHECK admits nothing else, so the fallback stands in for a
+// value that cannot occur rather than being a policy of its own — no read is
+// worth failing a page load or a checkout over.
+func FeeHandlingOrDefault(raw string) FeeHandling {
+	if handling, ok := ParseFeeHandling(raw); ok {
+		return handling
+	}
+	return FeeHandlingPassOn
+}
+
 // FeeRates are the two configured rates, in basis points (1000 = 10%). They come
 // from platform configuration rather than from code so that an IVA change is an
 // ops action; every sale line snapshots the rates it used, so recorded economics
@@ -84,6 +95,35 @@ func (r FeeRates) BuyerUnitPriceCents(handling FeeHandling, baseCents int) int {
 // Organization: what the Customer paid, minus the withholding.
 func (r FeeRates) NetProceedsUnitCents(handling FeeHandling, baseCents int) int {
 	return r.BuyerUnitPriceCents(handling, baseCents) - r.Withhold(baseCents).TotalCents()
+}
+
+// FeeSnapshot is the per-unit economics of one checkout line, frozen at
+// begin-checkout: the price the Organization set, the buyer price the Event's
+// Fee Handling turns it into, the withholding the platform takes from it, and
+// the rates that produced both. It is written onto the Payment's lines and
+// copied onto the Ticket Sale's, so neither a rate change nor a Fee Handling
+// flip afterwards can move economics already recorded (ADR 0014).
+type FeeSnapshot struct {
+	BasePriceCents      int
+	BuyerUnitPriceCents int
+	FeeCents            int
+	FeeIVACents         int
+	FeeBasisPoints      int
+	FeeIVABasisPoints   int
+}
+
+// SnapshotUnit freezes one unit of a Ticket Type the Organization priced at
+// baseCents, sold under the Event's Fee Handling.
+func (r FeeRates) SnapshotUnit(handling FeeHandling, baseCents int) FeeSnapshot {
+	fee := r.Withhold(baseCents)
+	return FeeSnapshot{
+		BasePriceCents:      baseCents,
+		BuyerUnitPriceCents: r.BuyerUnitPriceCents(handling, baseCents),
+		FeeCents:            fee.FeeCents,
+		FeeIVACents:         fee.FeeIVACents,
+		FeeBasisPoints:      r.FeeBasisPoints,
+		FeeIVABasisPoints:   r.FeeIVABasisPoints,
+	}
 }
 
 // applyRate takes a basis-point rate of an integer-cent amount, rounded half-up.

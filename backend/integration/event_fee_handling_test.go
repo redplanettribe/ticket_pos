@@ -3,7 +3,6 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 )
@@ -117,44 +116,5 @@ func TestEventFeeHandlingRejectsUnknownMode(t *testing.T) {
 	}
 	if got := getEventFees(t, env, sessionID, eventID).FeeHandling; got != "pass_on" {
 		t.Fatalf("fee_handling after a rejected update = %q; want the untouched pass_on", got)
-	}
-}
-
-// Fee Handling changes nothing a Customer sees yet: the public event page still
-// quotes the price the Organization set, in both modes.
-func TestFeeHandlingDoesNotYetMoveBuyerPrices(t *testing.T) {
-	env := setupTest(t)
-	sessionID := orgAdminSession(t, env)
-	startsAt := env.fixedClock.Add(24 * time.Hour)
-
-	for _, mode := range []string{"pass_on", "absorb"} {
-		slug := "priced-" + strings.ReplaceAll(mode, "_", "-")
-		eventID := publishEvent(t, env, sessionID, "Priced "+mode, slug, startsAt, true, 799, 100)
-		resp, body := env.patch(t, "/api/v1/staff/events/"+eventID, map[string]any{
-			"name":         "Priced " + mode,
-			"slug":         slug,
-			"starts_at":    startsAt.Format(time.RFC3339),
-			"timezone":     "America/New_York",
-			"fee_handling": mode,
-		}, authHeader(sessionID))
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("set fee_handling=%s status=%d error=%+v", mode, resp.StatusCode, body.Error)
-		}
-
-		resp, body = env.get(t, "/api/v1/public/organizations/test-org/events/"+slug, nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("public event status=%d error=%+v", resp.StatusCode, body.Error)
-		}
-		var detail struct {
-			TicketTypes []struct {
-				PriceCents int `json:"price_cents"`
-			} `json:"ticket_types"`
-		}
-		if err := json.Unmarshal(body.Data, &detail); err != nil {
-			t.Fatalf("decode public event: %v", err)
-		}
-		if len(detail.TicketTypes) != 1 || detail.TicketTypes[0].PriceCents != 799 {
-			t.Fatalf("public price under %s = %+v; want the unchanged 799", mode, detail.TicketTypes)
-		}
 	}
 }

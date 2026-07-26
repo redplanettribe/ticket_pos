@@ -36,7 +36,8 @@ With `PAYPHONE_API_TOKEN` and `PAYPHONE_STORE_ID` **empty** in `.env` (the defau
 2. On the seeded Event page, add one General Admission ticket, **Get tickets**, fill email +
    first/last name, **Continue to payment**
 3. Confirm the interstitial at `/checkout/stub` shows the badge **"Test payment — no money
-   moves"** and the exact amount ($35)
+   moves"** and the exact amount ($39.03 — the seeded $35.00 ticket all in under `pass_on`
+   Fee Handling; see [manual-verification-fees.md](manual-verification-fees.md))
 4. **Approve payment** → the success page shows a Sale Confirmation reference (`TP-…`), and the
    backend log carries the Sale Confirmation email
 5. Repeat and **Decline payment** → the failure page offers a retry, and retrying starts a fresh

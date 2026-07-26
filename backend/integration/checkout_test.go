@@ -275,8 +275,10 @@ func TestOnlineCheckoutApproveHappyPath(t *testing.T) {
 	if q.Get("client_transaction_id") != begin.ClientTransactionID {
 		t.Fatalf("redirect client_transaction_id = %q, want %q", q.Get("client_transaction_id"), begin.ClientTransactionID)
 	}
-	if q.Get("amount_cents") != "7000" || begin.AmountCents != 7000 {
-		t.Fatalf("amount = %s/%d, want 7000 (2×1000 + 1×5000)", q.Get("amount_cents"), begin.AmountCents)
+	// All-in buyer prices under the Event's default 'pass_on' Fee Handling: a
+	// $10.00 ticket is charged at 1115¢ and a $50.00 one at 5575¢ (ADR 0014).
+	if q.Get("amount_cents") != "7805" || begin.AmountCents != 7805 {
+		t.Fatalf("amount = %s/%d, want 7805 (2×1115 + 1×5575)", q.Get("amount_cents"), begin.AmountCents)
 	}
 	if begin.Currency != "USD" || q.Get("currency") != "USD" {
 		t.Fatalf("currency = %q/%q, want USD", begin.Currency, q.Get("currency"))
@@ -326,8 +328,8 @@ func TestOnlineCheckoutApproveHappyPath(t *testing.T) {
 	if sale.PaymentMethod == nil || *sale.PaymentMethod != "payphone" {
 		t.Fatalf("payment_method = %v, want payphone", sale.PaymentMethod)
 	}
-	if sale.AmountCents != 7000 {
-		t.Fatalf("sale amount = %d, want 7000", sale.AmountCents)
+	if sale.AmountCents != 7805 {
+		t.Fatalf("sale amount = %d, want the 7805 the Customer paid", sale.AmountCents)
 	}
 	if sale.ConfirmationRef != confirm.ConfirmationRef {
 		t.Fatalf("sale confirmation ref = %q, want %q", sale.ConfirmationRef, confirm.ConfirmationRef)
@@ -514,8 +516,8 @@ func TestOnlineCheckoutPriceSnapshot(t *testing.T) {
 
 	begin := beginCheckoutOK(t, env, "test-org", "snapshot-fest",
 		checkoutBody("guest@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
-	if begin.AmountCents != 2000 {
-		t.Fatalf("begin amount = %d, want 2000", begin.AmountCents)
+	if begin.AmountCents != 2230 {
+		t.Fatalf("begin amount = %d, want 2230 (2 × the all-in 1115)", begin.AmountCents)
 	}
 
 	// The organizer doubles the price mid-payment.
@@ -534,8 +536,8 @@ func TestOnlineCheckoutPriceSnapshot(t *testing.T) {
 	if len(list.Data) != 1 {
 		t.Fatalf("sales rows = %d, want 1", len(list.Data))
 	}
-	if list.Data[0].AmountCents != 2000 {
-		t.Fatalf("sale amount = %d, want the 2000 snapshot, not the edited price", list.Data[0].AmountCents)
+	if list.Data[0].AmountCents != 2230 {
+		t.Fatalf("sale amount = %d, want the 2230 snapshot, not the edited price", list.Data[0].AmountCents)
 	}
 }
 
@@ -579,7 +581,8 @@ func TestOnlineSaleAppearsInCustomerArea(t *testing.T) {
 	if sale.Event.Slug != "area-fest" {
 		t.Fatalf("event slug = %q, want area-fest", sale.Event.Slug)
 	}
-	if len(sale.Lines) != 1 || sale.Lines[0].Quantity != 2 || sale.Lines[0].UnitPriceCents != 2500 {
-		t.Fatalf("lines = %+v, want 2 x GA at 2500", sale.Lines)
+	// The Customer's own record quotes what they paid: 2500¢ set, 2788¢ all in.
+	if len(sale.Lines) != 1 || sale.Lines[0].Quantity != 2 || sale.Lines[0].UnitPriceCents != 2788 {
+		t.Fatalf("lines = %+v, want 2 x GA at 2788", sale.Lines)
 	}
 }

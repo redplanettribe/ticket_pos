@@ -109,7 +109,10 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string)
 // discarded upstream — a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
 	subject := fmt.Sprintf("Your tickets for %s", c.EventName)
-	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\n\nPresent this reference at the event.", c.CustomerName, c.EventName, c.Reference)
+	// The total is the amount the Customer was charged, all in: the platform's
+	// fee is never itemized on a receipt (ADR 0014).
+	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s\n\nPresent this reference at the event.",
+		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
 	// The Confirmation Link is the reason this email is worth keeping: it opens
 	// this purchase months later, at the gate, with one tap and no typing.
 	if c.ConfirmationLink != "" {
@@ -132,4 +135,16 @@ func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) er
 		return err
 	}
 	return nil
+}
+
+// formatMoney renders integer cents for a receipt line: two decimals with the
+// currency code alongside, e.g. "17.82 USD". Deliberately plain — the email is
+// text, and a Customer reconciling against a card statement needs the number,
+// not a locale.
+func formatMoney(cents int, currency string) string {
+	sign := ""
+	if cents < 0 {
+		sign, cents = "-", -cents
+	}
+	return fmt.Sprintf("%s%d.%02d %s", sign, cents/100, cents%100, currency)
 }

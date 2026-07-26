@@ -99,8 +99,10 @@ func TestPublicGlobalExplorerListsDiscoverableUpcoming(t *testing.T) {
 	if page.Events[0].Slug != "soon-event" || page.Events[1].Slug != "later-event" {
 		t.Fatalf("expected soonest first, got %s then %s", page.Events[0].Slug, page.Events[1].Slug)
 	}
-	if page.Events[0].PriceFromCents == nil || *page.Events[0].PriceFromCents != 2500 {
-		t.Fatalf("expected price_from_cents 2500, got %+v", page.Events[0].PriceFromCents)
+	// The card quotes a buyer price: 2500¢ set under 'pass_on' Fee Handling is
+	// 2788¢ all in, the same number the event page will show (ADR 0014).
+	if page.Events[0].PriceFromCents == nil || *page.Events[0].PriceFromCents != 2788 {
+		t.Fatalf("expected price_from_cents 2788, got %+v", page.Events[0].PriceFromCents)
 	}
 	if page.Events[0].Organization.Slug != "test-org" {
 		t.Fatalf("expected organization test-org, got %q", page.Events[0].Organization.Slug)
@@ -247,7 +249,8 @@ func TestPublicEventPageReachableByDirectLinkEvenWhenHidden(t *testing.T) {
 		t.Fatalf("expected 1 ticket type, got %d", len(detail.TicketTypes))
 	}
 	tt := detail.TicketTypes[0]
-	if tt.PriceCents != 4200 || tt.Remaining != 3 || tt.SoldOut {
+	// 4200¢ set, quoted all in at 4683¢ under the default 'pass_on' Fee Handling.
+	if tt.PriceCents != 4683 || tt.Remaining != 3 || tt.SoldOut {
 		t.Fatalf("unexpected ticket type: %+v", tt)
 	}
 }

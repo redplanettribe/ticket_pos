@@ -13,9 +13,12 @@ import { test, expect, type Page } from "@playwright/test";
 const EVENT_PATH = "/demo-venue/events/midnight-synth-live";
 const EVENT_NAME = "Midnight Synth Live";
 
-// One General Admission ticket at $35 (3500 cents, whole-dollar → "$35").
+// One General Admission ticket, priced at $35.00 by the seed and quoted all in
+// at $39.03 under the Event's default 'pass_on' Fee Handling: 3500¢ + 350¢
+// Platform Fee + 53¢ Fee IVA (ADR 0014). The Customer sees this one number
+// everywhere — picker, cart, and the provider's payment page.
 const GA_TICKET = "General Admission";
-const GA_PRICE = "$35";
+const GA_PRICE = "$39.03";
 
 // Sale Confirmation references look like TP-J7K2QX9M (base32).
 const CONFIRMATION_REF = /^TP-[A-Z2-7]+$/;

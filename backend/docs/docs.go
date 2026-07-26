@@ -1088,6 +1088,10 @@ const docTemplate = `{
                     "organization": {
                         "$ref": "#/components/schemas/service.PublicOrganizationSummary"
                     },
+                    "price_includes_fee": {
+                        "description": "PriceIncludesFee reports that the quoted prices carry the platform's\nservice fee — true under 'pass_on' Fee Handling. It is the whole basis of\nthe Storefront's single muted \"includes service fee\" note: under 'absorb'\nthe buyer pays exactly what the Organization set and no fee is mentioned\nanywhere. No amount is exposed; the platform's cut is never a number a\nCustomer sees (ADR 0014).",
+                        "type": "boolean"
+                    },
                     "slug": {
                         "type": "string"
                     },

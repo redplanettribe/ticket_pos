@@ -48,7 +48,17 @@ type TicketSelectionProps = {
   eventSlug: string;
   eventName: string;
   ticketTypes: PublicTicketType[];
+  /**
+   * Whether the quoted prices carry the platform's service fee, which is the
+   * only thing that decides the muted note below. Prices themselves are always
+   * shown exactly as the API quotes them: this app never does fee arithmetic
+   * (ADR 0014).
+   */
+  priceIncludesFee: boolean;
 };
+
+/** The one line a pass-on Customer ever sees about the fee. No amount, no breakdown. */
+const SERVICE_FEE_NOTE = "Prices include the service fee.";
 
 function formatRemaining(remaining: number): string {
   return `${new Intl.NumberFormat("en-US").format(remaining)} remaining`;
@@ -73,7 +83,13 @@ function fieldErrorsFromDetails(details: unknown): FieldErrors {
   return errors;
 }
 
-export function TicketSelection({ orgSlug, eventSlug, eventName, ticketTypes }: TicketSelectionProps) {
+export function TicketSelection({
+  orgSlug,
+  eventSlug,
+  eventName,
+  ticketTypes,
+  priceIncludesFee,
+}: TicketSelectionProps) {
   const router = useRouter();
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -252,6 +268,9 @@ export function TicketSelection({ orgSlug, eventSlug, eventName, ticketTypes }: 
             <p className="text-lg font-semibold" data-testid="selection-total">
               {formatPrice(total, currency)}
             </p>
+            {priceIncludesFee ? (
+              <p className="text-xs text-muted-foreground">{SERVICE_FEE_NOTE}</p>
+            ) : null}
           </div>
           <Button type="button" size="lg" className="h-11" disabled={count === 0} onClick={openCheckout}>
             Get tickets
@@ -295,6 +314,9 @@ export function TicketSelection({ orgSlug, eventSlug, eventName, ticketTypes }: 
               <span>Total</span>
               <span className="tabular-nums">{formatPrice(total, currency)}</span>
             </div>
+            {priceIncludesFee ? (
+              <p className="text-xs font-normal text-muted-foreground">{SERVICE_FEE_NOTE}</p>
+            ) : null}
           </div>
 
           {error ? (

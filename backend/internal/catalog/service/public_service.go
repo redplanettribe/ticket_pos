@@ -43,6 +43,11 @@ type PublicEventCard struct {
 // PublicTicketType is a Ticket Type as shown on a Storefront event page.
 // ID is exposed so the Storefront can name the Ticket Type in a begin-checkout
 // request, whose lines are keyed by ticket_type_id (issue #84).
+//
+// PriceCents is the effective buyer price — what checkout will charge per
+// ticket, already carrying the Platform Fee and Fee IVA under 'pass_on' Fee
+// Handling. The Storefront never computes fees: it quotes this number, so the
+// price a Customer sees can never jump at checkout (ADR 0014).
 type PublicTicketType struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -67,8 +72,15 @@ type PublicEventDetail struct {
 	HasEnded      bool                      `json:"has_ended"`
 	Organization  PublicOrganizationSummary `json:"organization"`
 	Currency      string                    `json:"currency"`
-	TicketTypes   []PublicTicketType        `json:"ticket_types"`
-	Tags          []TagView                 `json:"tags"`
+	// PriceIncludesFee reports that the quoted prices carry the platform's
+	// service fee — true under 'pass_on' Fee Handling. It is the whole basis of
+	// the Storefront's single muted "includes service fee" note: under 'absorb'
+	// the buyer pays exactly what the Organization set and no fee is mentioned
+	// anywhere. No amount is exposed; the platform's cut is never a number a
+	// Customer sees (ADR 0014).
+	PriceIncludesFee bool               `json:"price_includes_fee"`
+	TicketTypes      []PublicTicketType `json:"ticket_types"`
+	Tags             []TagView          `json:"tags"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -225,16 +237,18 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		return nil, err
 	}
 
+	handling := sales.FeeHandlingOrDefault(row.FeeHandling)
 	detail := &PublicEventDetail{
-		Slug:          row.Slug,
-		Name:          row.Name,
-		Description:   nullStringPtr(row.Description),
-		CoverImageURL: s.coverURL(row.CoverImageKey),
-		HasEnded:      eventEnded(row, now),
-		Organization:  s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
-		Currency:      row.OrgCurrency,
-		TicketTypes:   make([]PublicTicketType, 0, len(types)),
-		Tags:          toTagViews(tags),
+		Slug:             row.Slug,
+		Name:             row.Name,
+		Description:      nullStringPtr(row.Description),
+		CoverImageURL:    s.coverURL(row.CoverImageKey),
+		HasEnded:         eventEnded(row, now),
+		Organization:     s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
+		Currency:         row.OrgCurrency,
+		PriceIncludesFee: handling == sales.FeeHandlingPassOn,
+		TicketTypes:      make([]PublicTicketType, 0, len(types)),
+		Tags:             toTagViews(tags),
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time
@@ -257,7 +271,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 			ID:          tt.ID,
 			Name:        tt.Name,
 			Description: nullStringPtr(tt.Description),
-			PriceCents:  tt.PriceCents,
+			PriceCents:  s.fees.BuyerUnitPriceCents(handling, tt.PriceCents),
 			Currency:    row.OrgCurrency,
 			Remaining:   remaining,
 			SoldOut:     remaining == 0,
@@ -286,7 +300,11 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 		card.EndsAt = &t
 	}
 	if row.MinPriceCents.Valid {
-		v := int(row.MinPriceCents.Int64)
+		// The card's "from" price is a buyer price too: a Customer must never see
+		// one number on a listing and a higher one on the event page. The buyer
+		// price rises with the base price, so the cheapest Ticket Type is still
+		// the cheapest after the fee is added.
+		v := s.fees.BuyerUnitPriceCents(sales.FeeHandlingOrDefault(row.FeeHandling), int(row.MinPriceCents.Int64))
 		card.PriceFromCents = &v
 	}
 	if row.AllSoldOut.Valid {

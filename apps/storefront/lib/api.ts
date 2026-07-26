@@ -216,6 +216,9 @@ export type PublicTicketType = {
   id: string;
   name: string;
   description: string | null;
+  // The effective buyer price, server-computed: what checkout will charge per
+  // ticket, already carrying the service fee where the Event passes it on.
+  // This app never computes fees — it shows this number (ADR 0014).
   price_cents: number;
   currency: string;
   remaining: number;
@@ -235,6 +238,10 @@ export type PublicEventDetail = {
   has_ended: boolean;
   organization: PublicOrganizationSummary;
   currency: string;
+  // Whether the quoted prices carry the platform's service fee, and therefore
+  // whether the muted "includes service fee" note is shown. Under absorb the
+  // buyer pays exactly what the organizer set and no fee is mentioned at all.
+  price_includes_fee: boolean;
   ticket_types: PublicTicketType[];
   tags: { name: string; curated: boolean }[];
 };
