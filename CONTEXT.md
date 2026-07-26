@@ -150,6 +150,30 @@ _Avoid_: Reservation, cart lock, inventory block
 A per-Ticket-Sale receipt carrying a human-readable reference code (e.g. `TP-3F9K2`), emailed to the Customer whenever a Ticket Sale is recorded. Not a per-attendee admission ticket; the model leaves room to attach individual tickets later.
 _Avoid_: Ticket, receipt, order confirmation
 
+**Platform Fee**:
+The platform's commission on a Ticket Sale — a percentage (10% at launch) of the ticket price the Organization set. Always charged to the Organization by withholding from its proceeds, never to the Customer; Fee Handling only decides whether the buyer price is raised to cover it. The tickets themselves are the Organization's sale, and their taxation stays outside the system.
+_Avoid_: Commission, service charge, take rate
+
+**Fee IVA**:
+Ecuadorian value-added tax (15% at launch) levied on the Platform Fee, because the fee is the platform's taxable service. Not a tax on the ticket itself — ticket-level tax remains the Organization's off-platform concern.
+_Avoid_: Tax, VAT on tickets, sales tax
+
+**Fee Handling**:
+A per-Event choice of who bears the Platform Fee and its Fee IVA: `pass_on` (the Customer pays them on top of the ticket price; the default) or `absorb` (the Organization pays them out of the ticket price, and the Customer sees exactly the price the Organization set). One switch — the fee and its IVA always travel together.
+_Avoid_: Fee mode, pricing mode, pass-through flag
+
+**Net Proceeds**:
+What an Online Sale leaves for the Organization once the Platform Fee and Fee IVA are withheld: the amount collected minus both. Under `pass_on` Fee Handling this equals exactly the ticket price the Organization set. Only Online Sales produce Net Proceeds — money from other Sales Channels never passes through the platform.
+_Avoid_: Net revenue, earnings, take-home
+
+**Payout**:
+A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. Recording is a platform-operator action; Organizations do not yet request Payouts themselves.
+_Avoid_: Withdrawal, transfer, disbursement, settlement run
+
+**Withdrawable Balance**:
+The money an Organization can currently be paid: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what can be withdrawn."
+_Avoid_: Available funds, wallet, account balance
+
 **External Platform**:
 A third-party ticketing service through which tickets may be sold outside this system.
 Distinct from an Integration Partner, which manages this system programmatically rather than supplying sales to import.
