@@ -34,7 +34,10 @@ type Event struct {
 	Description    sql.NullString
 	CoverImageKey  sql.NullString
 	Discoverable   bool
-	CreatedAt      time.Time
+	// FeeHandling is the Event's Fee Handling mode ('pass_on' or 'absorb'),
+	// constrained by the column's CHECK (migration 021).
+	FeeHandling string
+	CreatedAt   time.Time
 }
 
 // UpdateEventParams holds mutable Event fields for PATCH.
@@ -49,6 +52,7 @@ type UpdateEventParams struct {
 	Description   sql.NullString
 	CoverImageKey sql.NullString
 	Discoverable  bool
+	FeeHandling   string
 }
 
 // Repository provides SQL access for catalog data.
@@ -64,7 +68,7 @@ func New(db *platform.DB) *Repository {
 const eventColumns = `
 	id, organization_id, name, slug, status,
 	starts_at, ends_at, timezone, venue_name, venue_address,
-	description, cover_image_key, discoverable, created_at
+	description, cover_image_key, discoverable, fee_handling, created_at
 `
 
 func scanEvent(row interface {
@@ -75,7 +79,7 @@ func scanEvent(row interface {
 	if err := row.Scan(
 		&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 		&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-		&e.Description, &e.CoverImageKey, &e.Discoverable, &e.CreatedAt,
+		&e.Description, &e.CoverImageKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -106,7 +110,7 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 		if err := rows.Scan(
 			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-			&e.Description, &e.CoverImageKey, &e.Discoverable, &e.CreatedAt,
+			&e.Description, &e.CoverImageKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -173,7 +177,8 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 			venue_address = $9,
 			description = $10,
 			cover_image_key = $11,
-			discoverable = $12
+			discoverable = $12,
+			fee_handling = $13
 		WHERE id = $1 AND organization_id = $2
 		RETURNING `+eventColumns+`
 	`, eventID, orgID,
@@ -181,7 +186,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 		nullTime(params.StartsAt), nullTime(params.EndsAt),
 		nullString(params.Timezone), nullString(params.VenueName),
 		nullString(params.VenueAddress), nullString(params.Description),
-		nullString(params.CoverImageKey), params.Discoverable,
+		nullString(params.CoverImageKey), params.Discoverable, params.FeeHandling,
 	)
 	return scanEvent(row)
 }

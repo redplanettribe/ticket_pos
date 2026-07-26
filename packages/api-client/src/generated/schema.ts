@@ -3118,6 +3118,11 @@ export interface components {
             cover_image_key?: string;
             description?: string;
             ends_at?: string;
+            /**
+             * @description FeeHandling is the Event's Fee Handling mode. Absent means "leave it
+             *     alone": a form that does not know about the switch must not reset it.
+             */
+            fee_handling?: string;
             name?: string;
             slug?: string;
             starts_at?: string;
@@ -3358,6 +3363,15 @@ export interface components {
             description?: string;
             discoverable?: boolean;
             ends_at?: string;
+            fee_basis_points?: number;
+            /**
+             * @description FeeHandling is the Event's Fee Handling mode, and the two rates are the
+             *     Platform Fee schedule it is read with. The rates travel with the Event so
+             *     the staff forms can show an organizer what a price means for the buyer and
+             *     for their own take-home using the same arithmetic checkout uses (ADR 0014).
+             */
+            fee_handling?: string;
+            fee_iva_basis_points?: number;
             id?: string;
             name?: string;
             slug?: string;

@@ -190,3 +190,49 @@ func TestGoogleStorefrontCredentialsAreOptional(t *testing.T) {
 		t.Fatalf("LoadConfig without Google credentials: %v — the platform must start without them", err)
 	}
 }
+
+// The Platform Fee schedule is an ops knob (ADR 0014): the next IVA change
+// should be an environment edit, and a fat-fingered one should stop the process
+// rather than quietly bill at the wrong rate.
+
+func TestFeeRatesDefaultToTheLaunchSchedule(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Fees.FeeBasisPoints != DefaultPlatformFeeBasisPoints || cfg.Fees.FeeIVABasisPoints != DefaultPlatformFeeIVABasisPoints {
+		t.Fatalf("fee schedule = %+v, want the launch %d/%d bps", cfg.Fees, DefaultPlatformFeeBasisPoints, DefaultPlatformFeeIVABasisPoints)
+	}
+}
+
+func TestFeeRatesAreConfigurable(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+	t.Setenv("PLATFORM_FEE_BASIS_POINTS", "0")
+	t.Setenv("PLATFORM_FEE_IVA_BASIS_POINTS", "1200")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	// Zero is a rate, not "unset": a deployment can switch the fee off.
+	if cfg.Fees.FeeBasisPoints != 0 || cfg.Fees.FeeIVABasisPoints != 1200 {
+		t.Fatalf("fee schedule = %+v, want 0/1200 bps", cfg.Fees)
+	}
+}
+
+func TestOutOfRangeFeeRateFailsStartup(t *testing.T) {
+	for _, raw := range []string{"ten percent", "-1", "10001"} {
+		t.Setenv("DATABASE_URL", "postgres://localhost/ticket_pos")
+		t.Setenv("PLATFORM_FEE_BASIS_POINTS", raw)
+
+		_, err := LoadConfig()
+		if err == nil {
+			t.Fatalf("LoadConfig succeeded with PLATFORM_FEE_BASIS_POINTS=%q; it must refuse to start", raw)
+		}
+		if !strings.Contains(err.Error(), "PLATFORM_FEE_BASIS_POINTS") {
+			t.Fatalf("error = %v, want it to name PLATFORM_FEE_BASIS_POINTS", err)
+		}
+	}
+}

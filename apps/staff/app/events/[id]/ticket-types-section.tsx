@@ -27,10 +27,14 @@ import {
   parsePriceToCents,
   type TicketType,
 } from "@/lib/events-api";
+import { buyerUnitPriceCents, netProceedsUnitCents, type FeeHandling, type FeeRates } from "@/lib/fees";
 
 type TicketTypesSectionProps = {
   eventId: string;
   eventStatus: string;
+  /** The Event's Fee Handling and the fee schedule it is read with (ADR 0014). */
+  feeHandling: FeeHandling;
+  feeRates: FeeRates;
   onTicketTypeCountChange?: (count: number) => void;
   missingWarning?: boolean;
 };
@@ -52,6 +56,8 @@ const emptyForm: TicketTypeFormState = {
 export function TicketTypesSection({
   eventId,
   eventStatus,
+  feeHandling,
+  feeRates,
   onTicketTypeCountChange,
   missingWarning,
 }: TicketTypesSectionProps) {
@@ -245,6 +251,16 @@ export function TicketTypesSection({
 
   function ticketTypeForm(idPrefix: string, onSubmit: (event: FormEvent<HTMLFormElement>) => void) {
     const currency = ticketTypes[0]?.currency ?? editTarget?.currency ?? organizationCurrency;
+    // The consequence of the price being typed, derived with the same
+    // arithmetic checkout uses: under pass-on what the buyer is charged, under
+    // absorb what the sale leaves the Organization.
+    const priceCents = parsePriceToCents(form.price);
+    const derivedLine =
+      priceCents === null
+        ? null
+        : feeHandling === "pass_on"
+          ? `Buyers will pay ${formatPriceCents(buyerUnitPriceCents("pass_on", priceCents, feeRates), currency)}`
+          : `You'll receive ${formatPriceCents(netProceedsUnitCents("absorb", priceCents, feeRates), currency)} per ticket`;
 
     return (
       <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
@@ -291,6 +307,7 @@ export function TicketTypesSection({
             />
           </FormField>
         </div>
+        {derivedLine ? <p className="text-sm text-muted-foreground">{derivedLine}</p> : null}
         <Button type="submit" disabled={saving}>
           {saving ? "Saving..." : "Save ticket type"}
         </Button>

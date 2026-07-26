@@ -213,6 +213,10 @@ const docTemplate = `{
                     "ends_at": {
                         "type": "string"
                     },
+                    "fee_handling": {
+                        "description": "FeeHandling is the Event's Fee Handling mode. Absent means \"leave it\nalone\": a form that does not know about the switch must not reset it.",
+                        "type": "string"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -892,6 +896,16 @@ const docTemplate = `{
                     },
                     "ends_at": {
                         "type": "string"
+                    },
+                    "fee_basis_points": {
+                        "type": "integer"
+                    },
+                    "fee_handling": {
+                        "description": "FeeHandling is the Event's Fee Handling mode, and the two rates are the\nPlatform Fee schedule it is read with. The rates travel with the Event so\nthe staff forms can show an organizer what a price means for the buyer and\nfor their own take-home using the same arithmetic checkout uses (ADR 0014).",
+                        "type": "string"
+                    },
+                    "fee_iva_basis_points": {
+                        "type": "integer"
                     },
                     "id": {
                         "type": "string"

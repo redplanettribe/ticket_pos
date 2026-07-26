@@ -87,6 +87,11 @@ services:
       # footgun, exactly like GOOGLE_TOKEN_ENDPOINT above.
       PAYPHONE_API_TOKEN: ${PAYPHONE_API_TOKEN:-}
       PAYPHONE_STORE_ID: ${PAYPHONE_STORE_ID:-}
+      # The Platform Fee schedule in basis points (ADR 0014). Unset falls back to
+      # the launch rates the API defaults to, so the dev stack charges what
+      # production charges; override in .env to try another rate locally.
+      PLATFORM_FEE_BASIS_POINTS: ${PLATFORM_FEE_BASIS_POINTS:-}
+      PLATFORM_FEE_IVA_BASIS_POINTS: ${PLATFORM_FEE_IVA_BASIS_POINTS:-}
     depends_on:
       postgres:
         condition: service_healthy

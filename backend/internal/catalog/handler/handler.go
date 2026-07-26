@@ -11,6 +11,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // Handler exposes HTTP endpoints for the catalog domain.
@@ -40,6 +41,9 @@ type updateEventBody struct {
 	VenueAddress  *string `json:"venue_address"`
 	Description   *string `json:"description"`
 	CoverImageKey *string `json:"cover_image_key"`
+	// FeeHandling is the Event's Fee Handling mode. Absent means "leave it
+	// alone": a form that does not know about the switch must not reset it.
+	FeeHandling *string `json:"fee_handling"`
 }
 
 type coverUploadURLBody struct {
@@ -700,6 +704,16 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		}
 	}
 
+	var feeHandling *sales.FeeHandling
+	if body.FeeHandling != nil {
+		parsed, ok := sales.ParseFeeHandling(strings.TrimSpace(*body.FeeHandling))
+		if !ok {
+			fields = append(fields, platform.FieldError{Field: "fee_handling", Message: "must be pass_on or absorb"})
+		} else {
+			feeHandling = &parsed
+		}
+	}
+
 	if len(fields) > 0 {
 		return service.UpdateEventInput{}, fields
 	}
@@ -714,5 +728,6 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		VenueAddress:  body.VenueAddress,
 		Description:   body.Description,
 		CoverImageKey: body.CoverImageKey,
+		FeeHandling:   feeHandling,
 	}, nil
 }

@@ -1,3 +1,5 @@
+import type { FeeHandling } from "./fees";
+
 export type APIEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: Record<string, unknown> } | null;
@@ -40,6 +42,11 @@ export type EventDetail = {
   cover_image_key: string | null;
   cover_image_url: string | null;
   discoverable: boolean;
+  /** How this Event handles the Platform Fee and its Fee IVA (ADR 0014). */
+  fee_handling: FeeHandling;
+  /** The fee schedule in force, in basis points — the derived-line inputs. */
+  fee_basis_points: number;
+  fee_iva_basis_points: number;
   created_at: string;
 };
 
@@ -58,6 +65,7 @@ export type EventPatchBody = {
   venue_name: string;
   venue_address: string;
   description: string;
+  fee_handling: FeeHandling;
 };
 
 export type TicketType = {

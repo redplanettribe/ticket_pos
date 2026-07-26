@@ -26,6 +26,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
+	"github.com/peter/ticket_pos/backend/internal/sales"
 	saleshandler "github.com/peter/ticket_pos/backend/internal/sales/handler"
 	salesrepo "github.com/peter/ticket_pos/backend/internal/sales/repository"
 	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
@@ -160,7 +161,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	identityHandler := identityhandler.New(identityService)
 
-	catalogService := catalogsvc.New(catalogRepo, objectStorage)
+	feeRates := sales.FeeRates{
+		FeeBasisPoints:    cfg.Fees.FeeBasisPoints,
+		FeeIVABasisPoints: cfg.Fees.FeeIVABasisPoints,
+	}
+
+	catalogService := catalogsvc.New(catalogRepo, objectStorage, feeRates)
 	if options.clock != nil {
 		catalogService = catalogService.WithClock(options.clock)
 	}

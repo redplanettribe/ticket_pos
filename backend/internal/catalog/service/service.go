@@ -10,14 +10,15 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // EventListItem is a summary row for the Events list UI.
 type EventListItem struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Slug      string     `json:"slug"`
-	Status    string     `json:"status"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Slug         string     `json:"slug"`
+	Status       string     `json:"status"`
 	StartsAt     *time.Time `json:"starts_at"`
 	Timezone     *string    `json:"timezone"`
 	Discoverable bool       `json:"discoverable"`
@@ -51,10 +52,17 @@ type EventDetail struct {
 	VenueName     *string    `json:"venue_name"`
 	VenueAddress  *string    `json:"venue_address"`
 	Description   *string    `json:"description"`
-	CoverImageKey  *string    `json:"cover_image_key"`
-	CoverImageURL  *string    `json:"cover_image_url"`
-	Discoverable   bool       `json:"discoverable"`
-	CreatedAt      time.Time  `json:"created_at"`
+	CoverImageKey *string    `json:"cover_image_key"`
+	CoverImageURL *string    `json:"cover_image_url"`
+	Discoverable  bool       `json:"discoverable"`
+	// FeeHandling is the Event's Fee Handling mode, and the two rates are the
+	// Platform Fee schedule it is read with. The rates travel with the Event so
+	// the staff forms can show an organizer what a price means for the buyer and
+	// for their own take-home using the same arithmetic checkout uses (ADR 0014).
+	FeeHandling       string    `json:"fee_handling"`
+	FeeBasisPoints    int       `json:"fee_basis_points"`
+	FeeIVABasisPoints int       `json:"fee_iva_basis_points"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // ActorContext is the acting member for catalog operations.
@@ -88,15 +96,18 @@ type UpdateTicketTypeInput struct {
 
 // UpdateEventInput updates Event fields on the detail form.
 type UpdateEventInput struct {
-	Name         string
-	Slug         string
-	StartsAt     *time.Time
-	EndsAt       *time.Time
-	Timezone     *string
-	VenueName    *string
-	VenueAddress *string
+	Name          string
+	Slug          string
+	StartsAt      *time.Time
+	EndsAt        *time.Time
+	Timezone      *string
+	VenueName     *string
+	VenueAddress  *string
 	Description   *string
 	CoverImageKey *string
+	// FeeHandling is the submitted Fee Handling mode, or nil when the form said
+	// nothing about it — an update that omits it leaves the Event's mode alone.
+	FeeHandling *sales.FeeHandling
 }
 
 // CreateCoverUploadURLInput requests a presigned cover upload URL.
@@ -109,14 +120,18 @@ type CreateCoverUploadURLInput struct {
 type Service struct {
 	repo    *repository.Repository
 	storage storage.ObjectStorage
+	fees    sales.FeeRates
 	now     func() time.Time
 }
 
-// New returns a catalog service.
-func New(repo *repository.Repository, objectStorage storage.ObjectStorage) *Service {
+// New returns a catalog service. The fee rates are the platform's configured
+// Platform Fee schedule, surfaced on Event payloads so the staff forms derive
+// buyer and take-home figures with the checkout arithmetic (ADR 0014).
+func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates) *Service {
 	return &Service{
 		repo:    repo,
 		storage: objectStorage,
+		fees:    fees,
 		now:     time.Now,
 	}
 }
@@ -224,6 +239,13 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	}
 
 	params.Discoverable = event.Discoverable
+
+	// Fee Handling takes effect on future checkouts only: pending Payments carry
+	// their own snapshot, so a flip never rewrites money already being paid.
+	params.FeeHandling = event.FeeHandling
+	if input.FeeHandling != nil {
+		params.FeeHandling = string(*input.FeeHandling)
+	}
 
 	updated, err := s.repo.UpdateEvent(ctx, actor.OrganizationID, eventID, params)
 	if err != nil {
@@ -593,14 +615,17 @@ func toTicketTypeDetail(tt *repository.TicketType, currency string) TicketTypeDe
 	return detail
 }
 
-func toEventDetailWithStorage(e *repository.Event, objectStorage storage.ObjectStorage) EventDetail {
+func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 	detail := EventDetail{
-		ID:           e.ID,
-		Name:         e.Name,
-		Slug:         e.Slug,
-		Status:       string(e.Status),
-		Discoverable: e.Discoverable,
-		CreatedAt:    e.CreatedAt,
+		ID:                e.ID,
+		Name:              e.Name,
+		Slug:              e.Slug,
+		Status:            string(e.Status),
+		Discoverable:      e.Discoverable,
+		FeeHandling:       e.FeeHandling,
+		FeeBasisPoints:    s.fees.FeeBasisPoints,
+		FeeIVABasisPoints: s.fees.FeeIVABasisPoints,
+		CreatedAt:         e.CreatedAt,
 	}
 	if e.StartsAt.Valid {
 		t := e.StartsAt.Time
@@ -611,32 +636,28 @@ func toEventDetailWithStorage(e *repository.Event, objectStorage storage.ObjectS
 		detail.EndsAt = &t
 	}
 	if e.Timezone.Valid {
-		s := e.Timezone.String
-		detail.Timezone = &s
+		v := e.Timezone.String
+		detail.Timezone = &v
 	}
 	if e.VenueName.Valid {
-		s := e.VenueName.String
-		detail.VenueName = &s
+		v := e.VenueName.String
+		detail.VenueName = &v
 	}
 	if e.VenueAddress.Valid {
-		s := e.VenueAddress.String
-		detail.VenueAddress = &s
+		v := e.VenueAddress.String
+		detail.VenueAddress = &v
 	}
 	if e.Description.Valid {
-		s := e.Description.String
-		detail.Description = &s
+		v := e.Description.String
+		detail.Description = &v
 	}
 	if e.CoverImageKey.Valid {
-		s := e.CoverImageKey.String
-		detail.CoverImageKey = &s
-		if objectStorage != nil {
-			url := objectStorage.PublicURL(s)
+		key := e.CoverImageKey.String
+		detail.CoverImageKey = &key
+		if s.storage != nil {
+			url := s.storage.PublicURL(key)
 			detail.CoverImageURL = &url
 		}
 	}
 	return detail
-}
-
-func (s *Service) toEventDetail(e *repository.Event) EventDetail {
-	return toEventDetailWithStorage(e, s.storage)
 }

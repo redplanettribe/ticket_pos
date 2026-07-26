@@ -22,6 +22,16 @@ const GoogleTokenEndpoint = "https://oauth2.googleapis.com/token"
 // and confirmed unless a non-production deployment says otherwise.
 const PayPhoneBaseURL = "https://pay.payphonetodoesposible.com"
 
+// The Platform Fee rates in force at launch, in basis points: a 10% commission
+// on the ticket price the Organization set, plus Ecuador's 15% IVA on that
+// commission (ADR 0014). They are defaults rather than constants because the
+// next IVA change should be an ops action, not a deploy — Ecuador moved from
+// 12% to 15% in 2024.
+const (
+	DefaultPlatformFeeBasisPoints    = 1000
+	DefaultPlatformFeeIVABasisPoints = 1500
+)
+
 // Config holds application configuration loaded from the environment.
 type Config struct {
 	AppEnv        string
@@ -59,6 +69,18 @@ type Config struct {
 	// (ADR 0012). Their presence selects the PayPhone Payment Provider; absent,
 	// the stub provider serves so checkout works locally with zero setup.
 	PayPhone PayPhoneConfig
+	// Fees holds the Platform Fee and Fee IVA rates the platform withholds on
+	// every Online Sale. See FeeConfig.
+	Fees FeeConfig
+}
+
+// FeeConfig is the platform-wide fee schedule: the Platform Fee rate and the
+// Fee IVA rate levied on it, both in basis points (1000 = 10%). Rates are
+// platform-level and identical for every Organization at launch; per-sale rate
+// snapshots are what make a negotiated rate additive later (ADR 0014).
+type FeeConfig struct {
+	FeeBasisPoints    int
+	FeeIVABasisPoints int
 }
 
 // PayPhoneConfig is the platform's registration with PayPhone: one merchant
@@ -147,6 +169,11 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	fees, err := loadFeeConfig()
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		AppEnv:        appEnv,
 		DatabaseURL:   databaseURL,
@@ -171,6 +198,7 @@ func LoadConfig() (Config, error) {
 		OTPGlobalCeiling: otpCeiling,
 		Google:           google,
 		PayPhone:         payPhone,
+		Fees:             fees,
 	}
 	return cfg, nil
 }
@@ -248,6 +276,41 @@ func loadPayPhoneConfig(appEnv string) (PayPhoneConfig, error) {
 		StoreID:  strings.TrimSpace(os.Getenv("PAYPHONE_STORE_ID")),
 		BaseURL:  baseURL,
 	}, nil
+}
+
+// loadFeeConfig reads the Platform Fee schedule, falling back to the launch
+// rates. Both settings are ops knobs rather than secrets: a rate change (an IVA
+// reform, a promotional fee) is an environment edit, and every sale already
+// snapshots the rates it was charged under, so past economics do not move.
+//
+// A malformed or out-of-range rate is a startup error rather than a silent
+// fallback: quietly reading "10" (meant as 10%) as 0.1% would bill wrong for as
+// long as nobody checked.
+func loadFeeConfig() (FeeConfig, error) {
+	feeBP, err := envBasisPointsOrDefault("PLATFORM_FEE_BASIS_POINTS", DefaultPlatformFeeBasisPoints)
+	if err != nil {
+		return FeeConfig{}, err
+	}
+	ivaBP, err := envBasisPointsOrDefault("PLATFORM_FEE_IVA_BASIS_POINTS", DefaultPlatformFeeIVABasisPoints)
+	if err != nil {
+		return FeeConfig{}, err
+	}
+	return FeeConfig{FeeBasisPoints: feeBP, FeeIVABasisPoints: ivaBP}, nil
+}
+
+// envBasisPointsOrDefault reads an optional rate in basis points. Zero is a
+// meaningful value ("charge nothing"), so the fallback applies only to an unset
+// variable; anything above 10000 (100%) is a typo, not a rate.
+func envBasisPointsOrDefault(key string, fallback int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 || value > 10000 {
+		return 0, fmt.Errorf("%s must be a rate in basis points between 0 and 10000, got %q", key, raw)
+	}
+	return value, nil
 }
 
 // envIntOrZero reads an optional positive integer setting. An unset variable

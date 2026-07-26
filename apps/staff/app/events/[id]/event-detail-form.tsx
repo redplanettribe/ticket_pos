@@ -20,6 +20,7 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import type { FeeHandling } from "@/lib/fees";
 import {
   dateTimeLocalToISO,
   fetchEventsJSON,
@@ -51,6 +52,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
   const [venueAddress, setVenueAddress] = useState("");
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
+  const [feeHandling, setFeeHandling] = useState<FeeHandling>("pass_on");
 
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
@@ -66,6 +68,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
     setVenueAddress(event.venue_address ?? "");
     setDescription(event.description ?? "");
     setCoverImageUrl(event.cover_image_url);
+    setFeeHandling(event.fee_handling);
   }, []);
 
   const loadEvent = useCallback(async () => {
@@ -98,6 +101,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
           venue_name: venueName,
           venue_address: venueAddress,
           description,
+          fee_handling: feeHandling,
         }),
       });
       applyEvent(updated);
@@ -148,6 +152,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
     venue_name: venueName,
     venue_address: venueAddress,
     description,
+    fee_handling: feeHandling,
   };
 
   return (
@@ -228,6 +233,41 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
           router.refresh();
         }}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Service fee</CardTitle>
+          <CardDescription>
+            Choose whether buyers cover the platform&apos;s service fee or you absorb it out of your
+            prices. Changes apply to future sales only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={feeHandling === "pass_on" ? "secondary" : "outline"}
+              aria-pressed={feeHandling === "pass_on"}
+              onClick={() => setFeeHandling("pass_on")}
+            >
+              Buyers cover it
+            </Button>
+            <Button
+              type="button"
+              variant={feeHandling === "absorb" ? "secondary" : "outline"}
+              aria-pressed={feeHandling === "absorb"}
+              onClick={() => setFeeHandling("absorb")}
+            >
+              I absorb it
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {feeHandling === "pass_on"
+              ? "Buyers pay a little above your ticket prices, and you receive exactly the price you set."
+              : "Buyers pay exactly the price you set, and the service fee comes out of it."}
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

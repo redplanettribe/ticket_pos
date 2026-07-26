@@ -84,6 +84,12 @@ func TestMain(m *testing.M) {
 		// this origin; no PAYPHONE_* credentials are set, so the stub is selected
 		// exactly as it is in local development.
 		StorefrontBaseURL: "http://storefront.example",
+		// The launch fee schedule, as LoadConfig would default it: 10% Platform
+		// Fee, 15% Fee IVA (ADR 0014).
+		Fees: platform.FeeConfig{
+			FeeBasisPoints:    platform.DefaultPlatformFeeBasisPoints,
+			FeeIVABasisPoints: platform.DefaultPlatformFeeIVABasisPoints,
+		},
 		Google: platform.GoogleConfig{
 			Storefront: platform.GoogleOAuthClient{
 				ClientID:     storefrontGoogleClientID,
