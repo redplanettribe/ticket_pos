@@ -28,9 +28,9 @@ type PayoutsSummary struct {
 }
 
 // OrganizationPayouts returns the acting Member's Organization's Withdrawable
-// Balance and payout history. Read-only: Payouts are recorded by the platform
-// operator directly in the database (ADR 0014), so this module offers no way to
-// create one.
+// Balance and payout history. Read-only from the Organization's side: a Payout
+// is recorded by a Platform Operator on the operator surface (ADR 0015), and
+// Organizations do not yet request one.
 func (s *Service) OrganizationPayouts(ctx context.Context, actor ActorContext) (*PayoutsSummary, error) {
 	balance, err := s.repo.GetOrganizationBalance(ctx, actor.OrganizationID)
 	if err != nil {

@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   StaffShell,
+  cn,
 } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -100,12 +101,35 @@ export function OrganizationSwitcherDialog({
   );
 }
 
+/**
+ * The Operator Dashboard entry. StaffShell's primary navigation is a fixed list
+ * owned by the shared UI package, so this platform-wide entry rides the shell's
+ * sidebar footer slot above the user menu — visually a nav item, deliberately
+ * set apart from the Organization-scoped links it does not belong with. It is
+ * rendered only for a session on the platform operator allowlist (ADR 0015).
+ */
+function OperatorNavLink({ active }: { active: boolean }) {
+  return (
+    <a
+      href="/operator"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+        active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+      )}
+    >
+      Operator
+    </a>
+  );
+}
+
 type StaffShellWithOrganizationSwitcherProps = {
   organizationName: string;
   organizationLogoUrl?: string | null;
   activePath: string;
   showSettings: boolean;
   showEvents: boolean;
+  showOperator: boolean;
   memberships: Membership[];
   activeMemberId?: string;
   userMenu: ReactNode;
@@ -118,6 +142,7 @@ export function StaffShellWithOrganizationSwitcher({
   activePath,
   showSettings,
   showEvents,
+  showOperator,
   memberships,
   activeMemberId,
   userMenu,
@@ -133,7 +158,16 @@ export function StaffShellWithOrganizationSwitcher({
         activePath={activePath}
         showSettings={showSettings}
         showEvents={showEvents}
-        userMenu={userMenu}
+        userMenu={
+          showOperator ? (
+            <div className="space-y-1">
+              <OperatorNavLink active={activePath.startsWith("/operator")} />
+              {userMenu}
+            </div>
+          ) : (
+            userMenu
+          )
+        }
         onOrganizationClick={() => setOpen(true)}
       >
         {children}

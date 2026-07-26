@@ -49,6 +49,12 @@ type SessionView struct {
 	Email        string            `json:"email"`
 	ActiveMember *ActiveMemberView `json:"active_member"`
 	Memberships  []MembershipView  `json:"memberships"`
+	// IsPlatformOperator says whether this session's email is on the platform
+	// operator allowlist, so the staff app knows whether to render the Operator
+	// Dashboard navigation. It is a hint for the UI, never the gate: the
+	// operator middleware re-checks the allowlist on every request (ADR 0015).
+	// It is orthogonal to Memberships — an operator may have none.
+	IsPlatformOperator bool `json:"is_platform_operator"`
 }
 
 // OTPRequestResult is returned after requesting an OTP.
@@ -325,9 +331,15 @@ func (s *Service) buildSessionView(ctx context.Context, session *repository.Sess
 		return nil, err
 	}
 
+	isOperator, err := s.repo.IsPlatformOperator(ctx, session.Email)
+	if err != nil {
+		return nil, err
+	}
+
 	view := &SessionView{
-		Email:       session.Email,
-		Memberships: make([]MembershipView, 0, len(memberships)),
+		Email:              session.Email,
+		Memberships:        make([]MembershipView, 0, len(memberships)),
+		IsPlatformOperator: isOperator,
 	}
 	for _, m := range memberships {
 		view.Memberships = append(view.Memberships, MembershipView{

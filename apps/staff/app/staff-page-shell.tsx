@@ -9,8 +9,14 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { LogoutButton } from "./logout-button";
 import { StaffShellWithOrganizationSwitcher } from "./organization-switcher-dialog";
 
-type SessionData = {
+export type SessionData = {
   email: string;
+  /**
+   * True when this session's email is on the platform operator allowlist
+   * (ADR 0015). It decides whether the Operator Dashboard and its nav entry
+   * render at all; the API remains the actual gate.
+   */
+  is_platform_operator: boolean;
   active_member: {
     member_id: string;
     organization_name: string;
@@ -63,6 +69,7 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
       activePath={activePath}
       showSettings={session?.active_member?.role === "org_admin"}
       showEvents={session?.active_member != null}
+      showOperator={session?.is_platform_operator === true}
       memberships={session?.memberships ?? []}
       activeMemberId={session?.active_member?.member_id}
       userMenu={<LogoutButton />}

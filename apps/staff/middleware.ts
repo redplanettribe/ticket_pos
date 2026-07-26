@@ -10,9 +10,12 @@ const publicPaths = ["/login"];
 const createOrganizationPaths = ["/organizations/new"];
 const orgPickerPaths = ["/select-organization"];
 const legacyOnboardingPaths = ["/onboarding"];
+const operatorPaths = ["/operator"];
 
 type SessionData = {
   email: string;
+  /** True when this session's email is on the platform operator allowlist. */
+  is_platform_operator?: boolean;
   active_member: { member_id: string; organization_name?: string } | null;
   memberships: Array<{ member_id: string; organization_name?: string }>;
 };
@@ -81,6 +84,20 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  // Operator authority is orthogonal to Membership (ADR 0015): an operator with
+  // no Organization must reach the dashboard without being diverted into the
+  // create-organization fork below. A non-operator is sent to the app root —
+  // the surface is invisible rather than merely forbidden.
+  if (isPathMatch(pathname, operatorPaths)) {
+    if (session.is_platform_operator) {
+      return NextResponse.next();
+    }
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = "/";
+    homeUrl.search = "";
+    return NextResponse.redirect(homeUrl);
+  }
+
   const hasActiveMember = Boolean(session.active_member);
 
   if (hasActiveMember) {
@@ -99,7 +116,11 @@ export async function middleware(request: NextRequest) {
 
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.search = "";
-  redirectUrl.pathname = resolveAuthForkRedirectPath(session);
+  // A pure operator has no Membership to fork on, so the create-organization
+  // prompt would be a dead end. Land them on the dashboard they actually have.
+  redirectUrl.pathname = session.is_platform_operator
+    ? "/operator"
+    : resolveAuthForkRedirectPath(session);
   return NextResponse.redirect(redirectUrl);
 }
 

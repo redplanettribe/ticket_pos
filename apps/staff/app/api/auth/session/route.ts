@@ -6,6 +6,8 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type SessionData = {
   email: string;
+  /** True when this session's email is on the platform operator allowlist. */
+  is_platform_operator: boolean;
   memberships: Array<{ member_id: string }>;
   active_member: { member_id: string } | null;
 };

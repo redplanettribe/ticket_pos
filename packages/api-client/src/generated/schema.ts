@@ -696,6 +696,277 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every Organization with its Withdrawable Balance
+         * @description Returns a page of every Organization on the platform — name, slug, currency, Event count across all statuses, and withdrawable_balance_cents, which is SIGNED (negative when the Organization owes the platform after a sale was reversed post-settlement). Sorted by name ascending with an id tiebreaker so equal names keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (1-based; floors at 1) */
+                    page?: number;
+                    /** @description Page size (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorOrganizationList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/organizations/{orgID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one Organization's Events and payout history
+         * @description Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email — null for Payouts entered directly in the database before the Operator Dashboard existed. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization ID */
+                    orgID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorOrganizationDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/organizations/{orgID}/payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a Payout for an Organization
+         * @description Records a settlement against an Organization — amount in cents, the calendar day the money left the bank (YYYY-MM-DD), and an optional note — stamped with the recording operator's email, and returns the created entry. The amount is NEVER refused for exceeding the Withdrawable Balance: by recording time the money has already moved, so an over-balance Payout is accepted and drives the signed balance negative (ADR 0015). A Payout has no states and cannot be edited or deleted. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization ID */
+                    orgID: string;
+                };
+                cookie?: never;
+            };
+            /** @description Payout to record */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.recordPayoutBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayout"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get platform revenue and what the platform owes
+         * @description Returns the Operator Dashboard headline: for each currency in use, the accumulated Platform Fee and Fee IVA (summed from the amounts every active Online Sale line snapshotted) and total_owed_cents — the sum of the POSITIVE Withdrawable Balances, so an Organization that owes the platform after a post-settlement reversal never reduces what the platform must keep on hand. One row per currency and no exchange rate anywhere; in practice one USD row (ADR 0015). Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePlatformSummary"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/checkout/{clientTransactionId}/confirm": {
         parameters: {
             query?: never;
@@ -2827,7 +3098,7 @@ export interface paths {
         };
         /**
          * Get the Organization's Withdrawable Balance and payout history
-         * @description Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only; Payouts are recorded by the platform operator directly in the database. Org Admin only.
+         * @description Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only from this side: a Payout is recorded by a Platform Operator on the operator surface (ADR 0015), and appears here unchanged. Org Admin only.
          */
         get: {
             parameters: {
@@ -3237,6 +3508,11 @@ export interface components {
             sold_at?: string;
             ticket_type_id?: string;
         };
+        "handler.recordPayoutBody": {
+            amount_cents?: number;
+            note?: string;
+            paid_at?: string;
+        };
         "handler.selectOrganizationBody": {
             member_id?: string;
         };
@@ -3309,6 +3585,20 @@ export interface components {
         };
         "internal_identity_openapi.MessageData": {
             message?: string;
+        };
+        "internal_operator_service.Payout": {
+            amount_cents?: number;
+            created_at?: string;
+            id?: string;
+            note?: string;
+            paid_at?: string;
+            recorded_by?: string;
+        };
+        "internal_sales_service.Payout": {
+            amount_cents?: number;
+            id?: string;
+            note?: string;
+            paid_at?: string;
         };
         "openapi.CustomerVerifyOTPData": {
             session?: components["schemas"]["service.CustomerSessionView"];
@@ -3389,8 +3679,28 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOperatorOrganizationDetail": {
+            data?: components["schemas"]["service.OrganizationDetail"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorOrganizationList": {
+            data?: components["schemas"]["service.OrganizationList"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorPayout": {
+            data?: components["schemas"]["service.OperatorPayout"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePayoutsSummary": {
             data?: components["schemas"]["service.PayoutsSummary"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopePlatformSummary": {
+            data?: components["schemas"]["service.PlatformSummary"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -3501,6 +3811,13 @@ export interface components {
             ticket_sale_id?: string;
             verified_at?: string;
         };
+        "service.Event": {
+            discoverable?: boolean;
+            id?: string;
+            name?: string;
+            starts_at?: string;
+            status?: string;
+        };
         "service.EventDetail": {
             cover_image_key?: string;
             cover_image_url?: string;
@@ -3556,15 +3873,54 @@ export interface components {
         "service.OTPRequestResult": {
             message?: string;
         };
-        "service.Payout": {
+        "service.OperatorPayout": {
             amount_cents?: number;
+            created_at?: string;
             id?: string;
             note?: string;
             paid_at?: string;
+            recorded_by?: string;
+        };
+        "service.Organization": {
+            created_at?: string;
+            currency?: string;
+            id?: string;
+            name?: string;
+            slug?: string;
+        };
+        "service.OrganizationDetail": {
+            events?: components["schemas"]["service.Event"][];
+            organization?: components["schemas"]["service.Organization"];
+            payouts?: components["schemas"]["internal_operator_service.Payout"][];
+            withdrawable_balance_cents?: number;
+        };
+        "service.OrganizationList": {
+            data?: components["schemas"]["service.OrganizationListItem"][];
+            pagination?: components["schemas"]["service.PageInfo"];
+        };
+        "service.OrganizationListItem": {
+            currency?: string;
+            /** @description EventsCount counts the Organization's Events in every status. */
+            events_count?: number;
+            id?: string;
+            name?: string;
+            slug?: string;
+            /**
+             * @description WithdrawableBalanceCents is signed: negative means the Organization owes
+             *     the platform after a sale was reversed post-settlement, and the list says
+             *     so rather than clamping it to zero.
+             */
+            withdrawable_balance_cents?: number;
+        };
+        "service.PageInfo": {
+            page?: number;
+            page_size?: number;
+            total?: number;
+            total_pages?: number;
         };
         "service.PayoutsSummary": {
             currency?: string;
-            payouts?: components["schemas"]["service.Payout"][];
+            payouts?: components["schemas"]["internal_sales_service.Payout"][];
             /**
              * @description WithdrawableBalanceCents is the Net Proceeds of the Organization's active
              *     Online Sales minus every Payout recorded against it. It is signed on
@@ -3572,6 +3928,21 @@ export interface components {
              *     owing the platform, and clamping that to zero would hide it.
              */
             withdrawable_balance_cents?: number;
+        };
+        "service.PlatformSummary": {
+            totals?: components["schemas"]["service.PlatformTotals"][];
+        };
+        "service.PlatformTotals": {
+            currency?: string;
+            fee_iva_cents?: number;
+            platform_fee_cents?: number;
+            /**
+             * @description TotalOwedCents sums only the positive Withdrawable Balances: what the
+             *     platform owes. An Organization in the red after a post-settlement reversal
+             *     owes the platform instead, and netting that off would understate the cash
+             *     that must stay on hand.
+             */
+            total_owed_cents?: number;
         };
         "service.PublicEventCard": {
             cover_image_url?: string;
@@ -3643,6 +4014,14 @@ export interface components {
         "service.SessionView": {
             active_member?: components["schemas"]["service.ActiveMemberView"];
             email?: string;
+            /**
+             * @description IsPlatformOperator says whether this session's email is on the platform
+             *     operator allowlist, so the staff app knows whether to render the Operator
+             *     Dashboard navigation. It is a hint for the UI, never the gate: the
+             *     operator middleware re-checks the allowlist on every request (ADR 0015).
+             *     It is orthogonal to Memberships — an operator may have none.
+             */
+            is_platform_operator?: boolean;
             memberships?: components["schemas"]["service.MembershipView"][];
         };
         "service.TagView": {

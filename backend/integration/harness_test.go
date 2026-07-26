@@ -174,7 +174,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE payouts, payment_lines, payments, customer_sessions, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE platform_operators, payouts, payment_lines, payments, customer_sessions, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
@@ -206,6 +206,11 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("reseed dev organization: %w", err)
 	}
+
+	// The platform operator allowlist is deliberately NOT reseeded: it starts
+	// empty so no session is an operator by accident, and the tests that need
+	// one insert their own row — which is also how operators are granted in
+	// production (ADR 0015). See seedPlatformOperator in operator_test.go.
 	return nil
 }
 
