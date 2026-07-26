@@ -159,7 +159,7 @@ Ecuadorian value-added tax (15% at launch) levied on the Platform Fee, because t
 _Avoid_: Tax, VAT on tickets, sales tax
 
 **Fee Handling**:
-A per-Event choice of who bears the Platform Fee and its Fee IVA: `pass_on` (the Customer pays them on top of the ticket price; the default) or `absorb` (the Organization pays them out of the ticket price, and the Customer sees exactly the price the Organization set). One switch — the fee and its IVA always travel together.
+A per-Event choice of whether the buyer price is raised to cover the Platform Fee and its Fee IVA: `pass_on` (the price is raised by exactly fee + Fee IVA, so the Organization nets the price it set; the default) or `absorb` (the price stays as the Organization set it, so the Organization nets that price less fee and Fee IVA). It never changes who is charged — the fee is withheld from the Organization either way. One switch: the fee and its IVA always travel together. A change takes effect on future checkouts only; a Payment already in flight keeps the amounts it snapshotted.
 _Avoid_: Fee mode, pricing mode, pass-through flag
 
 **Net Proceeds**:
@@ -171,7 +171,7 @@ A recorded settlement in which the platform transfers accumulated Net Proceeds t
 _Avoid_: Withdrawal, transfer, disbursement, settlement run
 
 **Withdrawable Balance**:
-The money an Organization can currently be paid: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what can be withdrawn."
+The money an Organization can currently be paid: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. Signed, not clamped — a sale reversed after it was paid out leaves the Organization owing the platform, and the figure says so. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what can be withdrawn."
 _Avoid_: Available funds, wallet, account balance
 
 **External Platform**:

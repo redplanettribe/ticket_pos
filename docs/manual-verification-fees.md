@@ -76,6 +76,7 @@ sees the strip and that the platform's cut is nowhere on the surface.
    proceeds** does not move — the platform never held that cash
 4. Sign in as an Event Staff member of the same Organization and open the same tab: the Sales list
    renders exactly as before, with **no strip above it** and no import section below it
+
 ## 6. Payouts: Withdrawable Balance and history
 
 The balance arithmetic is pinned by `backend/integration/payouts_test.go`; what this checks is
@@ -92,3 +93,20 @@ that an Org Admin — and only an Org Admin — finds the figure where they expe
    date and note. There is no button to create one — that is the point
 4. Sign in as an Event Staff member: **Settings** refuses them entirely, so the Payouts card is
    out of reach along with the rest of it
+
+## 7. The rates are configuration, and changing them does not rewrite history
+
+The rates are ops knobs, not code (`PLATFORM_FEE_BASIS_POINTS`, `PLATFORM_FEE_IVA_BASIS_POINTS`,
+in basis points — 1000 = 10%), and every sale line snapshots the rates it was charged under, so an
+IVA reform moves future prices only (ADR 0014). Worth one pass whenever a rate is about to change
+for real:
+
+1. Set `PLATFORM_FEE_IVA_BASIS_POINTS=1200` in `.env` and restart the stack
+2. The seeded `pass_on` ticket now quotes **$38.92** (3500¢ + 350¢ + 42¢) on the Storefront, and
+   the ticket-type form's derived line follows it — both sides read the same configuration
+3. The Net Proceeds strip and the Withdrawable Balance are **unchanged** by the restart: they sum
+   the snapshots the earlier sales froze, not the rates in force now
+4. Set a malformed rate (`PLATFORM_FEE_BASIS_POINTS=abc`, or a value above 10000) and restart: the
+   API **refuses to boot** and names the variable. A typo must stop the deploy, not mis-bill
+   quietly. Restore `1000` / `1500` (or blank both — an unset variable takes the launch rate) and
+   restart before moving on

@@ -64,6 +64,7 @@ graph TB
 | Integration auth | API keys or OAuth2 client credentials on Go API (separate from staff sessions) |
 | Customer auth | Platform-global Customer, created for the person rather than by them; email OTP, Google Sign-In (ADR 0011), or a signed Confirmation Link → Postgres Customer Session → httpOnly cookie; Storefront is a BFF. Separate from staff identity (ADR 0010) |
 | Payments | Provider-agnostic `PaymentProvider` boundary in `platform/`; PayPhone (redirect flow) is the launch provider, a stub serves when credentials are absent (ADR 0012, ADR 0013) |
+| Platform Fee | Withheld from the Organization on Online Sales, never charged to the Customer; per-Event Fee Handling moves the buyer price only; rates in platform configuration, amounts snapshotted per sale line (ADR 0014) |
 | Email (OTP) | Pluggable `EmailSender`; dummy provider logs codes to terminal in dev |
 | Capacity accounting | Atomic decrement in Postgres transactions; row locks for multi-type sales |
 | Sale Import | `.csv`/`.xlsx` upload parsed server-side; synchronous; all-or-nothing per batch; `direct` source first |
@@ -607,6 +608,68 @@ automatically refunded Customer and a lost sale, money-safe by construction. A r
 **Refunds are out of scope** (ADR 0012): reversal of a completed Online Sale is manual on the
 provider's dashboard — every Payment stores the provider transaction id for cross-referencing —
 and the boundary reserves `Reverse` so a future flow needs no interface change.
+
+### The money model: Platform Fee, Net Proceeds, Payouts
+
+The platform withholds a **Platform Fee** (10% at launch) from the Organization on every Online
+Sale, plus the **Fee IVA** (15%) levied on that fee — the fee is the platform's taxable service,
+the tickets are not. The fee is **never charged to the Customer**
+([ADR 0014](./adr/0014-platform-fee-charged-to-organization.md)); the per-Event **Fee Handling**
+switch (`pass_on`, the default, or `absorb`, migration 021) only decides whether the buyer price is
+raised to cover it.
+
+**Fee math** lives in exactly one place per runtime: `sales.FeeRates`
+(`backend/internal/sales/fees.go`), mirrored for the staff forms' derived lines by
+`apps/staff/lib/fees.ts` and held to the same rounding table. It is per-unit, in integer cents,
+rounded half-up, with the Fee IVA taken on the **already-rounded** fee:
+
+```text
+fee      = round_half_up(base × fee_rate)
+fee_iva  = round_half_up(fee  × iva_rate)
+buyer unit price = base + fee + fee_iva   (pass_on)   |   base   (absorb)
+net proceeds     = buyer unit price − fee − fee_iva
+```
+
+Per-unit is the load-bearing part: every displayed price, line total, charged amount, and reported
+figure is a sum of the same unit values in a different order, so they cannot drift by a penny. A
+comp line (base 0) yields fee 0.
+
+**Rates are configuration**, not code: `PLATFORM_FEE_BASIS_POINTS` / `PLATFORM_FEE_IVA_BASIS_POINTS`
+(basis points, defaulting to the launch 10% / 15%) reach the API as `platform.Config.Fees` and are
+injected into the catalog and sales services as `sales.FeeRates`. An out-of-range or malformed value
+is a **startup refusal**, never a silent fallback. Neither variable is set in production, which runs
+on the launch defaults; an IVA reform is therefore an ops action (add the variable to the API
+service) rather than a deploy of new code.
+
+**Per-line snapshots** are what keep a rate change from rewriting history. Checkout begin reads the
+Event's Fee Handling once and freezes `base_price_cents`, `fee_cents`, `fee_iva_cents` and the two
+rates used onto the `payment_lines`; confirm copies them verbatim onto `ticket_sale_lines`
+(migration 022). A Fee Handling flip or a rate change while a Payment is pending moves nothing about
+that Payment. `unit_price_cents` keeps its meaning on both tables — what the Customer paid per unit
+— so Sales-list rows, the Customer Area, and the Sale Confirmation email need no arithmetic, and
+`amount_cents` stays the gross charged. Only Online Sales carry a fee; in-person and imported lines
+record their base price with fee 0 (the columns' default), so no Organization is ever billed for
+cash the platform never held.
+
+**Net Proceeds** is read off those snapshots and never recomputed from current rates:
+`quantity × (unit_price_cents − fee_cents − fee_iva_cents)` summed over the lines of `active` sales
+with `channel = 'online'`. The same expression serves both surfaces —
+`GET /api/v1/staff/events/{id}/sales/summary` (the Sales tab stat strip; Org Admins and Event Owners
+only, Event Staff are refused the route) and `GET /api/v1/staff/organization/payouts` (Org Admin
+only). Neither branches on Fee Handling, because `unit_price_cents` already absorbs the difference.
+The platform's cut is never returned as a number: the payloads carry the net figure and nothing to
+subtract it from.
+
+**Payouts** (`payouts`, migration 023) are bare operator-recorded facts — Organization, amount,
+paid-at DATE, optional note — with no states, no approvals and no create endpoint: the platform
+operator inserts a row after settling off-platform. The **Withdrawable Balance** is Σ Net Proceeds
+across the Organization's active Online Sales − Σ Payouts, and is **signed**: a sale reversed after
+it was paid out shows negative rather than clamping to zero.
+
+The **PayPhone request shape is unchanged** by all of this, in both modes: the whole charge rides in
+`amountWithoutTax` with no tax fields populated. That is the point of charging the Organization
+rather than the Customer (ADR 0014) — the payment integration carries no per-mode fiscal branching,
+and the fee model stops at the provider boundary.
 
 ## Sale Import
 
