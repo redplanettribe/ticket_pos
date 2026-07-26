@@ -42,6 +42,16 @@ export type SalesListResponse = {
   pagination: SalesPagination;
 };
 
+// EventSalesSummary is the Sales tab stat strip: what this Event's active
+// Online Sales have left the Organization after platform costs (already net —
+// the platform's cut is never a number on this surface, ADR 0014), and how many
+// active Ticket Sales the Event has made across every channel.
+export type EventSalesSummary = {
+  net_proceeds_cents: number;
+  currency: string;
+  sales_count: number;
+};
+
 export const SALES_PAGE_SIZE = 50;
 
 // SaleSortField is an allowlisted Sales list sort column; SaleSortDir a direction.
@@ -173,6 +183,12 @@ export async function fetchSalesList(
   appendSalesFilters(params, filters);
   appendSalesSort(params, sort, dir);
   return fetchEventsJSON<SalesListResponse>(`/api/events/${eventId}/sales?${params.toString()}`);
+}
+
+// fetchSalesSummary proxies the Event's sales summary via the BFF. The endpoint
+// is Org-Admin/Event-Owner only, so Event Staff never reach this call.
+export async function fetchSalesSummary(eventId: string): Promise<EventSalesSummary> {
+  return fetchEventsJSON<EventSalesSummary>(`/api/events/${eventId}/sales/summary`);
 }
 
 // rollupTicketTypes renders a sale's Ticket Types as "2× GA, 1× VIP".

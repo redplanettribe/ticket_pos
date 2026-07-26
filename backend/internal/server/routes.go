@@ -117,6 +117,16 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 		)
 	}
 
+	// eventOwnerOrAdmin gates the Organization's financial surfaces to the
+	// Members entrusted with them; Event Staff are refused.
+	eventOwnerOrAdmin := func(handler http.Handler) http.Handler {
+		return identitymiddleware.SessionAuth(svc)(
+			identitymiddleware.LoadActiveMember(svc)(
+				identitymiddleware.RequireEventOwnerOrAdmin(handler),
+			),
+		)
+	}
+
 	// canManageEventSales gates Sale Import (and future selling) actions. Today
 	// this resolves to Org Admin; when Event assignments land (V7), widen this one
 	// definition to also admit Event Owner and assigned Event Staff — callers need
@@ -159,6 +169,9 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// The Sales list is readable by any Member of the Event (Org Admin, Event
 	// Owner, Event Staff), unlike the owner-only Sale Import tool above.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales", member(http.HandlerFunc(sh.ListSales)))
+	// The Event's money, though, is not for hired door staff: the Net Proceeds
+	// strip above that list is Org Admin and Event Owner only.
+	mux.Handle("GET /api/v1/staff/events/{id}/sales/summary", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesSummary)))
 
 	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
 	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))

@@ -11,6 +11,7 @@ import { loadSession } from "../../../staff-page-shell";
 import { ImportSalesSection } from "../import-sales-section";
 import { SalesList, type TicketTypeOption } from "../sales-list";
 import { SalesRefreshProvider } from "../sales-refresh";
+import { SalesSummaryStrip } from "../sales-summary-strip";
 
 type SalesSearchParams = {
   page?: string;
@@ -88,8 +89,10 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
   const role = session?.active_member?.role;
 
   // The Sales list is visible to every Member of the Event (Org Admin, Event
-  // Owner, Event Staff). The Sale Import tool and Import history remain owner-only.
-  const canManageImports = role === "org_admin" || role === "event_owner";
+  // Owner, Event Staff). The Net Proceeds strip above it and the Sale Import tool
+  // below it are for the owner: hired door staff see neither the Event's earnings
+  // (the API refuses them the summary too) nor the import controls.
+  const isOwner = role === "org_admin" || role === "event_owner";
 
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
@@ -99,9 +102,10 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
 
   return (
     // SalesRefreshProvider lets the owner-only import section signal the Sales
-    // list to re-fetch its current view after a successful commit/undo.
+    // list and the stat strip to re-read after a successful commit/undo.
     <SalesRefreshProvider>
       <div className="space-y-6">
+        {isOwner ? <SalesSummaryStrip eventId={id} /> : null}
         <SalesList
           eventId={id}
           page={parsePage(resolvedSearchParams.page)}
@@ -111,7 +115,7 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
           dir={parseSaleDir(resolvedSearchParams.dir)}
           timezone={timezone}
         />
-        {canManageImports ? <ImportSalesSection eventId={id} /> : null}
+        {isOwner ? <ImportSalesSection eventId={id} /> : null}
       </div>
     </SalesRefreshProvider>
   );

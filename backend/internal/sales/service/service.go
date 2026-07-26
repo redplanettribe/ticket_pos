@@ -398,6 +398,41 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 	}, nil
 }
 
+// SalesSummary is the Sales tab's stat strip: what the Event has left the
+// Organization after the platform's withholding, and how many active Ticket
+// Sales it has made. The Platform Fee and its Fee IVA are deliberately absent —
+// the figure is already net, and the platform's cut is never displayed as a
+// number (ADR 0014).
+type SalesSummary struct {
+	NetProceedsCents int    `json:"net_proceeds_cents"`
+	Currency         string `json:"currency"`
+	SalesCount       int    `json:"sales_count"`
+}
+
+// EventSalesSummary returns the Event's Net Proceeds and active sales count.
+// It is read-only and scoped to the acting Member's Organization; the caller's
+// role is gated at the route (Org Admin and Event Owner only — Event Staff see
+// the Sales list without this strip).
+func (s *Service) EventSalesSummary(ctx context.Context, actor ActorContext, eventID string) (*SalesSummary, error) {
+	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sales.ErrEventNotFound()
+	}
+
+	row, err := s.repo.SalesSummary(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	return &SalesSummary{
+		NetProceedsCents: row.NetProceedsCents,
+		Currency:         event.Currency,
+		SalesCount:       row.SalesCount,
+	}, nil
+}
+
 // totalPages is the number of pages a total spans at the given page size (0 when
 // there are no matches).
 func totalPages(total, pageSize int) int {
