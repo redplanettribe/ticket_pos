@@ -2824,6 +2824,39 @@ paths:
       summary: List memberships
       tags:
       - staff
+  /api/v1/staff/organization/payouts:
+    get:
+      description: 'Returns the acting Member''s Organization''s Withdrawable Balance
+        — the Net Proceeds of its active Online Sales (each line''s unit price minus
+        the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout
+        — in the Organization currency, plus the payout history newest first. The
+        balance is signed: a sale reversed after a settlement makes it negative, and
+        that is shown as-is. Read-only; Payouts are recorded by the platform operator
+        directly in the database. Org Admin only.'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Get the Organization's Withdrawable Balance and payout history
+      tags:
+      - staff
   /api/v1/staff/organizations:
     post:
       description: Creates an organization, org_admin member, and sets the session

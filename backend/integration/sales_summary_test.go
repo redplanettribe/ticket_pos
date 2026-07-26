@@ -41,8 +41,9 @@ func salesSummaryOK(t *testing.T, env *testEnv, sessionID, eventID string) sales
 }
 
 // reverseSale marks a Ticket Sale reversed directly. Online Sales have no
-// reversal endpoint yet (only Sale Import batches can be undone), so the state
-// a refund would leave behind is staged in SQL.
+// reversal endpoint yet (ADR 0012 — only Sale Import batches can be undone), so
+// the state a refund would leave behind is staged in SQL. Both the Net Proceeds
+// summary and the Withdrawable Balance must already respect that status.
 func reverseSale(t *testing.T, env *testEnv, confirmationRef string) {
 	t.Helper()
 	res, err := env.db.Exec(`UPDATE ticket_sales SET status = 'reversed' WHERE confirmation_ref = $1`, confirmationRef)
