@@ -59,6 +59,17 @@ _Avoid_: API client, developer, third-party app
 An authorization granting an Integration Partner org-wide access to an Organization's Events, catalog, and sales.
 _Avoid_: API key, connection, webhook
 
+**Platform Operator**:
+A person who runs the platform itself, with read authority spanning every Organization and the authority to record Payouts.
+Granted by presence on the operator allowlist, keyed by email; exercised through an ordinary Staff Session.
+Orthogonal to Membership — a Platform Operator need not be a Member of any Organization, and being an Org Admin grants no operator authority.
+_Avoid_: Platform admin, super admin, site admin, root
+
+**Operator Dashboard**:
+The Platform Operator's surface inside the staff app: every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, and where Payouts are recorded.
+Does not exist for non-operators.
+_Avoid_: Admin panel, back office, console
+
 ## Catalog
 
 **Event**:
@@ -167,7 +178,7 @@ What an Online Sale leaves for the Organization once the Platform Fee and Fee IV
 _Avoid_: Net revenue, earnings, take-home
 
 **Payout**:
-A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. Recording is a platform-operator action; Organizations do not yet request Payouts themselves.
+A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it; Organizations do not yet request Payouts themselves. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
 _Avoid_: Withdrawal, transfer, disbursement, settlement run
 
 **Withdrawable Balance**:
