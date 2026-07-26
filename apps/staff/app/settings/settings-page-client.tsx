@@ -26,7 +26,7 @@ import {
   Input,
 } from "@ticket-pos/ui";
 
-import { SUPPORTED_CURRENCIES } from "@/lib/events-api";
+import { SUPPORTED_CURRENCIES, formatPriceCents } from "@/lib/events-api";
 
 import { OrgLogoImage } from "./org-logo-image";
 
@@ -50,6 +50,20 @@ type Event = {
   id: string;
   name: string;
   slug: string;
+};
+
+type Payout = {
+  id: string;
+  amount_cents: number;
+  /** A calendar day ("YYYY-MM-DD"), not an instant. */
+  paid_at: string;
+  note: string | null;
+};
+
+type PayoutsSummary = {
+  withdrawable_balance_cents: number;
+  currency: string;
+  payouts: Payout[];
 };
 
 type Assignment = {
@@ -79,6 +93,19 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return envelope.data;
 }
 
+/**
+ * Renders a payout's paid-at day as the calendar date it is. Parsing
+ * "YYYY-MM-DD" with the Date constructor would read it as UTC midnight and show
+ * the previous day west of Greenwich, which is where this platform sells.
+ */
+function formatPayoutDate(paidAt: string): string {
+  const [year, month, day] = paidAt.split("-").map(Number);
+  if (!year || !month || !day) {
+    return paidAt;
+  }
+  return new Date(year, month - 1, day).toLocaleDateString();
+}
+
 const memberRoleLabel: Record<string, string> = {
   org_admin: "Org Admin",
   event_owner: "Event Owner",
@@ -90,6 +117,7 @@ export function SettingsPageClient() {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [payouts, setPayouts] = useState<PayoutsSummary | null>(null);
   const [assignmentsByEvent, setAssignmentsByEvent] = useState<Record<string, Assignment[]>>({});
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,12 +144,14 @@ export function SettingsPageClient() {
     setLoading(true);
     setError(null);
     try {
-      const [org, memberList, eventList] = await Promise.all([
+      const [org, memberList, eventList, payoutsSummary] = await Promise.all([
         fetchJSON<Organization>("/api/settings/organization"),
         fetchJSON<Member[]>("/api/settings/members"),
         fetchJSON<Event[]>("/api/settings/events"),
+        fetchJSON<PayoutsSummary>("/api/settings/organization/payouts"),
       ]);
       setOrganization(org);
+      setPayouts(payoutsSummary);
       setProfileName(org.name);
       setProfileCurrency(org.currency);
       setCurrencyLocked(org.currency_locked);
@@ -355,6 +385,51 @@ export function SettingsPageClient() {
         logoUrl={organization.logo_url}
         onUpdated={(logoUrl) => setOrganization((current) => (current ? { ...current, logo_url: logoUrl } : current))}
       />
+
+      {payouts ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Payouts</CardTitle>
+            <CardDescription>
+              What your online sales have earned, less what has already been paid out to you.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <p className="text-sm text-muted-foreground">Withdrawable balance</p>
+              <p className="text-3xl font-semibold tabular-nums">
+                {formatPriceCents(payouts.withdrawable_balance_cents, payouts.currency)}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Payout history</p>
+              {payouts.payouts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No payouts recorded yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {payouts.payouts.map((payout) => (
+                    <div
+                      key={payout.id}
+                      className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="font-medium tabular-nums">
+                          {formatPriceCents(payout.amount_cents, payouts.currency)}
+                        </p>
+                        {payout.note ? (
+                          <p className="text-sm text-muted-foreground">{payout.note}</p>
+                        ) : null}
+                      </div>
+                      <p className="text-sm text-muted-foreground">{formatPayoutDate(payout.paid_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

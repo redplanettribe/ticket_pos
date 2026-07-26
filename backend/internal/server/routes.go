@@ -127,6 +127,11 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("PATCH /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.UpdateOrganization)))
 	mux.Handle("DELETE /api/v1/staff/organization", orgAdmin(http.HandlerFunc(h.DeleteOrganization)))
 	mux.Handle("POST /api/v1/staff/organization/logo-upload-url", orgAdmin(http.HandlerFunc(h.CreateLogoUploadURL)))
+	// The Organization's money: Withdrawable Balance and payout history. It lives
+	// on the sales handler because the balance is a sum over Ticket Sale Lines,
+	// and it is Org-Admin-only because the Organization's finances are not hired
+	// staff's business (ADR 0014).
+	mux.Handle("GET /api/v1/staff/organization/payouts", orgAdmin(http.HandlerFunc(sh.GetOrganizationPayouts)))
 
 	mux.Handle("GET /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.ListMembers)))
 	mux.Handle("POST /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.AddMember)))

@@ -2740,6 +2740,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/organization/payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the Organization's Withdrawable Balance and payout history
+         * @description Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only; Payouts are recorded by the platform operator directly in the database. Org Admin only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/organizations": {
         parameters: {
             query?: never;

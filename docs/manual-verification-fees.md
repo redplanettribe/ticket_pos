@@ -62,3 +62,20 @@ In the Staff ticket-type form, type `3500` as the price:
 
 If either of those disagrees with the Storefront by a cent, the two implementations of the
 arithmetic (`backend/internal/sales/fees.go` and `apps/staff/lib/fees.ts`) have drifted.
+
+## Payouts: Withdrawable Balance and history
+
+The balance arithmetic is pinned by `backend/integration/payouts_test.go`; what this checks is
+that an Org Admin — and only an Org Admin — finds the figure where they expect it.
+
+1. Staff → **Settings** → the **Payouts** card sits under the organization logo: a Withdrawable
+   Balance headline in the organization currency and a payout history under it, reading
+   "No payouts recorded yet." on a fresh organization
+2. After the pass-on purchase above, the balance reads **$35.00** — the Net Proceeds, not the
+   $39.03 the Customer paid. The platform's cut is never displayed as a number
+3. Record a Payout the way the platform operator does, straight into the database:
+   `INSERT INTO payouts (organization_id, amount_cents, paid_at, note) SELECT id, 2000, '2026-07-01', 'test settlement' FROM organizations WHERE slug = 'demo-venue';`
+   Reload Settings: the balance drops to **$15.00** and the history lists the payout with its
+   date and note. There is no button to create one — that is the point
+4. Sign in as an Event Staff member: **Settings** refuses them entirely, so the Payouts card is
+   out of reach along with the rest of it
