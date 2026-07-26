@@ -15,8 +15,35 @@ func RegisterRoutes(mux *http.ServeMux, app *App) {
 
 	registerAuthRoutes(mux, app)
 	registerStaffRoutes(mux, app)
+	registerOperatorRoutes(mux, app)
 	registerPublicRoutes(mux, app)
 	registerCustomerRoutes(mux, app)
+}
+
+// registerOperatorRoutes wires the Platform Operator's namespace.
+//
+// It is a fourth namespace beside staff, customer, and public, and its gate is
+// unlike any of theirs: a valid Staff Session whose email is on the platform
+// operator allowlist, and nothing else. There is deliberately no
+// LoadActiveMember in the chain — operator authority is orthogonal to
+// Membership, so an operator who belongs to no Organization is served, and an
+// Org Admin who is not on the allowlist is refused (ADR 0015).
+func registerOperatorRoutes(mux *http.ServeMux, app *App) {
+	h := app.OperatorHandler
+	svc := app.IdentityService
+
+	operator := func(handler http.Handler) http.Handler {
+		return identitymiddleware.SessionAuth(svc)(
+			identitymiddleware.RequirePlatformOperator(svc)(handler),
+		)
+	}
+
+	mux.Handle("GET /api/v1/operator/summary", operator(http.HandlerFunc(h.GetSummary)))
+	mux.Handle("GET /api/v1/operator/organizations", operator(http.HandlerFunc(h.ListOrganizations)))
+	mux.Handle("GET /api/v1/operator/organizations/{orgID}", operator(http.HandlerFunc(h.GetOrganization)))
+	// The operator surface's only write: recording a Payout, which used to mean
+	// an INSERT typed by hand into the production database (ADR 0015).
+	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

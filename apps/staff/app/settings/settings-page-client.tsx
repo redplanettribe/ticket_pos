@@ -27,6 +27,7 @@ import {
 } from "@ticket-pos/ui";
 
 import { SUPPORTED_CURRENCIES, formatPriceCents } from "@/lib/events-api";
+import { formatPaidAtDate } from "@/lib/payouts";
 
 import { OrgLogoImage } from "./org-logo-image";
 
@@ -91,19 +92,6 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error("Empty response");
   }
   return envelope.data;
-}
-
-/**
- * Renders a payout's paid-at day as the calendar date it is. Parsing
- * "YYYY-MM-DD" with the Date constructor would read it as UTC midnight and show
- * the previous day west of Greenwich, which is where this platform sells.
- */
-function formatPayoutDate(paidAt: string): string {
-  const [year, month, day] = paidAt.split("-").map(Number);
-  if (!year || !month || !day) {
-    return paidAt;
-  }
-  return new Date(year, month - 1, day).toLocaleDateString();
 }
 
 const memberRoleLabel: Record<string, string> = {
@@ -421,7 +409,7 @@ export function SettingsPageClient() {
                           <p className="text-sm text-muted-foreground">{payout.note}</p>
                         ) : null}
                       </div>
-                      <p className="text-sm text-muted-foreground">{formatPayoutDate(payout.paid_at)}</p>
+                      <p className="text-sm text-muted-foreground">{formatPaidAtDate(payout.paid_at)}</p>
                     </div>
                   ))}
                 </div>

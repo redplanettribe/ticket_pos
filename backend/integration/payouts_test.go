@@ -10,9 +10,11 @@ import (
 // Net Proceeds of its active Online Sales minus every recorded Payout — and the
 // payout history beneath it (ADR 0014).
 //
-// Payouts are recorded by the platform operator directly in the database, so
-// these tests record them the same way: there is no endpoint to create one, and
-// there is deliberately not going to be.
+// The Organization never records a Payout: it only reads its own. Recording is
+// the Platform Operator's write, on the operator surface (issue #95, ADR 0015),
+// and operator_test.go covers it end to end — including that a Payout recorded
+// there shows up here unchanged. These tests stage their fixtures with the same
+// direct database write an operator used before that surface existed.
 
 type payoutEntry struct {
 	ID          string  `json:"id"`

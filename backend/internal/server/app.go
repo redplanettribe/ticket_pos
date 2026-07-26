@@ -21,6 +21,8 @@ import (
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
+	operatorhandler "github.com/peter/ticket_pos/backend/internal/operator/handler"
+	operatorsvc "github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/googleauth"
 	"github.com/peter/ticket_pos/backend/internal/platform/migrate"
@@ -51,6 +53,10 @@ type App struct {
 	CustomersRepo    *customersrepo.Repository
 	CustomersService *customerssvc.Service
 	CustomersHandler *customershandler.Handler
+	// The operator surface owns no repository: it composes the three modules
+	// that own the data it shows (ADR 0015).
+	OperatorService *operatorsvc.Service
+	OperatorHandler *operatorhandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -203,6 +209,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	salesHandler := saleshandler.New(salesService)
 
+	// The Operator Dashboard is composed from the modules that own its data:
+	// identity for Organizations, catalog for Events, sales for money. It is
+	// wired last because it depends on all three and none of them on it.
+	operatorService := operatorsvc.New(identityService, catalogService, salesService)
+	operatorHandler := operatorhandler.New(operatorService)
+
 	return &App{
 		Config:           cfg,
 		Logger:           logger,
@@ -221,6 +233,8 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		CustomersRepo:    customersRepo,
 		CustomersService: customersService,
 		CustomersHandler: customersHandler,
+		OperatorService:  operatorService,
+		OperatorHandler:  operatorHandler,
 	}, nil
 }
 

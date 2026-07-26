@@ -139,6 +139,38 @@ func RequireEventOwnerOrAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// RequirePlatformOperator blocks a request unless the Staff Session's email is
+// on the platform operator allowlist (ADR 0015).
+//
+// It is deliberately not composed with LoadActiveMember: operator authority is
+// orthogonal to Membership, so a session with no Active Member — and no
+// Membership anywhere — passes on the strength of its email alone, and an Org
+// Admin's role grants nothing here. Because the allowlist is read per request,
+// revoking an operator takes effect on their next call rather than at their next
+// sign-in.
+func RequirePlatformOperator(svc *service.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqID := platform.RequestID(r.Context())
+			session, ok := SessionFromContext(r.Context())
+			if !ok {
+				_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+				return
+			}
+			isOperator, err := svc.IsPlatformOperator(r.Context(), session.Email)
+			if err != nil {
+				_ = platform.WriteDomainError(w, reqID, err)
+				return
+			}
+			if !isOperator {
+				_ = platform.WriteDomainError(w, reqID, identity.ErrForbidden())
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RequireActiveMember blocks staff workflow routes when no organization is selected.
 func RequireActiveMember(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

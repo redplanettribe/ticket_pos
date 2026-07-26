@@ -10,7 +10,7 @@ import (
 // Withdrawable Balance and its payout history.
 //
 // @Summary      Get the Organization's Withdrawable Balance and payout history
-// @Description  Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only; Payouts are recorded by the platform operator directly in the database. Org Admin only.
+// @Description  Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only from this side: a Payout is recorded by a Platform Operator on the operator surface (ADR 0015), and appears here unchanged. Org Admin only.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth

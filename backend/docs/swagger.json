@@ -159,6 +159,20 @@
                 },
                 "type": "object"
             },
+            "handler.recordPayoutBody": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "paid_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.selectOrganizationBody": {
                 "properties": {
                     "member_id": {
@@ -350,6 +364,46 @@
             "internal_identity_openapi.MessageData": {
                 "properties": {
                     "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "internal_operator_service.Payout": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "paid_at": {
+                        "type": "string"
+                    },
+                    "recorded_by": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "internal_sales_service.Payout": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "paid_at": {
                         "type": "string"
                     }
                 },
@@ -584,10 +638,66 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOperatorOrganizationDetail": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OrganizationDetail"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorOrganizationList": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OrganizationList"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorPayout": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OperatorPayout"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePayoutsSummary": {
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.PayoutsSummary"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopePlatformSummary": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PlatformSummary"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -898,6 +1008,26 @@
                 },
                 "type": "object"
             },
+            "service.Event": {
+                "properties": {
+                    "discoverable": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.EventDetail": {
                 "properties": {
                     "cover_image_key": {
@@ -1041,10 +1171,13 @@
                 },
                 "type": "object"
             },
-            "service.Payout": {
+            "service.OperatorPayout": {
                 "properties": {
                     "amount_cents": {
                         "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
                     },
                     "id": {
                         "type": "string"
@@ -1054,6 +1187,111 @@
                     },
                     "paid_at": {
                         "type": "string"
+                    },
+                    "recorded_by": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.Organization": {
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationDetail": {
+                "properties": {
+                    "events": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.Event"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/service.Organization"
+                    },
+                    "payouts": {
+                        "items": {
+                            "$ref": "#/components/schemas/internal_operator_service.Payout"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "withdrawable_balance_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.OrganizationListItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.PageInfo"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OrganizationListItem": {
+                "properties": {
+                    "currency": {
+                        "type": "string"
+                    },
+                    "events_count": {
+                        "description": "EventsCount counts the Organization's Events in every status.",
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "withdrawable_balance_cents": {
+                        "description": "WithdrawableBalanceCents is signed: negative means the Organization owes\nthe platform after a sale was reversed post-settlement, and the list says\nso rather than clamping it to zero.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PageInfo": {
+                "properties": {
+                    "page": {
+                        "type": "integer"
+                    },
+                    "page_size": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "total_pages": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -1065,13 +1303,43 @@
                     },
                     "payouts": {
                         "items": {
-                            "$ref": "#/components/schemas/service.Payout"
+                            "$ref": "#/components/schemas/internal_sales_service.Payout"
                         },
                         "type": "array",
                         "uniqueItems": false
                     },
                     "withdrawable_balance_cents": {
                         "description": "WithdrawableBalanceCents is the Net Proceeds of the Organization's active\nOnline Sales minus every Payout recorded against it. It is signed on\npurpose: a sale reversed after it was paid out leaves the Organization\nowing the platform, and clamping that to zero would hide it.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformSummary": {
+                "properties": {
+                    "totals": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.PlatformTotals"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.PlatformTotals": {
+                "properties": {
+                    "currency": {
+                        "type": "string"
+                    },
+                    "fee_iva_cents": {
+                        "type": "integer"
+                    },
+                    "platform_fee_cents": {
+                        "type": "integer"
+                    },
+                    "total_owed_cents": {
+                        "description": "TotalOwedCents sums only the positive Withdrawable Balances: what the\nplatform owes. An Organization in the red after a post-settlement reversal\nowes the platform instead, and netting that off would understate the cash\nthat must stay on hand.",
                         "type": "integer"
                     }
                 },
@@ -1279,6 +1547,10 @@
                     },
                     "email": {
                         "type": "string"
+                    },
+                    "is_platform_operator": {
+                        "description": "IsPlatformOperator says whether this session's email is on the platform\noperator allowlist, so the staff app knows whether to render the Operator\nDashboard navigation. It is a hint for the UI, never the gate: the\noperator middleware re-checks the allowlist on every request (ADR 0015).\nIt is orthogonal to Memberships — an operator may have none.",
+                        "type": "boolean"
                     },
                     "memberships": {
                         "items": {
@@ -2047,6 +2319,280 @@
                 "summary": "List the Customer's Ticket Sales",
                 "tags": [
                     "customer"
+                ]
+            }
+        },
+        "/api/v1/operator/organizations": {
+            "get": {
+                "description": "Returns a page of every Organization on the platform — name, slug, currency, Event count across all statuses, and withdrawable_balance_cents, which is SIGNED (negative when the Organization owes the platform after a sale was reversed post-settlement). Sorted by name ascending with an id tiebreaker so equal names keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Page number (1-based; floors at 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Page size (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorOrganizationList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List every Organization with its Withdrawable Balance",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/organizations/{orgID}": {
+            "get": {
+                "description": "Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email — null for Payouts entered directly in the database before the Operator Dashboard existed. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "in": "path",
+                        "name": "orgID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorOrganizationDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get one Organization's Events and payout history",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/organizations/{orgID}/payouts": {
+            "post": {
+                "description": "Records a settlement against an Organization — amount in cents, the calendar day the money left the bank (YYYY-MM-DD), and an optional note — stamped with the recording operator's email, and returns the created entry. The amount is NEVER refused for exceeding the Withdrawable Balance: by recording time the money has already moved, so an over-balance Payout is accepted and drives the signed balance negative (ADR 0015). A Payout has no states and cannot be edited or deleted. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Organization ID",
+                        "in": "path",
+                        "name": "orgID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.recordPayoutBody",
+                                        "summary": "body",
+                                        "description": "Payout to record"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Payout to record",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorPayout"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record a Payout for an Organization",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/summary": {
+            "get": {
+                "description": "Returns the Operator Dashboard headline: for each currency in use, the accumulated Platform Fee and Fee IVA (summed from the amounts every active Online Sale line snapshotted) and total_owed_cents — the sum of the POSITIVE Withdrawable Balances, so an Organization that owes the platform after a post-settlement reversal never reduces what the platform must keep on hand. One row per currency and no exchange rate anywhere; in practice one USD row (ADR 0015). Platform Operator only.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePlatformSummary"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get platform revenue and what the platform owes",
+                "tags": [
+                    "operator"
                 ]
             }
         },
@@ -4491,7 +5037,7 @@
         },
         "/api/v1/staff/organization/payouts": {
             "get": {
-                "description": "Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only; Payouts are recorded by the platform operator directly in the database. Org Admin only.",
+                "description": "Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only from this side: a Payout is recorded by a Platform Operator on the operator surface (ADR 0015), and appears here unchanged. Org Admin only.",
                 "responses": {
                     "200": {
                         "content": {
