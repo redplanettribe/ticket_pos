@@ -14,7 +14,7 @@ import (
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {object}  platform.Envelope
+// @Success      200  {object}  openapi.EnvelopePayoutsSummary
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Router       /api/v1/staff/organization/payouts [get]

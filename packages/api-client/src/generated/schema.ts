@@ -2844,7 +2844,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutsSummary"];
                     };
                 };
                 /** @description Unauthorized */
@@ -3389,6 +3389,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopePayoutsSummary": {
+            data?: components["schemas"]["service.PayoutsSummary"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePublicEventDetail": {
             data?: components["schemas"]["service.PublicEventDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -3550,6 +3555,23 @@ export interface components {
         };
         "service.OTPRequestResult": {
             message?: string;
+        };
+        "service.Payout": {
+            amount_cents?: number;
+            id?: string;
+            note?: string;
+            paid_at?: string;
+        };
+        "service.PayoutsSummary": {
+            currency?: string;
+            payouts?: components["schemas"]["service.Payout"][];
+            /**
+             * @description WithdrawableBalanceCents is the Net Proceeds of the Organization's active
+             *     Online Sales minus every Payout recorded against it. It is signed on
+             *     purpose: a sale reversed after it was paid out leaves the Organization
+             *     owing the platform, and clamping that to zero would hide it.
+             */
+            withdrawable_balance_cents?: number;
         };
         "service.PublicEventCard": {
             cover_image_url?: string;

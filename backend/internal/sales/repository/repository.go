@@ -1027,6 +1027,13 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	return out, total, nil
 }
 
+// lineNetProceedsSQL is the Net Proceeds of one Ticket Sale Line (aliased tsl),
+// read off the snapshot it froze at sale time: quantity × (what the Customer
+// paid − the Platform Fee − the Fee IVA withheld). The single definition serves
+// both the Event's sales summary and the Organization's Withdrawable Balance,
+// so the arithmetic cannot drift between the two surfaces (ADR 0014).
+const lineNetProceedsSQL = `tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents)`
+
 // SalesSummaryRow is the Sales tab's stat strip, read straight off the Event's
 // recorded sales: what the Event has left the Organization, and how many active
 // Ticket Sales it has made.
@@ -1057,9 +1064,7 @@ func (r *Repository) SalesSummary(ctx context.Context, orgID, eventID string) (S
 			COUNT(*)
 		FROM ticket_sales ts
 		JOIN LATERAL (
-			SELECT COALESCE(
-				SUM(tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents)), 0
-			) AS net_proceeds_cents
+			SELECT COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents
 			FROM ticket_sale_lines tsl
 			WHERE tsl.ticket_sale_id = ts.id
 		) net ON TRUE

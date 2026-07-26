@@ -28,3 +28,10 @@ type EnvelopeSalesSummary struct {
 	Error     *platform.APIError   `json:"error"`
 	RequestID string               `json:"request_id"`
 }
+
+// EnvelopePayoutsSummary documents GET /staff/organization/payouts success responses.
+type EnvelopePayoutsSummary struct {
+	Data      service.PayoutsSummary `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
+}

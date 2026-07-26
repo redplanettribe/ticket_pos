@@ -382,6 +382,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopePayoutsSummary:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.PayoutsSummary'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopePublicEventDetail:
       properties:
         data:
@@ -677,6 +686,34 @@ components:
       properties:
         message:
           type: string
+      type: object
+    service.Payout:
+      properties:
+        amount_cents:
+          type: integer
+        id:
+          type: string
+        note:
+          type: string
+        paid_at:
+          type: string
+      type: object
+    service.PayoutsSummary:
+      properties:
+        currency:
+          type: string
+        payouts:
+          items:
+            $ref: '#/components/schemas/service.Payout'
+          type: array
+          uniqueItems: false
+        withdrawable_balance_cents:
+          description: |-
+            WithdrawableBalanceCents is the Net Proceeds of the Organization's active
+            Online Sales minus every Payout recorded against it. It is signed on
+            purpose: a sale reversed after it was paid out leaves the Organization
+            owing the platform, and clamping that to zero would hide it.
+          type: integer
       type: object
     service.PublicEventCard:
       properties:
@@ -2838,7 +2875,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/platform.Envelope'
+                $ref: '#/components/schemas/openapi.EnvelopePayoutsSummary'
           description: OK
         "401":
           content:

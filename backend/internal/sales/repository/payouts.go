@@ -43,7 +43,7 @@ func (r *Repository) GetOrganizationBalance(ctx context.Context, orgID string) (
 		SELECT
 			org.currency,
 			COALESCE((
-				SELECT SUM(tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents))
+				SELECT SUM(`+lineNetProceedsSQL+`)
 				FROM ticket_sale_lines tsl
 				JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
 				WHERE ts.organization_id = org.id

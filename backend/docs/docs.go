@@ -591,6 +591,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopePayoutsSummary": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PayoutsSummary"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePublicEventDetail": {
                 "properties": {
                     "data": {
@@ -1030,6 +1044,42 @@ const docTemplate = `{
                 "properties": {
                     "message": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.Payout": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "paid_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PayoutsSummary": {
+                "properties": {
+                    "currency": {
+                        "type": "string"
+                    },
+                    "payouts": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.Payout"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "withdrawable_balance_cents": {
+                        "description": "WithdrawableBalanceCents is the Net Proceeds of the Organization's active\nOnline Sales minus every Payout recorded against it. It is signed on\npurpose: a sale reversed after it was paid out leaves the Organization\nowing the platform, and clamping that to zero would hide it.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -4454,7 +4504,7 @@ const docTemplate = `{
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
+                                    "$ref": "#/components/schemas/openapi.EnvelopePayoutsSummary"
                                 }
                             }
                         },
