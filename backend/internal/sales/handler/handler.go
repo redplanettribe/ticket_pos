@@ -275,6 +275,38 @@ func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
+// GetSalesSummary returns the Event's Net Proceeds and active sales count for
+// the Sales tab's stat strip.
+//
+// @Summary      Get an Event's sales summary
+// @Description  Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency and the count of its active Ticket Sales across all channels. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Event ID"
+// @Success      200  {object}  openapi.EnvelopeSalesSummary
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/summary [get]
+func (h *Handler) GetSalesSummary(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		return
+	}
+
+	summary, err := h.svc.EventSalesSummary(r.Context(), actorFromRequest(r), eventID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, summary)
+}
+
 // parseSalesFilters validates the Sales list filter query params, returning the
 // service params and any field errors (invalid enum values and malformed dates
 // are rejected per the repo's VALIDATION_FAILED convention). Blank/absent

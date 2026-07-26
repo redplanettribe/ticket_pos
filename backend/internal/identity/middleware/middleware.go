@@ -124,6 +124,21 @@ func RequireOrgAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// RequireEventOwnerOrAdmin blocks requests unless the active member is an Org
+// Admin or an Event Owner — the Members entrusted with the Organization's
+// money. Event Staff, hired for the door, are refused.
+func RequireEventOwnerOrAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := platform.RequestID(r.Context())
+		member, ok := ActiveMemberFromContext(r.Context())
+		if !ok || (member.Role != "org_admin" && member.Role != "event_owner") {
+			_ = platform.WriteDomainError(w, reqID, identity.ErrForbidden())
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RequireActiveMember blocks staff workflow routes when no organization is selected.
 func RequireActiveMember(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

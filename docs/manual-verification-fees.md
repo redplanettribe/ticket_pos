@@ -62,3 +62,17 @@ In the Staff ticket-type form, type `3500` as the price:
 
 If either of those disagrees with the Storefront by a cent, the two implementations of the
 arithmetic (`backend/internal/sales/fees.go` and `apps/staff/lib/fees.ts`) have drifted.
+
+## 5. The Event's Net Proceeds strip
+
+The figures are pinned by `backend/integration/sales_summary_test.go`; what needs an eye is who
+sees the strip and that the platform's cut is nowhere on the surface.
+
+1. As the Org Admin, open the Event's **Sales** tab after the `pass_on` purchase above — a strip
+   sits above the list showing **Net proceeds $35.00** (the price the organizer set, not the
+   $39.03 the buyer paid) and **Sales 1**
+2. Nothing on that strip names a fee, a tax, a percentage, or a gross amount to subtract one from
+3. Commit a Sale Import of cash sales: the **Sales** count goes up with the list, and **Net
+   proceeds** does not move — the platform never held that cash
+4. Sign in as an Event Staff member of the same Organization and open the same tab: the Sales list
+   renders exactly as before, with **no strip above it** and no import section below it

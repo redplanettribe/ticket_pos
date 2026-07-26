@@ -633,6 +633,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeSalesSummary": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.SalesSummary"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeSession": {
                 "properties": {
                     "data": {
@@ -1197,6 +1211,20 @@ const docTemplate = `{
                     },
                     "sold_out": {
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.SalesSummary": {
+                "properties": {
+                    "currency": {
+                        "type": "string"
+                    },
+                    "net_proceeds_cents": {
+                        "type": "integer"
+                    },
+                    "sales_count": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -3740,6 +3768,83 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "List an Event's Ticket Sales",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/sales/summary": {
+            "get": {
+                "description": "Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency and the count of its active Ticket Sales across all channels. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSalesSummary"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get an Event's sales summary",
                 "tags": [
                     "staff"
                 ]

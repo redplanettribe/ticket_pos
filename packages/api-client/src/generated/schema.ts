@@ -2214,6 +2214,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/sales/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an Event's sales summary
+         * @description Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency and the count of its active Ticket Sales across all channels. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeSalesSummary"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/tags": {
         parameters: {
             query?: never;
@@ -3269,6 +3347,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeSalesSummary": {
+            data?: components["schemas"]["service.SalesSummary"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeSession": {
             data?: components["schemas"]["service.SessionView"];
             error?: components["schemas"]["platform.APIError"];
@@ -3472,6 +3555,11 @@ export interface components {
             price_cents?: number;
             remaining?: number;
             sold_out?: boolean;
+        };
+        "service.SalesSummary": {
+            currency?: string;
+            net_proceeds_cents?: number;
+            sales_count?: number;
         };
         "service.SessionView": {
             active_member?: components["schemas"]["service.ActiveMemberView"];

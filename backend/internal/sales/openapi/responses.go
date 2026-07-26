@@ -21,3 +21,10 @@ type EnvelopeConfirmCheckout struct {
 	Error     *platform.APIError            `json:"error"`
 	RequestID string                        `json:"request_id"`
 }
+
+// EnvelopeSalesSummary documents GET /staff/events/{id}/sales/summary success responses.
+type EnvelopeSalesSummary struct {
+	Data      service.SalesSummary `json:"data"`
+	Error     *platform.APIError   `json:"error"`
+	RequestID string               `json:"request_id"`
+}

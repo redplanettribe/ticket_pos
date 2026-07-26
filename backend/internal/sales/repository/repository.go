@@ -1027,6 +1027,50 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	return out, total, nil
 }
 
+// SalesSummaryRow is the Sales tab's stat strip, read straight off the Event's
+// recorded sales: what the Event has left the Organization, and how many active
+// Ticket Sales it has made.
+type SalesSummaryRow struct {
+	NetProceedsCents int
+	SalesCount       int
+}
+
+// SalesSummary totals an Event's active Ticket Sales two ways.
+//
+// Net Proceeds sums quantity × (unit_price_cents − fee_cents − fee_iva_cents)
+// over the lines of active ONLINE sales: the money the platform actually held,
+// less what it withheld. The subtraction reads the same under either Fee
+// Handling because unit_price_cents is always what the Customer paid, so
+// nothing here branches on the Event's mode — and because the operands are the
+// snapshots the sale froze, a later rate change moves nothing (ADR 0014). The
+// channel filter is load-bearing: in-person and imported lines carry fee 0, so
+// without it they would contribute their full price as if the platform had held
+// that cash.
+//
+// SalesCount counts every active Ticket Sale, whatever the channel — it is the
+// Event's sales, not the subset that earned Net Proceeds.
+func (r *Repository) SalesSummary(ctx context.Context, orgID, eventID string) (SalesSummaryRow, error) {
+	var out SalesSummaryRow
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(SUM(net.net_proceeds_cents) FILTER (WHERE ts.channel = 'online'), 0),
+			COUNT(*)
+		FROM ticket_sales ts
+		JOIN LATERAL (
+			SELECT COALESCE(
+				SUM(tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents)), 0
+			) AS net_proceeds_cents
+			FROM ticket_sale_lines tsl
+			WHERE tsl.ticket_sale_id = ts.id
+		) net ON TRUE
+		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = 'active'
+	`, eventID, orgID).Scan(&out.NetProceedsCents, &out.SalesCount)
+	if err != nil {
+		return SalesSummaryRow{}, err
+	}
+	return out, nil
+}
+
 func (r *Repository) findBatch(ctx context.Context, orgID, idempotencyKey string) (*CommittedBatch, error) {
 	var b CommittedBatch
 	err := r.db.Pool.QueryRowContext(ctx, `
