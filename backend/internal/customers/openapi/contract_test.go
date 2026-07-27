@@ -11,7 +11,8 @@ import (
 
 // TestCustomerOpenAPIContract checks that the committed spec actually documents
 // the Customer surface: the sign-in pair, the Confirmation Link redemption, the
-// session read, sign-out, and the Customer Area, each with a typed success
+// session read, sign-out, the Customer Area, and the "My info" profile write,
+// each with a typed success
 // envelope rather than a bare one. It fails when handlers are added or renamed
 // without regenerating the spec.
 func TestCustomerOpenAPIContract(t *testing.T) {
@@ -40,6 +41,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"/api/v1/customer/auth/session",
 		"/api/v1/customer/auth/logout",
 		"/api/v1/customer/ticket-sales",
+		"/api/v1/customer/profile",
 	} {
 		if _, ok := doc.Paths[path]; !ok {
 			t.Fatalf("missing path %s — regenerate the spec with `make swagger`", path)
@@ -51,6 +53,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"openapi.EnvelopeCustomerVerifyGoogle",
 		"openapi.EnvelopeCustomerSession",
 		"openapi.EnvelopeCustomerArea",
+		"openapi.EnvelopeCustomerProfile",
 	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Fatalf("missing typed envelope schema %s", schema)

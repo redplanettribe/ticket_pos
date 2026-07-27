@@ -56,6 +56,14 @@ type EnvelopeCustomerLogout struct {
 	RequestID string             `json:"request_id"`
 }
 
+// EnvelopeCustomerProfile documents PATCH /api/v1/customer/profile success
+// responses: the Customer's "My info" as it stands after the edit.
+type EnvelopeCustomerProfile struct {
+	Data      service.CustomerProfileView `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
 // EnvelopeCustomerArea documents GET /api/v1/customer/ticket-sales success responses.
 type EnvelopeCustomerArea struct {
 	Data      service.CustomerAreaView `json:"data"`

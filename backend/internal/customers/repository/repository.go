@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -50,14 +51,16 @@ type UpsertInput struct {
 // that has (PRD #55, decision 8).
 //
 // The blank test below is that rule and not merely an approximation of it,
-// because in this system a name cannot become blank after being set. Only two
-// statements ever write these columns: this one, and VerifyCustomer — which
-// writes empty strings on insert alone and never touches names on conflict. Every
-// path that reaches this one is a Ticket Sale, and every sale entry path rejects
-// a blank first or last name before it gets here. There is no profile editor. So
-// "currently blank" and "never set" cannot diverge; should a write path that can
-// blank a set name ever be added, this guard must be replaced by one that records
-// whether a name was ever set rather than inspecting the current value.
+// because in this system a name cannot become blank after being set. Only three
+// statements ever write these columns: this one; VerifyCustomer — which writes
+// empty strings on insert alone and never touches names on conflict; and
+// UpdateProfile, the Customer Area's "My info" editor, which rejects a blank
+// first or last name for exactly this reason (#102). Every path that reaches
+// this one is a Ticket Sale, and every sale entry path likewise rejects a blank
+// name before it gets here. So "currently blank" and "never set" cannot
+// diverge; should a write path that can blank a set name ever be added, this
+// guard must be replaced by one that records whether a name was ever set rather
+// than inspecting the current value.
 //
 // The Tax ID below follows the same shape with one asymmetry of its own
 // (ADR 0016). Like the name it may fill a blank on any channel and refresh
@@ -99,4 +102,48 @@ func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (st
 		return "", err
 	}
 	return id, nil
+}
+
+// UpdateProfileInput is a Customer's own edit of what the platform holds about
+// them: their name and their one current Tax ID assertion.
+//
+// TaxIDType and TaxIDNumber are null together to clear the Tax ID and set
+// together to assert one; the service never hands this layer one without the
+// other, and the customers_tax_id_pair_ck constraint would refuse it if it did.
+// There is no email here, and deliberately so: the address is the Customer's
+// identity (ADR 0010) and this statement cannot touch it.
+type UpdateProfileInput struct {
+	CustomerID  string
+	FirstName   string
+	LastName    string
+	TaxIDType   *string
+	TaxIDNumber *string
+}
+
+// UpdateProfile writes the Customer's own assertion about themselves and returns
+// the record as it now stands.
+//
+// It is the only statement in the system that may clear a Tax ID, and the only
+// one that writes a name outside a Ticket Sale. Both facts are load-bearing at
+// Upsert above: its guard reads "blank name" as "never named", which stays true
+// only because the service in front of this refuses a blank first or last name.
+//
+// Nothing here touches a Ticket Sale. The Customer holds what the person
+// asserts now; each sale holds what was transacted, immutably (ADR 0016).
+func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (*Customer, error) {
+	var c Customer
+	err := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE customers
+		SET first_name = $2, last_name = $3, tax_id_type = $4, tax_id_number = $5
+		WHERE id = $1
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, verified_at
+	`, in.CustomerID, in.FirstName, in.LastName, in.TaxIDType, in.TaxIDNumber).
+		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.VerifiedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }

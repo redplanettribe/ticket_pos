@@ -514,6 +514,16 @@ type EmailSender interface {
   Write-back from a sale mirrors the customer-name rule with one addition: a sale may **fill** a
   never-set Tax ID and **refresh** it while the Customer is unverified, and may overwrite a verified
   one **only** when the checkout ran under that Customer's own full Customer Session.
+- The Customer edits their own record through `PATCH /api/v1/customer/profile` — the "My info"
+  section of the Customer Area and the customer namespace's only write. It takes `first_name`,
+  `last_name`, `tax_id_type` and `tax_id_number`, returns the updated profile beside the `email`,
+  and rejects a blank first or last name: the customer-upsert guard reads a blank name as "never
+  named", and this is the only write path that could falsify that. Sending both Tax ID halves null
+  clears it; one without the other is a field-level validation failure. The email is not accepted —
+  it is the Customer's identity. A **full** Customer Session is required: a Confirmation Link
+  session is refused with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403), because possession of a
+  forwarded Sale Confirmation is not ownership of the address. The edit moves the Customer's current
+  assertion only; every Ticket Sale keeps the name and Tax ID it was transacted under.
 
 ## Client applications
 

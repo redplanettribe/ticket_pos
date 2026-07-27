@@ -108,6 +108,51 @@ func ValidateTaxID(taxIDType, number string) (string, error) {
 	}
 }
 
+// TaxIDFieldErrors validates a supplied Tax ID and, on failure, returns the
+// field-level errors naming the half of the pair actually at fault: an unknown
+// type is the type field's problem, a failed check digit the number's. On
+// success it returns the normalised number and no errors.
+//
+// The two field names are parameters because the same pair travels under
+// different names on different surfaces — `customer_tax_id_type` at checkout,
+// `tax_id_type` on the profile — while the verdict and the wording a person
+// reads must be identical everywhere. Every endpoint that takes a Tax ID maps
+// it through here rather than writing its own switch, so no surface can drift
+// into telling a buyer their cédula is fine when another says it is not.
+//
+// Both halves must already be non-empty: whether an absent Tax ID is a
+// validation failure (native Sales Channels) or an ordinary clear (the profile
+// editor) is the caller's rule, not this function's.
+func TaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string, []FieldError) {
+	normalized, err := ValidateTaxID(taxIDType, number)
+	switch {
+	case errors.Is(err, ErrTaxIDTypeUnknown):
+		return "", []FieldError{{Field: typeField, Message: "must be cedula, ruc, or passport"}}
+	case errors.Is(err, ErrTaxIDNumberInvalid):
+		return "", []FieldError{{Field: numberField, Message: taxIDNumberMessage(taxIDType)}}
+	case err != nil:
+		return "", []FieldError{{Field: numberField, Message: "is not valid"}}
+	default:
+		return normalized, nil
+	}
+}
+
+// taxIDNumberMessage explains a rejected number in the terms of its own Tax ID
+// Type, because "is not valid" tells a buyer staring at their ID card nothing
+// about which digit to look at.
+func taxIDNumberMessage(taxIDType string) string {
+	switch taxIDType {
+	case TaxIDTypeCedula:
+		return "must be a valid 10-digit cédula"
+	case TaxIDTypeRUC:
+		return "must be a valid 13-digit RUC"
+	case TaxIDTypePassport:
+		return "must be 6–20 letters or digits"
+	default:
+		return "is not valid"
+	}
+}
+
 // isValidCedula applies the full cédula rule: ten digits, a real province
 // prefix, and the modulo-10 check digit.
 func isValidCedula(number string) bool {

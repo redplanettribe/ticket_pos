@@ -20,6 +20,23 @@ func ErrCustomerSessionExpired() apperror.DomainError {
 	return apperror.New("CUSTOMER_SESSION_EXPIRED", "Session expired. Please sign in again.", nil)
 }
 
+// ErrCustomerSessionScopeInsufficient is returned when a valid Customer Session
+// is too narrow for what it was presented for: a Confirmation Link session
+// asking to edit the Customer's profile.
+//
+// It is 403 rather than 401 because the caller's credential is genuine and
+// re-presenting it will never help. What they need is a wider one, and the
+// message says so: only Proof of Email Ownership earns the right to rewrite what
+// the platform holds about that person, because a Confirmation Link is
+// possession of a forwarded email and nothing more (#102, ADR 0010).
+func ErrCustomerSessionScopeInsufficient() apperror.DomainError {
+	return apperror.New(
+		"CUSTOMER_SESSION_SCOPE_INSUFFICIENT",
+		"Sign in with a passcode to change your details.",
+		nil,
+	)
+}
+
 // ErrConfirmationLinkInvalid is returned when a Confirmation Link token is
 // malformed, unsigned, signed with the wrong key, tampered with, or names a
 // Ticket Sale that no longer exists.

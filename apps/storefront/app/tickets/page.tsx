@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle, Button, PageHeader, StorefrontShell } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { MyInfo } from "@/components/my-info";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { TicketSaleCard } from "@/components/ticket-sale-card";
 import {
@@ -77,6 +78,16 @@ export default async function CustomerAreaPage() {
         ) : (
           <CustomerArea upcoming={area.data.upcoming} past={area.data.past} />
         )}
+
+        {/* "My info" is the Customer Area's only write, and it belongs to the
+            full session alone. A Confirmation Link arrival is not shown it: that
+            session proves possession of a forwarded email rather than ownership
+            of the address, and the API refuses the edit behind it (#102). It
+            sits below the tickets because the tickets are what someone came
+            for. */}
+        {session.status === "ok" && !fromConfirmationLink ? (
+          <MyInfo profile={session.data} />
+        ) : null}
       </div>
     </StorefrontShell>
   );

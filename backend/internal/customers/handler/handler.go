@@ -303,6 +303,117 @@ func (h *Handler) ListTicketSales(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, area)
 }
 
+// updateProfileBody is the editable half of a Customer's record, and its shape
+// is the contract: there is no email field here, so no request can name one.
+//
+// The two Tax ID halves are pointers because null is meaningful on this
+// endpoint and only on this one — it is how "clear my Tax ID" is spelled. Sent
+// together they assert a Tax ID, absent together they clear it, and one without
+// the other is a validation failure: the pair is one fact.
+type updateProfileBody struct {
+	FirstName   string  `json:"first_name"`
+	LastName    string  `json:"last_name"`
+	TaxIDType   *string `json:"tax_id_type"`
+	TaxIDNumber *string `json:"tax_id_number"`
+}
+
+// UpdateProfile edits the signed-in Customer's "My info": their name and their
+// one current Tax ID assertion.
+//
+// The request carries no identifier of who is being edited. The Customer is the
+// one on the session and can be no other, exactly as for the Customer Area read.
+//
+// @Summary      Update the Customer's profile
+// @Description  Edits the signed-in Customer's name and Tax ID — the "My info" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.
+// @Tags         customer
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body  body      updateProfileBody  true  "Name and Tax ID"
+// @Success      200   {object}  openapi.EnvelopeCustomerProfile
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Router       /api/v1/customer/profile [patch]
+func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body updateProfileBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	fields, input := validateUpdateProfile(body)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	profile, err := h.svc.UpdateProfile(r.Context(), customerSessionToken(r), input)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, profile)
+}
+
+// validateUpdateProfile applies the handler-layer rules: non-blank names, and a
+// Tax ID that is either wholly absent or wholly valid.
+//
+// The blank-name rejection is the one rule here that is load-bearing beyond this
+// endpoint. repository.Upsert treats a Customer whose name is currently blank as
+// one who was never named, so that a first Ticket Sale can name someone who
+// signed in before ever buying; this editor is the only write path that could
+// blank a name that was set, and it refuses to (#102).
+func validateUpdateProfile(body updateProfileBody) ([]platform.FieldError, service.UpdateProfileInput) {
+	var fields []platform.FieldError
+
+	firstName := strings.TrimSpace(body.FirstName)
+	lastName := strings.TrimSpace(body.LastName)
+	if firstName == "" {
+		fields = append(fields, platform.FieldError{Field: "first_name", Message: "is required"})
+	}
+	if lastName == "" {
+		fields = append(fields, platform.FieldError{Field: "last_name", Message: "is required"})
+	}
+
+	input := service.UpdateProfileInput{FirstName: firstName, LastName: lastName}
+
+	taxIDType := trimmedOrEmpty(body.TaxIDType)
+	taxIDNumber := trimmedOrEmpty(body.TaxIDNumber)
+	switch {
+	case taxIDType == "" && taxIDNumber == "":
+		// Both absent: the Customer is clearing their Tax ID, which they are
+		// entitled to do. Nothing prefills at their next checkout until they
+		// supply one again — where a sale may fill the blank they left
+		// (ADR 0016).
+	case taxIDType == "":
+		fields = append(fields, platform.FieldError{Field: "tax_id_type", Message: "is required"})
+	case taxIDNumber == "":
+		fields = append(fields, platform.FieldError{Field: "tax_id_number", Message: "is required"})
+	default:
+		normalized, taxIDFields := platform.TaxIDFieldErrors("tax_id_type", "tax_id_number", taxIDType, taxIDNumber)
+		if len(taxIDFields) > 0 {
+			fields = append(fields, taxIDFields...)
+		} else {
+			input.TaxIDType, input.TaxIDNumber = &taxIDType, &normalized
+		}
+	}
+
+	return fields, input
+}
+
+// trimmedOrEmpty flattens "absent", "null", and "blank" into one value, because
+// on this endpoint they mean the same thing: the Customer supplied nothing here.
+func trimmedOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 // customerSessionToken returns the Customer Session token for the request,
 // preferring the one the middleware already validated.
 func customerSessionToken(r *http.Request) string {
