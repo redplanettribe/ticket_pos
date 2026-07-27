@@ -36,9 +36,15 @@ type beginCheckoutBody struct {
 	// The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its
 	// number. Both are required — an Online Sale is a native Sales Channel and
 	// must be declarable (ADR 0016).
-	CustomerTaxIDType   string             `json:"customer_tax_id_type"`
-	CustomerTaxIDNumber string             `json:"customer_tax_id_number"`
-	Lines               []checkoutLineBody `json:"lines"`
+	CustomerTaxIDType   string `json:"customer_tax_id_type"`
+	CustomerTaxIDNumber string `json:"customer_tax_id_number"`
+	// The buyer's phone number, OPTIONAL and never fabricated (#106). It exists
+	// to be handed to the Payment Provider so its hosted card form arrives with
+	// nothing left to type but the card; a buyer who omits it checks out exactly
+	// as they did before the field existed. Absent, empty, or whitespace all mean
+	// the same thing — no phone — and are not validation failures.
+	CustomerPhone string             `json:"customer_phone"`
+	Lines         []checkoutLineBody `json:"lines"`
 }
 
 type confirmCheckoutBody struct {
@@ -53,13 +59,13 @@ type confirmCheckoutBody struct {
 // Provider's redirect URL.
 //
 // @Summary      Begin an online checkout
-// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
+// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
 // @Tags         public
 // @Accept       json
 // @Produce      json
 // @Param        slug       path      string             true  "Organization slug"
 // @Param        eventSlug  path      string             true  "Event slug"
-// @Param        body       body      beginCheckoutBody  true  "Checkout lines, customer identity and Tax ID"
+// @Param        body       body      beginCheckoutBody  true  "Checkout lines, customer identity, Tax ID and optional phone"
 // @Success      201        {object}  openapi.EnvelopeBeginCheckout
 // @Failure      400        {object}  platform.Envelope
 // @Failure      404        {object}  platform.Envelope
@@ -144,6 +150,25 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		}
 	}
 
+	// The phone number: OPTIONAL, and that is a product decision the validation
+	// has to state carefully (#103, #106). A buyer who abandons at our dialog is
+	// worth nothing while a buyer who types their number on PayPhone's own form
+	// still completes the purchase, so an absent phone is simply no phone — never
+	// an error, never a default, never a placeholder. A phone that IS supplied is
+	// held to platform.ValidatePhone and nothing else, exactly as the Tax ID is
+	// above: the clients mirror those rules for instant feedback, this is the
+	// verdict, and what reaches the Payment is the canonical E.164 form it
+	// returns.
+	var phone string
+	if supplied := strings.TrimSpace(body.CustomerPhone); supplied != "" {
+		normalized, phoneFields := platform.PhoneFieldErrors("customer_phone", supplied)
+		if len(phoneFields) > 0 {
+			fields = append(fields, phoneFields...)
+		} else {
+			phone = normalized
+		}
+	}
+
 	if len(body.Lines) == 0 {
 		fields = append(fields, platform.FieldError{Field: "lines", Message: "must contain at least one line"})
 	}
@@ -175,6 +200,7 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		CustomerFirstName: strings.TrimSpace(body.CustomerFirstName),
 		CustomerLastName:  strings.TrimSpace(body.CustomerLastName),
 		CustomerTaxID:     taxID,
+		CustomerPhone:     phone,
 		Lines:             lines,
 	}
 }

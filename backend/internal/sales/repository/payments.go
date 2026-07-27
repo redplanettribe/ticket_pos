@@ -83,6 +83,11 @@ type CreatePaymentInput struct {
 	// Session, which is what the Customer upsert reads at confirm time to decide
 	// whether the override may replace a verified stored Tax ID (ADR 0016).
 	CustomerTaxID platform.SaleTaxID
+	// CustomerPhone is the buyer's phone number in canonical E.164 form, or empty
+	// when they gave none — the checkout field is optional (#106). Empty is
+	// stored as NULL rather than as a blank string: "no phone" is one state, not
+	// two, and the column's only consumers ask whether there is a number at all.
+	CustomerPhone string
 	Lines         []PaymentLine
 	Now           time.Time
 }
@@ -102,13 +107,14 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			event_id, organization_id, provider, client_transaction_id,
 			status, amount_cents, customer_email, customer_first_name, customer_last_name,
 			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
-			created_at, updated_at
+			customer_phone, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $9, $9)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.CustomerEmail, in.CustomerFirstName, in.CustomerLastName, in.Now,
-		nullString(in.CustomerTaxID.Type), nullString(in.CustomerTaxID.Number), in.CustomerTaxID.SelfAsserted).Scan(&paymentID)
+		nullString(in.CustomerTaxID.Type), nullString(in.CustomerTaxID.Number), in.CustomerTaxID.SelfAsserted,
+		nullString(in.CustomerPhone)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}

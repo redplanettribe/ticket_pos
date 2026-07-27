@@ -241,6 +241,11 @@ The Customer holds their one current Tax ID — editable and clearable by the pe
 Required to record a Ticket Sale on the native Sales Channels (`online`, `in_person`); optional on `import`, where the sale happened elsewhere and the ID may never have been collected. A fact of the sale's buyer, never of an individual attendee.
 _Avoid_: ID number, identification, cédula (as the generic term), document number, national ID
 
+**Phone Number**:
+A Customer's telephone number, stored as one canonical international string and collected only to prefill the Payment Provider's hosted payment page.
+Always optional and never invented: a buyer who gives none simply enters it on the payment page instead. Collected through online checkout and the Customer Area only, never on the staff-recorded sale form or in the Sale Import file, so it is sparsely populated and is not a way to reach every Customer.
+_Avoid_: Mobile, cell, contact number, telephone, celular
+
 **Tax ID Type**:
 Which kind of identification a Tax ID is: `cedula` (Ecuadorian national identity card), `ruc` (Ecuadorian taxpayer registration, held by persons or companies), or `passport` (buyers without either). Determines how strictly the number is validated.
 _Avoid_: Document type, ID class, tipo de identificación

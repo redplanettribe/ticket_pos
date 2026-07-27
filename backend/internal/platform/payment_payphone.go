@@ -92,12 +92,20 @@ func (p *PayPhoneProvider) Name() string { return "payphone" }
 // tax breakdown in the catalog, the whole amount rides as amountWithoutTax and
 // the tax/service/tip fields are omitted.
 //
-// Email and DocumentID are PayPhone's optional prefills, which its docs describe
-// with "se solicitará si no se proporciona" — it will be asked for if not
-// provided. They carry omitempty because absent and blank are different requests
-// to PayPhone: an omitted key means "ask the buyer", an empty string is a value
-// we asserted and may be refused. That distinction is also what lets the
+// Email, DocumentID and PhoneNumber are PayPhone's optional prefills, which its
+// docs describe with "se solicitará si no se proporciona" — it will be asked for
+// if not provided. They carry omitempty because absent and blank are different
+// requests to PayPhone: an omitted key means "ask the buyer", an empty string is
+// a value we asserted and may be refused. That distinction is also what lets the
 // prefill-stripping retry below reproduce today's payload byte for byte.
+//
+// omitempty carries a second, harder duty on PhoneNumber (#106). The checkout
+// phone field is optional and is never given a default, a placeholder or a
+// filler value, because PayPhone's documentation prohibits "datos quemados o
+// estáticos" — hardcoded or static cardholder data — on pain of transaction
+// rejection and account blocking. A buyer who left the field blank must produce
+// a Prepare with no phoneNumber key AT ALL, not an empty string, and their
+// checkout must behave exactly as it did before this field existed.
 type payPhonePrepareRequest struct {
 	Amount              int    `json:"amount"`
 	AmountWithoutTax    int    `json:"amountWithoutTax"`
@@ -108,13 +116,18 @@ type payPhonePrepareRequest struct {
 	ResponseURL         string `json:"responseUrl"`
 	Email               string `json:"email,omitempty"`
 	DocumentID          string `json:"documentId,omitempty"`
+	PhoneNumber         string `json:"phoneNumber,omitempty"`
 }
 
 // stripPrefills returns the request as it would have been sent before the
-// prefills existed — the payload the retry falls back to.
+// prefills existed — the payload the retry falls back to. Every prefill goes,
+// the phone number included: the retry exists to reproduce a payload PayPhone
+// has accepted for as long as this integration has run, and a field kept back
+// "because it is probably fine" would defeat the whole point of the fallback.
 func (r payPhonePrepareRequest) stripPrefills() payPhonePrepareRequest {
 	r.Email = ""
 	r.DocumentID = ""
+	r.PhoneNumber = ""
 	return r
 }
 
@@ -122,7 +135,7 @@ func (r payPhonePrepareRequest) stripPrefills() payPhonePrepareRequest {
 // it a 4xx on a bare payload would be re-sent identically: a second charge
 // request that can only be refused the same way.
 func (r payPhonePrepareRequest) hasPrefills() bool {
-	return r.Email != "" || r.DocumentID != ""
+	return r.Email != "" || r.DocumentID != "" || r.PhoneNumber != ""
 }
 
 // payPhoneDocumentID maps a Tax ID onto PayPhone's documentId prefill, and is
@@ -193,6 +206,11 @@ func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput
 		ResponseURL:         in.ResponseURL,
 		Email:               strings.TrimSpace(in.Customer.Email),
 		DocumentID:          payPhoneDocumentID(in.Customer.TaxID),
+		// Already canonical E.164 by the time it reaches here — the exact form
+		// PayPhone's phoneNumber parameter documents, "Símbolo(+) + Código País +
+		// número". Blank when the buyer gave none, which omitempty turns into an
+		// absent key rather than a fabricated one (#106).
+		PhoneNumber: strings.TrimSpace(in.Customer.Phone),
 	}
 
 	var out payPhonePrepareResponse
@@ -200,11 +218,18 @@ func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput
 	if err != nil && req.hasPrefills() && isPayPhoneClientError(err) {
 		// Presence booleans, never values: which prefill was populated is the whole
 		// question a human debugging a systematic rejection needs answered, and no
-		// email address or identification number may reach a log line to answer it.
+		// email address, phone number or identification number may reach a log line
+		// to answer it. The fields are independent, so booleans answer it exactly.
+		//
+		// had_phone_number is the one this log most exists for: whether PayPhone
+		// accepts a NON-Ecuadorian dialling code could not be established from its
+		// documentation (#103, "Further Notes"), and a run of rejections that all
+		// carried a phone is what would show it.
 		p.logger.Warn("payphone prepare rejected our request; retrying once without the prefills",
 			"client_transaction_id", in.ClientTransactionID,
 			"had_email", req.Email != "",
 			"had_document_id", req.DocumentID != "",
+			"had_phone_number", req.PhoneNumber != "",
 			"error", err,
 		)
 		out = payPhonePrepareResponse{}

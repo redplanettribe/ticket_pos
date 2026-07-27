@@ -37,6 +37,7 @@ type CheckoutRequestBody = {
   customer_last_name?: unknown;
   customer_tax_id_type?: unknown;
   customer_tax_id_number?: unknown;
+  customer_phone?: unknown;
   lines?: unknown;
 };
 
@@ -91,6 +92,15 @@ export async function POST(request: Request) {
     return badRequest("Select at least one ticket before checking out.");
   }
 
+  // The phone number is relayed only when the buyer actually gave one, and the
+  // key is dropped rather than sent blank (#103). A blank would be this app
+  // asserting a value on the buyer's behalf, and PayPhone — which is where this
+  // ends up — prohibits static or fabricated cardholder data. Whether the number
+  // is well-formed is not decided here: shape-only is this hop's whole remit,
+  // the dialog checks it for instant feedback, and the API's verdict is the one
+  // that counts.
+  const phone = asTrimmedString(body.customer_phone);
+
   try {
     // The Customer Session token, when the visitor has one, rides along in
     // Authorization. It is never required — guest checkout is the baseline — and
@@ -107,6 +117,7 @@ export async function POST(request: Request) {
         customer_last_name: asTrimmedString(body.customer_last_name),
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
+        ...(phone ? { customer_phone: phone } : {}),
         lines,
       },
       await customerSessionToken(),

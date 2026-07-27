@@ -15,6 +15,14 @@ components:
           type: string
         customer_last_name:
           type: string
+        customer_phone:
+          description: |-
+            The buyer's phone number, OPTIONAL and never fabricated (#106). It exists
+            to be handed to the Payment Provider so its hosted card form arrives with
+            nothing left to type but the card; a buyer who omits it checks out exactly
+            as they did before the field existed. Absent, empty, or whitespace all mean
+            the same thing — no phone — and are not validation failures.
+          type: string
         customer_tax_id_number:
           type: string
         customer_tax_id_type:
@@ -2162,9 +2170,12 @@ paths:
         current unit prices into a pending Payment, asks the Payment Provider to initiate,
         and returns our client transaction id with the provider''s redirect URL. Guest
         checkout: no authentication is required, only an email, a name, and a valid
-        Tax ID. A Customer Session presented in Authorization is optional and changes
-        nothing about the sale — it only marks the Tax ID as the buyer''s own assertion,
-        which lets it replace their stored one.'
+        Tax ID. customer_phone is optional: supplied, it is recorded in canonical
+        E.164 form and offered to the Payment Provider so its hosted payment page
+        arrives prefilled; omitted, the checkout proceeds identically and nothing
+        is sent in its place. A Customer Session presented in Authorization is optional
+        and changes nothing about the sale — it only marks the Tax ID as the buyer''s
+        own assertion, which lets it replace their stored one.'
       parameters:
       - description: Organization slug
         in: path
@@ -2185,9 +2196,10 @@ paths:
               oneOf:
               - type: object
               - $ref: '#/components/schemas/handler.beginCheckoutBody'
-                description: Checkout lines, customer identity and Tax ID
+                description: Checkout lines, customer identity, Tax ID and optional
+                  phone
                 summary: body
-        description: Checkout lines, customer identity and Tax ID
+        description: Checkout lines, customer identity, Tax ID and optional phone
         required: true
       responses:
         "201":

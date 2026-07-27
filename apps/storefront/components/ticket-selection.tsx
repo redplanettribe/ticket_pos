@@ -23,6 +23,7 @@ import { useRef, useState, type FormEvent } from "react";
 import type { PublicTicketType } from "@/lib/api";
 import { clampQuantity, selectionLines, totalCents, totalQuantity } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
+import { COUNTRIES, ECUADOR_DIALLING_CODE, normalizePhone, validatePhone } from "@/lib/phone";
 import {
   TAX_ID_TYPES,
   TAX_ID_TYPE_LABELS,
@@ -35,8 +36,14 @@ import {
 /**
  * Ticket selection and the one checkout step, inline on the event page
  * (docs/design/storefront.md): quantity steppers per Ticket Type, a sticky
- * running total, and a Dialog collecting email + first/last name + Tax ID —
- * prefilled from the Customer Session when one exists, guest checkout otherwise.
+ * running total, and a Dialog collecting email + first/last name + Tax ID, plus
+ * an optional phone number — prefilled from the Customer Session when one
+ * exists, guest checkout otherwise.
+ *
+ * The phone is the one field that is optional and never prefilled or defaulted
+ * (#103): it exists so the Payment Provider's hosted form arrives with nothing
+ * left to type but the card, and a value the buyer did not enter would be the
+ * static cardholder data PayPhone's rules prohibit.
  *
  * Submitting asks this app's own /api/checkout route to begin the Payment
  * (the browser never addresses the Go API, ADR 0008) and then performs a
@@ -85,6 +92,7 @@ const FORM_FIELDS = [
   "customer_last_name",
   "customer_tax_id_type",
   "customer_tax_id_number",
+  "customer_phone",
 ] as const;
 
 type FieldErrors = Partial<Record<(typeof FORM_FIELDS)[number], string>>;
@@ -131,6 +139,19 @@ export function TicketSelection({
   // type the buyer never looked at without them also typing its number.
   const [taxIdType, setTaxIdType] = useState<TaxIdType>("cedula");
   const [taxIdNumber, setTaxIdNumber] = useState("");
+  // The phone number, split across a country selector and a text field purely
+  // for entry: what is submitted is the single canonical E.164 string the two
+  // assemble into (#103). Ecuador is selected by default because it is the home
+  // market and the overwhelming majority of buyers — the common case should need
+  // no interaction at all.
+  //
+  // Both start where they start and stay there: this field is deliberately NOT
+  // prefilled from the Customer Session, and nothing anywhere gives it a value
+  // the buyer did not type. That is the whole safeguard behind the optional
+  // field — PayPhone's rules prohibit static or filler cardholder data, so an
+  // untouched field must submit nothing at all.
+  const [phoneDiallingCode, setPhoneDiallingCode] = useState(ECUADOR_DIALLING_CODE);
+  const [phoneNationalNumber, setPhoneNationalNumber] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<{ code: string | null; message: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -204,6 +225,22 @@ export function TicketSelection({
       return;
     }
 
+    // The phone, if there is one at all. An empty field is not a problem to
+    // report: the number is optional, and a buyer who skips it simply types it
+    // on the payment page as they do today (#103). A number that IS typed is
+    // held to the same mirror check as the Tax ID above, so a slipped digit is
+    // caught before the round trip rather than after it.
+    const phone = phoneNationalNumber.trim() === "" ? "" : `${phoneDiallingCode}${phoneNationalNumber}`;
+    const phoneProblem = validatePhone(phone);
+    if (phoneProblem) {
+      setError(null);
+      setFieldErrors({ customer_phone: phoneProblem });
+      return;
+    }
+    // Non-null exactly when the buyer gave a number that passed, which is the
+    // one condition under which the field is sent at all.
+    const canonicalPhone = phone === "" ? null : normalizePhone(phone);
+
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
@@ -221,6 +258,11 @@ export function TicketSelection({
           customer_last_name: lastName,
           customer_tax_id_type: taxIdType,
           customer_tax_id_number: normalizeTaxIdNumber(taxIdType, taxIdNumber),
+          // Present only when the buyer gave a number, and canonical when it is:
+          // the key is dropped rather than sent blank, all the way down to the
+          // Prepare payload, so a skipped field reaches PayPhone as an absence
+          // rather than as a value nobody entered.
+          ...(canonicalPhone ? { customer_phone: canonicalPhone } : {}),
           lines: selectionLines(quantities),
         }),
       });
@@ -467,6 +509,50 @@ export function TicketSelection({
                       taxIdTouched.current = true;
                       setTaxIdNumber(event.target.value);
                     }}
+                  />
+                </FormField>
+              </div>
+              {/* The phone number: optional, on purpose (#103). A buyer who
+                  fills it reaches the payment page with nothing left to enter
+                  but their card; a buyer who skips it loses nothing and types it
+                  there instead. Making it required would move friction to the
+                  screen where abandonment costs most, and would invite exactly
+                  the junk input PayPhone's fraud rules punish — so there is no
+                  `required` here, and no default value anywhere. Country and
+                  number are one fact split across two controls, so they share a
+                  row like the Tax ID above. */}
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
+                <FormField id="checkout-phone-country" label="Country code">
+                  <select
+                    name="phone-country"
+                    className={SELECT_CLASS}
+                    value={phoneDiallingCode}
+                    onChange={(event) => setPhoneDiallingCode(event.target.value)}
+                  >
+                    {/* Keyed by name, valued by dialling code: the codes are not
+                        unique (+1 covers the US, Canada and twenty more), so
+                        picking one of a shared code shows the first country
+                        listed under it. The accepted cosmetic imperfection from
+                        #103 — the number submitted is identical either way. */}
+                    {COUNTRIES.map((country) => (
+                      <option key={country.name} value={country.diallingCode}>
+                        {country.name} ({country.diallingCode})
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField
+                  id="checkout-phone"
+                  label="Phone (optional)"
+                  error={fieldErrors.customer_phone}
+                >
+                  <Input
+                    name="tel-national"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel-national"
+                    value={phoneNationalNumber}
+                    onChange={(event) => setPhoneNationalNumber(event.target.value)}
                   />
                 </FormField>
               </div>

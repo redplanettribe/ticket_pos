@@ -1471,7 +1471,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
          */
         post: {
             parameters: {
@@ -1485,7 +1485,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            /** @description Checkout lines, customer identity and Tax ID */
+            /** @description Checkout lines, customer identity, Tax ID and optional phone */
             requestBody: {
                 content: {
                     "application/json": Record<string, never> | components["schemas"]["handler.beginCheckoutBody"];
@@ -3710,6 +3710,14 @@ export interface components {
             customer_email?: string;
             customer_first_name?: string;
             customer_last_name?: string;
+            /**
+             * @description The buyer's phone number, OPTIONAL and never fabricated (#106). It exists
+             *     to be handed to the Payment Provider so its hosted card form arrives with
+             *     nothing left to type but the card; a buyer who omits it checks out exactly
+             *     as they did before the field existed. Absent, empty, or whitespace all mean
+             *     the same thing — no phone — and are not validation failures.
+             */
+            customer_phone?: string;
             customer_tax_id_number?: string;
             /**
              * @description The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its

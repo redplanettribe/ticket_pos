@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// The PayPhone prefills at the provider seam (#104, parent #103): the buyer
-// reaches PayPhone's hosted card form with their email and their identification
-// number already filled, instead of being asked for both a second time.
+// The PayPhone prefills at the provider seam (#104, #106, parent #103): the
+// buyer reaches PayPhone's hosted card form with their email, their
+// identification number and — when they volunteered one — their phone number
+// already filled, instead of being asked for each a second time.
 //
 // Everything here is asserted against the Prepare payload the fake PayPhone
 // server recorded, driven end to end through the real public checkout endpoint —
@@ -88,6 +89,185 @@ func TestPayPhonePrepareCarriesEmailAndDocumentID(t *testing.T) {
 	}
 }
 
+// Phone numbers used below. The Ecuadorian one is already canonical; the others
+// exist to prove that what reaches PayPhone and the Payment is the canonical
+// form regardless of how a person wrote it down (#105's two tiers).
+const (
+	ecuadorMobile      = "+593987654321"
+	ecuadorMobileTyped = "+593 (0)98-765.4321" // the same number as a human writes it
+	foreignMobile      = "+12025550123"        // generic E.164: no national rule beyond Ecuador's
+)
+
+// phoneCheckoutBody is a begin-checkout body carrying a phone number, for the
+// tests that care which one was typed. Every other checkout body in this package
+// omits the field entirely — which is itself the behaviour pinned below.
+func phoneCheckoutBody(email, phone string, lines ...map[string]any) map[string]any {
+	body := checkoutBody(email, "Ana", "Lopez", lines...)
+	body["customer_phone"] = phone
+	return body
+}
+
+// readPaymentPhone reads the phone number recorded on a Payment. SQL because no
+// API exposes Payment rows, like every other Payment assertion in this package.
+func readPaymentPhone(t *testing.T, env *testEnv, clientTransactionID string) *string {
+	t.Helper()
+	var phone *string
+	if err := env.db.QueryRow(`
+		SELECT customer_phone FROM payments WHERE client_transaction_id = $1
+	`, clientTransactionID).Scan(&phone); err != nil {
+		t.Fatalf("read payment phone: %v", err)
+	}
+	return phone
+}
+
+// TestPayPhonePrepareCarriesPhoneNumber is the point of the whole feature: a
+// buyer who typed their number reaches PayPhone's form with nothing left to
+// enter but their card. The number travels as `phoneNumber` in canonical E.164 —
+// "Símbolo(+) + Código País + número", the only form PayPhone documents — and is
+// recorded on the Payment in that same form, which is what will let it survive
+// the redirect to the Customer's profile (#107).
+//
+// The cases cover both validation tiers and the normalisation between them: an
+// Ecuadorian mobile written the way a person writes it, punctuation and domestic
+// trunk zero included, and a foreign number under the deliberately permissive
+// generic rule.
+func TestPayPhonePrepareCarriesPhoneNumber(t *testing.T) {
+	env := prefillEnv(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Phone Fest", "phone-fest", 1000, 20)
+	line := map[string]any{"ticket_type_id": gaID, "quantity": 1}
+
+	cases := []struct {
+		name  string
+		email string
+		typed string
+		want  string
+	}{
+		{"ecuadorian mobile", "ec-buyer@example.com", ecuadorMobile, ecuadorMobile},
+		{"ecuadorian mobile as written", "ec-typed@example.com", ecuadorMobileTyped, ecuadorMobile},
+		{"foreign number", "us-buyer@example.com", foreignMobile, foreignMobile},
+	}
+	for _, tc := range cases {
+		begin := beginCheckoutOK(t, payphoneEnv, "test-org", "phone-fest",
+			phoneCheckoutBody(tc.email, tc.typed, line))
+
+		req := payphoneStub.lastPrepareRequest(t)
+		if req.body["phoneNumber"] != tc.want {
+			t.Fatalf("%s: phoneNumber = %v, want the canonical %q", tc.name, req.body["phoneNumber"], tc.want)
+		}
+		// The phone never displaces the prefills it joins.
+		if req.body["email"] != tc.email || req.body["documentId"] != validCedula {
+			t.Fatalf("%s: email/documentId = %v/%v, want the other prefills untouched", tc.name, req.body["email"], req.body["documentId"])
+		}
+		if got := readPaymentPhone(t, env, begin.ClientTransactionID); got == nil || *got != tc.want {
+			t.Fatalf("%s: payment phone = %v, want the canonical %q recorded", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestPayPhonePrepareOmitsPhoneNumberWhenNotGiven is the constraint the product
+// decision rests on, and it is not a formality: PayPhone's documentation
+// prohibits "datos quemados o estáticos" — hardcoded or static cardholder data —
+// on pain of transaction rejection and account blocking. A buyer who leaves the
+// field blank must produce a Prepare with NO phoneNumber key at all: not an
+// empty string, not a placeholder, not a default. Their checkout is today's
+// checkout, unchanged, and PayPhone asks them on its own form.
+//
+// The omitted and the blank case are asserted together because they are the same
+// answer arriving by two routes — one buyer who never saw the field, one who saw
+// it and typed nothing but spaces.
+func TestPayPhonePrepareOmitsPhoneNumberWhenNotGiven(t *testing.T) {
+	env := prefillEnv(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "No Phone Fest", "no-phone-fest", 1000, 20)
+	line := map[string]any{"ticket_type_id": gaID, "quantity": 1}
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"field absent", checkoutBody("silent@example.com", "Ana", "Lopez", line)},
+		{"field blank", phoneCheckoutBody("blank@example.com", "", line)},
+		{"field whitespace", phoneCheckoutBody("spaces@example.com", "   ", line)},
+	}
+	for _, tc := range cases {
+		begin := beginCheckoutOK(t, payphoneEnv, "test-org", "no-phone-fest", tc.body)
+
+		// Skipping an optional convenience costs the buyer nothing: same redirect,
+		// same purchase.
+		if begin.RedirectURL != payphoneStub.cardURL() {
+			t.Fatalf("%s: redirect url = %q, want PayPhone's payWithCard url", tc.name, begin.RedirectURL)
+		}
+
+		req := payphoneStub.lastPrepareRequest(t)
+		if got, sent := req.body["phoneNumber"]; sent {
+			t.Fatalf("%s: Prepare carries phoneNumber = %v, want the key absent entirely — never a fabricated value", tc.name, got)
+		}
+		// The prefills the buyer DID supply are unaffected: an absent phone is not
+		// a reason to stop sending what is genuinely known.
+		if req.body["email"] == nil || req.body["documentId"] != validCedula {
+			t.Fatalf("%s: email/documentId = %v/%v, want the other prefills still sent", tc.name, req.body["email"], req.body["documentId"])
+		}
+		if got := readPaymentPhone(t, env, begin.ClientTransactionID); got != nil {
+			t.Fatalf("%s: payment phone = %q, want NULL — no phone is one state, not two", tc.name, *got)
+		}
+	}
+}
+
+// TestBeginCheckoutRejectsMalformedPhone pins the other half of "optional": the
+// field may be skipped, but a number that IS typed has to be a number. Each case
+// is a field-level error on `customer_phone` — the name the form marks — and the
+// rejection is total: no Payment, no Capacity Hold, and PayPhone never asked to
+// prepare a charge for a request that was never valid.
+//
+// The verdict is platform.ValidatePhone's, mirrored in the Storefront so the
+// buyer normally hears about it without a round trip; this is the server's say,
+// which is the one that decides whether a Sale can happen. Note the Ecuadorian
+// landline: it parses as a real telephone number and is still refused, because
+// PayPhone's form wants a cardholder's mobile.
+func TestBeginCheckoutRejectsMalformedPhone(t *testing.T) {
+	env := prefillEnv(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Bad Phone Fest", "bad-phone-fest", 1000, 10)
+	line := map[string]any{"ticket_type_id": gaID, "quantity": 1}
+
+	cases := []struct {
+		name  string
+		phone string
+	}{
+		{"no dialling code", "0987654321"},
+		{"ecuadorian landline", "+59322345678"},
+		{"ecuadorian mobile too short", "+59398765432"},
+		{"ecuadorian mobile too long", "+5939876543210"},
+		{"letters", "+593 not-a-number"},
+		{"longer than E.164 allows", "+1202555012345678"},
+	}
+	for _, tc := range cases {
+		resp, envBody := beginCheckout(t, payphoneEnv, "test-org", "bad-phone-fest",
+			phoneCheckoutBody("ana@example.com", tc.phone, line))
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d error=%+v, want 400", tc.name, resp.StatusCode, envBody.Error)
+		}
+		if envBody.Error == nil || envBody.Error.Code != "VALIDATION_FAILED" {
+			t.Fatalf("%s: error=%+v, want VALIDATION_FAILED", tc.name, envBody.Error)
+		}
+		if fields := fieldErrors(t, envBody); fields["customer_phone"] == "" {
+			t.Fatalf("%s: fields=%+v, want an error on customer_phone", tc.name, fields)
+		}
+	}
+
+	var payments int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM payments`).Scan(&payments); err != nil {
+		t.Fatalf("count payments: %v", err)
+	}
+	if payments != 0 {
+		t.Fatalf("payments after rejected begins = %d, want 0", payments)
+	}
+	if got := payphoneStub.prepareCount(); got != 0 {
+		t.Fatalf("Prepare calls = %d, want 0: a request rejected at validation never reaches the provider", got)
+	}
+}
+
 // TestPayPhonePrepareRejectionRetriesWithoutPrefills pins the safety net that
 // makes the prefills shippable (#103, "Failure handling"): this is the first
 // data the system has ever sent PayPhone, so a Prepare refused with a 4xx is
@@ -100,9 +280,15 @@ func TestPayPhonePrepareRejectionRetriesWithoutPrefills(t *testing.T) {
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Fallback Fest", "fallback-fest", 1000, 10)
 
 	payphoneStub.prepareFailsOnce(http.StatusBadRequest)
-	begin := beginCheckoutOK(t, payphoneEnv, "test-org", "fallback-fest",
-		taxIDCheckoutBody("rejected@example.com", "Ana", "Lopez", "cedula", validCedula,
-			map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+	body := taxIDCheckoutBody("rejected@example.com", "Ana", "Lopez", "cedula", validCedula,
+		map[string]any{"ticket_type_id": gaID, "quantity": 2})
+	// A phone rides on the refused attempt too, because it is the prefill whose
+	// acceptance is least certain: PayPhone's documentation neither states nor
+	// denies that a foreign dialling code is allowed (#103, "Further Notes"), and
+	// this retry is the safety net that lets the feature ship ahead of that
+	// answer. It must therefore be stripped with the rest.
+	body["customer_phone"] = ecuadorMobile
+	begin := beginCheckoutOK(t, payphoneEnv, "test-org", "fallback-fest", body)
 
 	if begin.RedirectURL != payphoneStub.cardURL() {
 		t.Fatalf("redirect url = %q, want the retry's payWithCard url — a rejected prefill must not fail the checkout", begin.RedirectURL)
@@ -115,11 +301,14 @@ func TestPayPhonePrepareRejectionRetriesWithoutPrefills(t *testing.T) {
 	if first.body["email"] != "rejected@example.com" || first.body["documentId"] != validCedula {
 		t.Fatalf("first Prepare = %v/%v, want the prefills that were refused", first.body["email"], first.body["documentId"])
 	}
+	if first.body["phoneNumber"] != ecuadorMobile {
+		t.Fatalf("first Prepare phoneNumber = %v, want the refused %q", first.body["phoneNumber"], ecuadorMobile)
+	}
 
 	// The retry is today's payload exactly: the prefills gone, everything the
 	// charge depends on unchanged.
 	retry := payphoneStub.prepareRequest(t, 1)
-	for _, key := range []string{"email", "documentId"} {
+	for _, key := range []string{"email", "documentId", "phoneNumber"} {
 		if _, ok := retry.body[key]; ok {
 			t.Fatalf("retry Prepare still carries %q = %v, want every prefill stripped", key, retry.body[key])
 		}

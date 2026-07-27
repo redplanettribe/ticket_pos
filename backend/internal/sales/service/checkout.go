@@ -56,6 +56,13 @@ type BeginCheckoutInput struct {
 	// Payment because confirm, arriving on the provider's redirect, can no
 	// longer establish it.
 	CustomerTaxID platform.SaleTaxID
+	// CustomerPhone is the buyer's phone number in canonical E.164 form, already
+	// validated and normalised by the handler, or empty when they gave none —
+	// the field is optional and is never given a value the buyer did not type
+	// (#106). It is snapshotted onto the Payment for the same reason the Tax ID
+	// is: confirm arrives on the provider's redirect and carries nothing of the
+	// checkout form.
+	CustomerPhone string
 	Lines         []CheckoutLineInput
 }
 
@@ -169,6 +176,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		CustomerFirstName:   strings.TrimSpace(in.CustomerFirstName),
 		CustomerLastName:    strings.TrimSpace(in.CustomerLastName),
 		CustomerTaxID:       in.CustomerTaxID,
+		CustomerPhone:       in.CustomerPhone,
 		Lines:               paymentLines,
 		Now:                 now,
 	}); err != nil {
@@ -186,8 +194,14 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		// pair goes across whole: which Tax ID Types a provider's own
 		// identification field can take is that provider's business, not this
 		// service's (ADR 0012).
+		//
+		// The phone rides along only when the buyer typed one. Nothing here
+		// substitutes a default for a blank: the field is optional, and a provider
+		// asked to prefill a value nobody entered is exactly the fabricated
+		// cardholder data PayPhone's rules prohibit (#103, #106).
 		Customer: platform.PaymentCustomer{
 			Email: strings.TrimSpace(in.CustomerEmail),
+			Phone: in.CustomerPhone,
 			TaxID: in.CustomerTaxID,
 		},
 	})
