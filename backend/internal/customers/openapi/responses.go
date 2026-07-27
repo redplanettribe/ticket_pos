@@ -6,6 +6,7 @@ package openapi
 import (
 	"github.com/peter/ticket_pos/backend/internal/customers/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
 // MessageData is a simple message payload in the success envelope.
@@ -62,6 +63,16 @@ type EnvelopeCustomerProfile struct {
 	Data      service.CustomerProfileView `json:"data"`
 	Error     *platform.APIError          `json:"error"`
 	RequestID string                      `json:"request_id"`
+}
+
+// EnvelopeCustomerAvatarUpload documents POST
+// /api/v1/customer/profile/avatar-upload-url success responses: the presigned
+// upload URL, the object key to attach afterwards, and the public URL the
+// Avatar will be served from.
+type EnvelopeCustomerAvatarUpload struct {
+	Data      storage.CoverUploadResult `json:"data"`
+	Error     *platform.APIError        `json:"error"`
+	RequestID string                    `json:"request_id"`
 }
 
 // EnvelopeCustomerArea documents GET /api/v1/customer/ticket-sales success responses.

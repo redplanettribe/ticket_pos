@@ -136,9 +136,9 @@ func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (
 		UPDATE customers
 		SET first_name = $2, last_name = $3, tax_id_type = $4, tax_id_number = $5
 		WHERE id = $1
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, verified_at
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
 	`, in.CustomerID, in.FirstName, in.LastName, in.TaxIDType, in.TaxIDNumber).
-		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.VerifiedAt)
+		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -146,4 +146,50 @@ func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (
 		return nil, err
 	}
 	return &c, nil
+}
+
+// UpdateAvatarKey writes the Customer's Avatar object key — a set key attaches
+// an Avatar, null removes it — and returns the record as it now stands.
+//
+// The key must already be validated by the service as belonging to this
+// Customer's own object prefix. Nothing else on the record is touched: the
+// Avatar is presentation, and setting or removing one asserts nothing about
+// name, Tax ID, or verification.
+func (r *Repository) UpdateAvatarKey(ctx context.Context, customerID string, key *string) (*Customer, error) {
+	var c Customer
+	err := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE customers
+		SET avatar_image_key = $2
+		WHERE id = $1
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
+	`, customerID, key).
+		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// SeedAvatarKey sets the Avatar object key only when the Customer has none,
+// reporting whether it was written. It is the set-once half of Google Sign-In
+// seeding: the WHERE clause is the rule that a seeded picture may fill an empty
+// slot and may never replace an Avatar the person already has — checked here,
+// atomically, rather than by a read the moment before.
+func (r *Repository) SeedAvatarKey(ctx context.Context, customerID, key string) (bool, error) {
+	result, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE customers
+		SET avatar_image_key = $2
+		WHERE id = $1 AND avatar_image_key IS NULL
+	`, customerID, key)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }

@@ -229,6 +229,12 @@ The signed-in Storefront surface where a Customer sees their upcoming events, pa
 Distinct from a Storefront listing, which shows Events to the anonymous public.
 _Avoid_: Wallet, my tickets, account page, dashboard
 
+**Avatar**:
+A Customer's optional profile image, shown wherever the signed-in Customer is represented in the Storefront.
+Set by upload, or seeded from Google Sign-In when the Customer has none; removable by the Customer, falling back to their initials.
+Distinct from an Organization's Logo, which represents the Organization rather than a person.
+_Avoid_: Profile picture, photo, user image, logo
+
 **Tax ID**:
 The identification a Customer supplies for tax declarations: a Tax ID Type and its number.
 The Customer holds their one current Tax ID — editable and clearable by the person, and not an identity: Customers are identified by email, and the same Tax ID may appear on several Customers. Each Ticket Sale immutably records the Tax ID it was transacted under, which may differ from the Customer's stored one.
@@ -243,7 +249,7 @@ _Avoid_: Document type, ID class, tipo de identificación
 
 **Proof of Email Ownership**:
 A demonstration that the person at the keyboard controls a given email address.
-It is the whole of signing in on either surface: nobody registers, and no other fact about a person is asked for or established.
+It is the whole of signing in on either surface: nobody registers, and no other fact about a person is asked for. The sole fact established beyond email ownership is a seeded Avatar on Google Sign-In.
 _Avoid_: Authentication, login, credential, identity verification
 
 **One-time Passcode**:

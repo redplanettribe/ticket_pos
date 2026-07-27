@@ -37,8 +37,10 @@ type customerSessionView struct {
 	LastName  string `json:"last_name"`
 	// The stored Tax ID, both halves null until the Customer has one. The
 	// checkout dialog prefills from these (#98).
-	TaxIDType    *string `json:"tax_id_type"`
-	TaxIDNumber  *string `json:"tax_id_number"`
+	TaxIDType   *string `json:"tax_id_type"`
+	TaxIDNumber *string `json:"tax_id_number"`
+	// The Avatar as a served URL, null until the Customer has one.
+	AvatarURL    *string `json:"avatar_url"`
 	VerifiedAt   *string `json:"verified_at"`
 	TicketSaleID *string `json:"ticket_sale_id"`
 }

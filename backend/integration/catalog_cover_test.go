@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +11,10 @@ import (
 )
 
 type mockObjectStorage struct{}
+
+func (m *mockObjectStorage) Put(ctx context.Context, key, contentType string, body io.Reader) error {
+	return nil
+}
 
 func (m *mockObjectStorage) PresignPut(ctx context.Context, key, contentType string, expires time.Duration) (string, error) {
 	return "https://storage.example/upload?key=" + key, nil

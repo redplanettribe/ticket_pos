@@ -94,6 +94,11 @@ export type CustomerSession = {
    */
   tax_id_type: string | null;
   tax_id_number: string | null;
+  /**
+   * The Customer's Avatar as a browser-loadable URL, null when they have none —
+   * the header menu and "My info" render initials in its place.
+   */
+  avatar_url: string | null;
   verified_at: string | null;
   ticket_sale_id: string | null;
 };

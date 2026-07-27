@@ -414,6 +414,127 @@ func trimmedOrEmpty(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
+// avatarUploadURLBody names the image about to be uploaded as an Avatar. The
+// content type decides the object key's extension and must be on the image
+// allowlist; the file name is advisory.
+type avatarUploadURLBody struct {
+	ContentType string  `json:"content_type"`
+	FileName    *string `json:"file_name"`
+}
+
+// CreateAvatarUploadURL returns a presigned URL for uploading the signed-in
+// Customer's Avatar.
+//
+// @Summary      Create an Avatar upload URL
+// @Description  Returns a presigned PUT URL for uploading the signed-in Customer's Avatar image (JPEG, PNG, or WebP), keyed under that Customer alone. The upload itself goes straight to object storage; attaching the uploaded image is a separate PUT to /customer/profile/avatar with the object key. Requires a full Customer Session.
+// @Tags         customer
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body  body      avatarUploadURLBody  true  "Image content type and optional file name"
+// @Success      200   {object}  openapi.EnvelopeCustomerAvatarUpload
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Router       /api/v1/customer/profile/avatar-upload-url [post]
+func (h *Handler) CreateAvatarUploadURL(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body avatarUploadURLBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
+	if contentType == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Message: "is required"},
+		})
+		return
+	}
+
+	fileName := ""
+	if body.FileName != nil {
+		fileName = strings.TrimSpace(*body.FileName)
+	}
+
+	result, err := h.svc.CreateAvatarUploadURL(r.Context(), customerSessionToken(r), contentType, fileName)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// updateAvatarBody carries the object key of an uploaded Avatar image. There is
+// no URL here: the key must sit under the Customer's own prefix, and the service
+// refuses any that does not.
+type updateAvatarBody struct {
+	ImageKey string `json:"image_key"`
+}
+
+// UpdateAvatar attaches an uploaded image as the signed-in Customer's Avatar.
+//
+// @Summary      Set the Customer's Avatar
+// @Description  Attaches a previously uploaded image as the signed-in Customer's Avatar. The image key must be one minted by the upload-URL endpoint for this Customer; any other key is refused. Requires a full Customer Session.
+// @Tags         customer
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body  body      updateAvatarBody  true  "Uploaded image object key"
+// @Success      200   {object}  openapi.EnvelopeCustomerProfile
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Router       /api/v1/customer/profile/avatar [put]
+func (h *Handler) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body updateAvatarBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	imageKey := strings.TrimSpace(body.ImageKey)
+	if imageKey == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "image_key", Message: "is required"},
+		})
+		return
+	}
+
+	profile, err := h.svc.UpdateAvatar(r.Context(), customerSessionToken(r), &imageKey)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, profile)
+}
+
+// DeleteAvatar removes the signed-in Customer's Avatar.
+//
+// @Summary      Remove the Customer's Avatar
+// @Description  Removes the signed-in Customer's Avatar, reverting them to the initials fallback. Always allowed, whether the Avatar was uploaded or seeded from Google Sign-In. Requires a full Customer Session.
+// @Tags         customer
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  openapi.EnvelopeCustomerProfile
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Router       /api/v1/customer/profile/avatar [delete]
+func (h *Handler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	profile, err := h.svc.UpdateAvatar(r.Context(), customerSessionToken(r), nil)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, profile)
+}
+
 // customerSessionToken returns the Customer Session token for the request,
 // preferring the one the middleware already validated.
 func customerSessionToken(r *http.Request) string {

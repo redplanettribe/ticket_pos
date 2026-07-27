@@ -195,7 +195,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	customersService := customerssvc.New(customersRepo, otpService, platformLogger, customerssvc.ConfirmationLinkConfig{
 		Secret:            confirmationLinkSecret,
 		StorefrontBaseURL: cfg.StorefrontBaseURL,
-	}, storefrontGoogle)
+	}, storefrontGoogle).WithObjectStorage(objectStorage)
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}

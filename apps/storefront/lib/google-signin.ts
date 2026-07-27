@@ -27,16 +27,20 @@ import { DEFAULT_DESTINATION, safeNext } from "./destination.ts";
 const AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 
 /**
- * The scope requested, and deliberately no more (PRD decision 4).
+ * The scope requested, and deliberately no more.
  *
- * `profile` would hand back `given_name` and `family_name`, and a nameless
- * Customer makes that tempting. It is refused: names have a precedence rule of
- * their own (prd-customer-login.md decisions 42-44) that a third source would
- * complicate, and nothing here needs a name to sign somebody in. The narrower
- * scope also shows a shorter consent screen on the surface where conversion is
- * the whole point.
+ * `profile` is here for exactly one claim: `picture`, which seeds a Customer
+ * Avatar into an empty slot at sign-in. That is a deliberate widening of PRD
+ * decision 4, which originally stopped at `openid email` — the Avatar earns the
+ * slightly longer consent screen; nothing else the scope offers does.
+ *
+ * The names the scope also hands back (`given_name`, `family_name`) remain
+ * refused: the API reads past them exactly as it reads past `sub`. Names have a
+ * precedence rule of their own (prd-customer-login.md decisions 42-44) that a
+ * third source would complicate, and nothing here needs a name to sign somebody
+ * in.
  */
-const SCOPE = "openid email";
+const SCOPE = "openid email profile";
 
 /** Name of the short-lived cookie carrying one in-flight sign-in. */
 export const GOOGLE_STATE_COOKIE = "ticket_pos_google_signin";

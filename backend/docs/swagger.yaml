@@ -1,5 +1,12 @@
 components:
   schemas:
+    handler.avatarUploadURLBody:
+      properties:
+        content_type:
+          type: string
+        file_name:
+          type: string
+      type: object
     handler.beginCheckoutBody:
       properties:
         customer_email:
@@ -145,6 +152,11 @@ components:
       properties:
         notify_buyers:
           type: boolean
+      type: object
+    handler.updateAvatarBody:
+      properties:
+        image_key:
+          type: string
       type: object
     handler.updateEventBody:
       properties:
@@ -326,6 +338,15 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/service.CustomerAreaView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerAvatarUpload:
+      properties:
+        data:
+          $ref: '#/components/schemas/storage.CoverUploadResult'
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -674,6 +695,12 @@ components:
       type: object
     service.CustomerProfileView:
       properties:
+        avatar_url:
+          description: |-
+            The Customer's Avatar as a browser-loadable URL, null when they have none.
+            Attaching and removing one goes through the avatar endpoints (avatar.go),
+            never through the profile PATCH.
+          type: string
         email:
           type: string
         first_name:
@@ -687,6 +714,12 @@ components:
       type: object
     service.CustomerSessionView:
       properties:
+        avatar_url:
+          description: |-
+            The Customer's Avatar as a browser-loadable URL, null when they have none
+            (the Storefront renders initials instead). A URL rather than an object key
+            because no client of this view writes Avatars — the header only shows one.
+          type: string
         email:
           type: string
         first_name:
@@ -1625,6 +1658,128 @@ paths:
       security:
       - BearerAuth: []
       summary: Update the Customer's profile
+      tags:
+      - customer
+  /api/v1/customer/profile/avatar:
+    delete:
+      description: Removes the signed-in Customer's Avatar, reverting them to the
+        initials fallback. Always allowed, whether the Avatar was uploaded or seeded
+        from Google Sign-In. Requires a full Customer Session.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerProfile'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Remove the Customer's Avatar
+      tags:
+      - customer
+    put:
+      description: Attaches a previously uploaded image as the signed-in Customer's
+        Avatar. The image key must be one minted by the upload-URL endpoint for this
+        Customer; any other key is refused. Requires a full Customer Session.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.updateAvatarBody'
+                description: Uploaded image object key
+                summary: body
+        description: Uploaded image object key
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerProfile'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Set the Customer's Avatar
+      tags:
+      - customer
+  /api/v1/customer/profile/avatar-upload-url:
+    post:
+      description: Returns a presigned PUT URL for uploading the signed-in Customer's
+        Avatar image (JPEG, PNG, or WebP), keyed under that Customer alone. The upload
+        itself goes straight to object storage; attaching the uploaded image is a
+        separate PUT to /customer/profile/avatar with the object key. Requires a full
+        Customer Session.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.avatarUploadURLBody'
+                description: Image content type and optional file name
+                summary: body
+        description: Image content type and optional file name
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerAvatarUpload'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Create an Avatar upload URL
       tags:
       - customer
   /api/v1/customer/ticket-sales:

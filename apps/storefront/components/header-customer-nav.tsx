@@ -1,15 +1,12 @@
-import Link from "next/link";
-
-import { Button } from "@ticket-pos/ui";
-
 import { getCustomerSession } from "@/lib/customer-session";
 
+import { CustomerMenu } from "./customer-menu";
 import { SignInLink } from "./sign-in-link";
-import { SignOutButton } from "./sign-out-button";
 
 /**
- * Sign-in state in the Storefront header: a way in when signed out, and which
- * email you are signed in as plus a way out when signed in.
+ * Sign-in state in the Storefront header: a way in when signed out, and the
+ * Avatar chip with its account menu when signed in (email, Customer Area,
+ * sign out — see CustomerMenu).
  *
  * An anonymous visitor pays nothing for this. With no Customer Session cookie
  * present, getCustomerSession returns immediately without calling the API, so
@@ -24,19 +21,11 @@ export async function HeaderCustomerNav() {
   }
 
   return (
-    <div className="flex items-center gap-1 sm:gap-2">
-      {/* Which identity you are using, never ambiguous. Truncated on narrow
-          screens, where the full address is still available as a tooltip. */}
-      <span
-        className="hidden max-w-[12rem] truncate text-sm text-muted-foreground sm:inline"
-        title={session.data.email}
-      >
-        {session.data.email}
-      </span>
-      <Button asChild variant="ghost" size="sm">
-        <Link href="/tickets">Your tickets</Link>
-      </Button>
-      <SignOutButton />
-    </div>
+    <CustomerMenu
+      email={session.data.email}
+      firstName={session.data.first_name}
+      lastName={session.data.last_name}
+      avatarUrl={session.data.avatar_url}
+    />
   );
 }

@@ -7,12 +7,14 @@ package service
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/googleauth"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
+	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 )
 
 // Service implements customers business rules.
@@ -29,6 +31,13 @@ type Service struct {
 	// Ownership this service accepts, alongside the passcode; see
 	// googlesignin.go.
 	google *googleauth.Client
+	// storage holds Customer Avatars. Optional: a deployment without object
+	// storage still signs Customers in and edits profiles; only the Avatar
+	// endpoints refuse, and Google seeding quietly does nothing (avatar.go).
+	storage storage.ObjectStorage
+	// avatarHTTP fetches a Google Sign-In picture for re-hosting. Overridable in
+	// tests; defaults to a client with a bounded timeout.
+	avatarHTTP *http.Client
 }
 
 // New returns a customers service.
@@ -43,13 +52,21 @@ type Service struct {
 // doors, so its absence must not stop the other from opening.
 func New(repo *repository.Repository, otpService *otp.Service, logger platform.Logger, links ConfirmationLinkConfig, google *googleauth.Client) *Service {
 	return &Service{
-		repo:   repo,
-		otp:    otpService,
-		logger: logger,
-		now:    time.Now,
-		links:  links,
-		google: google,
+		repo:       repo,
+		otp:        otpService,
+		logger:     logger,
+		now:        time.Now,
+		links:      links,
+		google:     google,
+		avatarHTTP: &http.Client{Timeout: avatarFetchTimeout},
 	}
+}
+
+// WithObjectStorage attaches the object storage Customer Avatars live in. Same
+// chaining shape as WithClock; a service without it refuses Avatar writes.
+func (s *Service) WithObjectStorage(store storage.ObjectStorage) *Service {
+	s.storage = store
+	return s
 }
 
 // WithClock overrides the clock (tests). Passcode expiry is measured by the OTP

@@ -1,0 +1,13 @@
+-- Customer Avatar: an optional profile image on the Customer record.
+--
+-- The glossary's Avatar is the Customer's own picture, shown wherever the
+-- signed-in Customer is represented in the Storefront (the header menu, "My
+-- info"). It is one nullable object key, exactly as the Organization's Logo is
+-- (migration 006): the platform stores where the image lives, never the image.
+--
+-- Nullable forever. Most Customers never set one, an initials fallback renders
+-- in its place, and removal is the Customer clearing the key back to NULL. How
+-- the key came to be set is deliberately not recorded: an upload and a picture
+-- seeded from Google Sign-In are indistinguishable once stored, because the
+-- provenance has no consumer.
+ALTER TABLE customers ADD COLUMN avatar_image_key TEXT;
