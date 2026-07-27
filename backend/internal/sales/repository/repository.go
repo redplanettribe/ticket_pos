@@ -307,6 +307,14 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	if in.UpsertCustomer == nil {
 		return nil, errors.New("sales: UpsertCustomer is required — every Ticket Sale must reference a Customer")
 	}
+	// Native channels never record a sale without its Tax ID (ADR 0016). The
+	// entry points validate this against the user; the spine asserts it so a
+	// future channel cannot skip the rule by never having heard of it.
+	for _, s := range in.Sales {
+		if err := sales.RequireTaxID(in.Channel, s.CustomerTaxID); err != nil {
+			return nil, err
+		}
+	}
 
 	// Aggregate requested quantities per Ticket Type, remembering the first sale
 	// that references each type for error reporting. Lock the involved rows in a

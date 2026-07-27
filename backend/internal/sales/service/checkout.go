@@ -73,6 +73,12 @@ type BeginCheckoutResult struct {
 // current unit prices into a pending Payment, asks the Payment Provider to
 // initiate, and returns the provider's redirect URL.
 func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*BeginCheckoutResult, error) {
+	// The handler has already rejected a missing or invalid Tax ID with
+	// field-level errors; this is the online channel's service-layer statement
+	// of the ADR 0016 requirement, so no caller can begin a checkout without one.
+	if err := sales.RequireTaxID("online", in.CustomerTaxID); err != nil {
+		return nil, err
+	}
 	orgSlug := strings.ToLower(strings.TrimSpace(in.OrganizationSlug))
 	eventSlug := strings.ToLower(strings.TrimSpace(in.EventSlug))
 
