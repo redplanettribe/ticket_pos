@@ -162,13 +162,31 @@ Two steps on one page, matching the Staff sign-in: email, then the 6-digit passc
 
 ### Customer Area (`/tickets`)
 
-Everything the Customer has bought, from every **Organization**, in one place. Read-only.
+Everything the Customer has bought, from every **Organization**, in one place, plus the one thing
+they can change about themselves.
 
 - **Upcoming** first, then **Past**; each a list of **Ticket Sale** cards.
 - Each card carries the event name (linked to its event page), date and venue, "Presented by {Organization}" (linked to the Organization page), the **Ticket Sale Lines** as quantity × Ticket Type with line totals, the **Sale Confirmation** reference in a monospaced face, and the ticket count with the sale total. A reversed sale carries a **Reversed** badge.
 - `noindex, nofollow`: the Customer Area is private and must stay out of search results.
 - A missing or expired session redirects to the sign-in page rather than showing an error. When a session existed, the redirect says so, so sign-in can explain what happened instead of looking like a random demand.
 - A read that fails for any other reason keeps the page and shows the API's `error.message` in a banner-tier Alert.
+
+#### My info
+
+Below the ticket lists, a panel showing what the platform holds about the Customer: their **email**,
+their name, and their **Tax ID** rendered as its human label with the number ("Cédula: 1712345678"),
+or "—" when they have none. An **Edit** button opens an inline form over the same panel.
+
+- The email is displayed and never editable — it is the Customer's identity, and the form says so
+  rather than offering a disabled input with no explanation.
+- First and last name are required; the form refuses a blank one before the API does.
+- The Tax ID type and number sit on one row, as at checkout. **Emptying the number clears the stored
+  Tax ID**, which the field's description states outright; nothing prefills at the next checkout
+  until one is supplied again.
+- Field errors render under their inputs and the API's own `error.message` in a destructive Alert,
+  exactly as the checkout dialog does.
+- Absent for a **Confirmation Link** arrival. That session shows one purchase and may edit nothing;
+  the API refuses the write behind it.
 
 #### Empty states
 

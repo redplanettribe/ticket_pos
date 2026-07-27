@@ -99,6 +99,12 @@ func domainHTTPStatus(code string) int {
 	// unrelated record on an unrelated surface to a Staff Session (ADR 0010).
 	case "CUSTOMER_SESSION_NOT_FOUND", "CUSTOMER_SESSION_EXPIRED":
 		return http.StatusUnauthorized
+	// A genuine Customer Session that is simply too narrow for what it was
+	// presented for — a Confirmation Link session asking to edit the profile. It
+	// is 403 and not 401 because re-presenting the same credential can never
+	// help; a wider one is needed.
+	case "CUSTOMER_SESSION_SCOPE_INSUFFICIENT":
+		return http.StatusForbidden
 	// A Confirmation Link is a credential, so a bad or spent one is 401 for the
 	// same reason a bad passcode is: the caller failed to prove anything.
 	case "CONFIRMATION_LINK_INVALID", "CONFIRMATION_LINK_EXPIRED":

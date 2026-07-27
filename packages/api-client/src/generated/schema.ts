@@ -648,6 +648,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update the Customer's profile
+         * @description Edits the signed-in Customer's name and Tax ID — the "My info" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Name and Tax ID */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.updateProfileBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerProfile"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/customer/ticket-sales": {
         parameters: {
             query?: never;
@@ -3548,6 +3619,12 @@ export interface components {
             venue_address?: string;
             venue_name?: string;
         };
+        "handler.updateProfileBody": {
+            first_name?: string;
+            last_name?: string;
+            tax_id_number?: string;
+            tax_id_type?: string;
+        };
         "handler.updateTicketTypeBody": {
             capacity?: number;
             description?: string;
@@ -3638,6 +3715,11 @@ export interface components {
         };
         "openapi.EnvelopeCustomerOTPRequest": {
             data?: components["schemas"]["service.CustomerOTPRequestResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerProfile": {
+            data?: components["schemas"]["service.CustomerProfileView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -3806,6 +3888,13 @@ export interface components {
         };
         "service.CustomerOTPRequestResult": {
             message?: string;
+        };
+        "service.CustomerProfileView": {
+            email?: string;
+            first_name?: string;
+            last_name?: string;
+            tax_id_number?: string;
+            tax_id_type?: string;
         };
         "service.CustomerSessionView": {
             email?: string;

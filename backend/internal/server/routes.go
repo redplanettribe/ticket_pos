@@ -78,6 +78,12 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// The Customer Area read. There is deliberately no Customer, email, or
 	// Organization in this path: the session is the only scope.
 	mux.Handle("GET /api/v1/customer/ticket-sales", signedIn(http.HandlerFunc(h.ListTicketSales)))
+	// The Customer Area's one write: "My info" (#102). Scoped by the session
+	// like every route above it, and narrowed once more inside the service — a
+	// Confirmation Link session may read its one sale but may not rewrite the
+	// person's name or Tax ID. That narrowing is the handler's rather than this
+	// middleware's because it is a property of this write alone.
+	mux.Handle("PATCH /api/v1/customer/profile", signedIn(http.HandlerFunc(h.UpdateProfile)))
 }
 
 func registerPublicRoutes(mux *http.ServeMux, app *App) {

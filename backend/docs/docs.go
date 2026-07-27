@@ -259,6 +259,23 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.updateProfileBody": {
+                "properties": {
+                    "first_name": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "tax_id_number": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.updateTicketTypeBody": {
                 "properties": {
                     "capacity": {
@@ -508,6 +525,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.CustomerOTPRequestResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerProfile": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.CustomerProfileView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -996,6 +1027,26 @@ const docTemplate = `{
             "service.CustomerOTPRequestResult": {
                 "properties": {
                     "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.CustomerProfileView": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "first_name": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "tax_id_number": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
                         "type": "string"
                     }
                 },
@@ -2309,6 +2360,82 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get Customer Session",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/profile": {
+            "patch": {
+                "description": "Edits the signed-in Customer's name and Tax ID — the \"My info\" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.updateProfileBody",
+                                        "summary": "body",
+                                        "description": "Name and Tax ID"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Name and Tax ID",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerProfile"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update the Customer's profile",
                 "tags": [
                     "customer"
                 ]
