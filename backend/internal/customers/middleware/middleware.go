@@ -67,3 +67,40 @@ func RequireCustomerSession(svc *service.Service) func(http.Handler) http.Handle
 		})
 	}
 }
+
+// OptionalCustomerSession attaches the authenticated Customer when the request
+// carries a valid Customer Session, and otherwise lets the request through
+// untouched.
+//
+// It exists for the one route that is genuinely open but behaves better when it
+// knows who is calling: the public checkout. Guest checkout is the baseline and
+// must never require a session (ADR 0012), yet a signed-in Customer's Tax ID
+// override is only their own assertion if the request proves they own the
+// address (ADR 0016). So a bad, expired, or absent token is not an error here —
+// it simply means anonymous — and a handler behind this middleware must treat a
+// missing session as the ordinary case rather than as a denial.
+func OptionalCustomerSession(svc *service.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := platform.BearerToken(r)
+			if token == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			actor, err := svc.Authenticate(r.Context(), token)
+			if err != nil {
+				// A token that authenticates nothing is worth exactly what no
+				// token is worth: the checkout proceeds as a guest.
+				next.ServeHTTP(w, r)
+				return
+			}
+			ctx := context.WithValue(r.Context(), customerSessionKey, &CustomerSession{
+				SessionID:    actor.SessionID,
+				CustomerID:   actor.CustomerID,
+				Email:        actor.Email,
+				TicketSaleID: actor.TicketSaleID,
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

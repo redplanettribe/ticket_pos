@@ -88,6 +88,12 @@ export type CustomerSession = {
   email: string;
   first_name: string;
   last_name: string;
+  /**
+   * The Customer's stored Tax ID, both halves null until they have supplied one.
+   * The checkout dialog prefills from these beside the email and name (#98).
+   */
+  tax_id_type: string | null;
+  tax_id_number: string | null;
   verified_at: string | null;
   ticket_sale_id: string | null;
 };

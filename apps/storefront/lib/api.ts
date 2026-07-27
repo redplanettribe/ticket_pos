@@ -337,6 +337,9 @@ export type BeginCheckoutRequest = {
   customer_email: string;
   customer_first_name: string;
   customer_last_name: string;
+  /** The buyer's Tax ID, required on this native Sales Channel (ADR 0016). */
+  customer_tax_id_type: string;
+  customer_tax_id_number: string;
   lines: { ticket_type_id: string; quantity: number }[];
 };
 
@@ -357,18 +360,24 @@ export type ConfirmCheckoutResult = {
 
 /**
  * beginCheckout starts an online checkout on a published Event. Guest by
- * definition: no session travels with it, only the email and name entered in
- * the checkout form. Failures throw APIError so the route handler can relay
- * the API's own code and message.
+ * definition: the form's own email, name, and Tax ID are all the API needs, and
+ * a visitor with no session buys exactly like a signed-in one. Failures throw
+ * APIError so the route handler can relay the API's own code and message.
+ *
+ * `sessionToken` is therefore optional and changes nothing about the sale. It
+ * only tells the API that the buyer has proven they own the address they are
+ * buying under, which is what lets a Tax ID typed here replace the one stored on
+ * their profile instead of merely landing on this sale (ADR 0016).
  */
 export async function beginCheckout(
   orgSlug: string,
   eventSlug: string,
   request: BeginCheckoutRequest,
+  sessionToken?: string,
 ): Promise<BeginCheckoutResult> {
   const envelope = await callBackend<BeginCheckoutResult>(
     `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
-    { method: "POST", body: JSON.stringify(request) },
+    { method: "POST", body: JSON.stringify(request), sessionToken },
   );
   if (!envelope.data) {
     throw new APIError(

@@ -19,6 +19,13 @@ const docTemplate = `{
                     "customer_last_name": {
                         "type": "string"
                     },
+                    "customer_tax_id_number": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_type": {
+                        "description": "The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its\nnumber. Both are required — an Online Sale is a native Sales Channel and\nmust be declarable (ADR 0016).",
+                        "type": "string"
+                    },
                     "lines": {
                         "items": {
                             "$ref": "#/components/schemas/handler.checkoutLineBody"
@@ -1003,6 +1010,13 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "last_name": {
+                        "type": "string"
+                    },
+                    "tax_id_number": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "description": "The Customer's stored Tax ID, both halves null until they have one. It is\nhere so the Storefront checkout dialog can prefill it beside the email and\nname, which is the whole point of storing one (ADR 0016). Unmasked: it is\nthe person's own Tax ID being shown back to the person, behind their own\nsession.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -2860,7 +2874,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. No authentication: guest checkout needs only email and name.",
+                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -2892,13 +2906,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/handler.beginCheckoutBody",
                                         "summary": "body",
-                                        "description": "Checkout lines and customer identity"
+                                        "description": "Checkout lines, customer identity and Tax ID"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Checkout lines and customer identity",
+                    "description": "Checkout lines, customer identity and Tax ID",
                     "required": true
                 },
                 "responses": {

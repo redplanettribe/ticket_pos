@@ -39,12 +39,18 @@ func publishCheckoutEvent(t *testing.T, env *testEnv, sessionID, name, slug stri
 }
 
 // checkoutBody builds a begin-checkout request body for a guest.
+//
+// The Tax ID is as required as the email (#98, ADR 0016), so it carries a valid
+// cédula by default: a checkout without one is rejected, and the tests that care
+// which Tax ID was typed override it (checkout_tax_id_test.go).
 func checkoutBody(email, firstName, lastName string, lines ...map[string]any) map[string]any {
 	return map[string]any{
-		"customer_email":      email,
-		"customer_first_name": firstName,
-		"customer_last_name":  lastName,
-		"lines":               lines,
+		"customer_email":         email,
+		"customer_first_name":    firstName,
+		"customer_last_name":     lastName,
+		"customer_tax_id_type":   "cedula",
+		"customer_tax_id_number": validCedula,
+		"lines":                  lines,
 	}
 }
 

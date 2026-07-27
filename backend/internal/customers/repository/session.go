@@ -9,11 +9,16 @@ import (
 
 // Customer is a stored Customer record.
 type Customer struct {
-	ID         string
-	Email      string
-	FirstName  string
-	LastName   string
-	VerifiedAt sql.NullTime
+	ID        string
+	Email     string
+	FirstName string
+	LastName  string
+	// The Customer's one current Tax ID assertion, null together until they have
+	// supplied one (ADR 0016). Nullable forever: most Customers on the platform
+	// the day this shipped had none and nothing backfills them.
+	TaxIDType   sql.NullString
+	TaxIDNumber sql.NullString
+	VerifiedAt  sql.NullTime
 }
 
 // CustomerSession is a stored Customer Session.
@@ -34,9 +39,9 @@ type CustomerSession struct {
 func (r *Repository) GetCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
 	var c Customer
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, first_name, last_name, verified_at
+		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, verified_at
 		FROM customers WHERE email = $1
-	`, email).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.VerifiedAt)
+	`, email).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -51,9 +56,9 @@ func (r *Repository) GetCustomerByEmail(ctx context.Context, email string) (*Cus
 func (r *Repository) GetCustomerByID(ctx context.Context, id string) (*Customer, error) {
 	var c Customer
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, first_name, last_name, verified_at
+		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, verified_at
 		FROM customers WHERE id = $1
-	`, id).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.VerifiedAt)
+	`, id).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -77,8 +82,8 @@ func (r *Repository) VerifyCustomer(ctx context.Context, email string, now time.
 		VALUES ($1, '', '', $2, $2)
 		ON CONFLICT (email) DO UPDATE SET
 			verified_at = COALESCE(customers.verified_at, EXCLUDED.verified_at)
-		RETURNING id, email, first_name, last_name, verified_at
-	`, email, now).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.VerifiedAt)
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, verified_at
+	`, email, now).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.VerifiedAt)
 	if err != nil {
 		return nil, err
 	}

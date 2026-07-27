@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
+import { customerSessionToken } from "@/lib/customer-session";
 
 // Begins a Payment and touches a cookie; never cached.
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ type CheckoutRequestBody = {
   customer_email?: unknown;
   customer_first_name?: unknown;
   customer_last_name?: unknown;
+  customer_tax_id_type?: unknown;
+  customer_tax_id_number?: unknown;
   lines?: unknown;
 };
 
@@ -89,12 +92,25 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await beginCheckout(orgSlug, eventSlug, {
-      customer_email: asTrimmedString(body.customer_email),
-      customer_first_name: asTrimmedString(body.customer_first_name),
-      customer_last_name: asTrimmedString(body.customer_last_name),
-      lines,
-    });
+    // The Customer Session token, when the visitor has one, rides along in
+    // Authorization. It is never required — guest checkout is the baseline — and
+    // the API uses it for one thing only: deciding whether the Tax ID typed
+    // below is the buyer's own assertion about themselves, and may therefore
+    // become their stored one (ADR 0016). A dead or absent token simply checks
+    // out as a guest, so nothing here treats its absence as a problem.
+    const result = await beginCheckout(
+      orgSlug,
+      eventSlug,
+      {
+        customer_email: asTrimmedString(body.customer_email),
+        customer_first_name: asTrimmedString(body.customer_first_name),
+        customer_last_name: asTrimmedString(body.customer_last_name),
+        customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
+        customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
+        lines,
+      },
+      await customerSessionToken(),
+    );
 
     // Remembered only once the API accepted the checkout: the slugs were just
     // validated against SLUG_PATTERN, so the path is safe to become an href on

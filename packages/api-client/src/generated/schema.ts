@@ -1217,7 +1217,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. No authentication: guest checkout needs only email and name.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
          */
         post: {
             parameters: {
@@ -1231,7 +1231,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            /** @description Checkout lines and customer identity */
+            /** @description Checkout lines, customer identity and Tax ID */
             requestBody: {
                 content: {
                     "application/json": Record<string, never> | components["schemas"]["handler.beginCheckoutBody"];
@@ -3452,6 +3452,13 @@ export interface components {
             customer_email?: string;
             customer_first_name?: string;
             customer_last_name?: string;
+            customer_tax_id_number?: string;
+            /**
+             * @description The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its
+             *     number. Both are required — an Online Sale is a native Sales Channel and
+             *     must be declarable (ADR 0016).
+             */
+            customer_tax_id_type?: string;
             lines?: components["schemas"]["handler.checkoutLineBody"][];
         };
         "handler.checkoutLineBody": {
@@ -3804,6 +3811,15 @@ export interface components {
             email?: string;
             first_name?: string;
             last_name?: string;
+            tax_id_number?: string;
+            /**
+             * @description The Customer's stored Tax ID, both halves null until they have one. It is
+             *     here so the Storefront checkout dialog can prefill it beside the email and
+             *     name, which is the whole point of storing one (ADR 0016). Unmasked: it is
+             *     the person's own Tax ID being shown back to the person, behind their own
+             *     session.
+             */
+            tax_id_type?: string;
             /**
              * @description TicketSaleID is null for a full Customer Session, which spans every Ticket
              *     Sale the Customer owns. A Confirmation Link session names one sale here.

@@ -28,10 +28,17 @@ const otpPurpose = otp.PurposeCustomer
 // CustomerSessionView is the public representation of a Customer Session: which
 // email the caller is signed in as, and what the session is scoped to.
 type CustomerSessionView struct {
-	Email      string  `json:"email"`
-	FirstName  string  `json:"first_name"`
-	LastName   string  `json:"last_name"`
-	VerifiedAt *string `json:"verified_at"`
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	// The Customer's stored Tax ID, both halves null until they have one. It is
+	// here so the Storefront checkout dialog can prefill it beside the email and
+	// name, which is the whole point of storing one (ADR 0016). Unmasked: it is
+	// the person's own Tax ID being shown back to the person, behind their own
+	// session.
+	TaxIDType   *string `json:"tax_id_type"`
+	TaxIDNumber *string `json:"tax_id_number"`
+	VerifiedAt  *string `json:"verified_at"`
 	// TicketSaleID is null for a full Customer Session, which spans every Ticket
 	// Sale the Customer owns. A Confirmation Link session names one sale here.
 	TicketSaleID *string `json:"ticket_sale_id"`
@@ -224,6 +231,10 @@ func sessionView(customer *repository.Customer, session *repository.CustomerSess
 		Email:     customer.Email,
 		FirstName: customer.FirstName,
 		LastName:  customer.LastName,
+	}
+	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
+		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String
+		view.TaxIDType, view.TaxIDNumber = &taxIDType, &taxIDNumber
 	}
 	if customer.VerifiedAt.Valid {
 		verified := customer.VerifiedAt.Time.UTC().Format(time.RFC3339)

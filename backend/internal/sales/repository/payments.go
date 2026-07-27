@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
@@ -75,8 +76,15 @@ type CreatePaymentInput struct {
 	CustomerEmail       string
 	CustomerFirstName   string
 	CustomerLastName    string
-	Lines               []PaymentLine
-	Now                 time.Time
+	// CustomerTaxID is the Tax ID the buyer supplied at begin-checkout,
+	// snapshotted here because confirm — running on the provider's return
+	// redirect — carries nothing of the checkout form. Its SelfAsserted flag
+	// records that the begin request ran under this buyer's own Customer
+	// Session, which is what the Customer upsert reads at confirm time to decide
+	// whether the override may replace a verified stored Tax ID (ADR 0016).
+	CustomerTaxID platform.SaleTaxID
+	Lines         []PaymentLine
+	Now           time.Time
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -93,12 +101,14 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 		INSERT INTO payments (
 			event_id, organization_id, provider, client_transaction_id,
 			status, amount_cents, customer_email, customer_first_name, customer_last_name,
+			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $9)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
-		in.AmountCents, in.CustomerEmail, in.CustomerFirstName, in.CustomerLastName, in.Now).Scan(&paymentID)
+		in.AmountCents, in.CustomerEmail, in.CustomerFirstName, in.CustomerLastName, in.Now,
+		nullString(in.CustomerTaxID.Type), nullString(in.CustomerTaxID.Number), in.CustomerTaxID.SelfAsserted).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -270,12 +280,19 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	defer func() { _ = tx.Rollback() }()
 
 	var paymentID, eventID, orgID, status, email, firstName, lastName string
+	// The Tax ID columns are nullable forever (ADR 0016): a Payment begun before
+	// the checkout collected one confirms into a sale with no Tax ID rather than
+	// failing years later at the till.
+	var taxIDType, taxIDNumber sql.NullString
+	var sessionAuthorized bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name
+		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
+		       customer_tax_id_type, customer_tax_id_number, customer_session_authorized
 		FROM payments
 		WHERE client_transaction_id = $1
 		FOR UPDATE
-	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName)
+	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
+		&taxIDType, &taxIDNumber, &sessionAuthorized)
 	if err != nil {
 		return nil, err
 	}
@@ -330,10 +347,18 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 			CustomerEmail:     email,
 			CustomerFirstName: firstName,
 			CustomerLastName:  lastName,
-			PaymentMethod:     in.PaymentMethod,
-			SoldAt:            in.Now,
-			ConfirmationRef:   in.ConfirmationRef,
-			Lines:             lines,
+			// Copied verbatim from the Payment, like the email and name beside
+			// it: the sale records what the buyer supplied at begin-checkout,
+			// whatever their profile says by the time the provider answers.
+			CustomerTaxID: platform.SaleTaxID{
+				Type:         taxIDType.String,
+				Number:       taxIDNumber.String,
+				SelfAsserted: sessionAuthorized,
+			},
+			PaymentMethod:   in.PaymentMethod,
+			SoldAt:          in.Now,
+			ConfirmationRef: in.ConfirmationRef,
+			Lines:           lines,
 		}},
 		Now:            in.Now,
 		UpsertCustomer: in.UpsertCustomer,

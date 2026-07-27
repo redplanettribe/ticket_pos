@@ -69,11 +69,19 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // every Customer entry path shares. The name is the one recorded on this sale; it
 // refreshes the Customer's profile name only while the Customer is unverified.
 // The sale's own recorded name is never touched by this call.
-func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, now time.Time) (string, error) {
+//
+// taxID is the Tax ID the sale was transacted under, unset on a channel that
+// carries none. Its write-back follows the same fill/refresh shape as the name
+// plus one override — a Tax ID asserted under the Customer's own session
+// replaces a verified one — and the rule itself is stated at repository.Upsert
+// (ADR 0016). As with the name, the sale's own snapshot is written by the sales
+// module and never touched here.
+func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, now time.Time) (string, error) {
 	return s.repo.Upsert(ctx, tx, repository.UpsertInput{
 		Email:     platform.NormalizeEmail(email),
 		FirstName: firstName,
 		LastName:  lastName,
+		TaxID:     taxID,
 		Now:       now,
 	})
 }

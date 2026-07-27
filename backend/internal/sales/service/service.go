@@ -58,8 +58,11 @@ type ImportResult struct {
 type CustomerService interface {
 	// UpsertForSale creates or reuses the platform-global Customer for a Ticket
 	// Sale and returns the Customer id, inside the transaction that records the
-	// sale.
-	UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, now time.Time) (string, error)
+	// sale. taxID is what the sale was transacted under (unset on a channel that
+	// carries none); what the customers module does with it — fill, refresh, or
+	// leave a verified assertion alone — is that module's rule, not this one's
+	// (ADR 0016).
+	UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, now time.Time) (string, error)
 	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
 	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
 	// when it has no schedule; how long the link then lives is the customers

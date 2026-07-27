@@ -48,17 +48,22 @@ type CommitSale struct {
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
-	PaymentMethod     string
-	SoldAt            time.Time
-	ConfirmationRef   string
-	Lines             []CommitLine
+	// CustomerTaxID is the Tax ID this sale is transacted under. It is written
+	// onto the sale exactly once, here, and no later sale or profile edit ever
+	// touches it (ADR 0016). Unset on a sale that carries none — the `import`
+	// channel, and every sale recorded before the Tax ID existed.
+	CustomerTaxID   platform.SaleTaxID
+	PaymentMethod   string
+	SoldAt          time.Time
+	ConfirmationRef string
+	Lines           []CommitLine
 }
 
 // UpsertCustomer creates or reuses the Customer for one Ticket Sale inside the
 // batch's transaction and returns the Customer id. The sales service supplies it,
 // bound to the customers service, so the cross-module call goes through that
 // module's service rather than its repository.
-type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, now time.Time) (string, error)
+type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, now time.Time) (string, error)
 
 // CommitSalesInput is a set of prepared Ticket Sales to record on one Sales
 // Channel — the channel-agnostic sale-commit spine's input. Source qualifies
@@ -363,7 +368,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// The Customer is created or reused in this same transaction, so a sale and
 		// the Customer it references are never recorded apart. The sale keeps its own
 		// copy of the recorded name and email verbatim; the upsert never rewrites it.
-		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, in.Now)
+		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.CustomerTaxID, in.Now)
 		if err != nil {
 			return nil, err
 		}
@@ -372,13 +377,16 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		err = tx.QueryRowContext(ctx, `
 			INSERT INTO ticket_sales (
 				event_id, organization_id, channel, source, payment_method,
-				customer_id, customer_email, customer_first_name, customer_last_name, sold_at, confirmation_ref, status,
+				customer_id, customer_email, customer_first_name, customer_last_name,
+				customer_tax_id_type, customer_tax_id_number,
+				sold_at, confirmation_ref, status,
 				created_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
-			customerID, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, in.Now).Scan(&saleID)
+			customerID, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, in.Now,
+			nullString(s.CustomerTaxID.Type), nullString(s.CustomerTaxID.Number)).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}

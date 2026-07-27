@@ -26,7 +26,11 @@ type UpsertInput struct {
 	Email     string
 	FirstName string
 	LastName  string
-	Now       time.Time
+	// TaxID is the Tax ID this sale was transacted under, unset on a sale that
+	// carries none (the `import` channel). Its SelfAsserted flag decides whether
+	// a Verified Customer's stored Tax ID may be overwritten; see Upsert.
+	TaxID platform.SaleTaxID
+	Now   time.Time
 }
 
 // Upsert creates the Customer for the normalised email, or reuses the existing
@@ -54,18 +58,43 @@ type UpsertInput struct {
 // "currently blank" and "never set" cannot diverge; should a write path that can
 // blank a set name ever be added, this guard must be replaced by one that records
 // whether a name was ever set rather than inspecting the current value.
+//
+// The Tax ID below follows the same shape with one asymmetry of its own
+// (ADR 0016). Like the name it may fill a blank on any channel and refresh
+// freely while the Customer is unverified. Unlike the name it has an override:
+// when the sale was transacted under this Customer's own Customer Session
+// (in.TaxID.SelfAsserted), the value is the person's own assertion about
+// themselves and replaces the stored one even on a Verified Customer. The name
+// has no such escape because nothing proves a name; ownership of the email is
+// exactly what the session proves, and the Tax ID is the thing the person is
+// entitled to restate.
+//
+// A sale carrying no Tax ID at all — the `import` channel, where the ID may
+// never have been collected — writes nothing: the EXCLUDED-is-not-null guard
+// below means an import can never blank a Tax ID somebody supplied.
 func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (string, error) {
+	var taxIDType, taxIDNumber any
+	if in.TaxID.Set() {
+		taxIDType, taxIDNumber = in.TaxID.Type, in.TaxID.Number
+	}
+
 	var id string
 	err := tx.QueryRowContext(ctx, `
-		INSERT INTO customers (email, first_name, last_name, created_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO customers (email, first_name, last_name, tax_id_type, tax_id_number, created_at)
+		VALUES ($1, $2, $3, $5, $6, $4)
 		ON CONFLICT (email) DO UPDATE SET
 			first_name = CASE WHEN customers.verified_at IS NULL OR (customers.first_name = '' AND customers.last_name = '')
 				THEN EXCLUDED.first_name ELSE customers.first_name END,
 			last_name  = CASE WHEN customers.verified_at IS NULL OR (customers.first_name = '' AND customers.last_name = '')
-				THEN EXCLUDED.last_name  ELSE customers.last_name  END
+				THEN EXCLUDED.last_name  ELSE customers.last_name  END,
+			tax_id_type = CASE WHEN EXCLUDED.tax_id_type IS NOT NULL
+				AND (customers.tax_id_type IS NULL OR customers.verified_at IS NULL OR $7)
+				THEN EXCLUDED.tax_id_type ELSE customers.tax_id_type END,
+			tax_id_number = CASE WHEN EXCLUDED.tax_id_number IS NOT NULL
+				AND (customers.tax_id_type IS NULL OR customers.verified_at IS NULL OR $7)
+				THEN EXCLUDED.tax_id_number ELSE customers.tax_id_number END
 		RETURNING id
-	`, in.Email, in.FirstName, in.LastName, in.Now).Scan(&id)
+	`, in.Email, in.FirstName, in.LastName, in.Now, taxIDType, taxIDNumber, in.TaxID.SelfAsserted).Scan(&id)
 	if err != nil {
 		return "", err
 	}

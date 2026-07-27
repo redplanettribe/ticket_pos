@@ -90,8 +90,15 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events", ch.GetPublicOrganizationEvents)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events/{eventSlug}", ch.GetPublicEvent)
 	// Online checkout (ADR 0012). Guest by definition: no session is required to
-	// buy tickets, only an email and a name.
-	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout", sh.BeginCheckout)
+	// buy tickets, only an email, a name, and a Tax ID.
+	//
+	// The optional session middleware does not gate this route — an absent or
+	// dead token still checks out as a guest. It is here so the handler can tell
+	// a Customer restating their own Tax ID from an anonymous visitor typing a
+	// known email, which is the difference between an override that updates the
+	// person's profile and one that only lands on the sale (ADR 0016).
+	mux.Handle("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout",
+		customersmiddleware.OptionalCustomerSession(app.CustomersService)(http.HandlerFunc(sh.BeginCheckout)))
 	// Confirm is keyed by our client transaction id rather than by slugs: the
 	// provider's return redirect carries the id and nothing else reliable.
 	mux.HandleFunc("POST /api/v1/public/checkout/{clientTransactionId}/confirm", sh.ConfirmCheckout)

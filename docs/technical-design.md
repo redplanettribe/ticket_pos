@@ -507,6 +507,13 @@ type EmailSender interface {
   `purpose` so a code minted for one surface cannot be redeemed on the other.
 - A record created on someone's behalf is inert until verified: it receives no email beyond the Sale
   Confirmation its own sale triggered, and cannot be signed into.
+- A Customer holds one current **Tax ID** — a **Tax ID Type** (`cedula` | `ruc` | `passport`) and
+  its number — validated once in `platform.ValidateTaxID` and mirrored by clients for instant
+  feedback only (ADR 0016). It is returned by `GET /api/v1/customer/auth/session` as
+  `tax_id_type` / `tax_id_number` (both null until one exists) so the checkout dialog can prefill it.
+  Write-back from a sale mirrors the customer-name rule with one addition: a sale may **fill** a
+  never-set Tax ID and **refresh** it while the Customer is unverified, and may overwrite a verified
+  one **only** when the checkout ran under that Customer's own full Customer Session.
 
 ## Client applications
 
@@ -565,7 +572,11 @@ in production with it set**, exactly like `GOOGLE_TOKEN_ENDPOINT`.
 A **Payment** (`payments` + `payment_lines`, migration 019) records each attempt: provider name,
 our `client_transaction_id`, the provider's ids, amount, a snapshot of Ticket Type quantities and
 unit prices (so a catalog edit mid-payment cannot change what was bought), and the checkout
-email/name. Lifecycle:
+email/name/Tax ID. Everything the recorded sale needs is snapshotted at begin-checkout because
+confirm arrives on the provider's redirect and carries none of the form — including
+`customer_session_authorized` (migration 027), which remembers that the begin request ran under the
+buyer's own Customer Session and is what lets their Tax ID override replace the stored one.
+Lifecycle:
 
 ```text
 pending ──approved──▶ approved   (Ticket Sale committed in the SAME transaction)
@@ -586,8 +597,9 @@ approved-without-sale as a durable marker and the incident is logged loudly
 Nothing external may call the Go API (ADR 0008), so the provider's return redirect lands on a
 **Storefront route handler**, which asks the API to confirm:
 
-1. `POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout` (guest, no session)
-   validates the cart against live capacity, records a `pending` Payment, calls
+1. `POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout` (guest; a Customer
+   Session is optional and never required) validates the cart against live capacity and the
+   buyer's `customer_tax_id_type` / `customer_tax_id_number`, records a `pending` Payment, calls
    `PaymentProvider.Initiate`, and returns the hosted payment URL.
 2. The browser is redirected to the provider's payment page (top-level, never an iframe).
 3. The provider redirects back to `{storefront}/checkout/return`, whose handler relays the return

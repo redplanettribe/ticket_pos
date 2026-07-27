@@ -20,6 +20,10 @@ const EVENT_NAME = "Midnight Synth Live";
 const GA_TICKET = "General Admission";
 const GA_PRICE = "$39.03";
 
+// A cédula with a valid province prefix and check digit, shared by both
+// journeys — the Tax ID is not an identity, so every run may assert the same one.
+const GA_TAX_ID = "1712345675";
+
 // Sale Confirmation references look like TP-J7K2QX9M (base32).
 const CONFIRMATION_REF = /^TP-[A-Z2-7]+$/;
 
@@ -38,6 +42,11 @@ async function fillCheckoutForm(page: Page, email: string) {
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("First name").fill("Ada");
   await page.getByLabel("Last name").fill("Lovelace");
+  // The Tax ID is as required as the email (#98, ADR 0016). A real cédula: the
+  // API validates the check digit and refuses the checkout otherwise, so an
+  // arbitrary ten digits would fail this journey at begin-checkout.
+  await page.getByLabel("ID type").selectOption("cedula");
+  await page.getByLabel("ID number").fill(GA_TAX_ID);
   await page.getByRole("button", { name: "Continue to payment" }).click();
 
   // The stub Payment Provider's interstitial: a top-level page showing the

@@ -42,6 +42,34 @@ var (
 	ErrTaxIDNumberInvalid = errors.New("invalid tax id number")
 )
 
+// SaleTaxID is the Tax ID one Ticket Sale was transacted under, as it travels
+// from the checkout form to the Customer upsert. Both halves are empty when the
+// sale carries no Tax ID at all, which only the `import` channel may do
+// (ADR 0016).
+//
+// It is defined here, beside the validator, because it crosses a module
+// boundary: sales hands it to customers through the upsert seam, and neither
+// module may import the other's packages for a data type.
+type SaleTaxID struct {
+	// Type is a Tax ID Type; Number is already normalised by ValidateTaxID.
+	Type   string
+	Number string
+	// SelfAsserted reports that the person supplying this Tax ID had proven they
+	// own the email it is recorded against — the checkout ran under that
+	// Customer's own full Customer Session.
+	//
+	// It is the single fact that lets a sale overwrite a *Verified* Customer's
+	// stored Tax ID (ADR 0016). Someone editing their own prefilled value is
+	// correcting themselves and their override becomes the new stored
+	// assertion; an anonymous visitor typing a known email is not, and the
+	// stored value stands however the sale is recorded. It says nothing about
+	// the name, whose rule is unchanged and unaffected.
+	SelfAsserted bool
+}
+
+// Set reports whether a Tax ID was supplied at all.
+func (t SaleTaxID) Set() bool { return t.Type != "" && t.Number != "" }
+
 // ValidateTaxID checks a Tax ID Type and number and returns the number in the
 // form it must be stored in: trimmed always, and uppercased for passports so
 // "ab123456" and "AB123456" are the same passport rather than two.

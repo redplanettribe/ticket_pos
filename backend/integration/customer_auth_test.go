@@ -32,9 +32,13 @@ const (
 const customerSessionDuration = 180 * 24 * time.Hour
 
 type customerSessionView struct {
-	Email        string  `json:"email"`
-	FirstName    string  `json:"first_name"`
-	LastName     string  `json:"last_name"`
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	// The stored Tax ID, both halves null until the Customer has one. The
+	// checkout dialog prefills from these (#98).
+	TaxIDType    *string `json:"tax_id_type"`
+	TaxIDNumber  *string `json:"tax_id_number"`
 	VerifiedAt   *string `json:"verified_at"`
 	TicketSaleID *string `json:"ticket_sale_id"`
 }

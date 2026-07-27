@@ -49,7 +49,14 @@ type BeginCheckoutInput struct {
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
-	Lines             []CheckoutLineInput
+	// CustomerTaxID is the Tax ID this purchase is to be declared under,
+	// required on this native Sales Channel and already validated and normalised
+	// by the handler (ADR 0016). Its SelfAsserted flag says the begin request
+	// ran under this buyer's own Customer Session; it is snapshotted onto the
+	// Payment because confirm, arriving on the provider's redirect, can no
+	// longer establish it.
+	CustomerTaxID platform.SaleTaxID
+	Lines         []CheckoutLineInput
 }
 
 // BeginCheckoutResult is what the Storefront needs to send the Customer to the
@@ -155,6 +162,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		CustomerEmail:       strings.TrimSpace(in.CustomerEmail),
 		CustomerFirstName:   strings.TrimSpace(in.CustomerFirstName),
 		CustomerLastName:    strings.TrimSpace(in.CustomerLastName),
+		CustomerTaxID:       in.CustomerTaxID,
 		Lines:               paymentLines,
 		Now:                 now,
 	}); err != nil {

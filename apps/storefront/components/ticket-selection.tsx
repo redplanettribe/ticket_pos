@@ -23,12 +23,20 @@ import { useRef, useState, type FormEvent } from "react";
 import type { PublicTicketType } from "@/lib/api";
 import { clampQuantity, selectionLines, totalCents, totalQuantity } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
+import {
+  TAX_ID_TYPES,
+  TAX_ID_TYPE_LABELS,
+  isTaxIdType,
+  normalizeTaxIdNumber,
+  validateTaxId,
+  type TaxIdType,
+} from "@/lib/tax-id";
 
 /**
  * Ticket selection and the one checkout step, inline on the event page
  * (docs/design/storefront.md): quantity steppers per Ticket Type, a sticky
- * running total, and a Dialog collecting email + first/last name — prefilled
- * from the Customer Session when one exists, guest checkout otherwise.
+ * running total, and a Dialog collecting email + first/last name + Tax ID —
+ * prefilled from the Customer Session when one exists, guest checkout otherwise.
  *
  * Submitting asks this app's own /api/checkout route to begin the Payment
  * (the browser never addresses the Go API, ADR 0008) and then performs a
@@ -41,7 +49,13 @@ type Envelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-type SessionData = { email: string; first_name: string; last_name: string };
+type SessionData = {
+  email: string;
+  first_name: string;
+  last_name: string;
+  tax_id_type: string | null;
+  tax_id_number: string | null;
+};
 
 type TicketSelectionProps = {
   orgSlug: string;
@@ -65,7 +79,19 @@ function formatRemaining(remaining: number): string {
 }
 
 /** The API's begin-checkout field names, mapped onto the form's inputs. */
-type FieldErrors = Partial<Record<"customer_email" | "customer_first_name" | "customer_last_name", string>>;
+const FORM_FIELDS = [
+  "customer_email",
+  "customer_first_name",
+  "customer_last_name",
+  "customer_tax_id_type",
+  "customer_tax_id_number",
+] as const;
+
+type FieldErrors = Partial<Record<(typeof FORM_FIELDS)[number], string>>;
+
+function isFormField(field: string): field is (typeof FORM_FIELDS)[number] {
+  return (FORM_FIELDS as readonly string[]).includes(field);
+}
 
 function fieldErrorsFromDetails(details: unknown): FieldErrors {
   const errors: FieldErrors = {};
@@ -76,12 +102,16 @@ function fieldErrorsFromDetails(details: unknown): FieldErrors {
     if (typeof entry !== "object" || entry === null) continue;
     const { field, message } = entry as { field?: unknown; message?: unknown };
     if (typeof field !== "string" || typeof message !== "string") continue;
-    if (field === "customer_email" || field === "customer_first_name" || field === "customer_last_name") {
+    if (isFormField(field)) {
       errors[field] = message;
     }
   }
   return errors;
 }
+
+/** Matches the Input component's height and border so the select reads as a peer. */
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function TicketSelection({
   orgSlug,
@@ -96,10 +126,16 @@ export function TicketSelection({
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  // Cédula is the default because it is what the overwhelming majority of
+  // buyers hold; the select is still required, so nothing is submitted under a
+  // type the buyer never looked at without them also typing its number.
+  const [taxIdType, setTaxIdType] = useState<TaxIdType>("cedula");
+  const [taxIdNumber, setTaxIdNumber] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<{ code: string | null; message: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const prefillAttempted = useRef(false);
+  const taxIdTouched = useRef(false);
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -130,6 +166,19 @@ export function TicketSelection({
       setEmail((current) => current || session.email);
       setFirstName((current) => current || session.first_name);
       setLastName((current) => current || session.last_name);
+      // The stored Tax ID is a prefill, not a lock: a signed-in Customer may
+      // override it for this purchase — buying under a company RUC instead of
+      // their cédula — and the override becomes their new stored default
+      // (ADR 0016). A Customer who has never supplied one gets the empty form.
+      //
+      // The pair moves together, so "already typed in" is tracked with a flag
+      // rather than by testing the value: the type always holds a default, and a
+      // visitor who picked Passport before this response arrived must not find
+      // Cédula selected under their own passport number.
+      if (!taxIdTouched.current && session.tax_id_type && session.tax_id_number && isTaxIdType(session.tax_id_type)) {
+        setTaxIdType(session.tax_id_type);
+        setTaxIdNumber(session.tax_id_number);
+      }
     } catch {
       // Prefill is a convenience; its failure must never block a guest.
     }
@@ -144,6 +193,17 @@ export function TicketSelection({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // The mirror check: a mistyped cédula is caught here so the buyer is told
+    // before a round trip. The API validates the same rules and its verdict is
+    // the one that decides whether the sale happens (ADR 0016).
+    const taxIdProblem = validateTaxId(taxIdType, taxIdNumber);
+    if (taxIdProblem) {
+      setError(null);
+      setFieldErrors({ customer_tax_id_number: taxIdProblem });
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
@@ -159,6 +219,8 @@ export function TicketSelection({
           customer_email: email,
           customer_first_name: firstName,
           customer_last_name: lastName,
+          customer_tax_id_type: taxIdType,
+          customer_tax_id_number: normalizeTaxIdNumber(taxIdType, taxIdNumber),
           lines: selectionLines(quantities),
         }),
       });
@@ -361,6 +423,50 @@ export function TicketSelection({
                     required
                     value={lastName}
                     onChange={(event) => setLastName(event.target.value)}
+                  />
+                </FormField>
+              </div>
+              {/* The Tax ID: required on every Online Sale so the Organization
+                  can declare it (ADR 0016). Type and number are one fact split
+                  across two controls, so they sit on one row. */}
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,9rem)_1fr]">
+                <FormField
+                  id="checkout-tax-id-type"
+                  label="ID type"
+                  error={fieldErrors.customer_tax_id_type}
+                >
+                  <select
+                    name="tax-id-type"
+                    className={SELECT_CLASS}
+                    required
+                    value={taxIdType}
+                    onChange={(event) => {
+                      taxIdTouched.current = true;
+                      if (isTaxIdType(event.target.value)) setTaxIdType(event.target.value);
+                    }}
+                  >
+                    {TAX_ID_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {TAX_ID_TYPE_LABELS[type]}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField
+                  id="checkout-tax-id-number"
+                  label="ID number"
+                  error={fieldErrors.customer_tax_id_number}
+                >
+                  <Input
+                    name="tax-id-number"
+                    inputMode={taxIdType === "passport" ? "text" : "numeric"}
+                    autoComplete="off"
+                    required
+                    value={taxIdNumber}
+                    onChange={(event) => {
+                      taxIdTouched.current = true;
+                      setTaxIdNumber(event.target.value);
+                    }}
                   />
                 </FormField>
               </div>

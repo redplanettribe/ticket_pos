@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	customersmiddleware "github.com/peter/ticket_pos/backend/internal/customers/middleware"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales/service"
 )
@@ -29,10 +31,15 @@ type checkoutLineBody struct {
 }
 
 type beginCheckoutBody struct {
-	CustomerEmail     string             `json:"customer_email"`
-	CustomerFirstName string             `json:"customer_first_name"`
-	CustomerLastName  string             `json:"customer_last_name"`
-	Lines             []checkoutLineBody `json:"lines"`
+	CustomerEmail     string `json:"customer_email"`
+	CustomerFirstName string `json:"customer_first_name"`
+	CustomerLastName  string `json:"customer_last_name"`
+	// The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its
+	// number. Both are required — an Online Sale is a native Sales Channel and
+	// must be declarable (ADR 0016).
+	CustomerTaxIDType   string             `json:"customer_tax_id_type"`
+	CustomerTaxIDNumber string             `json:"customer_tax_id_number"`
+	Lines               []checkoutLineBody `json:"lines"`
 }
 
 type confirmCheckoutBody struct {
@@ -47,13 +54,13 @@ type confirmCheckoutBody struct {
 // Provider's redirect URL.
 //
 // @Summary      Begin an online checkout
-// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. No authentication: guest checkout needs only email and name.
+// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
 // @Tags         public
 // @Accept       json
 // @Produce      json
 // @Param        slug       path      string             true  "Organization slug"
 // @Param        eventSlug  path      string             true  "Event slug"
-// @Param        body       body      beginCheckoutBody  true  "Checkout lines and customer identity"
+// @Param        body       body      beginCheckoutBody  true  "Checkout lines, customer identity and Tax ID"
 // @Success      201        {object}  openapi.EnvelopeBeginCheckout
 // @Failure      400        {object}  platform.Envelope
 // @Failure      404        {object}  platform.Envelope
@@ -82,6 +89,7 @@ func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
+	input.CustomerTaxID.SelfAsserted = taxIDSelfAsserted(r, input.CustomerEmail)
 
 	result, err := h.svc.BeginCheckout(r.Context(), input)
 	if err != nil {
@@ -109,6 +117,38 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 	if strings.TrimSpace(body.CustomerLastName) == "" {
 		fields = append(fields, platform.FieldError{Field: "customer_last_name", Message: "is required"})
 	}
+
+	// The Tax ID: required here because an Online Sale is a native Sales Channel
+	// and the Organization must be able to declare it (ADR 0016). Validation is
+	// platform.ValidateTaxID and nothing else — the clients mirror those rules
+	// for instant feedback, this is the verdict — and its two sentinel errors
+	// are mapped onto the halves of the pair they belong to, so the form can
+	// mark the failing field rather than the whole group.
+	taxIDType := strings.TrimSpace(body.CustomerTaxIDType)
+	taxIDNumber := strings.TrimSpace(body.CustomerTaxIDNumber)
+	var taxID platform.SaleTaxID
+	switch {
+	case taxIDType == "":
+		fields = append(fields, platform.FieldError{Field: "customer_tax_id_type", Message: "is required"})
+		if taxIDNumber == "" {
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: "is required"})
+		}
+	case taxIDNumber == "":
+		fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: "is required"})
+	default:
+		normalized, err := platform.ValidateTaxID(taxIDType, taxIDNumber)
+		switch {
+		case errors.Is(err, platform.ErrTaxIDTypeUnknown):
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_type", Message: "must be cedula, ruc, or passport"})
+		case errors.Is(err, platform.ErrTaxIDNumberInvalid):
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: taxIDNumberMessage(taxIDType)})
+		case err != nil:
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: "is not valid"})
+		default:
+			taxID = platform.SaleTaxID{Type: taxIDType, Number: normalized}
+		}
+	}
+
 	if len(body.Lines) == 0 {
 		fields = append(fields, platform.FieldError{Field: "lines", Message: "must contain at least one line"})
 	}
@@ -139,8 +179,47 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		CustomerEmail:     strings.TrimSpace(body.CustomerEmail),
 		CustomerFirstName: strings.TrimSpace(body.CustomerFirstName),
 		CustomerLastName:  strings.TrimSpace(body.CustomerLastName),
+		CustomerTaxID:     taxID,
 		Lines:             lines,
 	}
+}
+
+// taxIDNumberMessage explains a rejected number in the terms of its own Tax ID
+// Type, because "is not valid" tells a buyer staring at their ID card nothing
+// about which digit to look at.
+func taxIDNumberMessage(taxIDType string) string {
+	switch taxIDType {
+	case platform.TaxIDTypeCedula:
+		return "must be a valid 10-digit cédula"
+	case platform.TaxIDTypeRUC:
+		return "must be a valid 13-digit RUC"
+	case platform.TaxIDTypePassport:
+		return "must be 6–20 letters or digits"
+	default:
+		return "is not valid"
+	}
+}
+
+// taxIDSelfAsserted reports whether this checkout is the buyer restating their
+// own Tax ID: the request carries a full Customer Session and it belongs to the
+// very email being bought under.
+//
+// Both halves matter. The session is what proves ownership of the address, so
+// without one an anonymous visitor typing a known email could rewrite a
+// stranger's profile; and the email must match, because a signed-in Customer
+// buying tickets for a friend is supplying the friend's Tax ID, not their own
+// (ADR 0016).
+//
+// A Confirmation Link session is deliberately not enough. It is minted from a
+// token in a forwarded email rather than from Proof of Email Ownership, and it
+// exists to show one Ticket Sale; letting it rewrite the profile behind it would
+// hand that power to whoever the confirmation was forwarded to.
+func taxIDSelfAsserted(r *http.Request, checkoutEmail string) bool {
+	session, ok := customersmiddleware.SessionFromContext(r.Context())
+	if !ok || session.TicketSaleID != "" {
+		return false
+	}
+	return session.Email == platform.NormalizeEmail(checkoutEmail)
 }
 
 // ConfirmCheckout settles a Payment after the Customer returns from the
