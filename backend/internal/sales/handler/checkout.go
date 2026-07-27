@@ -139,9 +139,9 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		normalized, err := platform.ValidateTaxID(taxIDType, taxIDNumber)
 		switch {
 		case errors.Is(err, platform.ErrTaxIDTypeUnknown):
-			fields = append(fields, platform.FieldError{Field: "customer_tax_id_type", Message: "must be cedula, ruc, or passport"})
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_type", Message: platform.TaxIDTypeMessage})
 		case errors.Is(err, platform.ErrTaxIDNumberInvalid):
-			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: taxIDNumberMessage(taxIDType)})
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: platform.TaxIDNumberMessage(taxIDType)})
 		case err != nil:
 			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: "is not valid"})
 		default:
@@ -181,22 +181,6 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		CustomerLastName:  strings.TrimSpace(body.CustomerLastName),
 		CustomerTaxID:     taxID,
 		Lines:             lines,
-	}
-}
-
-// taxIDNumberMessage explains a rejected number in the terms of its own Tax ID
-// Type, because "is not valid" tells a buyer staring at their ID card nothing
-// about which digit to look at.
-func taxIDNumberMessage(taxIDType string) string {
-	switch taxIDType {
-	case platform.TaxIDTypeCedula:
-		return "must be a valid 10-digit cédula"
-	case platform.TaxIDTypeRUC:
-		return "must be a valid 13-digit RUC"
-	case platform.TaxIDTypePassport:
-		return "must be 6–20 letters or digits"
-	default:
-		return "is not valid"
 	}
 }
 

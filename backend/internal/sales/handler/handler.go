@@ -64,7 +64,7 @@ func actorFromRequest(r *http.Request) service.ActorContext {
 // DownloadSaleImportTemplate returns a per-event .xlsx Sale Import template.
 //
 // @Summary      Download the Sale Import template
-// @Description  Returns a per-event .xlsx pre-listing the Event's Ticket Types as a locked dropdown, with the internal ticket type id in a hidden reference column.
+// @Description  Returns a per-event .xlsx pre-listing the Event's Ticket Types as a locked dropdown, with the internal ticket type id in a hidden reference column. Columns: customer_email, customer_first_name, customer_last_name, ticket_type, quantity, payment_method, sold_at, amount, plus the optional pair customer_tax_id_type (cedula|ruc|passport) and customer_tax_id_number.
 // @Tags         staff
 // @Produce      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 // @Security     BearerAuth
@@ -101,7 +101,7 @@ func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Requ
 // validation result plus the capacity impact, writing nothing.
 //
 // @Summary      Preview a Sale Import file
-// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.
+// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.
 // @Tags         staff
 // @Accept       multipart/form-data
 // @Produce      json

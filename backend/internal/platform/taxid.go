@@ -108,6 +108,28 @@ func ValidateTaxID(taxIDType, number string) (string, error) {
 	}
 }
 
+// TaxIDTypeMessage is the field-level message for a type that is not one of the
+// three Tax ID Types. It enumerates them, so it lives beside the constants it
+// names rather than being retyped at each surface that rejects one.
+const TaxIDTypeMessage = "must be cedula, ruc, or passport"
+
+// TaxIDNumberMessage explains a rejected number in the terms of its own Tax ID
+// Type, because "is not valid" tells someone staring at their ID card — or at a
+// spreadsheet cell — nothing about which digit to look at. It is the message
+// half of ValidateTaxID's verdict and moves with the rules above.
+func TaxIDNumberMessage(taxIDType string) string {
+	switch taxIDType {
+	case TaxIDTypeCedula:
+		return "must be a valid 10-digit cédula"
+	case TaxIDTypeRUC:
+		return "must be a valid 13-digit RUC"
+	case TaxIDTypePassport:
+		return "must be 6–20 letters or digits"
+	default:
+		return "is not valid"
+	}
+}
+
 // isValidCedula applies the full cédula rule: ten digits, a real province
 // prefix, and the modulo-10 check digit.
 func isValidCedula(number string) bool {

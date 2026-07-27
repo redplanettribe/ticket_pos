@@ -19,11 +19,15 @@ const templateRefSheet = "_ticket_types"
 // position never affects uploads.
 const templateInstructionsSheet = "Instructions"
 
-// templateHeaders are the visible columns, in order. ticket_type_id (column I)
-// is a hidden reference the preview matches on when present.
+// templateHeaders are the columns in order. Every one but the last is visible;
+// ticket_type_id is a hidden reference the preview matches on when present, and
+// it stays last so adding a visible column never moves it. Column letters are
+// derived from this slice rather than written down, so the order here is the
+// only place the layout is decided.
 var templateHeaders = []string{
 	colCustomerEmail, colCustomerFirstName, colCustomerLastName, colTicketType,
-	colQuantity, colPaymentMethod, colSoldAt, colAmount, colTicketTypeID,
+	colQuantity, colPaymentMethod, colSoldAt, colAmount,
+	colCustomerTaxIDType, colCustomerTaxIDNumber, colTicketTypeID,
 }
 
 // templatePrompts are the per-column input-message tooltips Excel shows when a
@@ -39,6 +43,9 @@ var templatePrompts = map[string]string{
 	colPaymentMethod:     "Required. How the sale was paid: pick cash or transfer.",
 	colSoldAt:            "Sale date, e.g. 2026-07-15. Not in the future.",
 	colAmount:            "Total paid, e.g. 25.00. Leave blank to use the Ticket Type's own price.",
+
+	colCustomerTaxIDType:   "Optional. The buyer's ID type: pick cedula, ruc or passport. Leave blank if you didn't collect one.",
+	colCustomerTaxIDNumber: "Optional. The buyer's ID number, e.g. 1712345675. Fill it in only together with the type.",
 }
 
 // templateHeaderComments are the red-triangle notes attached to each header
@@ -52,6 +59,9 @@ var templateHeaderComments = map[string]string{
 	colPaymentMethod:     "How this Direct Sale was paid. Required. cash or transfer.",
 	colSoldAt:            "The date the sale was made, e.g. 2026-07-15. Should not be in the future.",
 	colAmount:            "Total amount paid for this row. Leave blank to use the Ticket Type's own price.",
+
+	colCustomerTaxIDType:   "Optional. Which kind of ID the buyer gave for tax declarations: cedula, ruc or passport. Leave the whole pair blank when you didn't collect one — those sales still import.",
+	colCustomerTaxIDNumber: "Optional. The ID number itself, checked when you fill it in: a cédula is 10 digits, a RUC 13, a passport 6–20 letters or digits. Fill it in together with the type.",
 }
 
 // templateInstructions is the friendly how-to shown on the Instructions sheet,
@@ -66,6 +76,7 @@ var templateInstructions = []string{
 	"5. payment_method is how it was paid: cash or transfer.",
 	"6. sold_at is the sale date, e.g. 2026-07-15. It should not be in the future.",
 	"7. amount is the total paid. Leave it blank to use the Ticket Type's own price.",
+	"8. customer_tax_id_type and customer_tax_id_number are optional: fill both in only for sales where you collected the buyer's ID, and leave both blank otherwise.",
 	"",
 	"Tip: select a cell to see a hint for that column. Warnings are just guidance — the upload preview does the final check.",
 	"Keep the Sales tab named \"Sales\" and don't delete the hidden helper columns.",
@@ -74,9 +85,10 @@ var templateInstructions = []string{
 // BuildTemplate produces a per-event .xlsx: an Instructions sheet that greets the
 // organizer, then a Sales sheet with a header row, a locked dropdown of the
 // Event's Ticket Types in the ticket_type column, a cash|transfer dropdown for
-// payment_method, per-column tooltips and header notes, gentle (Warning-style)
-// value checks, and a hidden ticket_type_id column that resolves the selected
-// name to its internal id via the hidden reference sheet.
+// payment_method, an optional Tax ID pair (type dropdown plus number),
+// per-column tooltips and header notes, gentle (Warning-style) value checks, and
+// a hidden ticket_type_id column that resolves the selected name to its internal
+// id via the hidden reference sheet.
 func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 	f := excelize.NewFile()
 	defer func() { _ = f.Close() }()
@@ -114,7 +126,7 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 
 	const lastRow = MaxRows + 1 // header is row 1
 
-	// Column letters for the visible headers, in order: A..H.
+	// Column letter for a header, derived from templateHeaders' order.
 	col := func(header string) string {
 		for i, h := range templateHeaders {
 			if h == header {
@@ -129,7 +141,7 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		return fmt.Sprintf("%s2:%s%d", c, c, lastRow)
 	}
 
-	// ticket_type (column D): a locked dropdown sourced from the reference sheet,
+	// ticket_type: a locked dropdown sourced from the reference sheet,
 	// carrying its own input-message tooltip. Falls back to a prompt-only
 	// validation when the Event has no Ticket Types yet.
 	if len(types) > 0 {
@@ -142,13 +154,13 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 			return nil, err
 		}
 
-		// Hidden id column (I) resolves the chosen name back to its id.
+		// The hidden id column resolves the chosen name back to its id.
 		for row := 2; row <= lastRow; row++ {
 			formula := fmt.Sprintf(
-				`=IFERROR(VLOOKUP(D%d,%s!$A$1:$B$%d,2,FALSE),"")`,
-				row, templateRefSheet, len(types),
+				`=IFERROR(VLOOKUP(%s%d,%s!$A$1:$B$%d,2,FALSE),"")`,
+				col(colTicketType), row, templateRefSheet, len(types),
 			)
-			if err := f.SetCellFormula(templateSheet, fmt.Sprintf("I%d", row), formula); err != nil {
+			if err := f.SetCellFormula(templateSheet, fmt.Sprintf("%s%d", col(colTicketTypeID), row), formula); err != nil {
 				return nil, err
 			}
 		}
@@ -156,7 +168,7 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		return nil, err
 	}
 
-	// payment_method (column F): a fixed cash|transfer dropdown with a tooltip.
+	// payment_method: a fixed cash|transfer dropdown with a tooltip.
 	pm := excelize.NewDataValidation(true)
 	pm.Sqref = rangeOf(colPaymentMethod)
 	if err := pm.SetDropList([]string{"cash", "transfer"}); err != nil {
@@ -168,14 +180,29 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		return nil, err
 	}
 
-	// quantity (column E): gentle whole-number >= 1 check with a tooltip.
+	// customer_tax_id_type: the three Tax ID Types as a dropdown, so the one
+	// value the upload matches exactly is picked rather than typed. Blank stays
+	// allowed — the whole pair is optional (ADR 0016) — and Excel's dropdowns do
+	// not force a choice on an untouched cell.
+	tax := excelize.NewDataValidation(true)
+	tax.Sqref = rangeOf(colCustomerTaxIDType)
+	if err := tax.SetDropList([]string{"cedula", "ruc", "passport"}); err != nil {
+		return nil, err
+	}
+	tax.ShowDropDown = false
+	tax.SetInput(colCustomerTaxIDType, templatePrompts[colCustomerTaxIDType])
+	if err := f.AddDataValidation(templateSheet, tax); err != nil {
+		return nil, err
+	}
+
+	// quantity: gentle whole-number >= 1 check with a tooltip.
 	if err := addRangeValidation(f, colQuantity, rangeOf(colQuantity),
 		1, 1, excelize.DataValidationTypeWhole, excelize.DataValidationOperatorGreaterThanOrEqual,
 		"Check quantity", "Quantity should be a whole number of 1 or more."); err != nil {
 		return nil, err
 	}
 
-	// amount (column H): gentle decimal >= 0 check (blank stays allowed) with a
+	// amount: gentle decimal >= 0 check (blank stays allowed) with a
 	// tooltip that spells out the blank→Ticket-Type-price behaviour.
 	if err := addRangeValidation(f, colAmount, rangeOf(colAmount),
 		0, 0, excelize.DataValidationTypeDecimal, excelize.DataValidationOperatorGreaterThanOrEqual,
@@ -183,7 +210,7 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		return nil, err
 	}
 
-	// sold_at (column G): real date cells (yyyy-mm-dd) plus a gentle "not in the
+	// sold_at: real date cells (yyyy-mm-dd) plus a gentle "not in the
 	// future" check. Excel evaluates TODAY() itself.
 	dateFmt := "yyyy-mm-dd"
 	dateStyle, err := f.NewStyle(&excelize.Style{CustomNumFmt: &dateFmt})
@@ -200,8 +227,9 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		return nil, err
 	}
 
-	// Prompt-only tooltips for the remaining visible columns (email, names).
-	for _, h := range []string{colCustomerEmail, colCustomerFirstName, colCustomerLastName} {
+	// Prompt-only tooltips for the remaining visible columns (email, names, and
+	// the free-text Tax ID number).
+	for _, h := range []string{colCustomerEmail, colCustomerFirstName, colCustomerLastName, colCustomerTaxIDNumber} {
 		if err := addPromptValidation(f, h, rangeOf(h)); err != nil {
 			return nil, err
 		}
@@ -222,11 +250,13 @@ func BuildTemplate(eventName string, types []TicketTypeRef) ([]byte, error) {
 		}
 	}
 
-	// Hide the ticket_type_id reference column (I) from the organizer.
-	if err := f.SetColVisible(templateSheet, "I", false); err != nil {
+	// Hide the ticket_type_id reference column from the organizer and size the
+	// visible ones (everything up to the column before it).
+	if err := f.SetColVisible(templateSheet, col(colTicketTypeID), false); err != nil {
 		return nil, err
 	}
-	if err := f.SetColWidth(templateSheet, "A", "H", 22); err != nil {
+	lastVisible := templateHeaders[len(templateHeaders)-2]
+	if err := f.SetColWidth(templateSheet, col(templateHeaders[0]), col(lastVisible), 22); err != nil {
 		return nil, err
 	}
 

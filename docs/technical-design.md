@@ -696,20 +696,26 @@ A per-Event `.xlsx` **template** is generated server-side, pre-listing the Event
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `email` | Yes | Buyer email (Sale Confirmation is sent here) |
-| `name` | Yes | Buyer name |
+| `customer_email` | Yes | Buyer email (Sale Confirmation is sent here) |
+| `customer_first_name` | Yes | Buyer first name |
+| `customer_last_name` | Yes | Buyer last name |
 | `ticket_type` | Yes | Ticket Type (dropdown; backed by hidden internal id) |
 | `quantity` | Yes | Number of tickets sold |
 | `payment_method` | Yes | `cash` or `transfer` |
 | `sold_at` | Yes | When the sale occurred (ISO 8601; Excel dates coerced; Event timezone) |
 | `amount` | No | Unit price charged; blank → catalog price (`0` = comp) |
+| `customer_tax_id_type` | No | Tax ID Type (dropdown: `cedula`, `ruc`, `passport`) |
+| `customer_tax_id_number` | No | Tax ID number, validated by the shared validator when supplied |
+
+The Tax ID pair is optional here and only here: imported sales happened elsewhere, where the ID may never have been collected (ADR 0016).
+Both halves are filled in together — one without the other is a row error — and a present-but-invalid value is reported per row in the preview, naming the failing column, before anything commits.
 
 One file row = one Ticket Sale = one Ticket Sale Line. Grouping lines into one sale via an optional `order_ref` is deferred.
 
 ### Processing
 
 - Staff uploads via the Staff app → Staff BFF → Go staff routes (template download, **preview**, **commit**, **undo**), scoped to an Event and gated by `can_manage_event_sales`.
-- **Preview** parses and validates every row server-side and returns all problems at once (unknown type, bad email, missing field, future `sold_at`, oversell, and soft duplicate flags matching an existing sale on `email + ticket_type + sold_at`), plus the capacity impact. No writes.
+- **Preview** parses and validates every row server-side and returns all problems at once (unknown type, bad email, missing field, future `sold_at`, invalid Tax ID, oversell, and soft duplicate flags matching an existing sale on `email + ticket_type + sold_at`), plus the capacity impact. No writes.
 - **Commit** runs **synchronously** in a **single transaction**: re-validate under row locks, insert sales + lines, decrement capacity, record the batch, and email each buyer a Sale Confirmation. Oversell fails the entire import (`IMPORT_BATCH_FAILED`); a replayed idempotency key returns the original result.
 - Oversell is **blocked, not clamped** — `sold_count ≤ capacity` always holds; Staff raise the Ticket Type's capacity (an inline catalog edit) and re-preview.
 - The **latest** committed batch per Event can be **undone** (reverse sales, restore capacity), sending void emails only when the caller opts in.

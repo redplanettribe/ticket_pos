@@ -1,12 +1,15 @@
 package importfile
 
 import (
+	"errors"
 	"net/mail"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // TicketTypeRef is the catalog snapshot of one Ticket Type on the Event, used to
@@ -39,19 +42,26 @@ type RowError struct {
 // RowResult is the validated outcome for one file row: the matched Ticket Type
 // (if any), the normalized field values, and every problem found on the row.
 type RowResult struct {
-	Row               int        `json:"row"`
-	CustomerEmail     string     `json:"customer_email"`
-	CustomerFirstName string     `json:"customer_first_name"`
-	CustomerLastName  string     `json:"customer_last_name"`
-	TicketType        string     `json:"ticket_type"`
-	TicketTypeID      string     `json:"ticket_type_id,omitempty"`
-	TicketTypeName    string     `json:"ticket_type_name,omitempty"`
-	Quantity          int        `json:"quantity"`
-	PaymentMethod     string     `json:"payment_method"`
-	SoldAt            string     `json:"sold_at,omitempty"`
-	AmountCents       *int       `json:"amount_cents,omitempty"`
-	Valid             bool       `json:"valid"`
-	Errors            []RowError `json:"errors,omitempty"`
+	Row               int    `json:"row"`
+	CustomerEmail     string `json:"customer_email"`
+	CustomerFirstName string `json:"customer_first_name"`
+	CustomerLastName  string `json:"customer_last_name"`
+	// CustomerTaxIDType and CustomerTaxIDNumber are the row's Tax ID once
+	// accepted, with the number in the form it will be stored in (trimmed,
+	// passports uppercased). Both stay empty when the row supplies no Tax ID or
+	// when the one it supplies was rejected, so the preview never shows a value
+	// that will not be recorded.
+	CustomerTaxIDType   string     `json:"customer_tax_id_type,omitempty"`
+	CustomerTaxIDNumber string     `json:"customer_tax_id_number,omitempty"`
+	TicketType          string     `json:"ticket_type"`
+	TicketTypeID        string     `json:"ticket_type_id,omitempty"`
+	TicketTypeName      string     `json:"ticket_type_name,omitempty"`
+	Quantity            int        `json:"quantity"`
+	PaymentMethod       string     `json:"payment_method"`
+	SoldAt              string     `json:"sold_at,omitempty"`
+	AmountCents         *int       `json:"amount_cents,omitempty"`
+	Valid               bool       `json:"valid"`
+	Errors              []RowError `json:"errors,omitempty"`
 
 	// PossibleDuplicate flags a valid row that matches an existing active Ticket
 	// Sale on customer_email + ticket type + sold_at date. Soft signal only: it
@@ -191,6 +201,15 @@ func validateRow(raw RawRow, byID, byName map[string]TicketTypeRef, loc *time.Lo
 		add(colCustomerLastName, "is required")
 	}
 
+	// The Tax ID: optional on this channel (ADR 0016), but held to the shared
+	// validator the moment either half is filled in — a wrong number is worse
+	// than none, because it is declared and the Organization carries it. Each
+	// failure blames one half of the pair so the organizer knows which cell to
+	// fix, and a half-filled pair blames the missing half.
+	taxIDType, taxIDNumber := validateTaxIDCells(raw, add)
+	row.CustomerTaxIDType = taxIDType
+	row.CustomerTaxIDNumber = taxIDNumber
+
 	// Match the Ticket Type by hidden id first, then by name (case/space-insensitive).
 	if tt, ok := matchTicketType(raw, byID, byName); ok {
 		row.TicketTypeID = tt.ID
@@ -241,6 +260,37 @@ func validateRow(raw RawRow, byID, byName map[string]TicketTypeRef, loc *time.Lo
 	row.Errors = errs
 	row.Valid = len(errs) == 0
 	return row
+}
+
+// validateTaxIDCells resolves a row's two Tax ID cells, reporting problems
+// through add and returning the accepted pair (both empty when the row carries
+// no Tax ID or when the one it carries was rejected). Blank/blank is the normal
+// case for an imported sale and is not an error.
+func validateTaxIDCells(raw RawRow, add func(field, message string)) (string, string) {
+	taxIDType := strings.TrimSpace(raw.CustomerTaxIDType)
+	number := strings.TrimSpace(raw.CustomerTaxIDNumber)
+
+	switch {
+	case taxIDType == "" && number == "":
+		return "", ""
+	case taxIDType == "":
+		add(colCustomerTaxIDType, "is required when a Tax ID number is given")
+		return "", ""
+	case number == "":
+		add(colCustomerTaxIDNumber, "is required when a Tax ID type is given")
+		return "", ""
+	}
+
+	normalized, err := platform.ValidateTaxID(taxIDType, number)
+	switch {
+	case errors.Is(err, platform.ErrTaxIDTypeUnknown):
+		add(colCustomerTaxIDType, platform.TaxIDTypeMessage)
+		return "", ""
+	case err != nil:
+		add(colCustomerTaxIDNumber, platform.TaxIDNumberMessage(taxIDType))
+		return "", ""
+	}
+	return taxIDType, normalized
 }
 
 func matchTicketType(raw RawRow, byID, byName map[string]TicketTypeRef) (TicketTypeRef, bool) {
