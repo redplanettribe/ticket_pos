@@ -114,7 +114,7 @@ _Avoid_: User tag, private tag, org tag
 A person who buys a ticket.
 Identified by a platform-global email — one Customer spans every Organization they have bought from.
 A Customer record is created by any Ticket Sale on any Sales Channel, whether or not the person has ever signed in, or by a first sign-in for an email no sale has reached; every Ticket Sale belongs to one.
-Holds what the person asserts about themselves (their current name, later their preferences), while each Ticket Sale keeps its own immutable record of what was transacted. First and last name are stored separately; where a single display name is needed they are joined as "First Last".
+Holds what the person asserts about themselves (their current name and Tax ID, later their preferences), while each Ticket Sale keeps its own immutable record of what was transacted. First and last name are stored separately; where a single display name is needed they are joined as "First Last".
 _Avoid_: Buyer, purchaser, account, user, full name
 
 **Ticket Sale**:
@@ -228,6 +228,16 @@ _Avoid_: Magic link, access token, deep link
 The signed-in Storefront surface where a Customer sees their upcoming events, past Ticket Sales, and preferences.
 Distinct from a Storefront listing, which shows Events to the anonymous public.
 _Avoid_: Wallet, my tickets, account page, dashboard
+
+**Tax ID**:
+The identification a Customer supplies for tax declarations: a Tax ID Type and its number.
+The Customer holds their one current Tax ID — editable and clearable by the person, and not an identity: Customers are identified by email, and the same Tax ID may appear on several Customers. Each Ticket Sale immutably records the Tax ID it was transacted under, which may differ from the Customer's stored one.
+Required to record a Ticket Sale on the native Sales Channels (`online`, `in_person`); optional on `import`, where the sale happened elsewhere and the ID may never have been collected. A fact of the sale's buyer, never of an individual attendee.
+_Avoid_: ID number, identification, cédula (as the generic term), document number, national ID
+
+**Tax ID Type**:
+Which kind of identification a Tax ID is: `cedula` (Ecuadorian national identity card), `ruc` (Ecuadorian taxpayer registration, held by persons or companies), or `passport` (buyers without either). Determines how strictly the number is validated.
+_Avoid_: Document type, ID class, tipo de identificación
 
 ## Signing in
 
