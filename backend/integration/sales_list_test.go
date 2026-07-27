@@ -60,6 +60,10 @@ type saleListRow struct {
 	ConfirmationRef string  `json:"confirmation_ref"`
 	RecordedAt      string  `json:"recorded_at"`
 	PaymentMethod   *string `json:"payment_method"`
+	// The Tax ID the sale was transacted under (#100): both halves null on
+	// sales recorded without one.
+	TaxIDType   *string `json:"tax_id_type"`
+	TaxIDNumber *string `json:"tax_id_number"`
 }
 
 type salesListEnvelope struct {

@@ -26,6 +26,11 @@ export type SaleListRow = {
   // Row-detail expand: the recorded-at (created_at) time and payment method.
   recorded_at: string;
   payment_method: string | null;
+  // The Tax ID the sale was transacted under — the snapshot the search matches,
+  // shown so a match is confirmable at a glance. Null together on sales recorded
+  // without one (legacy rows and imports that never collected it, ADR 0016).
+  tax_id_type: string | null;
+  tax_id_number: string | null;
 };
 
 export type SalesPagination = {
@@ -231,6 +236,28 @@ export function channelSourceLabel(channel: string, source: string | null): stri
   }
   const sourceLabel = SOURCE_LABELS[source] ?? source;
   return `${channelLabel} · ${sourceLabel}`;
+}
+
+// The Tax ID Type labels an organizer reads on the Sales list. Spanish for the
+// identifier names, because that is what is printed on the documents the buyer
+// hands over — the same labels the Storefront checkout shows the buyer
+// (apps/storefront/lib/tax-id.ts), mirrored here because the two apps share no
+// domain package.
+const TAX_ID_TYPE_LABELS: Record<string, string> = {
+  cedula: "Cédula",
+  ruc: "RUC",
+  passport: "Pasaporte",
+};
+
+// taxIdLabel renders a sale's Tax ID snapshot as "Cédula: 1712345678" — the
+// type as a human label with the number, unmasked, so an organizer can confirm
+// a search match and copy the number for a declaration. A sale recorded without
+// one renders a plain "—": history is shown as it is, never backfilled.
+export function taxIdLabel(taxIdType: string | null, taxIdNumber: string | null): string {
+  if (!taxIdType || !taxIdNumber) {
+    return "—";
+  }
+  return `${TAX_ID_TYPE_LABELS[taxIdType] ?? taxIdType}: ${taxIdNumber}`;
 }
 
 // paymentMethodLabel renders a payment method for the row-detail expand.

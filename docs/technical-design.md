@@ -533,6 +533,15 @@ type EmailSender interface {
   session is refused with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403), because possession of a
   forwarded Sale Confirmation is not ownership of the address. The edit moves the Customer's current
   assertion only; every Ticket Sale keeps the name and Tax ID it was transacted under.
+- Each Ticket Sale keeps its own immutable Tax ID snapshot, and that snapshot — not the Customer's
+  current assertion — is what organizers see and search. `GET /api/v1/staff/events/{id}/sales`
+  returns it per row as `tax_id_type` / `tax_id_number` (null together on sales recorded without
+  one), and its unified `q` search adds a fourth branch over `customer_tax_id_number`: a
+  case-insensitive substring, LIKE-escaped like the email/name/confirmation_ref branches, so a
+  pasted full number and the last four digits read off an ID card both match. The search is
+  **event-scoped** like the rest of the Sales list; there is no cross-event or cross-organization
+  Tax ID lookup. Because the match runs over the snapshot, one Tax ID legitimately surfaces sales
+  made from several Customer emails.
 
 ## Client applications
 

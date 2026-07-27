@@ -805,6 +805,11 @@ type SaleRow struct {
 	ConfirmationRef   string
 	RecordedAt        time.Time
 	PaymentMethod     *string
+	// CustomerTaxIDType/Number are the Tax ID snapshot the sale was transacted
+	// under, nil together on sales recorded without one (legacy rows and
+	// imports that never collected it — ADR 0016).
+	CustomerTaxIDType   *string
+	CustomerTaxIDNumber *string
 }
 
 // ListSalesQuery selects a page of an Event's Ticket Sales for the Sales list.
@@ -826,7 +831,8 @@ type ListSalesQuery struct {
 	SoldFrom *time.Time
 	SoldTo   *time.Time
 	// Search is a case-insensitive substring matched over customer email, the
-	// joined customer name, and confirmation_ref (empty means no search).
+	// joined customer name, confirmation_ref, and the sale's Tax ID number
+	// snapshot (empty means no search).
 	Search string
 	// Channel, Source, PaymentMethod are single-valued equality filters (empty
 	// means unfiltered).
@@ -924,17 +930,22 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		addCond(`ts.sold_at < $%d`, *q.SoldTo)
 	}
 	if q.Search != "" {
-		// Case-insensitive substring over email, joined name, and confirmation
-		// ref, scoped within the already event_id-narrowed set. A pg_trgm
-		// trigram index (ADR-0006) is the documented upgrade path if a single
-		// Event's volume ever makes this scan too slow.
+		// Case-insensitive substring over email, joined name, confirmation ref,
+		// and the sale's Tax ID number snapshot, scoped within the already
+		// event_id-narrowed set — an organizer looks a buyer up inside the Event
+		// they sold, never across the platform (#100). The Tax ID branch matches
+		// substrings so door staff can type the last digits read off an ID card;
+		// a null snapshot simply never matches. A pg_trgm trigram index
+		// (ADR-0006) is the documented upgrade path if a single Event's volume
+		// ever makes this scan too slow.
 		args = append(args, "%"+likeEscape(q.Search)+"%")
 		p := len(args)
 		conds = append(conds, fmt.Sprintf(`(
 			ts.customer_email ILIKE $%d
 			OR (ts.customer_first_name || ' ' || ts.customer_last_name) ILIKE $%d
 			OR ts.confirmation_ref ILIKE $%d
-		)`, p, p, p))
+			OR ts.customer_tax_id_number ILIKE $%d
+		)`, p, p, p, p))
 	}
 	if q.Channel != "" {
 		addCond(`ts.channel = $%d`, q.Channel)
@@ -971,6 +982,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.confirmation_ref,
 			ts.created_at,
 			ts.payment_method,
+			ts.customer_tax_id_type,
+			ts.customer_tax_id_number,
 			COUNT(*) OVER() AS total
 		FROM ticket_sales ts
 		JOIN organizations org ON org.id = ts.organization_id
@@ -1004,7 +1017,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	for rows.Next() {
 		var s SaleRow
 		var typesJSON []byte
-		var source, paymentMethod sql.NullString
+		var source, paymentMethod, taxIDType, taxIDNumber sql.NullString
 		if err := rows.Scan(
 			&s.ID,
 			&s.CustomerFirstName,
@@ -1020,6 +1033,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&s.ConfirmationRef,
 			&s.RecordedAt,
 			&paymentMethod,
+			&taxIDType,
+			&taxIDNumber,
 			&total,
 		); err != nil {
 			return nil, 0, err
@@ -1032,6 +1047,14 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		}
 		if paymentMethod.Valid {
 			s.PaymentMethod = &paymentMethod.String
+		}
+		// The pair is written and read together: a database CHECK keeps both
+		// halves null or both set (migration 026).
+		if taxIDType.Valid {
+			s.CustomerTaxIDType = &taxIDType.String
+		}
+		if taxIDNumber.Valid {
+			s.CustomerTaxIDNumber = &taxIDNumber.String
 		}
 		out = append(out, s)
 	}

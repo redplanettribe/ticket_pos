@@ -275,6 +275,11 @@ type SaleLine struct {
 // rolled-up Ticket Types, the amount in the Event currency, and the
 // channel/source/status/reference — plus the recorded-at time and payment
 // method surfaced only in the row-detail expand.
+//
+// TaxIDType/TaxIDNumber are the Tax ID the sale was transacted under, the same
+// snapshot the unified search matches, so an organizer can confirm a match at a
+// glance and copy the number for a declaration. Both are null together on sales
+// recorded without one; history is never backfilled (ADR 0016).
 type SaleListItem struct {
 	ID                string     `json:"id"`
 	CustomerFirstName string     `json:"customer_first_name"`
@@ -290,6 +295,8 @@ type SaleListItem struct {
 	ConfirmationRef   string     `json:"confirmation_ref"`
 	RecordedAt        time.Time  `json:"recorded_at"`
 	PaymentMethod     *string    `json:"payment_method"`
+	TaxIDType         *string    `json:"tax_id_type"`
+	TaxIDNumber       *string    `json:"tax_id_number"`
 }
 
 // Pagination is the ADR-0006 nested pagination object: the current page and
@@ -397,6 +404,8 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 			ConfirmationRef:   row.ConfirmationRef,
 			RecordedAt:        row.RecordedAt,
 			PaymentMethod:     row.PaymentMethod,
+			TaxIDType:         row.CustomerTaxIDType,
+			TaxIDNumber:       row.CustomerTaxIDNumber,
 		})
 	}
 
