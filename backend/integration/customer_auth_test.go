@@ -66,6 +66,10 @@ type customerAreaSale struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
 	} `json:"organization"`
+	// The immutable Tax ID snapshot this sale was transacted under, both halves
+	// null together on a legacy or imported sale that carries none (#99).
+	TaxIDType   *string `json:"tax_id_type"`
+	TaxIDNumber *string `json:"tax_id_number"`
 }
 
 type customerAreaView struct {

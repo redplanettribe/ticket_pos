@@ -47,6 +47,17 @@ type TicketSaleView struct {
 	Lines           []TicketSaleLineView `json:"lines"`
 	Event           EventView            `json:"event"`
 	Organization    OrganizationView     `json:"organization"`
+	// TaxIDType and TaxIDNumber are the Tax ID this sale was transacted under
+	// (ADR 0016), so a Customer can tell a personal purchase from one made under
+	// a company RUC. They are the sale's immutable snapshot, never the
+	// Customer's current stored assertion: editing a profile or buying again
+	// under a different Tax ID changes nothing here.
+	//
+	// Both are null together on sales recorded before the feature and on
+	// imported sales that never carried one; history is not backfilled, and the
+	// client draws "—" rather than a value nobody supplied.
+	TaxIDType   *string `json:"tax_id_type"`
+	TaxIDNumber *string `json:"tax_id_number"`
 }
 
 // CustomerAreaView is the signed-in Customer's purchases, split into what is
@@ -197,6 +208,8 @@ func ticketSaleView(sale repository.TicketSaleRow) TicketSaleView {
 			Name: sale.OrganizationName,
 			Slug: sale.OrganizationSlug,
 		},
+		TaxIDType:   stringPtr(sale.TaxIDType.Valid, sale.TaxIDType.String),
+		TaxIDNumber: stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
 	}
 }
 

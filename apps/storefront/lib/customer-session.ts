@@ -137,6 +137,14 @@ export type TicketSale = {
     name: string;
     slug: string;
   };
+  /**
+   * The Tax ID this sale was transacted under, both halves null together on a
+   * legacy or imported sale that carries none (#99). It is the sale's immutable
+   * snapshot, not the Customer's current stored Tax ID: editing "My info" or
+   * buying again under a company RUC never rewrites what an old sale shows.
+   */
+  tax_id_type: string | null;
+  tax_id_number: string | null;
 };
 
 /** The Customer Area read: purchases split into what is still to come and what has happened. */

@@ -4,6 +4,7 @@ import { Badge } from "@ticket-pos/ui";
 
 import type { TicketSale } from "@/lib/customer-session";
 import { formatEventDateTime, formatPrice } from "@/lib/format";
+import { formatTaxId } from "@/lib/tax-id";
 
 /**
  * One entry in the Customer Area: a Ticket Sale shown by the thing the Customer
@@ -15,6 +16,11 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
   const reversed = sale.status === "reversed";
   const eventHref = `/${sale.organization.slug}/events/${sale.event.slug}`;
   const totalTickets = sale.lines.reduce((sum, line) => sum + line.quantity, 0);
+  // The Tax ID this sale was transacted under, so a Customer can tell a personal
+  // purchase from one made under a company RUC (#99). Sales recorded before the
+  // feature — and imported ones that never carried an ID — show a plain "—";
+  // history is never backfilled, so an honest blank is the whole rendering.
+  const taxId = formatTaxId(sale.tax_id_type, sale.tax_id_number);
 
   return (
     <li className="rounded-lg border bg-card p-5 sm:p-6">
@@ -50,10 +56,16 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
       </ul>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-4 text-sm">
-        <p className="text-muted-foreground">
-          Confirmation{" "}
-          <span className="font-mono font-medium text-foreground">{sale.confirmation_ref}</span>
-        </p>
+        <div className="space-y-1 text-muted-foreground">
+          <p>
+            Confirmation{" "}
+            <span className="font-mono font-medium text-foreground">{sale.confirmation_ref}</span>
+          </p>
+          <p>
+            Tax ID{" "}
+            <span className="font-medium text-foreground">{taxId ?? "—"}</span>
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           {/* A reversed sale must say so plainly rather than sit in the list
               looking like tickets the Customer still holds. */}

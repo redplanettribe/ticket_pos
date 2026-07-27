@@ -70,6 +70,47 @@ type SaleTaxID struct {
 // Set reports whether a Tax ID was supplied at all.
 func (t SaleTaxID) Set() bool { return t.Type != "" && t.Number != "" }
 
+// Display renders a Tax ID the way the buyer's own paper trail shows it —
+// "Cédula: 1712345675" — or the empty string when the sale carries none
+// (#99).
+//
+// Unmasked, deliberately: this is the line a buyer copies into their expense
+// records, and a receipt that hid half the number would be useless for the one
+// job it exists to do. It is safe here because the surfaces that render it —
+// the Sale Confirmation email and the Customer Area — are the buyer's own.
+//
+// The empty string is the whole of the "no Tax ID" rendering. Callers append a
+// line only when there is one, so a legacy or imported sale gets no line at all
+// rather than a label with nothing after it.
+func (t SaleTaxID) Display() string {
+	if !t.Set() {
+		return ""
+	}
+	return TaxIDTypeLabel(t.Type) + ": " + t.Number
+}
+
+// TaxIDTypeLabel is the human name of a Tax ID Type, as printed on the document
+// itself: Spanish, because an Ecuadorian buyer looks for the word "Cédula" on
+// the card in their hand rather than a translation of it. The Storefront mirrors
+// these in apps/storefront/lib/tax-id.ts.
+//
+// An unrecognised type falls back to the raw value. Nothing can currently store
+// one — the columns carry a CHECK constraint and ValidateTaxID is the only way
+// in — so this is a rendering that will never be reached; showing the stored
+// value beats showing an empty label if it ever is.
+func TaxIDTypeLabel(taxIDType string) string {
+	switch taxIDType {
+	case TaxIDTypeCedula:
+		return "Cédula"
+	case TaxIDTypeRUC:
+		return "RUC"
+	case TaxIDTypePassport:
+		return "Pasaporte"
+	default:
+		return taxIDType
+	}
+}
+
 // ValidateTaxID checks a Tax ID Type and number and returns the number in the
 // form it must be stored in: trimmed always, and uppercased for passports so
 // "ab123456" and "AB123456" are the same passport rather than two.

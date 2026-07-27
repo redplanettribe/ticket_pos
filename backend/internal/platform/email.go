@@ -23,6 +23,14 @@ type SaleConfirmation struct {
 	// be signed, in which case the receipt still goes out — a missing link is
 	// worth less than no email at all.
 	ConfirmationLink string
+	// TaxID is the Tax ID this Ticket Sale was transacted under, printed on the
+	// receipt so the buyer can file it against their own expense records
+	// (ADR 0016). It is the sale's immutable snapshot, never the Customer's
+	// current stored assertion — a profile edit after the fact changes nothing
+	// about a receipt already sent. Unset on sales recorded before the feature
+	// and on imported sales that never carried one, in which case the receipt
+	// simply has no such line.
+	TaxID SaleTaxID
 }
 
 // SaleVoided is the cancellation notice emailed to a Customer when a Ticket Sale

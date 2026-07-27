@@ -37,6 +37,12 @@ type TicketSaleRow struct {
 	OrganizationID   string
 	OrganizationName string
 	OrganizationSlug string
+	// The Tax ID snapshot the sale was transacted under, both halves null
+	// together on a legacy or imported sale that carries none (ADR 0016). It is
+	// read off the sale and never off the Customer record, so a profile edit or
+	// a later purchase leaves what an old sale shows untouched.
+	TaxIDType   sql.NullString
+	TaxIDNumber sql.NullString
 }
 
 // ListTicketSalesForCustomer returns every Ticket Sale belonging to one
@@ -66,7 +72,8 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			lines.ticket_types,
 			org.currency,
 			e.id, e.name, e.slug, e.starts_at, e.ends_at, e.timezone, e.venue_name,
-			org.id, org.name, org.slug
+			org.id, org.name, org.slug,
+			ts.customer_tax_id_type, ts.customer_tax_id_number
 		FROM ticket_sales ts
 		JOIN events e ON e.id = ts.event_id
 		JOIN organizations org ON org.id = ts.organization_id
@@ -111,6 +118,7 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			&s.Currency,
 			&s.EventID, &s.EventName, &s.EventSlug, &s.EventStartsAt, &s.EventEndsAt, &s.EventTimezone, &s.EventVenueName,
 			&s.OrganizationID, &s.OrganizationName, &s.OrganizationSlug,
+			&s.TaxIDType, &s.TaxIDNumber,
 		); err != nil {
 			return nil, err
 		}
