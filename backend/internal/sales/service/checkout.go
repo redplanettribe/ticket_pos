@@ -181,6 +181,15 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		ClientTransactionID: clientTransactionID,
 		Reference:           event.Name,
 		ResponseURL:         s.storefrontBaseURL + checkoutReturnPath,
+		// What the buyer has already typed on our screen, handed to the provider
+		// so its payment page does not ask them for it a second time (#103). The
+		// pair goes across whole: which Tax ID Types a provider's own
+		// identification field can take is that provider's business, not this
+		// service's (ADR 0012).
+		Customer: platform.PaymentCustomer{
+			Email: strings.TrimSpace(in.CustomerEmail),
+			TaxID: in.CustomerTaxID,
+		},
 	})
 	if err != nil {
 		// The pending Payment stays behind with no redirect ever handed out; it

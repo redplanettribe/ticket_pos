@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,9 +48,13 @@ const (
 
 // payPhoneTimeout bounds each call to PayPhone. Prepare blocks a checkout
 // request and Confirm blocks the Customer's return page, so neither may hang
-// until the Cloud Run request timeout; 15s is generous for two JSON POSTs while
-// staying far inside the 5-minute confirm window.
-const payPhoneTimeout = 15 * time.Second
+// until the Cloud Run request timeout; 10s is generous for a single JSON POST
+// while staying far inside the 5-minute confirm window.
+//
+// It was 15s until Prepare gained its one prefill-stripping retry (#104): the
+// worst case is now two calls on a request that blocks the buyer's browser, and
+// 10s keeps that worst case at 20s rather than 30s.
+const payPhoneTimeout = 10 * time.Second
 
 // PayPhoneProvider collects money through the platform's single PayPhone
 // merchant account (ADR 0012). Selected by server.NewApp when PAYPHONE_*
@@ -86,6 +91,13 @@ func (p *PayPhoneProvider) Name() string { return "payphone" }
 // PayPhone requires amount to equal the sum of its monetary components; with no
 // tax breakdown in the catalog, the whole amount rides as amountWithoutTax and
 // the tax/service/tip fields are omitted.
+//
+// Email and DocumentID are PayPhone's optional prefills, which its docs describe
+// with "se solicitará si no se proporciona" — it will be asked for if not
+// provided. They carry omitempty because absent and blank are different requests
+// to PayPhone: an omitted key means "ask the buyer", an empty string is a value
+// we asserted and may be refused. That distinction is also what lets the
+// prefill-stripping retry below reproduce today's payload byte for byte.
 type payPhonePrepareRequest struct {
 	Amount              int    `json:"amount"`
 	AmountWithoutTax    int    `json:"amountWithoutTax"`
@@ -94,6 +106,50 @@ type payPhonePrepareRequest struct {
 	StoreID             string `json:"storeId"`
 	Reference           string `json:"reference"`
 	ResponseURL         string `json:"responseUrl"`
+	Email               string `json:"email,omitempty"`
+	DocumentID          string `json:"documentId,omitempty"`
+}
+
+// stripPrefills returns the request as it would have been sent before the
+// prefills existed — the payload the retry falls back to.
+func (r payPhonePrepareRequest) stripPrefills() payPhonePrepareRequest {
+	r.Email = ""
+	r.DocumentID = ""
+	return r
+}
+
+// hasPrefills reports whether there is anything for the retry to strip. Without
+// it a 4xx on a bare payload would be re-sent identically: a second charge
+// request that can only be refused the same way.
+func (r payPhonePrepareRequest) hasPrefills() bool {
+	return r.Email != "" || r.DocumentID != ""
+}
+
+// payPhoneDocumentID maps a Tax ID onto PayPhone's documentId prefill, and is
+// the one place that mapping lives (ADR 0012: provider-specific knowledge stays
+// inside the provider).
+//
+// A cédula and a RUC pass through; a passport is withheld entirely. documentId
+// is a field built around Ecuadorian identifiers, while the Tax ID validator is
+// deliberately permissive for passports — any 6-20 alphanumerics, any country's
+// scheme (ADR 0016). Sending one risks a refused Prepare, and a refused Prepare
+// is a failed checkout: strictly worse for that buyer than typing the number on
+// PayPhone's form as they do today.
+//
+// The Tax ID Type itself is never sent under any mapping. The redirect
+// integration ("Botón de pago por redirección") has no parameter for it; the
+// field exists only in PayPhone's Cajita de Pagos widget, a different
+// integration this system does not use.
+func payPhoneDocumentID(taxID SaleTaxID) string {
+	if !taxID.Set() {
+		return ""
+	}
+	switch taxID.Type {
+	case TaxIDTypeCedula, TaxIDTypeRUC:
+		return strings.TrimSpace(taxID.Number)
+	default:
+		return ""
+	}
 }
 
 // payPhonePrepareResponse carries PayPhone's two payment URLs and its id for
@@ -110,13 +166,24 @@ type payPhonePrepareResponse struct {
 // Initiate calls Prepare and returns the hosted card-payment URL. Amounts are
 // integer cents end to end — PayPhone's own unit. PayPhone charges USD only, so
 // any other currency is refused here rather than mis-charged there.
+//
+// The prefills (#104) get one second chance and no more. A 4xx is PayPhone
+// blaming the payload, and the only part of the payload that is new is what this
+// system has never sent before, so the request is re-sent stripped back to
+// exactly the payload that worked before the prefills existed: a systematic
+// rejection then degrades to today's checkout rather than breaking it for every
+// affected buyer.
+//
+// Nothing else is retried, deliberately. A 5xx or a timeout says nothing about
+// our fields, and re-posting a charge request into that silence risks a double
+// charge — a far worse outcome for the buyer than the failed checkout they get
+// instead (parent spec #103, "Failure handling").
 func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput) (*PaymentInitiation, error) {
 	if in.Currency != "USD" {
 		return nil, fmt.Errorf("payphone: unsupported currency %q: PayPhone charges USD only", in.Currency)
 	}
 
-	var out payPhonePrepareResponse
-	err := p.post(ctx, payPhonePreparePath, payPhonePrepareRequest{
+	req := payPhonePrepareRequest{
 		Amount:              in.AmountCents,
 		AmountWithoutTax:    in.AmountCents,
 		ClientTransactionID: in.ClientTransactionID,
@@ -124,7 +191,25 @@ func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput
 		StoreID:             p.storeID,
 		Reference:           in.Reference,
 		ResponseURL:         in.ResponseURL,
-	}, &out)
+		Email:               strings.TrimSpace(in.Customer.Email),
+		DocumentID:          payPhoneDocumentID(in.Customer.TaxID),
+	}
+
+	var out payPhonePrepareResponse
+	err := p.post(ctx, payPhonePreparePath, req, &out)
+	if err != nil && req.hasPrefills() && isPayPhoneClientError(err) {
+		// Presence booleans, never values: which prefill was populated is the whole
+		// question a human debugging a systematic rejection needs answered, and no
+		// email address or identification number may reach a log line to answer it.
+		p.logger.Warn("payphone prepare rejected our request; retrying once without the prefills",
+			"client_transaction_id", in.ClientTransactionID,
+			"had_email", req.Email != "",
+			"had_document_id", req.DocumentID != "",
+			"error", err,
+		)
+		out = payPhonePrepareResponse{}
+		err = p.post(ctx, payPhonePreparePath, req.stripPrefills(), &out)
+	}
 	if err != nil {
 		p.logger.Error("payphone prepare failed", "client_transaction_id", in.ClientTransactionID, "error", err)
 		return nil, fmt.Errorf("payphone prepare: %w", err)
@@ -220,6 +305,33 @@ func (p *PayPhoneProvider) Reverse(_ context.Context, _ string) error {
 	return ErrPaymentReverseNotSupported
 }
 
+// payPhoneStatusError is a non-2xx answer from PayPhone, carrying the status
+// alongside the bounded slice of the body that goes into the log. It exists so
+// callers can tell "PayPhone refused what we sent" (4xx) from "PayPhone is
+// unwell" (5xx) — a distinction only Initiate's prefill fallback needs, and one
+// a flat error string could only be recovered from by parsing it.
+//
+// Transport failures and timeouts are NOT this error: they never reached
+// PayPhone at all, and Initiate treats them like a 5xx.
+type payPhoneStatusError struct {
+	statusCode int
+	body       string
+}
+
+func (e *payPhoneStatusError) Error() string {
+	return fmt.Sprintf("payphone returned %d: %s", e.statusCode, e.body)
+}
+
+// isPayPhoneClientError reports whether an error is PayPhone rejecting the
+// request itself — the only failure the prefills can be to blame for.
+func isPayPhoneClientError(err error) bool {
+	var statusErr *payPhoneStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.statusCode >= 400 && statusErr.statusCode < 500
+}
+
 // post performs the one authenticated JSON POST both operations funnel through,
 // decoding a 2xx response into out.
 func (p *PayPhoneProvider) post(ctx context.Context, path string, body, out any) error {
@@ -246,7 +358,7 @@ func (p *PayPhoneProvider) post(ctx context.Context, path string, body, out any)
 	// without risking an unbounded read on a misbehaving response.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("payphone returned %d: %s", resp.StatusCode, string(errBody))
+		return &payPhoneStatusError{statusCode: resp.StatusCode, body: string(errBody)}
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
 		return fmt.Errorf("decode response: %w", err)

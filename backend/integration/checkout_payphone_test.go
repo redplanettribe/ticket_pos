@@ -50,13 +50,17 @@ var (
 // payPhoneServerStub stands in for PayPhone's API. Each test says how Prepare
 // and Confirm answer; the stub records what was asked, so the requests
 // themselves can be inspected. Defaults: Prepare succeeds, Confirm approves.
+//
+// Every Prepare is kept, not just the last one, because Initiate may call it
+// twice: a Prepare refused with a 4xx is retried once with the prefills
+// stripped (#104), and the only way to see that retry is to see both requests.
 type payPhoneServerStub struct {
 	server *httptest.Server
 
 	mu          sync.Mutex
 	prepare     func(w http.ResponseWriter)
 	confirm     func(w http.ResponseWriter)
-	lastPrepare *payPhoneRecordedRequest
+	prepares    []*payPhoneRecordedRequest
 	lastConfirm *payPhoneRecordedRequest
 }
 
@@ -81,7 +85,7 @@ func startPayPhoneStub() *payPhoneServerStub {
 		var respond func(w http.ResponseWriter)
 		switch r.URL.Path {
 		case "/api/button/Prepare":
-			stub.lastPrepare = rec
+			stub.prepares = append(stub.prepares, rec)
 			respond = stub.prepare
 			if respond == nil {
 				respond = stub.defaultPrepare
@@ -139,16 +143,34 @@ func (s *payPhoneServerStub) reset() {
 	defer s.mu.Unlock()
 	s.prepare = nil
 	s.confirm = nil
-	s.lastPrepare = nil
+	s.prepares = nil
 	s.lastConfirm = nil
 }
 
-// prepareFails makes Prepare answer with an HTTP error, as PayPhone does for a
-// bad token or an unregistered store.
+// prepareFails makes every Prepare answer with an HTTP error, as PayPhone does
+// for a bad token or an unregistered store.
 func (s *payPhoneServerStub) prepareFails(status int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.prepare = func(w http.ResponseWriter) { http.Error(w, `{"message":"provider says no"}`, status) }
+}
+
+// prepareFailsOnce refuses the FIRST Prepare and answers every later one
+// normally — the shape the prefill fallback needs (#104): PayPhone objects to
+// something we sent, and the stripped retry goes through.
+func (s *payPhoneServerStub) prepareFailsOnce(status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prepare = func(w http.ResponseWriter) {
+		// The request has already been recorded by the time a responder runs, so
+		// the recorded count names the attempt: 1 is the one to refuse. Reading it
+		// back beats a captured counter, which would be written outside the mutex.
+		if s.prepareCount() == 1 {
+			http.Error(w, `{"message":"provider says no"}`, status)
+			return
+		}
+		s.defaultPrepare(w)
+	}
 }
 
 // confirmCancels makes Confirm report the canceled verdict.
@@ -173,14 +195,34 @@ func (s *payPhoneServerStub) confirmGarbage() {
 	s.confirm = func(w http.ResponseWriter) { _, _ = w.Write([]byte("<html>maintenance</html>")) }
 }
 
+// prepareCount is how many Prepare requests the stub has seen since the last
+// reset — one for an accepted attempt, two for a refused one that was retried.
+func (s *payPhoneServerStub) prepareCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.prepares)
+}
+
+// prepareRequest returns the nth Prepare (0-based) as the stub saw it, so a
+// test can compare the refused attempt against the retry that followed it.
+func (s *payPhoneServerStub) prepareRequest(t *testing.T, n int) *payPhoneRecordedRequest {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n >= len(s.prepares) {
+		t.Fatalf("PayPhone Prepare #%d was never called (%d seen)", n+1, len(s.prepares))
+	}
+	return s.prepares[n]
+}
+
 func (s *payPhoneServerStub) lastPrepareRequest(t *testing.T) *payPhoneRecordedRequest {
 	t.Helper()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.lastPrepare == nil {
+	if len(s.prepares) == 0 {
 		t.Fatal("PayPhone Prepare was never called")
 	}
-	return s.lastPrepare
+	return s.prepares[len(s.prepares)-1]
 }
 
 func (s *payPhoneServerStub) lastConfirmRequest(t *testing.T) *payPhoneRecordedRequest {
