@@ -317,6 +317,92 @@ func TestValidateAmountDecimalToCents(t *testing.T) {
 	}
 }
 
+// taxIDRow is a row that is valid in every respect but its Tax ID pair, so a
+// verdict below is only ever about the Tax ID.
+func taxIDRow(taxIDType, number string) RawRow {
+	return RawRow{
+		Line: 2, CustomerEmail: "ana@example.com", CustomerFirstName: "Ana", CustomerLastName: "Lopez",
+		CustomerTaxIDType: taxIDType, CustomerTaxIDNumber: number,
+		TicketType: "GA", Quantity: "1", PaymentMethod: "cash", SoldAt: "2026-07-01T10:00:00Z",
+	}
+}
+
+func validateOneRow(row RawRow) RowResult {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	return Validate(ValidateInput{Rows: []RawRow{row}, Types: sampleTypes(), Now: now, Location: time.UTC}).Rows[0]
+}
+
+// TestParseReadsOptionalTaxIDColumns proves the two columns are read when
+// present and simply absent otherwise — a file predating them parses unchanged.
+func TestParseReadsOptionalTaxIDColumns(t *testing.T) {
+	csv := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at,customer_tax_id_type,customer_tax_id_number\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T10:00:00Z,cedula,1712345675\n"
+	rows, err := Parse("sales.csv", strings.NewReader(csv))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if rows[0].CustomerTaxIDType != "cedula" || rows[0].CustomerTaxIDNumber != "1712345675" {
+		t.Fatalf("tax id cells = %q/%q", rows[0].CustomerTaxIDType, rows[0].CustomerTaxIDNumber)
+	}
+
+	// Without the columns the file is still parseable: they are never required.
+	plain := "customer_email,customer_first_name,customer_last_name,ticket_type,quantity,payment_method,sold_at\n" +
+		"ana@example.com,Ana,Lopez,GA,2,cash,2026-07-01T10:00:00Z\n"
+	rows, err = Parse("sales.csv", strings.NewReader(plain))
+	if err != nil {
+		t.Fatalf("parse without tax id columns: %v", err)
+	}
+	if rows[0].CustomerTaxIDType != "" || rows[0].CustomerTaxIDNumber != "" {
+		t.Fatalf("tax id cells = %q/%q, want empty", rows[0].CustomerTaxIDType, rows[0].CustomerTaxIDNumber)
+	}
+}
+
+// TestValidateTaxIDIsOptionalButChecked is the whole Tax ID rule for an imported
+// row: absent is fine, present is held to the shared validator, and each failure
+// names the half of the pair at fault.
+func TestValidateTaxIDIsOptionalButChecked(t *testing.T) {
+	cases := []struct {
+		name       string
+		taxIDType  string
+		number     string
+		wantField  string // "" means the row is valid
+		wantNumber string
+	}{
+		{name: "absent", wantNumber: ""},
+		{name: "blank cells", taxIDType: "  ", number: "  "},
+		{name: "valid cedula", taxIDType: "cedula", number: "1712345675", wantNumber: "1712345675"},
+		{name: "valid ruc", taxIDType: "ruc", number: "1790012346001", wantNumber: "1790012346001"},
+		{name: "passport uppercased", taxIDType: "passport", number: "ab123456", wantNumber: "AB123456"},
+		{name: "padded number trimmed", taxIDType: "cedula", number: "  1712345675 ", wantNumber: "1712345675"},
+		{name: "bad check digit", taxIDType: "cedula", number: "1712345678", wantField: colCustomerTaxIDNumber},
+		{name: "unknown type", taxIDType: "dni", number: "1712345675", wantField: colCustomerTaxIDType},
+		{name: "number without type", number: "1712345675", wantField: colCustomerTaxIDType},
+		{name: "type without number", taxIDType: "cedula", wantField: colCustomerTaxIDNumber},
+	}
+	for _, tc := range cases {
+		row := validateOneRow(taxIDRow(tc.taxIDType, tc.number))
+		if tc.wantField == "" {
+			if !row.Valid {
+				t.Fatalf("%s: row invalid: %+v", tc.name, row.Errors)
+			}
+			if row.CustomerTaxIDNumber != tc.wantNumber {
+				t.Fatalf("%s: number = %q, want %q", tc.name, row.CustomerTaxIDNumber, tc.wantNumber)
+			}
+			continue
+		}
+		if row.Valid {
+			t.Fatalf("%s: row valid, want an error on %s", tc.name, tc.wantField)
+		}
+		if len(row.Errors) != 1 || row.Errors[0].Field != tc.wantField {
+			t.Fatalf("%s: errors = %+v, want only %s", tc.name, row.Errors, tc.wantField)
+		}
+		// A rejected Tax ID is never echoed back as if it would be stored.
+		if row.CustomerTaxIDType != "" || row.CustomerTaxIDNumber != "" {
+			t.Fatalf("%s: rejected pair echoed as %q/%q", tc.name, row.CustomerTaxIDType, row.CustomerTaxIDNumber)
+		}
+	}
+}
+
 func TestTemplateRoundTrip(t *testing.T) {
 	data, err := BuildTemplate("Summer Fest", sampleTypes())
 	if err != nil {
@@ -336,7 +422,7 @@ func TestTemplateRoundTrip(t *testing.T) {
 	if len(header) == 0 {
 		t.Fatalf("template has no header")
 	}
-	wantHeaders := []string{"customer_email", "customer_first_name", "customer_last_name", "ticket_type", "quantity", "payment_method", "sold_at", "amount", "ticket_type_id"}
+	wantHeaders := []string{"customer_email", "customer_first_name", "customer_last_name", "ticket_type", "quantity", "payment_method", "sold_at", "amount", "customer_tax_id_type", "customer_tax_id_number", "ticket_type_id"}
 	for i, h := range wantHeaders {
 		if i >= len(header[0]) || header[0][i] != h {
 			t.Fatalf("header[%d] = %q, want %q", i, header[0], h)
@@ -417,6 +503,13 @@ func TestTemplateRoundTrip(t *testing.T) {
 	if dv := byRange["F2:F10001"]; dv == nil || dv.Type != "list" {
 		t.Fatalf("payment_method dropdown missing/changed: %+v", dv)
 	}
+	// The Tax ID Type column offers the three types as a list; the pair stays
+	// optional, so the list must not be a Stop-style gate on an empty cell.
+	if dv := byRange["I2:I10001"]; dv == nil || dv.Type != "list" {
+		t.Fatalf("customer_tax_id_type dropdown missing/changed: %+v", dv)
+	} else if !strings.Contains(dv.Formula1, "cedula") || !strings.Contains(dv.Formula1, "passport") {
+		t.Fatalf("customer_tax_id_type list = %q, want the three Tax ID Types", dv.Formula1)
+	}
 
 	// sold_at cells are real date cells: the column carries the yyyy-mm-dd number
 	// format so a typed date reflows and the backend reads a date serial.
@@ -435,14 +528,16 @@ func TestTemplateRoundTrip(t *testing.T) {
 	// Every visible column carries an input-message tooltip (prompt), including
 	// the columns whose only validation exists to hold the tooltip.
 	visibleRanges := map[string]string{
-		"customer_email":      "A2:A10001",
-		"customer_first_name": "B2:B10001",
-		"customer_last_name":  "C2:C10001",
-		"ticket_type":         "D2:D10001",
-		"quantity":            "E2:E10001",
-		"payment_method":      "F2:F10001",
-		"sold_at":             "G2:G10001",
-		"amount":              "H2:H10001",
+		"customer_email":         "A2:A10001",
+		"customer_first_name":    "B2:B10001",
+		"customer_last_name":     "C2:C10001",
+		"ticket_type":            "D2:D10001",
+		"quantity":               "E2:E10001",
+		"payment_method":         "F2:F10001",
+		"sold_at":                "G2:G10001",
+		"amount":                 "H2:H10001",
+		"customer_tax_id_type":   "I2:I10001",
+		"customer_tax_id_number": "J2:J10001",
 	}
 	for name, sqref := range visibleRanges {
 		dv := byRange[sqref]

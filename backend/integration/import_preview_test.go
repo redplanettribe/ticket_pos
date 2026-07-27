@@ -100,21 +100,26 @@ func xlsxRenamedSalesSheet(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+// previewRow is one row's verdict in the import preview payload.
+type previewRow struct {
+	Row                 int    `json:"row"`
+	CustomerFirstName   string `json:"customer_first_name"`
+	CustomerLastName    string `json:"customer_last_name"`
+	TicketTypeID        string `json:"ticket_type_id"`
+	TicketTypeName      string `json:"ticket_type_name"`
+	CustomerTaxIDType   string `json:"customer_tax_id_type"`
+	CustomerTaxIDNumber string `json:"customer_tax_id_number"`
+	Valid               bool   `json:"valid"`
+	PossibleDuplicate   bool   `json:"possible_duplicate"`
+	DuplicateOfDate     string `json:"duplicate_of_date"`
+	Errors              []struct {
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
 type previewResultBody struct {
-	Rows []struct {
-		Row               int    `json:"row"`
-		CustomerFirstName string `json:"customer_first_name"`
-		CustomerLastName  string `json:"customer_last_name"`
-		TicketTypeID      string `json:"ticket_type_id"`
-		TicketTypeName    string `json:"ticket_type_name"`
-		Valid             bool   `json:"valid"`
-		PossibleDuplicate bool   `json:"possible_duplicate"`
-		DuplicateOfDate   string `json:"duplicate_of_date"`
-		Errors            []struct {
-			Field   string `json:"field"`
-			Message string `json:"message"`
-		} `json:"errors"`
-	} `json:"rows"`
+	Rows           []previewRow `json:"rows"`
 	CapacityImpact []struct {
 		TicketTypeID string `json:"ticket_type_id"`
 		Requested    int    `json:"requested"`

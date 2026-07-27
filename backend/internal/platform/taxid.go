@@ -149,6 +149,11 @@ func ValidateTaxID(taxIDType, number string) (string, error) {
 	}
 }
 
+// TaxIDTypeMessage is the field-level message for a type that is not one of the
+// three Tax ID Types. It enumerates them, so it lives beside the constants it
+// names rather than being retyped at each surface that rejects one.
+const TaxIDTypeMessage = "must be cedula, ruc, or passport"
+
 // TaxIDFieldErrors validates a supplied Tax ID and, on failure, returns the
 // field-level errors naming the half of the pair actually at fault: an unknown
 // type is the type field's problem, a failed check digit the number's. On
@@ -168,9 +173,9 @@ func TaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string,
 	normalized, err := ValidateTaxID(taxIDType, number)
 	switch {
 	case errors.Is(err, ErrTaxIDTypeUnknown):
-		return "", []FieldError{{Field: typeField, Message: "must be cedula, ruc, or passport"}}
+		return "", []FieldError{{Field: typeField, Message: TaxIDTypeMessage}}
 	case errors.Is(err, ErrTaxIDNumberInvalid):
-		return "", []FieldError{{Field: numberField, Message: taxIDNumberMessage(taxIDType)}}
+		return "", []FieldError{{Field: numberField, Message: TaxIDNumberMessage(taxIDType)}}
 	case err != nil:
 		return "", []FieldError{{Field: numberField, Message: "is not valid"}}
 	default:
@@ -178,10 +183,11 @@ func TaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string,
 	}
 }
 
-// taxIDNumberMessage explains a rejected number in the terms of its own Tax ID
-// Type, because "is not valid" tells a buyer staring at their ID card nothing
-// about which digit to look at.
-func taxIDNumberMessage(taxIDType string) string {
+// TaxIDNumberMessage explains a rejected number in the terms of its own Tax ID
+// Type, because "is not valid" tells someone staring at their ID card — or at a
+// spreadsheet cell — nothing about which digit to look at. It is the message
+// half of ValidateTaxID's verdict and moves with the rules above.
+func TaxIDNumberMessage(taxIDType string) string {
 	switch taxIDType {
 	case TaxIDTypeCedula:
 		return "must be a valid 10-digit cédula"

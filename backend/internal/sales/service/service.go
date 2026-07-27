@@ -28,10 +28,18 @@ type ImportSaleInput struct {
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
-	TicketTypeID      string
-	Quantity          int
-	PaymentMethod     string
-	SoldAt            time.Time
+	// CustomerTaxID is the Tax ID this row was transacted under, already
+	// validated and normalised, and unset when the file supplied none — the
+	// `import` channel is the one channel allowed to record a sale without one
+	// (ADR 0016). SelfAsserted is always false here: a spreadsheet is a Member's
+	// account of what happened elsewhere, never the buyer proving they own the
+	// email, so an import can fill or refresh a Customer's stored Tax ID but can
+	// never overwrite a verified one.
+	CustomerTaxID platform.SaleTaxID
+	TicketTypeID  string
+	Quantity      int
+	PaymentMethod string
+	SoldAt        time.Time
 	// AmountCents overrides the catalog unit price snapshot; nil uses the catalog price.
 	AmountCents *int
 }
@@ -144,6 +152,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 			CustomerEmail:     row.CustomerEmail,
 			CustomerFirstName: row.CustomerFirstName,
 			CustomerLastName:  row.CustomerLastName,
+			CustomerTaxID:     row.CustomerTaxID,
 			PaymentMethod:     row.PaymentMethod,
 			SoldAt:            row.SoldAt,
 			ConfirmationRef:   ref,
@@ -622,11 +631,16 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 			CustomerEmail:     row.CustomerEmail,
 			CustomerFirstName: row.CustomerFirstName,
 			CustomerLastName:  row.CustomerLastName,
-			TicketTypeID:      row.TicketTypeID,
-			Quantity:          row.Quantity,
-			PaymentMethod:     row.PaymentMethod,
-			SoldAt:            row.SoldAtTime(),
-			AmountCents:       row.AmountCents,
+			// SelfAsserted stays false — see ImportSaleInput.CustomerTaxID.
+			CustomerTaxID: platform.SaleTaxID{
+				Type:   row.CustomerTaxIDType,
+				Number: row.CustomerTaxIDNumber,
+			},
+			TicketTypeID:  row.TicketTypeID,
+			Quantity:      row.Quantity,
+			PaymentMethod: row.PaymentMethod,
+			SoldAt:        row.SoldAtTime(),
+			AmountCents:   row.AmountCents,
 		})
 	}
 

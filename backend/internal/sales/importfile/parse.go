@@ -20,16 +20,20 @@ const MaxRows = 10000
 // Column headers recognised in the first row of an uploaded file. Matching is
 // case- and space-insensitive. The ticket_type_id column is the hidden
 // reference the per-event template fills; when present it wins over the name.
+// The two customer_tax_id_* columns are optional and absent from every file
+// uploaded before they existed, so nothing here may require them.
 const (
-	colCustomerEmail     = "customer_email"
-	colCustomerFirstName = "customer_first_name"
-	colCustomerLastName  = "customer_last_name"
-	colTicketType        = "ticket_type"
-	colTicketTypeID      = "ticket_type_id"
-	colQuantity          = "quantity"
-	colPaymentMethod     = "payment_method"
-	colSoldAt            = "sold_at"
-	colAmount            = "amount"
+	colCustomerEmail       = "customer_email"
+	colCustomerFirstName   = "customer_first_name"
+	colCustomerLastName    = "customer_last_name"
+	colCustomerTaxIDType   = "customer_tax_id_type"
+	colCustomerTaxIDNumber = "customer_tax_id_number"
+	colTicketType          = "ticket_type"
+	colTicketTypeID        = "ticket_type_id"
+	colQuantity            = "quantity"
+	colPaymentMethod       = "payment_method"
+	colSoldAt              = "sold_at"
+	colAmount              = "amount"
 )
 
 // requiredHeaders must all be present for a file to be parseable at all.
@@ -47,12 +51,19 @@ type RawRow struct {
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
-	TicketType        string
-	TicketTypeID      string
-	Quantity          string
-	PaymentMethod     string
-	SoldAt            string
-	Amount            string
+	// CustomerTaxIDType and CustomerTaxIDNumber are the optional Tax ID this
+	// Direct Sale was transacted under. Both are blank on the files organizers
+	// have always uploaded — an imported sale happened elsewhere, where the ID may
+	// never have been collected (ADR 0016) — and Validate only holds a row to the
+	// Tax ID rules when one of them is filled in.
+	CustomerTaxIDType   string
+	CustomerTaxIDNumber string
+	TicketType          string
+	TicketTypeID        string
+	Quantity            string
+	PaymentMethod       string
+	SoldAt              string
+	Amount              string
 }
 
 // ErrTooLarge reports that a file exceeds MaxRows data rows.
@@ -240,16 +251,18 @@ func rowFromCells(line int, cells []string, index map[string]int) RawRow {
 		return strings.TrimSpace(cells[i])
 	}
 	return RawRow{
-		Line:              line,
-		CustomerEmail:     get(colCustomerEmail),
-		CustomerFirstName: get(colCustomerFirstName),
-		CustomerLastName:  get(colCustomerLastName),
-		TicketType:        get(colTicketType),
-		TicketTypeID:      get(colTicketTypeID),
-		Quantity:          get(colQuantity),
-		PaymentMethod:     get(colPaymentMethod),
-		SoldAt:            get(colSoldAt),
-		Amount:            get(colAmount),
+		Line:                line,
+		CustomerEmail:       get(colCustomerEmail),
+		CustomerFirstName:   get(colCustomerFirstName),
+		CustomerLastName:    get(colCustomerLastName),
+		CustomerTaxIDType:   get(colCustomerTaxIDType),
+		CustomerTaxIDNumber: get(colCustomerTaxIDNumber),
+		TicketType:          get(colTicketType),
+		TicketTypeID:        get(colTicketTypeID),
+		Quantity:            get(colQuantity),
+		PaymentMethod:       get(colPaymentMethod),
+		SoldAt:              get(colSoldAt),
+		Amount:              get(colAmount),
 	}
 }
 
