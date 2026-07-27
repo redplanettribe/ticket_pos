@@ -1640,6 +1640,13 @@ const docTemplate = `{
                     },
                     "status": {
                         "type": "string"
+                    },
+                    "tax_id_number": {
+                        "type": "string"
+                    },
+                    "tax_id_type": {
+                        "description": "TaxIDType and TaxIDNumber are the Tax ID this sale was transacted under\n(ADR 0016), so a Customer can tell a personal purchase from one made under\na company RUC. They are the sale's immutable snapshot, never the\nCustomer's current stored assertion: editing a profile or buying again\nunder a different Tax ID changes nothing here.\n\nBoth are null together on sales recorded before the feature and on\nimported sales that never carried one; history is not backfilled, and the\nclient draws \"—\" rather than a value nobody supplied.",
+                        "type": "string"
                     }
                 },
                 "type": "object"

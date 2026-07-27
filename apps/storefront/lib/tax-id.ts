@@ -31,6 +31,25 @@ export function isTaxIdType(value: string): value is TaxIdType {
   return (TAX_ID_TYPES as readonly string[]).includes(value);
 }
 
+/**
+ * formatTaxId renders a Ticket Sale's Tax ID snapshot the way the buyer's own
+ * receipt shows it — "Cédula: 1712345678" — or null when the sale carries none
+ * (#99). Callers draw "—" for null rather than an empty label.
+ *
+ * The two halves are always null together on the wire, but this treats a
+ * half-populated pair as absent anyway: half a Tax ID identifies nobody, and a
+ * receipt is the wrong place to guess at the other half.
+ *
+ * Unmasked, deliberately. This is the value a Customer copies into their own
+ * expense records, and it is shown only to the person the sale belongs to —
+ * the Customer Area is reachable with nothing but their own session.
+ */
+export function formatTaxId(taxIdType: string | null, number: string | null): string | null {
+  if (!taxIdType || !number) return null;
+  const label = isTaxIdType(taxIdType) ? TAX_ID_TYPE_LABELS[taxIdType] : taxIdType;
+  return `${label}: ${number}`;
+}
+
 /** Province codes 01–24, plus 30 for citizens registered abroad. */
 function hasValidProvincePrefix(number: string): boolean {
   const province = Number(number.slice(0, 2));

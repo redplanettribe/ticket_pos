@@ -108,17 +108,7 @@ func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string)
 // best-effort, so a returned error is logged here for visibility and then
 // discarded upstream — a delivery hiccup never reverses a recorded Ticket Sale.
 func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConfirmation) error {
-	subject := fmt.Sprintf("Your tickets for %s", c.EventName)
-	// The total is the amount the Customer was charged, all in: the platform's
-	// fee is never itemized on a receipt (ADR 0014).
-	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s\n\nPresent this reference at the event.",
-		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
-	// The Confirmation Link is the reason this email is worth keeping: it opens
-	// this purchase months later, at the gate, with one tap and no typing.
-	if c.ConfirmationLink != "" {
-		text += fmt.Sprintf("\n\nView your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.", c.ConfirmationLink)
-	}
-	if err := s.send(ctx, c.To, subject, text); err != nil {
+	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
 		s.logger.Error("resend send sale confirmation failed", "email", c.To, "reference", c.Reference, "error", err)
 		return err
 	}
@@ -128,23 +118,9 @@ func (s *ResendEmailSender) SendSaleConfirmation(ctx context.Context, c SaleConf
 // SendSaleVoided delivers a cancellation notice referencing the original Sale
 // Confirmation. Best-effort, as above.
 func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) error {
-	subject := fmt.Sprintf("Your %s purchase has been cancelled", v.EventName)
-	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s (reference %s) has been cancelled.\nIf you believe this is a mistake, contact the organizer.", v.CustomerName, v.EventName, v.Reference)
-	if err := s.send(ctx, v.To, subject, text); err != nil {
+	if err := s.send(ctx, v.To, v.Subject(), v.Text()); err != nil {
 		s.logger.Error("resend send sale voided failed", "email", v.To, "reference", v.Reference, "error", err)
 		return err
 	}
 	return nil
-}
-
-// formatMoney renders integer cents for a receipt line: two decimals with the
-// currency code alongside, e.g. "17.82 USD". Deliberately plain — the email is
-// text, and a Customer reconciling against a card statement needs the number,
-// not a locale.
-func formatMoney(cents int, currency string) string {
-	sign := ""
-	if cents < 0 {
-		sign, cents = "-", -cents
-	}
-	return fmt.Sprintf("%s%d.%02d %s", sign, cents/100, cents%100, currency)
 }

@@ -116,6 +116,11 @@ type RecordedSale struct {
 	// lines' buyer prices — so the Sale Confirmation can show a total that
 	// matches their card statement.
 	AmountCents int
+	// CustomerTaxID is the Tax ID snapshot just written onto the sale, echoed
+	// back so the Sale Confirmation prints what this sale was transacted under
+	// rather than re-reading a Customer record that may already have moved on.
+	// Unset on the `import` channel when the file carried no Tax ID.
+	CustomerTaxID platform.SaleTaxID
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -425,6 +430,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			CustomerFirstName: s.CustomerFirstName,
 			CustomerLastName:  s.CustomerLastName,
 			AmountCents:       amountCents,
+			CustomerTaxID:     s.CustomerTaxID,
 		})
 	}
 

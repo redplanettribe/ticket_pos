@@ -4059,6 +4059,19 @@ export interface components {
             organization?: components["schemas"]["internal_customers_service.OrganizationView"];
             sold_at?: string;
             status?: string;
+            tax_id_number?: string;
+            /**
+             * @description TaxIDType and TaxIDNumber are the Tax ID this sale was transacted under
+             *     (ADR 0016), so a Customer can tell a personal purchase from one made under
+             *     a company RUC. They are the sale's immutable snapshot, never the
+             *     Customer's current stored assertion: editing a profile or buying again
+             *     under a different Tax ID changes nothing here.
+             *
+             *     Both are null together on sales recorded before the feature and on
+             *     imported sales that never carried one; history is not backfilled, and the
+             *     client draws "—" rather than a value nobody supplied.
+             */
+            tax_id_type?: string;
         };
         "service.TicketTypeDetail": {
             capacity?: number;

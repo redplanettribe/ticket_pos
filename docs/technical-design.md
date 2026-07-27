@@ -514,6 +514,15 @@ type EmailSender interface {
   Write-back from a sale mirrors the customer-name rule with one addition: a sale may **fill** a
   never-set Tax ID and **refresh** it while the Customer is unverified, and may overwrite a verified
   one **only** when the checkout ran under that Customer's own full Customer Session.
+- Each Ticket Sale's own **Tax ID snapshot** is what the buyer's paper trail shows, never the
+  Customer's current assertion. It reaches the two buyer-facing surfaces as one rendering —
+  `platform.SaleTaxID.Display()`, e.g. `Cédula: 1712345675`, unmasked and mirrored by
+  `apps/storefront/lib/tax-id.ts`: the Sale Confirmation email (composed on
+  `platform.SaleConfirmation`, not inside the delivery provider, so the integration suite can assert
+  what a buyer reads through the capture sender) and `GET /api/v1/customer/ticket-sales`, whose
+  per-sale payload carries `tax_id_type` / `tax_id_number`. Both are null together on sales recorded
+  before the feature and on imported sales that never carried one; the email omits the line and the
+  Customer Area draws `—`, because history is never backfilled.
 
 ## Client applications
 

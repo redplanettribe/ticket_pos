@@ -306,6 +306,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 			AmountCents:      approved.Sale.AmountCents,
 			Currency:         event.Currency,
 			ConfirmationLink: s.confirmationLink(approved.Sale.ID, event.End()),
+			TaxID:            approved.Sale.CustomerTaxID,
 		})
 	}
 

@@ -190,6 +190,7 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 				AmountCents:      rs.AmountCents,
 				Currency:         event.Currency,
 				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
+				TaxID:            rs.CustomerTaxID,
 			})
 		}
 	}
