@@ -28,6 +28,7 @@ import {
   paymentMethodLabel,
   rollupTicketTypes,
   salesListQuery,
+  taxIdLabel,
   type SaleListRow,
   type SaleSortDir,
   type SaleSortField,
@@ -200,6 +201,7 @@ export function SalesList({ eventId, page, filters, ticketTypes, sort, dir, time
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="w-8 py-2 pr-2" />
                   <SortableHeader label="Customer" field="customer" sort={sort} dir={dir} onSort={toggleSort} />
+                  <th className="py-2 pr-4 font-medium">Tax ID</th>
                   <th className="py-2 pr-4 font-medium">Ticket types</th>
                   <SortableHeader label="Amount" field="amount" sort={sort} dir={dir} onSort={toggleSort} />
                   <SortableHeader label="Sold" field="sold_at" sort={sort} dir={dir} onSort={toggleSort} />
@@ -317,7 +319,7 @@ function SalesFilterBar({ filters, ticketTypes, filtersActive, onApply }: SalesF
               id="sales-search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Name, email, or reference"
+              placeholder="Name, email, Tax ID, or reference"
               className="h-9"
             />
             <Button type="submit" variant="outline" size="sm">
@@ -471,6 +473,7 @@ function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
             </Badge>
           ) : null}
         </td>
+        <td className="py-3 pr-4 whitespace-nowrap">{taxIdLabel(sale.tax_id_type, sale.tax_id_number)}</td>
         <td className="py-3 pr-4">{rollupTicketTypes(sale.ticket_types)}</td>
         <td className="py-3 pr-4 tabular-nums">{formatPriceCents(sale.amount_cents, sale.currency)}</td>
         <td className="py-3 pr-4">{formatSaleTimestamp(sale.sold_at, timezone)}</td>
@@ -481,7 +484,7 @@ function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
       {expanded ? (
         <tr className="bg-muted/30">
           <td />
-          <td className="py-3 pr-4 text-muted-foreground" colSpan={7}>
+          <td className="py-3 pr-4 text-muted-foreground" colSpan={8}>
             <div className="flex flex-wrap gap-x-8 gap-y-1">
               <span>
                 <span className="font-medium text-foreground">Payment method:</span>{" "}

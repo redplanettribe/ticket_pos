@@ -514,6 +514,15 @@ type EmailSender interface {
   Write-back from a sale mirrors the customer-name rule with one addition: a sale may **fill** a
   never-set Tax ID and **refresh** it while the Customer is unverified, and may overwrite a verified
   one **only** when the checkout ran under that Customer's own full Customer Session.
+- Each Ticket Sale keeps its own immutable Tax ID snapshot, and that snapshot — not the Customer's
+  current assertion — is what organizers see and search. `GET /api/v1/staff/events/{id}/sales`
+  returns it per row as `tax_id_type` / `tax_id_number` (null together on sales recorded without
+  one), and its unified `q` search adds a fourth branch over `customer_tax_id_number`: a
+  case-insensitive substring, LIKE-escaped like the email/name/confirmation_ref branches, so a
+  pasted full number and the last four digits read off an ID card both match. The search is
+  **event-scoped** like the rest of the Sales list; there is no cross-event or cross-organization
+  Tax ID lookup. Because the match runs over the snapshot, one Tax ID legitimately surfaces sales
+  made from several Customer emails.
 
 ## Client applications
 
