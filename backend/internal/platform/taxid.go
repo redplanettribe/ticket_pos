@@ -1,0 +1,181 @@
+package platform
+
+import (
+	"errors"
+	"strings"
+)
+
+// The Tax ID validation gradient (ADR 0016, CONTEXT.md "Tax ID", "Tax ID Type").
+//
+// A Tax ID is a Tax ID Type plus its number, supplied by a Customer so an
+// Organization can declare the sale to Ecuador's tax authority. A number that
+// fails the check digit is worse than no number at all: it is declared, it is
+// wrong, and the Organization carries the liability. So this file is the single
+// source of truth for what counts as a valid Tax ID — the checkout endpoint, the
+// Sale Import row validator and the future in-person POS all call ValidateTaxID
+// rather than re-deriving the rules, and the clients mirror it only to give
+// instant feedback while typing.
+//
+// It is deliberately a pure function over strings: no database, no context, no
+// domain error types. The service layer decides *when* a Tax ID is required
+// (native Sales Channels yes, `import` no — ADR 0016); this file only decides
+// whether a supplied one is well formed.
+
+// Tax ID Type values. These are the wire values as well as the stored ones; the
+// glossary term is Tax ID Type and these three are the whole of it.
+const (
+	TaxIDTypeCedula   = "cedula"
+	TaxIDTypeRUC      = "ruc"
+	TaxIDTypePassport = "passport"
+)
+
+// The two ways a Tax ID can be rejected, kept separate because the API surfaces
+// field-level errors: an unknown type is a fault of the type field, an invalid
+// number a fault of the number field. Callers match with errors.Is and map to
+// their own domain error codes.
+var (
+	// ErrTaxIDTypeUnknown means the type is not one of the three Tax ID Types.
+	ErrTaxIDTypeUnknown = errors.New("unknown tax id type")
+	// ErrTaxIDNumberInvalid means the number does not satisfy the rules for its
+	// (valid) type: wrong length, non-digit characters, an impossible province
+	// prefix, or a failed check digit.
+	ErrTaxIDNumberInvalid = errors.New("invalid tax id number")
+)
+
+// ValidateTaxID checks a Tax ID Type and number and returns the number in the
+// form it must be stored in: trimmed always, and uppercased for passports so
+// "ab123456" and "AB123456" are the same passport rather than two.
+//
+// The gradient is uneven on purpose. Cédula and RUC are algorithmically
+// verifiable Ecuadorian identifiers, so they are checked to the digit — a typo
+// is caught before it reaches a declaration. A passport is issued by any country
+// on earth under any scheme, so there is nothing to verify against; it is
+// accepted on shape alone (non-empty alphanumeric, 6–20 characters) rather than
+// pretending to a rigour that would lock out legitimate foreign buyers.
+//
+// The type is matched exactly: it arrives from a closed enum on the wire, and
+// silently accepting "Cedula" here would put a second normalisation rule in the
+// system for a value that has exactly one spelling.
+func ValidateTaxID(taxIDType, number string) (string, error) {
+	trimmed := strings.TrimSpace(number)
+
+	switch taxIDType {
+	case TaxIDTypeCedula:
+		if !isValidCedula(trimmed) {
+			return "", ErrTaxIDNumberInvalid
+		}
+		return trimmed, nil
+	case TaxIDTypeRUC:
+		if !isValidRUC(trimmed) {
+			return "", ErrTaxIDNumberInvalid
+		}
+		return trimmed, nil
+	case TaxIDTypePassport:
+		if !isValidPassport(trimmed) {
+			return "", ErrTaxIDNumberInvalid
+		}
+		return strings.ToUpper(trimmed), nil
+	default:
+		return "", ErrTaxIDTypeUnknown
+	}
+}
+
+// isValidCedula applies the full cédula rule: ten digits, a real province
+// prefix, and the modulo-10 check digit.
+func isValidCedula(number string) bool {
+	if len(number) != 10 || !isASCIIDigits(number) {
+		return false
+	}
+	if !hasValidProvincePrefix(number) {
+		return false
+	}
+	return number[9] == cedulaCheckDigit(number)
+}
+
+// isValidRUC applies the RUC rule: thirteen digits, a real province prefix, and
+// a third digit that names one of the three RUC forms.
+//
+// Only the natural-person form (third digit 0–5) can be verified further: it is
+// a cédula with a three-digit establishment suffix appended, so the first ten
+// digits must pass the cédula check. The company form (9) and the public-entity
+// form (6) each use a different modulus and a check digit in a different
+// position; those algorithms are not published as stably as the cédula one and
+// getting them subtly wrong would reject real taxpayers, so both are accepted on
+// structure alone. Third digits 7 and 8 name no RUC form and are rejected.
+func isValidRUC(number string) bool {
+	if len(number) != 13 || !isASCIIDigits(number) {
+		return false
+	}
+	if !hasValidProvincePrefix(number) {
+		return false
+	}
+	switch third := number[2]; {
+	case third >= '0' && third <= '5':
+		// Natural-person RUC: cédula + establishment suffix.
+		return number[9] == cedulaCheckDigit(number)
+	case third == '6' || third == '9':
+		// Public entity / company: structure only.
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidPassport accepts any non-empty ASCII-alphanumeric string of 6–20
+// characters. The bounds exist only to catch a slip of the hand or a pasted
+// paragraph, not to model any country's passport format.
+func isValidPassport(number string) bool {
+	if len(number) < 6 || len(number) > 20 {
+		return false
+	}
+	for i := 0; i < len(number); i++ {
+		c := number[i]
+		isDigit := c >= '0' && c <= '9'
+		isLetter := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		if !isDigit && !isLetter {
+			return false
+		}
+	}
+	return true
+}
+
+// hasValidProvincePrefix checks the leading two digits against Ecuador's
+// province codes: 01–24 for the provinces themselves, plus 30 for citizens
+// registered abroad. Anything else (00, 25–29, 31+) was never issued.
+func hasValidProvincePrefix(number string) bool {
+	province := int(number[0]-'0')*10 + int(number[1]-'0')
+	return (province >= 1 && province <= 24) || province == 30
+}
+
+// cedulaCheckDigit computes the modulo-10 check digit over the first nine digits
+// of a cédula: coefficients 2,1,2,1,2,1,2,1,2, any product above 9 reduced by 9,
+// and the check digit is whatever completes the sum to the next multiple of ten.
+// It returns the digit as its ASCII byte so callers compare against the string
+// directly. The caller has already established that number holds at least ten
+// ASCII digits.
+func cedulaCheckDigit(number string) byte {
+	sum := 0
+	for i := 0; i < 9; i++ {
+		digit := int(number[i] - '0')
+		if i%2 == 0 {
+			digit *= 2
+			if digit > 9 {
+				digit -= 9
+			}
+		}
+		sum += digit
+	}
+	return byte('0' + (10-sum%10)%10)
+}
+
+// isASCIIDigits reports whether every byte is 0–9. Deliberately ASCII-only:
+// Go's unicode.IsDigit would accept Arabic-Indic or fullwidth digits, which are
+// not what a cédula is made of and would break the arithmetic below.
+func isASCIIDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
