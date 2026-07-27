@@ -30,6 +30,10 @@ type CustomerProfileView struct {
 	LastName    string  `json:"last_name"`
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// The Customer's Avatar as a browser-loadable URL, null when they have none.
+	// Attaching and removing one goes through the avatar endpoints (avatar.go),
+	// never through the profile PATCH.
+	AvatarURL *string `json:"avatar_url"`
 }
 
 // UpdateProfileInput is one edit of the Customer's own assertion about
@@ -91,14 +95,15 @@ func (s *Service) UpdateProfile(ctx context.Context, token string, in UpdateProf
 		return nil, customers.ErrCustomerSessionNotFound()
 	}
 
-	return profileView(updated), nil
+	return s.profileView(updated), nil
 }
 
-func profileView(customer *repository.Customer) *CustomerProfileView {
+func (s *Service) profileView(customer *repository.Customer) *CustomerProfileView {
 	view := &CustomerProfileView{
 		Email:     customer.Email,
 		FirstName: customer.FirstName,
 		LastName:  customer.LastName,
+		AvatarURL: s.avatarURL(customer),
 	}
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String

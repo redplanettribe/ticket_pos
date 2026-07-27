@@ -109,8 +109,9 @@ func domainHTTPStatus(code string) int {
 	// same reason a bad passcode is: the caller failed to prove anything.
 	case "CONFIRMATION_LINK_INVALID", "CONFIRMATION_LINK_EXPIRED":
 		return http.StatusUnauthorized
-	// No signing key configured is a deployment fault, not the caller's.
-	case "CONFIRMATION_LINK_UNAVAILABLE":
+	// No signing key configured is a deployment fault, not the caller's — as is
+	// object storage missing when an Avatar upload is asked for.
+	case "CONFIRMATION_LINK_UNAVAILABLE", "AVATAR_UPLOAD_UNAVAILABLE":
 		return http.StatusInternalServerError
 	case "FORBIDDEN":
 		return http.StatusForbidden

@@ -2,8 +2,9 @@
 
 import { Alert, AlertDescription, Button, FormField, Input, toast } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
+import { CustomerAvatar } from "@/components/customer-avatar";
 import {
   profileFieldErrorsFromDetails,
   profileUpdateBody,
@@ -39,6 +40,15 @@ type Envelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
+/**
+ * The image types the API's allowlist accepts, mirrored here so a .gif is
+ * refused before any round trip. The server's verdict still decides.
+ */
+const AVATAR_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** Mirrors the seeding cap on the API; a phone photo fits comfortably. */
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
 /** The stored Tax ID as a line of prose, or the em dash history uses for "none". */
 function taxIdLabel(profile: CustomerProfile): string {
   if (!profile.tax_id_type || !profile.tax_id_number) return "—";
@@ -71,6 +81,99 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * The photo flow is three hops the person sees as one: mint a presigned URL,
+   * PUT the file straight to object storage, then attach the key. The profile
+   * the attach returns is the source of truth for what now shows.
+   */
+  async function handlePhotoChosen(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset so choosing the same file again still fires a change event.
+    event.target.value = "";
+    if (!file) return;
+
+    if (!AVATAR_CONTENT_TYPES.includes(file.type)) {
+      setPhotoError("Choose a JPEG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setPhotoError("That image is over 5 MB. Choose a smaller one.");
+      return;
+    }
+
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      const ticketResponse = await fetch("/api/customer/profile/avatar-upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content_type: file.type, file_name: file.name }),
+      });
+      const ticket = (await ticketResponse.json()) as Envelope<{
+        upload_url: string;
+        object_key: string;
+      }>;
+      if (!ticketResponse.ok || ticket.error || !ticket.data) {
+        setPhotoError(ticket.error?.message ?? "Your photo could not be uploaded. Try again.");
+        return;
+      }
+
+      const upload = await fetch(ticket.data.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!upload.ok) {
+        setPhotoError("Your photo could not be uploaded. Try again.");
+        return;
+      }
+
+      const attachResponse = await fetch("/api/customer/profile/avatar", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_key: ticket.data.object_key }),
+      });
+      const attached = (await attachResponse.json()) as Envelope<CustomerProfile>;
+      if (!attachResponse.ok || attached.error || !attached.data) {
+        setPhotoError(attached.error?.message ?? "Your photo could not be saved. Try again.");
+        return;
+      }
+
+      setProfile(attached.data);
+      toast.success("Your photo is saved.");
+      // The header chip renders from the server-side session read; refreshing
+      // keeps it in step with the photo this panel now shows.
+      router.refresh();
+    } catch {
+      setPhotoError("Your photo could not be uploaded. Check your connection and try again.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function handlePhotoRemove() {
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      const response = await fetch("/api/customer/profile/avatar", { method: "DELETE" });
+      const envelope = (await response.json()) as Envelope<CustomerProfile>;
+      if (!response.ok || envelope.error || !envelope.data) {
+        setPhotoError(envelope.error?.message ?? "Your photo could not be removed. Try again.");
+        return;
+      }
+      setProfile(envelope.data);
+      toast.success("Your photo is removed.");
+      router.refresh();
+    } catch {
+      setPhotoError("Your photo could not be removed. Check your connection and try again.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   /** Opening the form starts from what is stored, discarding any abandoned edit. */
   function startEditing() {
@@ -134,7 +237,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   }
 
   return (
-    <section className="space-y-4" aria-labelledby="my-info-heading">
+    // scroll-mt keeps the heading clear of the sticky header when the header
+    // menu's "My info" link lands on this anchor.
+    <section id="my-info" className="scroll-mt-20 space-y-4" aria-labelledby="my-info-heading">
       <div className="flex items-center justify-between gap-4">
         <h2 id="my-info-heading" className="text-lg font-semibold tracking-tight">
           My info
@@ -147,6 +252,54 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       </div>
 
       <div className="rounded-lg border bg-card p-5 sm:p-6">
+        {/* The Avatar row: photo or initials, and the two things a person can do
+            about it. Separate from the edit form because it saves on its own —
+            choosing a photo needs no Save button, and removing one is not an
+            edit in progress. */}
+        <div className="mb-4 flex items-center gap-4 border-b pb-4">
+          <CustomerAvatar
+            avatarUrl={profile.avatar_url}
+            firstName={profile.first_name}
+            lastName={profile.last_name}
+            email={profile.email}
+            className="h-16 w-16 text-lg"
+          />
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={photoBusy}
+                aria-busy={photoBusy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {photoBusy ? "Working…" : profile.avatar_url ? "Change photo" : "Add photo"}
+              </Button>
+              {profile.avatar_url ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={photoBusy}
+                  onClick={handlePhotoRemove}
+                >
+                  Remove photo
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">JPEG, PNG, or WebP, up to 5 MB.</p>
+            {photoError ? <p className="text-xs text-destructive">{photoError}</p> : null}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={AVATAR_CONTENT_TYPES.join(",")}
+            className="hidden"
+            onChange={handlePhotoChosen}
+          />
+        </div>
+
         <dl className="space-y-3 text-sm">
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
             <dt className="text-muted-foreground">Email</dt>
@@ -165,6 +318,19 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
             </>
           )}
         </dl>
+
+        {/* The completeness nudge: checkout requires a Tax ID, so a Customer
+            who stores one here skips typing it at every purchase. Shown only
+            while one is missing and no edit is underway — a nudge under the
+            very form that answers it would be noise. */}
+        {!editing && !profile.tax_id_type ? (
+          <Alert className="mt-4">
+            <AlertDescription>
+              Add your ID to speed up checkout — it&apos;ll be filled in for you when you buy
+              tickets.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {editing ? (
           <form className="mt-4 space-y-4 border-t pt-4" onSubmit={handleSubmit} noValidate>

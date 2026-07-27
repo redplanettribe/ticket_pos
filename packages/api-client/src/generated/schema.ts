@@ -719,6 +719,189 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/customer/profile/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the Customer's Avatar
+         * @description Attaches a previously uploaded image as the signed-in Customer's Avatar. The image key must be one minted by the upload-URL endpoint for this Customer; any other key is refused. Requires a full Customer Session.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Uploaded image object key */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.updateAvatarBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerProfile"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Remove the Customer's Avatar
+         * @description Removes the signed-in Customer's Avatar, reverting them to the initials fallback. Always allowed, whether the Avatar was uploaded or seeded from Google Sign-In. Requires a full Customer Session.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerProfile"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/profile/avatar-upload-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an Avatar upload URL
+         * @description Returns a presigned PUT URL for uploading the signed-in Customer's Avatar image (JPEG, PNG, or WebP), keyed under that Customer alone. The upload itself goes straight to object storage; attaching the uploaded image is a separate PUT to /customer/profile/avatar with the object key. Requires a full Customer Session.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Image content type and optional file name */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.avatarUploadURLBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerAvatarUpload"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/ticket-sales": {
         parameters: {
             query?: never;
@@ -3519,6 +3702,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        "handler.avatarUploadURLBody": {
+            content_type?: string;
+            file_name?: string;
+        };
         "handler.beginCheckoutBody": {
             customer_email?: string;
             customer_first_name?: string;
@@ -3602,6 +3789,9 @@ export interface components {
         };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
+        };
+        "handler.updateAvatarBody": {
+            image_key?: string;
         };
         "handler.updateEventBody": {
             cover_image_key?: string;
@@ -3705,6 +3895,11 @@ export interface components {
         };
         "openapi.EnvelopeCustomerArea": {
             data?: components["schemas"]["service.CustomerAreaView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerAvatarUpload": {
+            data?: components["schemas"]["storage.CoverUploadResult"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -3890,6 +4085,12 @@ export interface components {
             message?: string;
         };
         "service.CustomerProfileView": {
+            /**
+             * @description The Customer's Avatar as a browser-loadable URL, null when they have none.
+             *     Attaching and removing one goes through the avatar endpoints (avatar.go),
+             *     never through the profile PATCH.
+             */
+            avatar_url?: string;
             email?: string;
             first_name?: string;
             last_name?: string;
@@ -3897,6 +4098,12 @@ export interface components {
             tax_id_type?: string;
         };
         "service.CustomerSessionView": {
+            /**
+             * @description The Customer's Avatar as a browser-loadable URL, null when they have none
+             *     (the Storefront renders initials instead). A URL rather than an object key
+             *     because no client of this view writes Avatars — the header only shows one.
+             */
+            avatar_url?: string;
             email?: string;
             first_name?: string;
             last_name?: string;

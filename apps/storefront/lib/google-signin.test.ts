@@ -173,7 +173,7 @@ test("Google Sign-In is unconfigured unless both the client ID and redirect URI 
 
 // --- the authorization URL ------------------------------------------------
 
-test("the authorization URL asks Google for an email and an account picker", () => {
+test("the authorization URL asks Google for an email, a profile picture, and an account picker", () => {
   const url = new URL(
     authorizationUrl(
       { clientId: "client-id", redirectUri: "https://tickets.example/api/customer/auth/google/callback" },
@@ -188,7 +188,9 @@ test("the authorization URL asks Google for an email and an account picker", () 
     "https://tickets.example/api/customer/auth/google/callback",
   );
   assert.equal(url.searchParams.get("response_type"), "code");
-  assert.equal(url.searchParams.get("scope"), "openid email");
+  // `profile` is here for the `picture` claim alone, which seeds a Customer
+  // Avatar; the names it also offers stay unread (see SCOPE in google-signin.ts).
+  assert.equal(url.searchParams.get("scope"), "openid email profile");
   assert.equal(url.searchParams.get("state"), "the-state");
   assert.equal(url.searchParams.get("code_challenge"), "the-challenge");
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");

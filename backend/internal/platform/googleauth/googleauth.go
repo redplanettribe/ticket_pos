@@ -87,6 +87,20 @@ func New(creds Credentials, tokenEndpoint string, logger platform.Logger) *Clien
 	}
 }
 
+// Identity is what an exchange yields: the email address Google vouches for,
+// and — when the surface requested the `profile` scope — the URL of the
+// person's Google profile picture.
+//
+// PictureURL is a convenience, never a fact about identity: it may be empty
+// (scope not requested, or no photo set), it is not verified beyond arriving in
+// the same token as the email, and no caller may resolve a person by it. The
+// Storefront uses it to seed a Customer Avatar into an empty slot; the staff
+// surface ignores it entirely.
+type Identity struct {
+	Email      string
+	PictureURL string
+}
+
 // VerifiedEmail redeems the authorization code and returns the email address
 // Google vouches for.
 //
@@ -101,37 +115,48 @@ func New(creds Credentials, tokenEndpoint string, logger platform.Logger) *Clien
 // platform.NormalizeEmail's job and belongs to the caller that resolves a
 // Customer or a Member by it, so there is one rule and one place it is applied.
 func (c *Client) VerifiedEmail(ctx context.Context, in Exchange) (string, error) {
+	identity, err := c.VerifiedIdentity(ctx, in)
+	if err != nil {
+		return "", err
+	}
+	return identity.Email, nil
+}
+
+// VerifiedIdentity is VerifiedEmail plus the profile picture URL, for the one
+// surface that wants it. Same exchange, same failure posture, same single
+// generic error.
+func (c *Client) VerifiedIdentity(ctx context.Context, in Exchange) (Identity, error) {
 	if !c.creds.configured() {
 		// A deployment fault, not a caller error, so it is loud in the log and
 		// silent on the wire.
 		c.logger.Error("google sign-in: no client credentials configured; the exchange cannot be attempted")
-		return "", ErrSignInFailed()
+		return Identity{}, ErrSignInFailed()
 	}
 
 	idToken, err := c.exchange(ctx, in)
 	if err != nil {
 		c.logger.Warn("google sign-in refused", "reason", err.Error())
-		return "", ErrSignInFailed()
+		return Identity{}, ErrSignInFailed()
 	}
 
 	claims, err := parseIDTokenClaims(idToken)
 	if err != nil {
 		c.logger.Warn("google sign-in refused", "reason", err.Error())
-		return "", ErrSignInFailed()
+		return Identity{}, ErrSignInFailed()
 	}
 
 	// The claim is the entire value being consumed, so there is no degraded
 	// mode: an address Google will not vouch for proves nothing at all.
 	if strings.TrimSpace(claims.Email) == "" {
 		c.logger.Warn("google sign-in refused", "reason", "id token carries no email claim")
-		return "", ErrSignInFailed()
+		return Identity{}, ErrSignInFailed()
 	}
 	if !claims.EmailVerified {
 		c.logger.Warn("google sign-in refused", "reason", "id token reports the email as unverified")
-		return "", ErrSignInFailed()
+		return Identity{}, ErrSignInFailed()
 	}
 
-	return claims.Email, nil
+	return Identity{Email: claims.Email, PictureURL: strings.TrimSpace(claims.Picture)}, nil
 }
 
 // exchange POSTs the authorization code to the token endpoint and returns the
@@ -180,11 +205,18 @@ func (c *Client) exchange(ctx context.Context, in Exchange) (string, error) {
 }
 
 // idTokenClaims is everything this package reads from an ID token. Google sends
-// more — `sub` above all — and none of it is stored anywhere (ADR 0011). The
-// requested scope is `openid email`, not `profile`, so no name is even offered.
+// more — `sub` above all — and none of it is stored anywhere (ADR 0011).
+//
+// `picture` arrives only from a surface that requested the `profile` scope (the
+// Storefront does, since Customer Avatars; the staff surface stays on
+// `openid email`). The names that scope also offers are deliberately NOT read:
+// customer names have a precedence rule of their own (PRD decisions 42-44) that
+// a third source would complicate, so `given_name` and `family_name` are read
+// past exactly as `sub` is.
 type idTokenClaims struct {
 	Email         string       `json:"email"`
 	EmailVerified flexibleBool `json:"email_verified"`
+	Picture       string       `json:"picture"`
 }
 
 // parseIDTokenClaims reads the claims out of an ID token WITHOUT verifying its

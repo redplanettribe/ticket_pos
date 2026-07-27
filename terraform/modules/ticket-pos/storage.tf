@@ -3,8 +3,8 @@
 # READ THIS BEFORE PUTTING ANYTHING IN THIS BUCKET: every object is readable by
 # anyone on the internet holding the URL, forever. The `allUsers` grant below is
 # bucket-wide and cannot be narrowed per object under uniform access. Only the
-# `covers/` and `logos/` prefixes belong here. Anything that must not be public
-# needs a different bucket and signed downloads.
+# `covers/`, `logos/`, and `avatars/` prefixes belong here. Anything that must
+# not be public needs a different bucket and signed downloads.
 resource "google_storage_bucket" "media" {
   project  = var.project_id
   name     = local.storage_bucket_name

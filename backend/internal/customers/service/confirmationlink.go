@@ -123,7 +123,7 @@ func (s *Service) RedeemConfirmationLink(ctx context.Context, token, existingSes
 	// no-op that returns the credential the caller already has.
 	if existingSessionToken != "" {
 		if session, customer, err := s.authenticate(ctx, existingSessionToken); err == nil && !session.TicketSaleID.Valid {
-			return sessionView(customer, session), existingSessionToken, nil
+			return s.sessionView(customer, session), existingSessionToken, nil
 		}
 		// Anything else — expired, destroyed, or itself scoped to a single sale —
 		// is not wider than what this link grants, so the link is redeemed
@@ -177,7 +177,7 @@ func (s *Service) RedeemConfirmationLink(ctx context.Context, token, existingSes
 	// Property 1: the Customer is returned exactly as stored. Nothing above
 	// touched verified_at, and the view reports it honestly — an unverified
 	// Customer who arrives by link is still unverified afterwards.
-	return sessionView(customer, &session), sessionToken, nil
+	return s.sessionView(customer, &session), sessionToken, nil
 }
 
 // signConfirmationLink produces the token: the payload the link asserts, plus an

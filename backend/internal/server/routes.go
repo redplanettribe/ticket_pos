@@ -84,6 +84,13 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// person's name or Tax ID. That narrowing is the handler's rather than this
 	// middleware's because it is a property of this write alone.
 	mux.Handle("PATCH /api/v1/customer/profile", signedIn(http.HandlerFunc(h.UpdateProfile)))
+	// The Customer Avatar writes: mint an upload URL, attach the uploaded image,
+	// remove it. All three draw the same full-session line as the profile PATCH,
+	// and for the same reason — a forwarded Confirmation Link must not change how
+	// a person is pictured.
+	mux.Handle("POST /api/v1/customer/profile/avatar-upload-url", signedIn(http.HandlerFunc(h.CreateAvatarUploadURL)))
+	mux.Handle("PUT /api/v1/customer/profile/avatar", signedIn(http.HandlerFunc(h.UpdateAvatar)))
+	mux.Handle("DELETE /api/v1/customer/profile/avatar", signedIn(http.HandlerFunc(h.DeleteAvatar)))
 }
 
 func registerPublicRoutes(mux *http.ServeMux, app *App) {

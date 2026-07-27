@@ -42,6 +42,8 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"/api/v1/customer/auth/logout",
 		"/api/v1/customer/ticket-sales",
 		"/api/v1/customer/profile",
+		"/api/v1/customer/profile/avatar-upload-url",
+		"/api/v1/customer/profile/avatar",
 	} {
 		if _, ok := doc.Paths[path]; !ok {
 			t.Fatalf("missing path %s — regenerate the spec with `make swagger`", path)
@@ -54,6 +56,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"openapi.EnvelopeCustomerSession",
 		"openapi.EnvelopeCustomerArea",
 		"openapi.EnvelopeCustomerProfile",
+		"openapi.EnvelopeCustomerAvatarUpload",
 	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Fatalf("missing typed envelope schema %s", schema)

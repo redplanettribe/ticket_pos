@@ -38,7 +38,11 @@ type CustomerSessionView struct {
 	// session.
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
-	VerifiedAt  *string `json:"verified_at"`
+	// The Customer's Avatar as a browser-loadable URL, null when they have none
+	// (the Storefront renders initials instead). A URL rather than an object key
+	// because no client of this view writes Avatars — the header only shows one.
+	AvatarURL  *string `json:"avatar_url"`
+	VerifiedAt *string `json:"verified_at"`
 	// TicketSaleID is null for a full Customer Session, which spans every Ticket
 	// Sale the Customer owns. A Confirmation Link session names one sale here.
 	TicketSaleID *string `json:"ticket_sale_id"`
@@ -83,7 +87,7 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*CustomerS
 		return nil, "", err
 	}
 
-	return s.signInProvenEmail(ctx, email, now)
+	return s.signInProvenEmail(ctx, email, now, "")
 }
 
 // signInProvenEmail is what every Proof of Email Ownership converges on: the
@@ -96,12 +100,20 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*CustomerS
 // session view. A person who used a passcode on Monday and Google on Tuesday
 // lands on one record with one history.
 //
+// seedAvatarURL is the one asymmetry between the doors: Google offers a profile
+// picture and a passcode has none to offer, so the Google path passes the URL
+// and the passcode path passes "". It seeds an Avatar only into an empty slot
+// (see seedAvatarFromGoogle) and can fail without failing the sign-in — which is
+// why it is a parameter here rather than a divergence: the session minted below
+// must be identical either way.
+//
 // The email must already be normalised and proven by the caller.
-func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time) (*CustomerSessionView, string, error) {
+func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL string) (*CustomerSessionView, string, error) {
 	customer, err := s.repo.VerifyCustomer(ctx, email, now)
 	if err != nil {
 		return nil, "", err
 	}
+	customer = s.seedAvatarFromGoogle(ctx, customer, seedAvatarURL)
 
 	token, err := newSessionToken()
 	if err != nil {
@@ -120,7 +132,7 @@ func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.
 		return nil, "", err
 	}
 
-	return sessionView(customer, &session), token, nil
+	return s.sessionView(customer, &session), token, nil
 }
 
 // GetSession loads a Customer Session — extending it if it is a full one —
@@ -130,7 +142,7 @@ func (s *Service) GetSession(ctx context.Context, token string) (*CustomerSessio
 	if err != nil {
 		return nil, err
 	}
-	return sessionView(customer, session), nil
+	return s.sessionView(customer, session), nil
 }
 
 // Logout destroys a Customer Session. Because sessions are server-side rows, the
@@ -226,11 +238,12 @@ func (s *Service) authenticate(ctx context.Context, token string) (*repository.C
 	return session, customer, nil
 }
 
-func sessionView(customer *repository.Customer, session *repository.CustomerSession) *CustomerSessionView {
+func (s *Service) sessionView(customer *repository.Customer, session *repository.CustomerSession) *CustomerSessionView {
 	view := &CustomerSessionView{
 		Email:     customer.Email,
 		FirstName: customer.FirstName,
 		LastName:  customer.LastName,
+		AvatarURL: s.avatarURL(customer),
 	}
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ type S3Config struct {
 // S3Storage implements ObjectStorage against an S3-compatible endpoint (MinIO, AWS S3).
 type S3Storage struct {
 	presign *s3.PresignClient
+	client  *s3.Client
 	cfg     S3Config
 }
 
@@ -58,8 +60,16 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		return nil, err
 	}
 
+	// Server-side writes go over the internal endpoint, which is the one the
+	// backend can actually reach (the public host may only resolve for browsers).
+	client, err := newS3Client(endpoint, cfg.AccessKey, cfg.SecretKey, region)
+	if err != nil {
+		return nil, err
+	}
+
 	return &S3Storage{
 		presign: s3.NewPresignClient(presignClient),
+		client:  client,
 		cfg: S3Config{
 			Endpoint:  endpoint,
 			PublicURL: publicURL,
@@ -110,6 +120,20 @@ func (s *S3Storage) PresignPut(ctx context.Context, key, contentType string, exp
 		return "", fmt.Errorf("presign put object: %w", err)
 	}
 	return result.URL, nil
+}
+
+// Put writes an object directly from the server over the internal endpoint.
+func (s *S3Storage) Put(ctx context.Context, key, contentType string, body io.Reader) error {
+	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.cfg.Bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+		Body:        body,
+	})
+	if err != nil {
+		return fmt.Errorf("put object: %w", err)
+	}
+	return nil
 }
 
 // PublicURL returns the browser-accessible URL for an object key.

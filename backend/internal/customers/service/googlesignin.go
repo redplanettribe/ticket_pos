@@ -29,7 +29,7 @@ import (
 // person is a different Customer — deliberately, since the alternative rewrites
 // the identity key of every existing row.
 func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI string) (*CustomerSessionView, string, error) {
-	email, err := s.google.VerifiedEmail(ctx, googleauth.Exchange{
+	identity, err := s.google.VerifiedIdentity(ctx, googleauth.Exchange{
 		Code:         code,
 		CodeVerifier: codeVerifier,
 		RedirectURI:  redirectURI,
@@ -40,5 +40,8 @@ func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, re
 		return nil, "", err
 	}
 
-	return s.signInProvenEmail(ctx, platform.NormalizeEmail(email), s.now())
+	// The picture URL rides along to seed a Customer Avatar into an empty slot
+	// and for nothing else — it proves nothing, names nobody, and an upload the
+	// person made is never overwritten by it (see seedAvatarFromGoogle).
+	return s.signInProvenEmail(ctx, platform.NormalizeEmail(identity.Email), s.now(), identity.PictureURL)
 }

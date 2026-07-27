@@ -28,6 +28,12 @@ export type CustomerProfile = {
   last_name: string;
   tax_id_type: string | null;
   tax_id_number: string | null;
+  /**
+   * The Customer's Avatar as a browser-loadable URL, null when they have none.
+   * Read-only on the profile PATCH — attaching and removing go through the
+   * dedicated avatar routes.
+   */
+  avatar_url: string | null;
 };
 
 /** The API's profile field names, which are also the form's inputs. */

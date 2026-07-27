@@ -37,6 +37,21 @@ func ErrCustomerSessionScopeInsufficient() apperror.DomainError {
 	)
 }
 
+// ErrAvatarUploadUnavailable is returned when the service holds no object
+// storage. A deployment fault, not a caller error, mirroring
+// ErrConfirmationLinkUnavailable's posture: refuse plainly rather than degrade.
+func ErrAvatarUploadUnavailable() apperror.DomainError {
+	return apperror.New("AVATAR_UPLOAD_UNAVAILABLE", "Photo uploads are not available.", nil)
+}
+
+// ErrInvalidAvatarImageKey is returned when an Avatar write names a content type
+// outside the image allowlist or an object key outside the signed-in Customer's
+// own prefix. The two share one code: both are "that is not an Avatar you may
+// attach", and distinguishing them helps only a caller probing the key scheme.
+func ErrInvalidAvatarImageKey() apperror.DomainError {
+	return apperror.New("AVATAR_IMAGE_INVALID", "That image can't be used as your photo.", nil)
+}
+
 // ErrConfirmationLinkInvalid is returned when a Confirmation Link token is
 // malformed, unsigned, signed with the wrong key, tampered with, or names a
 // Ticket Sale that no longer exists.
