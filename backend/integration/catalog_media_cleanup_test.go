@@ -79,7 +79,9 @@ func TestCoverVideoReplaceDeletesTheOldObject(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Clean Video", "clean-video")
 
 	first := videoUploadKey(t, env, sessionID, eventID)
+	// The poster invariant (#132): a Cover Video needs a Cover Image attached.
 	patchEventMedia(t, env, sessionID, eventID, "Clean Video", "clean-video", map[string]any{
+		"cover_image_key": coverUploadKey(t, env, sessionID, eventID),
 		"cover_video_key": first,
 	})
 	// Attaching for the first time has no predecessor to clean up.
@@ -168,7 +170,9 @@ func TestMediaCleanupFailureDoesNotFailThePatch(t *testing.T) {
 	eventID := createDraftEvent(t, env, sessionID, "Doomed Delete", "doomed-delete")
 
 	first := videoUploadKey(t, env, sessionID, eventID)
+	// The poster invariant (#132): a Cover Video needs a Cover Image attached.
 	patchEventMedia(t, env, sessionID, eventID, "Doomed Delete", "doomed-delete", map[string]any{
+		"cover_image_key": coverUploadKey(t, env, sessionID, eventID),
 		"cover_video_key": first,
 	})
 
