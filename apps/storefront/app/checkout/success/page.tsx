@@ -57,6 +57,11 @@ export default async function CheckoutSuccessPage({ searchParams }: SuccessPageP
   // by a Payment Provider this deployment cannot ask comes back false inside its
   // own window, so this page never advertises a deadline for an undo that would
   // be refused.
+  //
+  // The answer also names the sale, which is the only way this page could know
+  // it: a checkout knows its own client transaction id and nothing else. That is
+  // what lets the link below land a buyer on their own purchase instead of on a
+  // list of everything they have ever bought (#121).
   const reversal = context ? await getCheckoutReversal(context.clientTransactionId) : null;
   const reversalDeadline = undoDeadline(reversal);
 
@@ -88,12 +93,16 @@ export default async function CheckoutSuccessPage({ searchParams }: SuccessPageP
           </p>
 
           {/* Changed your mind? Nothing here undoes anything — it names the
-              deadline and offers the sign-in that leads to the Customer Area,
-              where the undo lives. Someone already signed in skips the prompt
-              and goes straight there. */}
+              deadline and offers the sign-in that leads to the purchase in the
+              Customer Area, where the undo lives. Someone already signed in
+              skips the prompt and goes straight to that sale. */}
           {reversalDeadline ? (
             <UndoWindowNotice deadline={reversalDeadline} className="rounded-lg border p-4 sm:p-5">
-              <SignInToUndo signedIn={signedIn} email={context?.customerEmail ?? null} />
+              <SignInToUndo
+                signedIn={signedIn}
+                email={context?.customerEmail ?? null}
+                ticketSaleId={reversal?.ticket_sale_id ?? null}
+              />
             </UndoWindowNotice>
           ) : null}
 

@@ -141,7 +141,9 @@ On `CAPACITY_EXCEEDED` during checkout: blocking Dialog; offer to return to tick
 
 Where the **Reversal Window** is open, the success page states it: "You can undo this purchase until {deadline} Ecuador time", with **"Sign in to undo"** beside it. The word is *undo* — "cancel" is an Event being called off, and "refund" is wrong for a free Online Sale.
 
-Checkout is guest-facing and reversal needs a **Customer Session**, so the buyer most likely to change their mind is the one least equipped to act. The offer turns that requirement into one click: sign-in arrives prefilled with the address the purchase was made under, bound for the Customer Area, which is where the undo actually happens. A visitor who already holds a full session skips the prompt — "Undo it in your tickets" goes straight there.
+Checkout is guest-facing and reversal needs a **Customer Session**, so the buyer most likely to change their mind is the one least equipped to act. The offer turns that requirement into one click: sign-in arrives prefilled with the address the purchase was made under, bound for **this purchase** in the Customer Area, which is where the undo actually happens. A visitor who already holds a full session skips the prompt — "Undo it in your tickets" goes straight to that sale.
+
+The destination is the sale and not the list. The Customer Area has no per-sale route, so each **Ticket Sale** card is addressable by a fragment anchor and the links aim at it; a buyer with a season's worth of tickets is not handed a page to scan at the moment they are anxious about their money. When the sale is not known — a lost checkout context — the destination is the Customer Area itself, exactly as before.
 
 Nothing on this page reverses anything. It states a deadline and offers a door.
 
@@ -222,7 +224,7 @@ A **Confirmation Link** from a **Sale Confirmation** email has no UI of its own 
 
 A reversed sale gets that extra Alert because someone opening a confirmation email at the gate must not have to infer cancellation from a small label.
 
-The link arrival is **read-only**, and the undo row is where that matters most. A **Confirmation Link** travels by email and gets forwarded, so it must never carry the one destructive, money-moving action a Customer has — which is exactly why reversal sits behind a **Customer Session**. The page therefore reveals the deadline and the route to sign in, prefilled with the address the purchase was made under, and offers no action a forwarded email could trigger. The deadline shown is the same instant the Customer Area shows for the same sale.
+The link arrival is **read-only**, and the undo row is where that matters most. A **Confirmation Link** travels by email and gets forwarded, so it must never carry the one destructive, money-moving action a Customer has — which is exactly why reversal sits behind a **Customer Session**. The page therefore reveals the deadline and the route to sign in, prefilled with the address the purchase was made under and bound for this sale's own card, and offers no action a forwarded email could trigger. The deadline shown is the same instant the Customer Area shows for the same sale.
 
 A link that is expired or invalid sends the visitor to the sign-in page with copy for whichever it was — an expired link means this person really did buy a ticket.
 

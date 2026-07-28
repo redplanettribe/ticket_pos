@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "@ticket-pos/ui";
 
+import { customerAreaSaleHref } from "@/lib/destination";
 import { signInToUndoHref } from "@/lib/undo-window";
 
 /**
@@ -68,8 +69,17 @@ export function UndoWindowNotice({
  * outcome self-service was meant to remove.
  *
  * Someone who already holds a full Customer Session is not asked to prove
- * anything again: they are sent straight to the Customer Area, where their sale
- * and its undo button are.
+ * anything again: they are sent straight to the sale itself, where its undo
+ * button is. Not to the Customer Area's list — a buyer with a season's worth of
+ * tickets, reaching for the undo on the thing they bought ninety seconds ago,
+ * would be handed a page to scan. The Customer Area has no per-sale route, so the
+ * destination is that card's own anchor on it; someone signing in first carries
+ * the same anchor through as their `next`.
+ *
+ * When this app does not know which sale it means — a guest whose checkout
+ * context cookie has expired — the destination is the list, exactly as it was
+ * before. A less precise landing is the honest degradation; a link to an anchor
+ * nothing renders would be a link that quietly does nothing.
  *
  * This is a link and nothing more. It performs no reversal, and it is not a
  * component that could grow one — the page it points at is where the action
@@ -84,22 +94,28 @@ export function UndoWindowNotice({
 export function SignInToUndo({
   signedIn,
   email,
+  ticketSaleId = null,
 }: {
   /** True when the visitor already holds a full Customer Session. */
   signedIn: boolean;
   /** The address the purchase was made under, to prefill sign-in with. */
   email: string | null;
+  /**
+   * The purchase this notice is about, so the link lands on it rather than on
+   * the whole Customer Area. Null when this app does not know — then the list.
+   */
+  ticketSaleId?: string | null;
 }) {
   if (signedIn) {
     return (
       <Button asChild variant="outline" className="h-11">
-        <Link href="/tickets">Undo it in your tickets</Link>
+        <Link href={customerAreaSaleHref(ticketSaleId)}>Undo it in your tickets</Link>
       </Button>
     );
   }
   return (
     <Button asChild variant="outline" className="h-11">
-      <Link href={signInToUndoHref(email)}>Sign in to undo</Link>
+      <Link href={signInToUndoHref(email, ticketSaleId)}>Sign in to undo</Link>
     </Button>
   );
 }

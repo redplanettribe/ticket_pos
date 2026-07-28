@@ -76,12 +76,11 @@ type customerAreaSale struct {
 	// null together on a legacy or imported sale that carries none (#99).
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
-	// Whether this sale is inside its Reversal Window right now, and when that
-	// window shuts (#118). The closing time is a pointer because null is the
-	// contract on anything not currently reversible — see
-	// customer_reversal_window_test.go.
-	Reversible             bool    `json:"reversible"`
-	ReversalWindowClosesAt *string `json:"reversal_window_closes_at"`
+	// Whether the Customer could undo this sale right now, and until when (#118).
+	// The deadline is a pointer because null is the contract on anything not
+	// currently reversible — see customer_reversal_window_test.go.
+	Reversible      bool    `json:"reversible"`
+	ReversibleUntil *string `json:"reversible_until"`
 }
 
 type customerAreaView struct {

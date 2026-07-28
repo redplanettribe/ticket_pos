@@ -169,16 +169,18 @@ export type TicketSale = {
    * be undone. The last is why a paid purchase inside its window can come back
    * false while a free claim comes back true.
    *
-   * The two fields answer together: `reversal_window_closes_at` is null whenever
+   * The two fields answer together: `reversible_until` is null whenever
    * `reversible` is false, so there is no closed deadline for this app to draw by
-   * mistake.
+   * mistake. It is named for the offer and not for the Reversal Window, because
+   * it is the deadline on the former: a sale whose payment cannot be reversed has
+   * an open Window and no offer, and reports null.
    *
    * It is a reading of one instant, not a promise. The API re-checks everything
    * on the request, so a stale true here becomes a refusal with a message rather
    * than a reversal that should not have happened.
    */
   reversible: boolean;
-  reversal_window_closes_at: string | null;
+  reversible_until: string | null;
 };
 
 /**

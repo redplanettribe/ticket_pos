@@ -77,8 +77,8 @@ type EnvelopeCustomerAvatarUpload struct {
 
 // EnvelopeCheckoutReversal documents GET
 // /api/v1/public/checkout/{clientTransactionId}/reversal success responses: the
-// Reversal Window a guest is told about on the checkout success page, and
-// nothing about the buyer.
+// undo offer a guest is told about on the checkout success page — whether it
+// stands, until when, and which sale it is about — and nothing about the buyer.
 type EnvelopeCheckoutReversal struct {
 	Data      service.ReversalOffer `json:"data"`
 	Error     *platform.APIError    `json:"error"`

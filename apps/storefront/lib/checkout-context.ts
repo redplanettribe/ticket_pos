@@ -15,7 +15,7 @@
 import { cookies } from "next/headers";
 
 import { safeEventPath } from "./checkout";
-import { safePrefillEmail } from "./undo-window";
+import { safePrefillEmail } from "./signin-prefill";
 
 /** Name of the httpOnly cookie holding the in-flight checkout's context. */
 export const CHECKOUT_CONTEXT_COOKIE = "ticket_pos_checkout_context";

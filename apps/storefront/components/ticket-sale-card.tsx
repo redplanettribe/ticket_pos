@@ -5,6 +5,7 @@ import { Badge } from "@ticket-pos/ui";
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import type { TicketSale } from "@/lib/customer-session";
+import { ticketSaleAnchorId } from "@/lib/destination";
 import { formatEventDateTime, formatPrice } from "@/lib/format";
 import { formatTaxId } from "@/lib/tax-id";
 import { undoDeadline } from "@/lib/undo-window";
@@ -59,7 +60,12 @@ export function TicketSaleCard({
   const reversalDeadline = undoDeadline(sale);
 
   return (
-    <li className="rounded-lg border bg-card p-5 sm:p-6">
+    // The card is addressable (#121). The Customer Area is one page listing every
+    // purchase and has no per-sale route, so this anchor is what lets the guest
+    // surfaces — and the sign-in they lead through — land a buyer on the sale
+    // they came about rather than on a list to scan. The id spelling lives in
+    // lib/destination beside the links that use it, so the two cannot drift.
+    <li id={ticketSaleAnchorId(sale.id)} className="scroll-mt-6 rounded-lg border bg-card p-5 sm:p-6">
       <div className="flex flex-col gap-1">
         <h3 className="text-lg font-semibold tracking-tight">
           <Link href={eventHref} className="hover:text-primary hover:underline">
@@ -122,7 +128,7 @@ export function TicketSaleCard({
       {reversalDeadline ? (
         <UndoWindowNotice deadline={reversalDeadline}>
           {viaConfirmationLink ? (
-            <SignInToUndo signedIn={false} email={customerEmail} />
+            <SignInToUndo signedIn={false} email={customerEmail} ticketSaleId={sale.id} />
           ) : (
             <UndoPurchase
               saleId={sale.id}

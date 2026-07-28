@@ -18,7 +18,7 @@ import (
 // The key it accepts is our own client transaction id, which the Storefront kept
 // in an httpOnly cookie for the length of the checkout. It names one attempt, not
 // a person: nothing here can be widened into an email or a purchase history, and
-// the response is two fields wide by design.
+// the response is three fields wide by design, none of them about the buyer.
 //
 // Two things are proved throughout. That the endpoint says nothing on a sale
 // nobody may undo — the same silence customer_reversal_window_test.go demands of
@@ -26,13 +26,14 @@ import (
 // Customer Area names for the same sale. Those two surfaces disagreeing about
 // somebody's deadline is the failure this file exists to prevent.
 
-// checkoutReversalOffer is the guest-facing response: a boolean and an instant,
-// and deliberately nothing else. Read as a map rather than a struct in
-// TestCheckoutReversalTellsAGuestNothingAboutTheBuyer, which is where the
-// "nothing else" half is pinned.
+// checkoutReversalOffer is the guest-facing response: whether the undo stands,
+// until when, and which sale it is about — and deliberately nothing else. Read as
+// a map rather than a struct in TestCheckoutReversalTellsAGuestNothingAboutTheBuyer,
+// which is where the "nothing else" half is pinned.
 type checkoutReversalOffer struct {
-	Reversible             bool    `json:"reversible"`
-	ReversalWindowClosesAt *string `json:"reversal_window_closes_at"`
+	Reversible      bool    `json:"reversible"`
+	ReversibleUntil *string `json:"reversible_until"`
+	TicketSaleID    *string `json:"ticket_sale_id"`
 }
 
 func checkoutReversalPath(clientTransactionID string) string {
@@ -65,9 +66,15 @@ func assertNoOfferToGuest(t *testing.T, offer checkoutReversalOffer, why string)
 	if offer.Reversible {
 		t.Fatalf("%s is offered an undo to a guest, and must never be", why)
 	}
-	if offer.ReversalWindowClosesAt != nil {
-		t.Fatalf("%s carries reversal_window_closes_at = %q to a guest, want null",
-			why, *offer.ReversalWindowClosesAt)
+	if offer.ReversibleUntil != nil {
+		t.Fatalf("%s carries reversible_until = %q to a guest, want null",
+			why, *offer.ReversibleUntil)
+	}
+	// The sale id is part of the offer and disappears with it. There is no undo
+	// to send anybody to, so there is nothing to name.
+	if offer.TicketSaleID != nil {
+		t.Fatalf("%s names ticket_sale_id = %q to a guest with no offer, want null",
+			why, *offer.TicketSaleID)
 	}
 }
 
@@ -95,12 +102,12 @@ func TestCheckoutSuccessLearnsItsReversalWindow(t *testing.T) {
 	if !offer.Reversible {
 		t.Fatal("a claim made this morning for a show in three days is not offered an undo; the guest is left emailing the organizer")
 	}
-	if offer.ReversalWindowClosesAt == nil {
-		t.Fatal("reversal_window_closes_at is null on an offered undo; the page cannot say by when")
+	if offer.ReversibleUntil == nil {
+		t.Fatal("reversible_until is null on an offered undo; the page cannot say by when")
 	}
-	if *offer.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-		t.Fatalf("reversal_window_closes_at = %q, want %q — 20:00 Ecuador time on the day of purchase",
-			*offer.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	if *offer.ReversibleUntil != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("reversible_until = %q, want %q — 20:00 Ecuador time on the day of purchase",
+			*offer.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 }
 
@@ -147,17 +154,29 @@ func TestGuestAndCustomerAreaNameTheSameDeadline(t *testing.T) {
 				t.Fatalf("guest is offered an undo=%t while the Customer Area says %t for the same sale",
 					guest.Reversible, signedIn.Reversible)
 			}
-			if guest.ReversalWindowClosesAt == nil || signedIn.ReversalWindowClosesAt == nil {
+			if guest.ReversibleUntil == nil || signedIn.ReversibleUntil == nil {
 				t.Fatalf("a deadline is missing: guest=%v area=%v",
-					guest.ReversalWindowClosesAt, signedIn.ReversalWindowClosesAt)
+					guest.ReversibleUntil, signedIn.ReversibleUntil)
 			}
-			if *guest.ReversalWindowClosesAt != *signedIn.ReversalWindowClosesAt {
+			if *guest.ReversibleUntil != *signedIn.ReversibleUntil {
 				t.Fatalf("the guest is told %q and the Customer Area %q for one sale; one of the two is lying about the buyer's deadline",
-					*guest.ReversalWindowClosesAt, *signedIn.ReversalWindowClosesAt)
+					*guest.ReversibleUntil, *signedIn.ReversibleUntil)
 			}
-			if *guest.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
+			if *guest.ReversibleUntil != ecuadorCutoffAfterFixedClock {
 				t.Fatalf("both surfaces agree on %q, but the rule says %q",
-					*guest.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+					*guest.ReversibleUntil, ecuadorCutoffAfterFixedClock)
+			}
+			// And the two surfaces agree on WHICH sale, not only on when. The
+			// checkout success page holds nothing but a client transaction id;
+			// this is what lets it send a buyer who is already signed in to their
+			// own purchase in the Customer Area instead of to a list of
+			// everything they have ever bought (#121).
+			if guest.TicketSaleID == nil {
+				t.Fatal("the guest offer names no ticket_sale_id; the success page can only point at the whole list")
+			}
+			if *guest.TicketSaleID != signedIn.ID {
+				t.Fatalf("the guest is sent to sale %q while the Customer Area holds this purchase as %q",
+					*guest.TicketSaleID, signedIn.ID)
 			}
 		})
 	}
@@ -187,19 +206,19 @@ func TestAConfirmationLinkRevealsTheDeadlineAndNoMore(t *testing.T) {
 	_, linkToken := redeemConfirmationLinkOK(t, env, lastConfirmationLinkToken(t, env), "")
 	viaLink := onlySale(t, readCustomerArea(t, env, linkToken, ""))
 
-	if !viaLink.Reversible || viaLink.ReversalWindowClosesAt == nil {
+	if !viaLink.Reversible || viaLink.ReversibleUntil == nil {
 		t.Fatal("a Confirmation Link opens a sale inside its Reversal Window and is told nothing about undoing it")
 	}
-	if *viaLink.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-		t.Fatalf("the link page is told %q, want %q", *viaLink.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	if *viaLink.ReversibleUntil != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("the link page is told %q, want %q", *viaLink.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 
 	// The same sale, read by the Customer who owns it: one deadline, two doors.
 	signedIn := saleByRef(t, readCustomerArea(t, env, customerSignIn(t, env, "ana@example.com"), ""), ref)
-	if signedIn.ReversalWindowClosesAt == nil ||
-		*signedIn.ReversalWindowClosesAt != *viaLink.ReversalWindowClosesAt {
+	if signedIn.ReversibleUntil == nil ||
+		*signedIn.ReversibleUntil != *viaLink.ReversibleUntil {
 		t.Fatalf("the Confirmation Link says %q and the Customer Area %v for one sale",
-			*viaLink.ReversalWindowClosesAt, signedIn.ReversalWindowClosesAt)
+			*viaLink.ReversibleUntil, signedIn.ReversibleUntil)
 	}
 
 	// And the link still cannot act. Revealing the deadline is the whole of what
@@ -235,9 +254,9 @@ func TestGuestDeadlineFollowsTheEventStartOnASameDayShow(t *testing.T) {
 
 	offer := readCheckoutReversal(t, env, checkout.ClientTransactionID)
 	want := startsAt.Format(time.RFC3339)
-	if offer.ReversalWindowClosesAt == nil || *offer.ReversalWindowClosesAt != want {
+	if offer.ReversibleUntil == nil || *offer.ReversibleUntil != want {
 		t.Fatalf("guest is told %v, want the Event start %q — it comes before the cutoff",
-			offer.ReversalWindowClosesAt, want)
+			offer.ReversibleUntil, want)
 	}
 }
 
@@ -310,11 +329,22 @@ func TestCheckoutReversalIsSilentWhenThereIsNoUndoOnOffer(t *testing.T) {
 // shape, because this is the one Reversal Window surface with no credential in
 // front of it.
 //
-// A deadline and a boolean say nothing about who bought what: an id guessed or
-// forwarded reveals no more than a clock does. An email, a name or a
-// confirmation reference appearing here later would quietly turn a read of the
-// window into a lookup of a person, so the field set is asserted exactly rather
-// than loosely.
+// A deadline, a boolean and an opaque sale id say nothing about who bought what:
+// an id guessed or forwarded reveals no more than a clock does. An email, a name,
+// a confirmation reference or an amount appearing here later would quietly turn a
+// read of the window into a lookup of a person, so the field set is asserted
+// exactly rather than loosely.
+//
+// `ticket_sale_id` was added deliberately and is the one thing in this list that
+// had to be argued for (#121). It names a sale rather than a person, it is an
+// unguessable identifier the holder of an equally unguessable client transaction
+// id already effectively has, and it opens nothing: the Customer Area serves that
+// sale only to a Customer Session belonging to its owner, and this endpoint
+// neither mints one nor accepts one. It exists so a buyer already signed in lands
+// on their own purchase instead of scanning a list. The rule it must not breach
+// is unchanged and is what this test still guards: nothing here identifies a
+// person, and the assertion below is exact so that growing this response is a
+// decision somebody has to make on purpose.
 func TestCheckoutReversalTellsAGuestNothingAboutTheBuyer(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
@@ -330,10 +360,10 @@ func TestCheckoutReversalTellsAGuestNothingAboutTheBuyer(t *testing.T) {
 	if err := json.Unmarshal(body.Data, &fields); err != nil {
 		t.Fatalf("decode checkout reversal payload: %v", err)
 	}
-	want := map[string]bool{"reversible": true, "reversal_window_closes_at": true}
+	want := map[string]bool{"reversible": true, "reversible_until": true, "ticket_sale_id": true}
 	for name := range fields {
 		if !want[name] {
-			t.Fatalf("the unauthenticated Reversal Window read returned %q; it may carry the window and nothing about the buyer", name)
+			t.Fatalf("the unauthenticated Reversal Window read returned %q; it may carry the offer and nothing about the buyer", name)
 		}
 	}
 	if len(fields) != len(want) {

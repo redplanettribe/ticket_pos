@@ -76,13 +76,21 @@ type TicketSaleView struct {
 	// reversal. That last clause is why a paid purchase inside its window can
 	// report false — the alternative is an Undo button that fails when pressed.
 	Reversible bool `json:"reversible"`
-	// ReversalWindowClosesAt is the instant the Reversal Window shuts, RFC3339 in
-	// UTC, so the Customer can be told how long they have.
+	// ReversibleUntil is the instant this offer runs out, RFC3339 in UTC, so the
+	// Customer can be told how long they have.
 	//
-	// Null whenever Reversible is false, and deliberately so: a closing time on a
-	// sale nobody may reverse is a deadline that means nothing, and a client that
-	// cannot draw one cannot mislead somebody with it.
-	ReversalWindowClosesAt *string `json:"reversal_window_closes_at"`
+	// It is named for Reversible, not for the Reversal Window, because it is the
+	// deadline on the offer above rather than a publication of the platform's
+	// rule. The two are the same instant today only because every Payment this
+	// deployment accepts happens to be reversible; a Payment Provider that could
+	// not give money back would leave a sale with an open Window and no offer at
+	// all, and this field would correctly be null rather than reporting a
+	// deadline nobody could act on.
+	//
+	// Null whenever Reversible is false, and deliberately so: a deadline on a sale
+	// nobody may reverse means nothing, and a client that cannot draw one cannot
+	// mislead somebody with it.
+	ReversibleUntil *string `json:"reversible_until"`
 }
 
 // CustomerAreaView is the signed-in Customer's purchases, split into what is
@@ -187,16 +195,34 @@ func ticketSaleViews(sales []repository.TicketSaleRow, now time.Time, reversal p
 }
 
 // ReversalOffer is what any surface may say about undoing one Ticket Sale: that
-// it can be undone right now, and by when.
+// it can be undone right now, until when, and which sale it is.
 //
-// The two fields answer together. ClosesAt is nil whenever Reversible is false,
-// deliberately: a closing time on a sale nobody may reverse is a deadline that
-// means nothing, and a surface that cannot draw one cannot mislead somebody
+// The fields answer together. Every one but Reversible is nil whenever Reversible
+// is false, deliberately: a deadline on a sale nobody may reverse is a deadline
+// that means nothing, and a surface that cannot draw one cannot mislead somebody
 // with it.
+//
+// This is also the guest checkout endpoint's whole response, which is why it says
+// so little. It carries no email, no name, no confirmation reference and no
+// amount — a boolean, an instant, and an opaque sale id that unlocks nothing on
+// its own — so an unauthenticated caller holding a client transaction id learns
+// no more about the buyer than a clock would tell them.
 type ReversalOffer struct {
 	Reversible bool `json:"reversible"`
-	// ClosesAt is the instant the Reversal Window shuts, RFC3339 in UTC.
-	ClosesAt *string `json:"reversal_window_closes_at"`
+	// ReversibleUntil is the instant this offer runs out, RFC3339 in UTC. Named
+	// for Reversible rather than for the Reversal Window: it is the deadline on
+	// the offer, and an offer can be absent while the Window is still open (a
+	// Payment Provider that cannot reverse), in which case it is null.
+	ReversibleUntil *string `json:"reversible_until"`
+	// TicketSaleID names the sale this offer is about, so a guest surface can
+	// send somebody to their own purchase in the Customer Area rather than to the
+	// whole list (#121).
+	//
+	// It is an identifier and not a credential: reaching that sale still requires
+	// a Customer Session, which this endpoint cannot mint and does not check. It
+	// is null exactly when the offer is, because a destination for an undo that
+	// is not on offer is a link to nothing.
+	TicketSaleID *string `json:"ticket_sale_id"`
 }
 
 // reversalOffer turns the platform's reversal decision into what this module's
@@ -229,7 +255,7 @@ func reversalOffer(sale platform.SaleReversalFacts, now time.Time, reversal plat
 	if refusal != platform.ReversalAllowed {
 		return ReversalOffer{}
 	}
-	return ReversalOffer{Reversible: true, ClosesAt: timePtr(true, window.ClosesAt)}
+	return ReversalOffer{Reversible: true, ReversibleUntil: timePtr(true, window.ClosesAt)}
 }
 
 // isUpcoming reports whether a Ticket Sale's Event is still ahead of the
@@ -285,10 +311,10 @@ func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platf
 			Name: sale.OrganizationName,
 			Slug: sale.OrganizationSlug,
 		},
-		TaxIDType:              stringPtr(sale.TaxIDType.Valid, sale.TaxIDType.String),
-		TaxIDNumber:            stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
-		Reversible:             offer.Reversible,
-		ReversalWindowClosesAt: offer.ClosesAt,
+		TaxIDType:       stringPtr(sale.TaxIDType.Valid, sale.TaxIDType.String),
+		TaxIDNumber:     stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
+		Reversible:      offer.Reversible,
+		ReversibleUntil: offer.ReversibleUntil,
 	}
 }
 

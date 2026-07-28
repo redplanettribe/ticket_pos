@@ -82,8 +82,24 @@ func (s TicketSaleRow) ReversalFacts() platform.SaleReversalFacts {
 	}
 }
 
-// ReversalFactsForCheckout returns the reversal facts of the Ticket Sale one
-// online checkout produced, or nil when that checkout produced none.
+// CheckoutReversalFacts is the Ticket Sale one online checkout produced: which
+// sale it is, and the facts that decide whether that sale can be undone.
+//
+// The id travels beside the facts rather than inside them, because
+// platform.SaleReversalFacts is deliberately the rule's inputs and nothing else
+// — the id decides nothing. It is here so the checkout success page can send a
+// buyer to their own sale in the Customer Area rather than to the whole list
+// (#121), and it goes no further than that: it is useless without a Customer
+// Session, and it names a sale rather than a person.
+type CheckoutReversalFacts struct {
+	// TicketSaleID is the sale the checkout produced.
+	TicketSaleID string
+	// Sale is what the Reversal Window is decided from.
+	Sale platform.SaleReversalFacts
+}
+
+// ReversalFactsForCheckout returns the Ticket Sale one online checkout produced
+// and its reversal facts, or nil when that checkout produced none.
 //
 // The key is our own client transaction id: the identifier begin-checkout
 // generated, the Storefront kept in an httpOnly cookie for the length of the
@@ -97,20 +113,21 @@ func (s TicketSaleRow) ReversalFacts() platform.SaleReversalFacts {
 // approved Payment has no sale. The caller reports "no undo on offer" for all of
 // them alike; distinguishing them would say more to an anonymous caller than the
 // deadline they came for.
-func (r *Repository) ReversalFactsForCheckout(ctx context.Context, clientTransactionID string) (*platform.SaleReversalFacts, error) {
-	var facts platform.SaleReversalFacts
+func (r *Repository) ReversalFactsForCheckout(ctx context.Context, clientTransactionID string) (*CheckoutReversalFacts, error) {
+	var found CheckoutReversalFacts
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT ts.channel, ts.status, ts.sold_at, ts.payment_method, e.starts_at
+		SELECT ts.id, ts.channel, ts.status, ts.sold_at, ts.payment_method, e.starts_at
 		FROM payments p
 		JOIN ticket_sales ts ON ts.id = p.ticket_sale_id
 		JOIN events e ON e.id = ts.event_id
 		WHERE p.client_transaction_id = $1
 	`, clientTransactionID).Scan(
-		&facts.Channel,
-		&facts.Status,
-		&facts.SoldAt,
-		&facts.PaymentMethod,
-		&facts.EventStartsAt,
+		&found.TicketSaleID,
+		&found.Sale.Channel,
+		&found.Sale.Status,
+		&found.Sale.SoldAt,
+		&found.Sale.PaymentMethod,
+		&found.Sale.EventStartsAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -118,7 +135,7 @@ func (r *Repository) ReversalFactsForCheckout(ctx context.Context, clientTransac
 	if err != nil {
 		return nil, err
 	}
-	return &facts, nil
+	return &found, nil
 }
 
 // ListTicketSalesForCustomer returns every Ticket Sale belonging to one

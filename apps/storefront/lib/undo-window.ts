@@ -17,18 +17,27 @@
  * destination cannot reach one page and miss another.
  */
 
-import { DEFAULT_DESTINATION } from "./destination.ts";
+import { customerAreaSaleHref } from "./destination.ts";
 import { formatReversalDeadline } from "./format.ts";
 
 /**
  * What the API says about undoing one Ticket Sale. The Customer Area's cards and
- * the guest checkout read return exactly these two fields, computed by one rule
- * on the API side — which is what makes the deadline drawn from either of them
- * the same instant for the same sale.
+ * the guest checkout read return these fields, computed by one rule on the API
+ * side — which is what makes the deadline drawn from either of them the same
+ * instant for the same sale.
+ *
+ * `reversible_until` is the deadline on the offer above and not a publication of
+ * the Reversal Window: a sale whose payment cannot be reversed has an open
+ * Window and no offer, and reports null here.
+ *
+ * `ticket_sale_id` is present only on the guest checkout read, where it is the
+ * one way that page learns which sale it is talking about — a Customer Area card
+ * already knows, from its own `id`.
  */
 export type ReversalOffer = {
   reversible: boolean;
-  reversal_window_closes_at: string | null;
+  reversible_until: string | null;
+  ticket_sale_id?: string | null;
 };
 
 /**
@@ -51,16 +60,23 @@ export type ReversalOffer = {
  * matching no rule anybody stated.
  */
 export function undoDeadline(offer: ReversalOffer | null | undefined): string | null {
-  if (!offer?.reversible || !offer.reversal_window_closes_at) {
+  if (!offer?.reversible || !offer.reversible_until) {
     return null;
   }
-  return formatReversalDeadline(offer.reversal_window_closes_at);
+  return formatReversalDeadline(offer.reversible_until);
 }
 
 /**
  * signInToUndoHref is the one click that turns the session requirement from a
  * dead end into a door: sign in with the address the purchase was made under,
- * and land in the Customer Area, where the undo lives.
+ * and land on that purchase, where the undo lives.
+ *
+ * The destination is the sale itself and not merely the Customer Area (#121).
+ * Someone arriving here has one purchase in mind — usually one they made
+ * minutes ago — and a buyer with a season's worth of tickets would otherwise be
+ * handed a list to scan at the exact moment they are anxious about their money.
+ * When this app does not know which sale it means, the list is the destination,
+ * which is what it always was.
  *
  * The email is a prefill and never an assertion — the passcode still has to be
  * proved, so nothing is granted by putting an address in a field. It is omitted
@@ -72,30 +88,14 @@ export function undoDeadline(offer: ReversalOffer | null | undefined): string | 
  * buyer signed into their everyday email would otherwise be sent to a Customer
  * Area their purchase is not in.
  */
-export function signInToUndoHref(email: string | null | undefined): string {
-  const params = new URLSearchParams({ next: DEFAULT_DESTINATION });
+export function signInToUndoHref(
+  email: string | null | undefined,
+  ticketSaleId: string | null | undefined,
+): string {
+  const params = new URLSearchParams({ next: customerAreaSaleHref(ticketSaleId) });
   const address = email?.trim();
   if (address) {
     params.set("email", address);
   }
   return `/signin?${params.toString()}`;
-}
-
-/**
- * safePrefillEmail guards what reaches the sign-in field from a query string.
- *
- * It is caller-controlled text on a page anybody can link to, and its only job
- * is to save a buyer from typing their own address. Anything that is not
- * plausibly one is dropped: a blank field is a mild inconvenience, while an
- * arbitrary string sitting in an input on a sign-in page reads as something this
- * app is asserting about the visitor.
- */
-export function safePrefillEmail(email: string | null | undefined): string {
-  const address = email?.trim() ?? "";
-  if (address.length === 0 || address.length > 254) {
-    return "";
-  }
-  // Deliberately loose: the API decides what an email is, and the passcode
-  // decides who owns it. This only refuses what obviously is not one.
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ? address : "";
 }

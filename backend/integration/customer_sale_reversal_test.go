@@ -224,7 +224,7 @@ func TestCustomerUndoesTheirOwnFreeOnlineSale(t *testing.T) {
 	if after.Status != "reversed" {
 		t.Fatalf("Customer Area status = %q, want reversed", after.Status)
 	}
-	if after.Reversible || after.ReversalWindowClosesAt != nil {
+	if after.Reversible || after.ReversibleUntil != nil {
 		t.Fatalf("a reversed sale is still offered as reversible (%+v); it cannot be undone twice", after)
 	}
 }

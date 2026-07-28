@@ -6,7 +6,7 @@ import { StorefrontShell } from "@ticket-pos/ui";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
-import { safePrefillEmail } from "@/lib/undo-window";
+import { safePrefillEmail } from "@/lib/signin-prefill";
 
 import { SignInForm } from "./signin-form";
 

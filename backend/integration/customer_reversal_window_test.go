@@ -95,9 +95,9 @@ func assertNotReversible(t *testing.T, sale customerAreaSale, why string) {
 	if sale.Reversible {
 		t.Fatalf("%s is reported reversible, and must never be", why)
 	}
-	if sale.ReversalWindowClosesAt != nil {
-		t.Fatalf("%s carries reversal_window_closes_at = %q, want null",
-			why, *sale.ReversalWindowClosesAt)
+	if sale.ReversibleUntil != nil {
+		t.Fatalf("%s carries reversible_until = %q, want null",
+			why, *sale.ReversibleUntil)
 	}
 }
 
@@ -118,12 +118,12 @@ func TestOnlineSaleReportsItsReversalWindow(t *testing.T) {
 	if !sale.Reversible {
 		t.Fatal("a sale bought this morning for a show in three days is not reported reversible")
 	}
-	if sale.ReversalWindowClosesAt == nil {
-		t.Fatal("reversal_window_closes_at is null on a reversible sale; the Customer cannot be told how long they have")
+	if sale.ReversibleUntil == nil {
+		t.Fatal("reversible_until is null on a reversible sale; the Customer cannot be told how long they have")
 	}
-	if *sale.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-		t.Fatalf("reversal_window_closes_at = %q, want %q — 20:00 Ecuador time on the day of purchase",
-			*sale.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	if *sale.ReversibleUntil != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("reversible_until = %q, want %q — 20:00 Ecuador time on the day of purchase",
+			*sale.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 }
 
@@ -168,17 +168,17 @@ func TestAPaidSaleAndAFreeClaimShareOneReversalWindow(t *testing.T) {
 	if !free.Reversible {
 		t.Fatal("the free claim is not offered; nothing about it stands in the way of an undo")
 	}
-	if free.ReversalWindowClosesAt == nil || *free.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-		t.Fatalf("free claim closes at %v, want %q", free.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	if free.ReversibleUntil == nil || *free.ReversibleUntil != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("free claim closes at %v, want %q", free.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 
 	paid := saleByRef(t, area, paidRef)
 	if !paid.Reversible {
 		t.Fatal("the paid purchase is not offered; the provider that collected the money can give it back")
 	}
-	if paid.ReversalWindowClosesAt == nil || *paid.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
+	if paid.ReversibleUntil == nil || *paid.ReversibleUntil != ecuadorCutoffAfterFixedClock {
 		t.Fatalf("paid purchase closes at %v, want the free claim's own deadline %q — the window never knew about money",
-			paid.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+			paid.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 }
 
@@ -204,9 +204,9 @@ func TestReversalWindowEndsAtEventStartOnASameDayShow(t *testing.T) {
 		t.Fatal("a sale for a show later today is not reversible; the window has not closed yet")
 	}
 	want := startsAt.Format(time.RFC3339)
-	if sale.ReversalWindowClosesAt == nil || *sale.ReversalWindowClosesAt != want {
-		t.Fatalf("reversal_window_closes_at = %v, want the Event start %q — it is earlier than the cutoff",
-			sale.ReversalWindowClosesAt, want)
+	if sale.ReversibleUntil == nil || *sale.ReversibleUntil != want {
+		t.Fatalf("reversible_until = %v, want the Event start %q — it is earlier than the cutoff",
+			sale.ReversibleUntil, want)
 	}
 }
 
@@ -240,13 +240,13 @@ func TestReversalWindowIsEcuadorianForAnEventFarFromEcuador(t *testing.T) {
 	if !sale.Reversible {
 		t.Fatal("a morning claim for a Tokyo show is not reversible; where the Event is changes nothing")
 	}
-	if sale.ReversalWindowClosesAt == nil || *sale.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-		t.Fatalf("reversal_window_closes_at = %v, want the Ecuadorian cutoff %q; the Event's timezone must not touch it",
-			sale.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	if sale.ReversibleUntil == nil || *sale.ReversibleUntil != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("reversible_until = %v, want the Ecuadorian cutoff %q; the Event's timezone must not touch it",
+			sale.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 	// The wrong reading — 20:00 on the purchase date in the Event's own zone —
 	// would land twenty-five hours earlier, and it must not.
-	if wrong := time.Date(2026, 7, 7, 20, 0, 0, 0, tokyo).UTC().Format(time.RFC3339); *sale.ReversalWindowClosesAt == wrong {
+	if wrong := time.Date(2026, 7, 7, 20, 0, 0, 0, tokyo).UTC().Format(time.RFC3339); *sale.ReversibleUntil == wrong {
 		t.Fatalf("the cutoff was computed in the Event's timezone (%s); it is Ecuadorian and only Ecuadorian", wrong)
 	}
 }

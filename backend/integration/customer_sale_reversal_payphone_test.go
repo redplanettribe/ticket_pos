@@ -84,8 +84,8 @@ func TestCustomerUndoesTheirOwnPaidOnlineSale(t *testing.T) {
 	if !sale.Reversible {
 		t.Fatal("a paid purchase made this morning is not offered as reversible; the provider can reverse it and the window is open")
 	}
-	if sale.ReversalWindowClosesAt == nil || *sale.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-		t.Fatalf("reversal_window_closes_at = %v, want %q", sale.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	if sale.ReversibleUntil == nil || *sale.ReversibleUntil != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("reversible_until = %v, want %q", sale.ReversibleUntil, ecuadorCutoffAfterFixedClock)
 	}
 
 	result := reverseSaleOK(t, payphoneEnv, token, sale.ID)
@@ -140,7 +140,7 @@ func TestCustomerUndoesTheirOwnPaidOnlineSale(t *testing.T) {
 	// And the sale is still there, reversed rather than deleted, no longer on
 	// offer — it cannot be undone twice.
 	area := saleByRef(t, readCustomerArea(t, payphoneEnv, token, ""), ref)
-	if area.Status != "reversed" || area.Reversible || area.ReversalWindowClosesAt != nil {
+	if area.Status != "reversed" || area.Reversible || area.ReversibleUntil != nil {
 		t.Fatalf("Customer Area sale after the undo = %+v, want a reversed sale with no offer", area)
 	}
 }
