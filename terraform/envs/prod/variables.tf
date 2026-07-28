@@ -13,6 +13,11 @@ variable "staff_origin" {
   type        = string
 }
 
+variable "storefront_origin" {
+  description = "Public origin the Storefront is served from. The media bucket's CORS policy allows browser uploads from it too: a Customer setting a profile photo PUTs to a presigned URL from this origin, not from Staff."
+  type        = string
+}
+
 variable "staff_domain" {
   description = "Hostname for the Staff console."
   type        = string
