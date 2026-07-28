@@ -60,13 +60,13 @@ An authorization granting an Integration Partner org-wide access to an Organizat
 _Avoid_: API key, connection, webhook
 
 **Platform Operator**:
-A person who runs the platform itself, with read authority spanning every Organization and the authority to record Payouts.
+A person who runs the platform itself, with read authority spanning every Organization and the authority to assert what the platform's money did: recording Payouts, and recording an Operator Reversal against any Online Sale.
 Granted by presence on the operator allowlist, keyed by email; exercised through an ordinary Staff Session.
 Orthogonal to Membership — a Platform Operator need not be a Member of any Organization, and being an Org Admin grants no operator authority.
 _Avoid_: Platform admin, super admin, site admin, root
 
 **Operator Dashboard**:
-The Platform Operator's surface inside the staff app: every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, and where Payouts are recorded.
+The Platform Operator's surface inside the staff app: every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, where Payouts are recorded, and where a Ticket Sale is looked up by its Sale Confirmation reference — across every Organization — to be read or reversed as an Operator Reversal.
 Does not exist for non-operators.
 _Avoid_: Admin panel, back office, console
 
@@ -168,9 +168,16 @@ _Avoid_: Ticket, receipt, order confirmation
 
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
-Reachable by the Customer on their own Online Sale within the Reversal Window, and by staff through a Sale Import undo. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
-A reversed Ticket Sale is never deleted: it keeps its Sale Confirmation reference and stays visible to both the Customer and the Organization, and it stops counting toward Net Proceeds, the Withdrawable Balance, and platform revenue.
+Reachable by three routes, and the sale records which one voided it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
+A reversed Ticket Sale is never deleted: it keeps its Sale Confirmation reference and stays visible to both the Customer and the Organization, and it stops counting toward Net Proceeds, the Withdrawable Balance, and platform revenue — except for a Platform Fee an Operator Reversal said the platform kept.
 _Avoid_: Refund, cancellation, void, chargeback
+
+**Operator Reversal**:
+A Sale Reversal a Platform Operator records after refunding a buyer off-platform — by hand in the Payment Provider's dashboard, or by bank transfer the platform never saw. A record of money that already moved, like a Payout: no Payment Provider is involved and none is asked to confirm it.
+Available on any active Online Sale, paid or free, whether or not its Reversal Window has passed — being past it is the reason the route exists. Not available on sales from other Sales Channels; an imported sale is undone through its Sale Import.
+Remembers who asserted it and when, alongside an optional note, what the buyer actually got back, and whether the platform kept its Platform Fee and Fee IVA — the last three being the operator's own statement, absent rather than zero on a free Online Sale. A kept fee stays in platform revenue; the Organization's figures drop the sale like any other reversal.
+Irreversible, and invisible to the Organization beyond the sale showing as reversed by the platform.
+_Avoid_: Manual refund, admin refund, force reversal, out-of-band reversal
 
 **Reversal Window**:
 The period during which a Customer may reverse their own Online Sale: from the moment its Payment is approved until the earlier of 20:00 Ecuador time on the day of purchase, or the Event's start.
