@@ -90,6 +90,19 @@ func ErrInvalidCoverVideoKey() apperror.DomainError {
 	return apperror.New("INVALID_COVER_VIDEO_KEY", "Cover video key is not valid for this event.", nil)
 }
 
+// ErrCoverVideoRequiresCoverImage is returned when an Event update would leave a Cover
+// Video without the Cover Image that serves as its poster — whether by attaching a video
+// to an imageless Event or by clearing the image out from under an existing video. The
+// invariant is evaluated against the final state of the update, so a single request that
+// sets both is fine and one that clears both is fine.
+func ErrCoverVideoRequiresCoverImage() apperror.DomainError {
+	return apperror.New(
+		"COVER_VIDEO_REQUIRES_COVER_IMAGE",
+		"A cover video requires a cover image as its poster: add a cover image first, and remove the video before removing the image.",
+		nil,
+	)
+}
+
 // ErrInvalidTag is returned when one or more Tag names fail normalization or validation.
 func ErrInvalidTag(invalid []string) apperror.DomainError {
 	return apperror.New(
