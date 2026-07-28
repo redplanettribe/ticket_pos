@@ -47,9 +47,16 @@ export type SalesPagination = {
 
 // SalesListResponse is the ADR-0006 nested envelope carried inside the transport
 // envelope's `data`: the page of rows plus its pagination metadata.
+//
+// reversed_count is how many of the Event's Ticket Sales are reversed — the
+// whole Event, independent of every filter on the request, including the status
+// filter that chose these rows. It rides the list rather than the Net Proceeds
+// strip because a Sale Reversal must be visible to every Member of the Event and
+// the strip is Org-Admin/Event-Owner only (#122, ADR 0018).
 export type SalesListResponse = {
   data: SaleListRow[];
   pagination: SalesPagination;
+  reversed_count: number;
 };
 
 // EventSalesSummary is the Sales tab stat strip: what this Event's active
@@ -297,6 +304,18 @@ export function reversalLabel(
     return when;
   }
   return `${when} by ${REVERSAL_ACTOR_LABELS[reversedBy] ?? reversedBy}`;
+}
+
+// reversedCountLabel states how many of the Event's Ticket Sales are reversed.
+// An Event that has never had one says so plainly rather than showing a bare
+// "0": the sentence is the whole point of the figure — it explains a total that
+// dropped without anybody on staff touching it — and on a quiet Event the
+// answer "nothing was reversed" is worth the same words.
+export function reversedCountLabel(count: number): string {
+  if (count <= 0) {
+    return "No reversed sales";
+  }
+  return `${count} reversed sale${count === 1 ? "" : "s"}`;
 }
 
 // formatSaleTimestamp renders an ISO timestamp in the Event timezone (falling

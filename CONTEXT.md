@@ -220,7 +220,7 @@ A batch upload of Ticket Sales, performed by a Member who can manage the Event's
 _Avoid_: Manual sale entry, external sale upload
 
 **Sales list**:
-The staff surface for exploring an Event's individual Ticket Sales — one row per Ticket Sale, filterable, sortable, and paginated. Visible to every Member of the Event (Org Admins, Event Owners, and Event Staff), unlike the owner-only Sale Import tool it shares a page with. Distinct from the Import history, which lists Sale Import batches rather than individual sales, and from a Storefront listing, which lists Events to the public rather than sales to staff.
+The staff surface for exploring an Event's individual Ticket Sales — one row per Ticket Sale, filterable, sortable, and paginated. Visible to every Member of the Event (Org Admins, Event Owners, and Event Staff), unlike the owner-only Sale Import tool it shares a page with. It defaults to active sales and carries the Event's count of reversed ones, so a Sale Reversal is stated rather than a row that silently left the view; the count is the whole Event's, unmoved by the filters, and the reversed sales themselves are reached through the status filter. Distinct from the Import history, which lists Sale Import batches rather than individual sales, and from a Storefront listing, which lists Events to the public rather than sales to staff.
 _Avoid_: Sales ledger, orders list, transactions table, report
 
 ## Customer identity

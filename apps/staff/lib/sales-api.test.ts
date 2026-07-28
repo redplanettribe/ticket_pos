@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { channelSourceLabel, paymentMethodLabel, reversalLabel, taxIdLabel } from "./sales-api.ts";
+import {
+  channelSourceLabel,
+  paymentMethodLabel,
+  reversalLabel,
+  reversedCountLabel,
+  taxIdLabel,
+} from "./sales-api.ts";
 
 // --- payment method labels ------------------------------------------------
 
@@ -72,4 +78,15 @@ test("reversalLabel falls back to the raw actor for one it does not know", () =>
     reversalLabel("2026-07-07T12:00:00Z", "operator", "UTC"),
     "Jul 7, 2026, 12:00 PM by operator",
   );
+});
+
+// --- reversed count -------------------------------------------------------
+
+test("reversedCountLabel counts the Event's reversed sales, singular and plural", () => {
+  assert.equal(reversedCountLabel(1), "1 reversed sale");
+  assert.equal(reversedCountLabel(6), "6 reversed sales");
+});
+
+test("reversedCountLabel says nothing was reversed rather than showing a bare zero", () => {
+  assert.equal(reversedCountLabel(0), "No reversed sales");
 });

@@ -332,9 +332,20 @@ type Pagination struct {
 
 // SalesListResult is the ADR-0006 nested envelope for the Sales list: the page
 // of rows plus its pagination metadata.
+//
+// ReversedCount is how many of the Event's Ticket Sales are reversed, across the
+// whole Event and independent of every filter on this request — including the
+// status filter that decided which rows are in Data. Until a Customer could undo
+// their own Online Sale, the only reversal was a Sale Import undo that staff
+// performed themselves, so a row leaving the default active view was never a
+// surprise; now money and capacity move with no staff action at all, and the
+// count is what keeps the drop explained rather than silent (#122, ADR 0018). It
+// rides the Sales list, not the sales summary, because it must reach every
+// Member of the Event and the summary is refused to Event Staff.
 type SalesListResult struct {
-	Data       []SaleListItem `json:"data"`
-	Pagination Pagination     `json:"pagination"`
+	Data          []SaleListItem `json:"data"`
+	Pagination    Pagination     `json:"pagination"`
+	ReversedCount int            `json:"reversed_count"`
 }
 
 // ListSalesParams is a validated, clamped Sales list request. Page and size are
@@ -433,6 +444,14 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 		})
 	}
 
+	// Read after the page, and unfiltered: the organizer's question is whether
+	// anything on this Event was reversed, not how many reversals survive the
+	// filters they happen to have on.
+	reversedCount, err := s.repo.ReversedSalesCount(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &SalesListResult{
 		Data: items,
 		Pagination: Pagination{
@@ -441,6 +460,7 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 			Total:      total,
 			TotalPages: totalPages(total, params.PageSize),
 		},
+		ReversedCount: reversedCount,
 	}, nil
 }
 

@@ -27,6 +27,7 @@ import {
   PAYMENT_METHODS,
   paymentMethodLabel,
   reversalLabel,
+  reversedCountLabel,
   rollupTicketTypes,
   salesListQuery,
   taxIdLabel,
@@ -173,6 +174,13 @@ export function SalesList({ eventId, page, filters, ticketTypes, sort, dir, time
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {result ? (
+          <ReversedSalesNotice
+            count={result.reversed_count}
+            viewingReversed={filters.status === "reversed"}
+            onApply={applyFilters}
+          />
+        ) : null}
         <SalesFilterBar
           filters={filters}
           ticketTypes={ticketTypes}
@@ -234,6 +242,65 @@ export function SalesList({ eventId, page, filters, ticketTypes, sort, dir, time
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+type ReversedSalesNoticeProps = {
+  // The Event's reversed Ticket Sales, whole-Event and filter-independent.
+  count: number;
+  // Whether the list is already showing them (status filter set to reversed).
+  viewingReversed: boolean;
+  onApply: (patch: Partial<SalesFilters>) => void;
+};
+
+// ReversedSalesNotice tells an organizer that Sale Reversals happened, above the
+// list that no longer contains them.
+//
+// It exists because the default view shows active sales only: a buyer undoing
+// their own Online Sale (ADR 0018) drops the total with no staff action and,
+// without this line, nothing on the page would say why. Nobody is emailed — that
+// is the ADR's deliberate choice — so this surface is the whole of the telling.
+//
+// It is a sentence, not a stat tile: on an Event that has never had a reversal
+// it must not read as an alarm, and the count sits in the Sales list rather than
+// the Net Proceeds strip above it because Event Staff see the list and not the
+// strip. Showing them is the status filter the list already has, pre-set — one
+// mechanism, and the resulting view is the ordinary shareable filtered URL.
+function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesNoticeProps) {
+  const label = reversedCountLabel(count);
+
+  if (count <= 0) {
+    return <p className="text-xs text-muted-foreground">{label} on this Event.</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+      <span>
+        <span className="font-medium">{label}</span> on this Event — voided by a buyer or by a Sale
+        Import undo, no longer counted in the totals.
+      </span>
+      {viewingReversed ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={() => onApply({ status: "active" })}
+        >
+          Back to active sales
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          onClick={() => onApply({ status: "reversed" })}
+        >
+          Show reversed
+        </Button>
+      )}
+    </div>
   );
 }
 

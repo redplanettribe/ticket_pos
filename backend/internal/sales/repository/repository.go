@@ -1258,6 +1258,34 @@ func (r *Repository) SalesSummary(ctx context.Context, orgID, eventID string) (S
 	return out, nil
 }
 
+// ReversedSalesCount counts an Event's reversed Ticket Sales.
+//
+// It is the counterpart to SalesSummary's active figures rather than a column of
+// it, and deliberately so on two counts. SalesSummary is the Event's MONEY —
+// Net Proceeds, which Event Staff are refused at the route — while a Sale
+// Reversal has to be visible to every Member of the Event, so this figure rides
+// the Sales list instead of the stat strip (#122). And SalesSummary's existing
+// figures keep their meanings untouched: sales_count still counts active sales
+// only, and Net Proceeds still sums active online lines, so no caller reads a
+// different number than it did before.
+//
+// The count ignores the Sales list's filters on purpose. It answers "has
+// anything on this Event been reversed", which is the question an organizer
+// watching a total drop actually has; a figure that moved as they narrowed the
+// view could not answer it.
+func (r *Repository) ReversedSalesCount(ctx context.Context, orgID, eventID string) (int, error) {
+	var count int
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM ticket_sales ts
+		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = 'reversed'
+	`, eventID, orgID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *Repository) findBatch(ctx context.Context, orgID, idempotencyKey string) (*CommittedBatch, error) {
 	var b CommittedBatch
 	err := r.db.Pool.QueryRowContext(ctx, `

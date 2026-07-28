@@ -79,6 +79,10 @@ type salesListEnvelope struct {
 		Total      int `json:"total"`
 		TotalPages int `json:"total_pages"`
 	} `json:"pagination"`
+	// How many of the Event's Ticket Sales are reversed — the whole Event, and
+	// independent of every filter on the request (#122). Exercised in
+	// sales_reversed_count_test.go.
+	ReversedCount int `json:"reversed_count"`
 }
 
 func salesList(t *testing.T, body envelope) salesListEnvelope {
