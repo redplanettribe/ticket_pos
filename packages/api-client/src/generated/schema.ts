@@ -1471,7 +1471,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
          */
         post: {
             parameters: {
@@ -2669,7 +2669,7 @@ export interface paths {
                     /** @description Sales Source */
                     source?: "direct" | "external_platform";
                     /** @description Payment Method */
-                    payment_method?: "cash" | "transfer" | "payphone";
+                    payment_method?: "cash" | "transfer" | "payphone" | "free";
                     /** @description Sort column (default sold_at) */
                     sort?: "sold_at" | "recorded_at" | "customer" | "amount";
                     /** @description Sort direction (default desc) */
@@ -4081,8 +4081,19 @@ export interface components {
         "service.BeginCheckoutResult": {
             amount_cents?: number;
             client_transaction_id?: string;
+            /**
+             * @description ConfirmationRef is the Sale Confirmation reference, set only on an approved
+             *     checkout — the buyer has their tickets already and this is what they quote.
+             */
+            confirmation_ref?: string;
             currency?: string;
             redirect_url?: string;
+            /**
+             * @description Status is how the checkout was left: "pending" on the Payment Provider, or
+             *     "approved" when there was nothing to collect and it settled here.
+             * @enum {string}
+             */
+            status?: "pending" | "approved";
         };
         "service.ConfirmCheckoutResult": {
             client_transaction_id?: string;
