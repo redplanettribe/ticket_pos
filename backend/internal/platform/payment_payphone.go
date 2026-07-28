@@ -54,6 +54,13 @@ const (
 // It was 15s until Prepare gained its one prefill-stripping retry (#104): the
 // worst case is now two calls on a request that blocks the buyer's browser, and
 // 10s keeps that worst case at 20s rather than 30s.
+//
+// One client serves both operations, so this tightened Confirm as well, which
+// has no retry and so simply gained five seconds less headroom. That is the
+// right side to err on: a Confirm that runs out of time leaves the Payment
+// pending and the return page's own refresh retries it, well inside PayPhone's
+// 5-minute window — whereas a Confirm still waiting is a paid Customer staring
+// at a spinner.
 const payPhoneTimeout = 10 * time.Second
 
 // PayPhoneProvider collects money through the platform's single PayPhone
@@ -215,11 +222,17 @@ func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput
 
 	var out payPhonePrepareResponse
 	err := p.post(ctx, payPhonePreparePath, req, &out)
-	if err != nil && req.hasPrefills() && isPayPhoneClientError(err) {
+	if status, rejected := payPhoneClientErrorStatus(err); err != nil && rejected && req.hasPrefills() {
 		// Presence booleans, never values: which prefill was populated is the whole
 		// question a human debugging a systematic rejection needs answered, and no
 		// email address, phone number or identification number may reach a log line
 		// to answer it. The fields are independent, so booleans answer it exactly.
+		//
+		// The status is named but the error is NOT logged here, deliberately: its
+		// message carries a bounded slice of PayPhone's response body, and this is
+		// the one request that certainly held all three values. A provider that
+		// echoes the field it objected to would put the buyer's own data in the log
+		// through the very line written to keep it out.
 		//
 		// had_phone_number is the one this log most exists for: whether PayPhone
 		// accepts a NON-Ecuadorian dialling code could not be established from its
@@ -230,7 +243,7 @@ func (p *PayPhoneProvider) Initiate(ctx context.Context, in PaymentInitiateInput
 			"had_email", req.Email != "",
 			"had_document_id", req.DocumentID != "",
 			"had_phone_number", req.PhoneNumber != "",
-			"error", err,
+			"status_code", status,
 		)
 		out = payPhonePrepareResponse{}
 		err = p.post(ctx, payPhonePreparePath, req.stripPrefills(), &out)
@@ -347,14 +360,25 @@ func (e *payPhoneStatusError) Error() string {
 	return fmt.Sprintf("payphone returned %d: %s", e.statusCode, e.body)
 }
 
-// isPayPhoneClientError reports whether an error is PayPhone rejecting the
-// request itself — the only failure the prefills can be to blame for.
-func isPayPhoneClientError(err error) bool {
+// payPhoneClientErrorStatus reports whether an error is PayPhone rejecting the
+// request itself — the only failure the prefills can be to blame for — and, when
+// it is, the status it rejected with.
+//
+// The status comes back separately from the error so the retry can name it in a
+// log line without logging the error itself: payPhoneStatusError's message
+// carries a bounded slice of PayPhone's response body, and the request that
+// provoked it is the one request that certainly held the buyer's email,
+// identification number and phone. If PayPhone echoes the field it objected to,
+// that body is PII, and the retry line is the last place it may appear (#104).
+func payPhoneClientErrorStatus(err error) (int, bool) {
 	var statusErr *payPhoneStatusError
 	if !errors.As(err, &statusErr) {
-		return false
+		return 0, false
 	}
-	return statusErr.statusCode >= 400 && statusErr.statusCode < 500
+	if statusErr.statusCode < 400 || statusErr.statusCode >= 500 {
+		return 0, false
+	}
+	return statusErr.statusCode, true
 }
 
 // post performs the one authenticated JSON POST both operations funnel through,

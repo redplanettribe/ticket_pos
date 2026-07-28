@@ -34,9 +34,12 @@
 -- one day wants to treat this as "the Customer's phone number" in general (a
 -- bulk notification, say) needs a deliberate backfill decision first.
 --
--- Nothing writes or reads this column yet: propagating a checkout's phone to
--- the profile is #107 and surfacing it in "My info" is #108. The column lands
--- here so the schema moves once.
+-- Written by the customer upsert at sale commit, under the Tax ID's guard —
+-- filled when never set, refreshed while the Customer is unverified, and
+-- overwritten on a verified Customer only from their own Customer Session
+-- (#107) — and read by the profile and the Customer Session so "My info" and
+-- the next checkout can show it (#108). The column arrived one ticket ahead of
+-- both, so the schema moved once.
 ALTER TABLE customers ADD COLUMN phone TEXT;
 
 -- The Payment's record of what this buyer typed at begin-checkout, named with

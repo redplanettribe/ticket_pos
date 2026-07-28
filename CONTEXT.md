@@ -244,7 +244,7 @@ _Avoid_: ID number, identification, cédula (as the generic term), document numb
 **Phone Number**:
 A Customer's telephone number, stored as one canonical international string and collected only to prefill the Payment Provider's hosted payment page.
 Always optional and never invented: a buyer who gives none simply enters it on the payment page instead. Collected through online checkout and the Customer Area only, never on the staff-recorded sale form or in the Sale Import file, so it is sparsely populated and is not a way to reach every Customer.
-_Avoid_: Mobile, cell, contact number, telephone, celular
+_Avoid_: Mobile, cell, contact number, telephone, celular — as names for the concept. "Mobile" still names a *line type* where the rule turns on it, as the Ecuadorian validation message does: only a mobile is accepted there, and saying so is the whole point of the message.
 
 **Tax ID Type**:
 Which kind of identification a Tax ID is: `cedula` (Ecuadorian national identity card), `ruc` (Ecuadorian taxpayer registration, held by persons or companies), or `passport` (buyers without either). Determines how strictly the number is validated.
