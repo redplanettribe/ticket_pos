@@ -96,6 +96,11 @@ _Avoid_: Catalog, index, feed, directory
 A purchasable ticket category belonging to an Event, with a name, description, price, capacity, and display order.
 _Avoid_: Ticket tier, ticket class, fare, SKU
 
+**Free Ticket Type**:
+A Ticket Type an Organization prices at zero.
+Listed, selected, and counted against capacity exactly like any other, but a checkout that totals nothing never reaches a Payment Provider.
+_Avoid_: Free tier, complimentary ticket, comp, RSVP, giveaway
+
 **Tag**:
 A discovery facet an Event can wear, describing what kind of Event it is (e.g. "Music", "Workshop", "Techno"). An Event may carry several Tags, and Tags live in one system-wide shared pool reused across all Organizations. Aids Storefront discovery. Distinct from Ticket Type, which is a purchasable category within a single Event.
 _Avoid_: Category, genre, label, keyword
@@ -142,7 +147,7 @@ A Ticket Sale completed at a physical point of sale by Event Staff.
 _Avoid_: Door sale, box office sale, walk-up sale
 
 **Payment Method**:
-How a Ticket Sale was paid. Recorded for Direct Sales, where the value is `cash` or `transfer`, and for Online Sales, where the value names the Payment Provider that collected the money (`payphone` at launch). Modeled as an extensible set so further methods can be added later.
+How a Ticket Sale was paid. Recorded for Direct Sales, where the value is `cash` or `transfer`, and for Online Sales, where the value names the Payment Provider that collected the money (`payphone` at launch) or is `free` when there was nothing to collect. Modeled as an extensible set so further methods can be added later.
 _Avoid_: Payment type, tender, channel
 
 **Payment Provider**:
@@ -150,7 +155,7 @@ An external service that collects money from a Customer on the platform's behalf
 _Avoid_: Gateway, processor, PSP, vendor
 
 **Payment**:
-A Customer's attempt to pay for tickets through a Payment Provider. Begins `pending` when checkout starts and ends `approved` (the moment its Ticket Sale is recorded), `failed` (declined or cancelled), or `expired` (abandoned). A Ticket Sale exists only for an approved Payment; a Payment that never completes never becomes a sale and never appears in the Sales list.
+A Customer's attempt to settle a checkout — through a Payment Provider when there is money to collect, and by the platform itself when the checkout totals nothing. A Payment that has money to collect begins `pending` when checkout starts and ends `approved` (the moment its Ticket Sale is recorded), `failed` (declined or cancelled), or `expired` (abandoned); one that has nothing to collect is born `approved` and never waits on anybody. A Ticket Sale exists only for an approved Payment; a Payment that never completes never becomes a sale and never appears in the Sales list. Approved therefore means the checkout is settled, not that money moved.
 _Avoid_: Transaction, charge, checkout session, payment intent, order
 
 **Capacity Hold**:
