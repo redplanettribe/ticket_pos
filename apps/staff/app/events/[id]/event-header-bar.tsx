@@ -25,6 +25,8 @@ import {
   type EventDetail,
 } from "@/lib/events-api";
 
+import { DiscoverabilityToggle } from "../discoverability-toggle";
+
 type EventHeaderBarProps = {
   eventId: string;
   name: string;
@@ -34,6 +36,8 @@ type EventHeaderBarProps = {
   startsAt: string | null;
   timezone: string | null;
   ticketTypeCount: number;
+  /** Seeds the Discoverable toggle; the same flag the events list edits. */
+  discoverable: boolean;
 };
 
 function fieldLabel(field: string): string {
@@ -48,8 +52,13 @@ export function EventHeaderBar({
   startsAt,
   timezone,
   ticketTypeCount,
+  discoverable: initialDiscoverable,
 }: EventHeaderBarProps) {
   const router = useRouter();
+  // The toggle's own endpoint is idempotent and returns the updated Event, so
+  // its response is authoritative and nothing else on the page derives from the
+  // flag — local state, no router.refresh().
+  const [discoverable, setDiscoverable] = useState(initialDiscoverable);
   const [publishing, setPublishing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -137,9 +146,17 @@ export function EventHeaderBar({
             </>
           ) : null}
           {status === "published" ? (
-            <Button type="button" variant="destructive" onClick={() => setCancelOpen(true)}>
-              Cancel event
-            </Button>
+            <>
+              <DiscoverabilityToggle
+                eventId={eventId}
+                status={status}
+                discoverable={discoverable}
+                onChange={setDiscoverable}
+              />
+              <Button type="button" variant="destructive" onClick={() => setCancelOpen(true)}>
+                Cancel event
+              </Button>
+            </>
           ) : null}
         </div>
       </div>
