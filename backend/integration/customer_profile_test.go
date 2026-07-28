@@ -45,6 +45,9 @@ type customerProfileView struct {
 	LastName    string  `json:"last_name"`
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// The stored phone in canonical E.164 form, null when the Customer has none
+	// (#108). The Storefront splits it for display; the contract never does.
+	Phone *string `json:"phone"`
 }
 
 func (v customerProfileView) taxID() taxIDPair {
@@ -66,6 +69,19 @@ func profileBody(firstName, lastName string, taxIDType, taxIDNumber *string) map
 		"tax_id_type":   taxIDType,
 		"tax_id_number": taxIDNumber,
 	}
+}
+
+// phoneProfileBody is an update body that talks about the phone. profileBody
+// above deliberately omits the key entirely, because "says nothing about the
+// phone" is itself a case under test (#108) and is what every pre-existing test
+// in this file sends.
+//
+// The phone is `any` so a test can spell all three things the wire allows: a
+// number, an empty string, and JSON null — the last two both meaning "remove it".
+func phoneProfileBody(firstName, lastName string, phone any) map[string]any {
+	body := profileBody(firstName, lastName, nil, nil)
+	body["phone"] = phone
+	return body
 }
 
 func strptr(s string) *string { return &s }
@@ -633,10 +649,189 @@ func TestNoPhoneIsWrittenToTheTicketSale(t *testing.T) {
 	}
 }
 
-// readCustomerPhone reads the Customer's stored phone number, nil when they have
-// none. SQL because nothing reads the column through the API yet: surfacing it
-// on the profile contract and in "My info" is #108, and this ticket only writes
-// it.
+// TestCustomerProfileAndSessionCarryTheStoredPhone is the read half of #108: the
+// number a checkout wrote is visible to the person it belongs to, on both the
+// payloads a surface reads.
+//
+// Two payloads because they answer different questions and both need the phone.
+// The profile view is "what does the platform hold about me", which is what "My
+// info" renders; the session view is "who am I signed in as", which is what the
+// checkout dialog prefills from. A number on one and not the other would mean a
+// Customer could see their phone but never stop retyping it.
+//
+// The empty state is asserted first and deliberately: a Customer who has never
+// given a number sees null rather than a blank string, so the Storefront can tell
+// "none stored" from "stored as nothing" and show Ecuador with an empty field.
+func TestCustomerProfileAndSessionCarryTheStoredPhone(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Visible Fest", "visible-fest", 1000, 10)
+	line := map[string]any{"ticket_type_id": gaID, "quantity": 1}
+
+	token := customerSignIn(t, env, "ana@example.com")
+
+	// Nothing given, nothing shown — on either payload.
+	empty := updateProfileOK(t, env, token, profileBody("Ana", "Lopez", nil, nil))
+	if empty.Phone != nil {
+		t.Fatalf("profile phone = %s, want none for a Customer who has never given one", phoneString(empty.Phone))
+	}
+	if session := readCustomerSession(t, env, token); session.Phone != nil {
+		t.Fatalf("session phone = %s, want none", phoneString(session.Phone))
+	}
+
+	// She buys under her own session, giving her number the way a person writes
+	// one down, and both payloads report the canonical form of it.
+	begin := beginCheckoutAsOK(t, env, "test-org", "visible-fest", token,
+		phoneCheckoutBody("ana@example.com", ecuadorMobileTyped, line))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	session := readCustomerSession(t, env, token)
+	if session.Phone == nil || *session.Phone != ecuadorMobile {
+		t.Fatalf("session phone = %s, want the canonical %s", phoneString(session.Phone), ecuadorMobile)
+	}
+	// The profile view reports it too — and this edit says nothing about the
+	// phone, so reading it back is also proof the number survived an unrelated
+	// change of name.
+	profile := updateProfileOK(t, env, token, profileBody("Ana", "Lopez Ruiz", nil, nil))
+	if profile.Phone == nil || *profile.Phone != ecuadorMobile {
+		t.Fatalf("profile phone = %s, want the stored %s", phoneString(profile.Phone), ecuadorMobile)
+	}
+}
+
+// TestCustomerProfileSetsChangesAndClearsPhone walks the whole editable life of a
+// phone number through the endpoint — set, change, clear — checking the session
+// payload after each step, because the prefill the checkout dialog reads is the
+// same fact and must follow.
+//
+// Clearing is the step that matters most. It is a capability the Customer is
+// owed (#103, user story 10): a person may withdraw a detail they no longer wish
+// stored, and "cleared" has to mean genuinely gone from the row rather than
+// merely absent from a response. Both spellings of the clear are exercised,
+// because the Storefront sends null and a bare-bones client may well send "".
+func TestCustomerProfileSetsChangesAndClearsPhone(t *testing.T) {
+	env := setupTest(t)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	// Set: a Customer who has never bought online gives their number here, so the
+	// very first checkout arrives prefilled.
+	set := updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", ecuadorMobileTyped))
+	if set.Phone == nil || *set.Phone != ecuadorMobile {
+		t.Fatalf("profile phone = %s, want the canonical %s", phoneString(set.Phone), ecuadorMobile)
+	}
+	if got := readCustomerPhone(t, env, "ana@example.com"); got == nil || *got != ecuadorMobile {
+		t.Fatalf("stored phone = %s, want %s", phoneString(got), ecuadorMobile)
+	}
+	if session := readCustomerSession(t, env, token); session.Phone == nil || *session.Phone != ecuadorMobile {
+		t.Fatalf("session phone = %s, want %s", phoneString(session.Phone), ecuadorMobile)
+	}
+
+	// Change: she moves abroad and edits it, without a purchase in sight — the
+	// point of having the field on this screen at all.
+	changed := updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", foreignMobile))
+	if changed.Phone == nil || *changed.Phone != foreignMobile {
+		t.Fatalf("profile phone = %s, want the changed %s", phoneString(changed.Phone), foreignMobile)
+	}
+	if got := readCustomerPhone(t, env, "ana@example.com"); got == nil || *got != foreignMobile {
+		t.Fatalf("stored phone = %s, want the changed %s", phoneString(got), foreignMobile)
+	}
+
+	// Clear, spelled null: withdrawn, and gone from the row rather than blanked.
+	cleared := updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", nil))
+	if cleared.Phone != nil {
+		t.Fatalf("profile phone = %s, want none after clearing", phoneString(cleared.Phone))
+	}
+	if got := readCustomerPhone(t, env, "ana@example.com"); got != nil {
+		t.Fatalf("stored phone = %s, want none after clearing", phoneString(got))
+	}
+	if session := readCustomerSession(t, env, token); session.Phone != nil {
+		t.Fatalf("session phone = %s, want nothing to prefill after clearing", phoneString(session.Phone))
+	}
+
+	// Clear, spelled as an empty field: the same thing, because an emptied input
+	// is how a person expresses it and nothing else could sensibly be meant.
+	updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", ecuadorMobile))
+	blanked := updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", "  "))
+	if blanked.Phone != nil {
+		t.Fatalf("profile phone = %s, want none after an emptied field", phoneString(blanked.Phone))
+	}
+	if got := readCustomerPhone(t, env, "ana@example.com"); got != nil {
+		t.Fatalf("stored phone = %s, want none after an emptied field", phoneString(got))
+	}
+}
+
+// TestCustomerProfileRejectsInvalidPhone pins that this surface runs the same
+// rule as checkout and blames the same field. The messages are
+// platform.PhoneFieldErrors' own, so a number rejected here reads exactly as it
+// would in the checkout dialog — one rule, one wording, two surfaces (#105).
+//
+// The Ecuadorian landline is the case worth naming: it is a perfectly real phone
+// number and is refused anyway, because what the Payment Provider's form wants is
+// a cardholder's mobile.
+func TestCustomerProfileRejectsInvalidPhone(t *testing.T) {
+	env := setupTest(t)
+	token := customerSignIn(t, env, "ana@example.com")
+	updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", ecuadorMobile))
+
+	for _, tc := range []struct {
+		name  string
+		phone string
+	}{
+		{"an Ecuadorian landline", "+59322345678"},
+		{"an Ecuadorian mobile a digit short", "+59398765432"},
+		{"an Ecuadorian mobile a digit long", "+5939876543210"},
+		{"no dialling code at all", "0987654321"},
+		{"letters where digits belong", "+593abcdefghi"},
+		{"far past E.164's ceiling", "+1202555012345678"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, body := updateProfile(t, env, token, phoneProfileBody("Ana", "Lopez", tc.phone))
+			assertAPIError(t, resp, body, http.StatusBadRequest, "VALIDATION_FAILED")
+			if got := fieldErrors(t, body)["phone"]; got == "" {
+				t.Fatalf("field errors = %v, want one on phone", fieldErrors(t, body))
+			}
+		})
+	}
+
+	// A rejected edit writes nothing: the number she already had is still hers.
+	if got := readCustomerPhone(t, env, "ana@example.com"); got == nil || *got != ecuadorMobile {
+		t.Fatalf("stored phone = %s, want the untouched %s", phoneString(got), ecuadorMobile)
+	}
+}
+
+// TestProfileUpdateWithoutThePhoneLeavesItAlone is the difference between the
+// phone and the Tax ID on this endpoint, and it is deliberate (#108). Absent Tax
+// ID halves clear the Tax ID, because they have been part of this contract since
+// it was written and can only mean an emptied form. An absent phone means the
+// request is not talking about the phone at all — a client written before the
+// field existed, such as a Storefront still running the previous build through a
+// deploy window, and no reason for a buyer to lose their number.
+//
+// Every other test in this file sends exactly such a body, so this pins what all
+// of them quietly rely on.
+func TestProfileUpdateWithoutThePhoneLeavesItAlone(t *testing.T) {
+	env := setupTest(t)
+	token := customerSignIn(t, env, "ana@example.com")
+	updateProfileOK(t, env, token, phoneProfileBody("Ana", "Lopez", ecuadorMobile))
+
+	// An edit that changes the name and asserts a Tax ID, and never mentions the
+	// phone. The Tax ID landing is what proves this update wrote at all.
+	updated := updateProfileOK(t, env, token,
+		profileBody("Ana María", "Lopez", strptr("cedula"), strptr(validCedula)))
+	if !updated.taxID().is("cedula", validCedula) {
+		t.Fatalf("profile tax id = %s, want cedula:%s — the update must have written", updated.taxID(), validCedula)
+	}
+	if updated.Phone == nil || *updated.Phone != ecuadorMobile {
+		t.Fatalf("profile phone = %s, want the untouched %s", phoneString(updated.Phone), ecuadorMobile)
+	}
+	if got := readCustomerPhone(t, env, "ana@example.com"); got == nil || *got != ecuadorMobile {
+		t.Fatalf("stored phone = %s, want the untouched %s", phoneString(got), ecuadorMobile)
+	}
+}
+
+// readCustomerPhone reads the Customer's stored phone number directly, nil when
+// they have none. SQL rather than the profile contract, deliberately: these
+// assertions run for Customers who are not the caller, and a test that checked
+// only the payload could not tell "cleared" from "hidden".
 func readCustomerPhone(t *testing.T, env *testEnv, email string) *string {
 	t.Helper()
 	var phone *string

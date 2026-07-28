@@ -18,6 +18,17 @@ type Customer struct {
 	// the day this shipped had none and nothing backfills them.
 	TaxIDType   sql.NullString
 	TaxIDNumber sql.NullString
+	// Phone is the Customer's one stored phone number in canonical E.164 form
+	// (#103, #107), null until a checkout or a "My info" edit supplies one. It is
+	// a single column rather than a dialling code and a national part because its
+	// whole purpose is to be handed to the Payment Provider in exactly that form;
+	// splitting it for display is the Storefront's business alone (#108).
+	//
+	// Sparsely populated by design: only online checkout and "My info" ever write
+	// it, so a Customer whose every purchase was recorded by staff has none. That
+	// is correct for a prefill and would be wrong for anything that later reads
+	// this as "the Customer's phone number".
+	Phone sql.NullString
 	// AvatarImageKey locates the Customer's Avatar in object storage, null when
 	// they have none. Whether it was uploaded or seeded from Google Sign-In is
 	// not recorded — once stored, every Avatar is the same kind of thing.
@@ -43,9 +54,9 @@ type CustomerSession struct {
 func (r *Repository) GetCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
 	var c Customer
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
+		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
 		FROM customers WHERE email = $1
-	`, email).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
+	`, email).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -60,9 +71,9 @@ func (r *Repository) GetCustomerByEmail(ctx context.Context, email string) (*Cus
 func (r *Repository) GetCustomerByID(ctx context.Context, id string) (*Customer, error) {
 	var c Customer
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
+		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
 		FROM customers WHERE id = $1
-	`, id).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
+	`, id).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -86,8 +97,8 @@ func (r *Repository) VerifyCustomer(ctx context.Context, email string, now time.
 		VALUES ($1, '', '', $2, $2)
 		ON CONFLICT (email) DO UPDATE SET
 			verified_at = COALESCE(customers.verified_at, EXCLUDED.verified_at)
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
-	`, email, now).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
+	`, email, now).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
 	if err != nil {
 		return nil, err
 	}

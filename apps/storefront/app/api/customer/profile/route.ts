@@ -9,7 +9,7 @@ import type { CustomerProfile } from "@/lib/profile";
 export const dynamic = "force-dynamic";
 
 /**
- * The "My info" write: the browser posts the edited name and Tax ID here, this
+ * The "My info" write: the browser posts the edited name, Tax ID and phone here, this
  * handler forwards it to the Go API under the Customer Session token held in
  * this app's httpOnly cookie, and hands back what the API said (ADR 0008 — no
  * browser may address the API).
@@ -31,6 +31,7 @@ type ProfileRequestBody = {
   last_name?: unknown;
   tax_id_type?: unknown;
   tax_id_number?: unknown;
+  phone?: unknown;
 };
 
 function asTrimmedString(value: unknown): string {
@@ -43,6 +44,20 @@ function asTrimmedString(value: unknown): string {
  * or blank value is forwarded as null rather than as "".
  */
 function asTaxIdHalf(value: unknown): string | null {
+  const trimmed = asTrimmedString(value);
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * The phone is nullable for the same reason and with the same spelling: null is
+ * how the Customer withdraws the number the platform holds (#108).
+ *
+ * The key is always forwarded, even as null. The API reads an ABSENT phone as
+ * "this request is not about the phone, leave it alone" — a reading that exists
+ * for clients written before the field, not for this one, which always knows
+ * what the person in front of the form meant.
+ */
+function asPhone(value: unknown): string | null {
   const trimmed = asTrimmedString(value);
   return trimmed === "" ? null : trimmed;
 }
@@ -68,7 +83,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    // The forwarded body names the four editable fields and nothing else. An
+    // The forwarded body names the five editable fields and nothing else. An
     // email in the request has nowhere to go: it is not read here, and the API
     // does not accept one either — the address is the Customer's identity.
     const envelope = await callBackend<CustomerProfile>("/api/v1/customer/profile", {
@@ -78,6 +93,7 @@ export async function PATCH(request: Request) {
         last_name: asTrimmedString(body.last_name),
         tax_id_type: asTaxIdHalf(body.tax_id_type),
         tax_id_number: asTaxIdHalf(body.tax_id_number),
+        phone: asPhone(body.phone),
       }),
       sessionToken: token,
     });

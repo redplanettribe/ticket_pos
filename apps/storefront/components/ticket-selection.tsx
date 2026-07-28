@@ -23,7 +23,13 @@ import { useRef, useState, type FormEvent } from "react";
 import type { PublicTicketType } from "@/lib/api";
 import { clampQuantity, selectionLines, totalCents, totalQuantity } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
-import { COUNTRIES, ECUADOR_DIALLING_CODE, normalizePhone, validatePhone } from "@/lib/phone";
+import {
+  COUNTRIES,
+  ECUADOR_DIALLING_CODE,
+  normalizePhone,
+  splitPhone,
+  validatePhone,
+} from "@/lib/phone";
 import {
   TAX_ID_TYPES,
   TAX_ID_TYPE_LABELS,
@@ -40,10 +46,11 @@ import {
  * an optional phone number — prefilled from the Customer Session when one
  * exists, guest checkout otherwise.
  *
- * The phone is the one field that is optional and never prefilled or defaulted
- * (#103): it exists so the Payment Provider's hosted form arrives with nothing
- * left to type but the card, and a value the buyer did not enter would be the
- * static cardholder data PayPhone's rules prohibit.
+ * The phone is the one field that is optional, and it prefills only from the
+ * Customer's own stored number (#108). Nothing else ever gives it a value: no
+ * default, no placeholder, no filler. A number that appears in it is one the
+ * person themselves put on their profile — anything else would be the static
+ * cardholder data PayPhone's rules prohibit.
  *
  * Submitting asks this app's own /api/checkout route to begin the Payment
  * (the browser never addresses the Go API, ADR 0008) and then performs a
@@ -62,6 +69,8 @@ type SessionData = {
   last_name: string;
   tax_id_type: string | null;
   tax_id_number: string | null;
+  /** The stored phone in canonical E.164 form, null when the Customer has none. */
+  phone: string | null;
 };
 
 type TicketSelectionProps = {
@@ -145,11 +154,11 @@ export function TicketSelection({
   // market and the overwhelming majority of buyers — the common case should need
   // no interaction at all.
   //
-  // Both start where they start and stay there: this field is deliberately NOT
-  // prefilled from the Customer Session, and nothing anywhere gives it a value
-  // the buyer did not type. That is the whole safeguard behind the optional
-  // field — PayPhone's rules prohibit static or filler cardholder data, so an
-  // untouched field must submit nothing at all.
+  // They start empty and are filled in only from the Customer's OWN stored
+  // number, once the session read comes back (#108). Nothing else may write
+  // them: PayPhone's rules prohibit static or filler cardholder data, so a
+  // number in this field is always one the person themselves entered — here or,
+  // earlier, on their profile — and an untouched field submits nothing at all.
   const [phoneDiallingCode, setPhoneDiallingCode] = useState(ECUADOR_DIALLING_CODE);
   const [phoneNationalNumber, setPhoneNationalNumber] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -157,6 +166,7 @@ export function TicketSelection({
   const [submitting, setSubmitting] = useState(false);
   const prefillAttempted = useRef(false);
   const taxIdTouched = useRef(false);
+  const phoneTouched = useRef(false);
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -199,6 +209,28 @@ export function TicketSelection({
       if (!taxIdTouched.current && session.tax_id_type && session.tax_id_number && isTaxIdType(session.tax_id_type)) {
         setTaxIdType(session.tax_id_type);
         setTaxIdNumber(session.tax_id_number);
+      }
+      // The phone, on exactly the same terms and for the same reason: a
+      // returning Customer gives it once and never again (#108). The stored
+      // value is canonical E.164 and the form is two controls, so splitPhone
+      // resolves it back by longest-prefix match against the country table — a
+      // +1 number lands on whichever +1 row the table lists first, which is
+      // cosmetic and does not change the number submitted (#103).
+      //
+      // Touched is tracked with a flag rather than by testing the value, as the
+      // Tax ID's is: the selector always holds a dialling code, so there is no
+      // "empty" to test, and a buyer who deliberately typed a one-off number
+      // must never find their stored one back in its place.
+      //
+      // A number whose dialling code is in no row at all — only possible if the
+      // table shrinks under a number already stored — keeps Ecuador on the
+      // selector and shows the whole value in the field, mirroring what "My
+      // info" does. Showing a buyer their own number intact and letting the
+      // mirror check complain beats mangling it to fit a control.
+      if (!phoneTouched.current && session.phone) {
+        const { diallingCode, nationalNumber } = splitPhone(session.phone);
+        if (diallingCode !== "") setPhoneDiallingCode(diallingCode);
+        setPhoneNationalNumber(nationalNumber);
       }
     } catch {
       // Prefill is a convenience; its failure must never block a guest.
@@ -518,16 +550,20 @@ export function TicketSelection({
                   there instead. Making it required would move friction to the
                   screen where abandonment costs most, and would invite exactly
                   the junk input PayPhone's fraud rules punish — so there is no
-                  `required` here, and no default value anywhere. Country and
-                  number are one fact split across two controls, so they share a
-                  row like the Tax ID above. */}
+                  `required` here, and no value at all beyond the Customer's own
+                  stored number (#108). Country and number are one fact split
+                  across two controls, so they share a row like the Tax ID
+                  above. */}
               <div className="grid gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
                 <FormField id="checkout-phone-country" label="Country code">
                   <select
                     name="phone-country"
                     className={SELECT_CLASS}
                     value={phoneDiallingCode}
-                    onChange={(event) => setPhoneDiallingCode(event.target.value)}
+                    onChange={(event) => {
+                      phoneTouched.current = true;
+                      setPhoneDiallingCode(event.target.value);
+                    }}
                   >
                     {/* Keyed by name, valued by dialling code: the codes are not
                         unique (+1 covers the US, Canada and twenty more), so
@@ -552,7 +588,13 @@ export function TicketSelection({
                     inputMode="tel"
                     autoComplete="tel-national"
                     value={phoneNationalNumber}
-                    onChange={(event) => setPhoneNationalNumber(event.target.value)}
+                    onChange={(event) => {
+                      // Touched, and the prefill stops for good: a buyer
+                      // clearing this field means it to stay clear, and one
+                      // typing a one-off number means that number (#108).
+                      phoneTouched.current = true;
+                      setPhoneNationalNumber(event.target.value);
+                    }}
                   />
                 </FormField>
               </div>

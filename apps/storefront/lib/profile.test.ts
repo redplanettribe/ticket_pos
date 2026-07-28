@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ECUADOR_DIALLING_CODE, PHONE_ECUADOR_MESSAGE, PHONE_GENERIC_MESSAGE } from "./phone.ts";
 import {
+  profileDraftPhone,
   profileFieldErrorsFromDetails,
   profileUpdateBody,
   validateProfileDraft,
@@ -20,6 +22,8 @@ function draft(overrides: Partial<ProfileDraft> = {}): ProfileDraft {
     lastName: "Lopez",
     taxIdType: "cedula",
     taxIdNumber: VALID_CEDULA,
+    phoneDiallingCode: ECUADOR_DIALLING_CODE,
+    phoneNationalNumber: "",
     ...overrides,
   };
 }
@@ -62,8 +66,83 @@ test("sends trimmed names and a normalised Tax ID, and never an email", () => {
     last_name: "Lopez",
     tax_id_type: "passport",
     tax_id_number: "AB123456",
+    phone: null,
   });
   assert.equal("email" in body, false);
+});
+
+// The phone half of the same form (#108). The rule itself belongs to phone.ts
+// and is tested there against the backend's own table; what is asserted here is
+// how "My info" uses it — that the two controls assemble into one canonical
+// value, that an empty field is a clear rather than a complaint, and that a
+// stored number resolves back into the controls it was typed with.
+
+test("assembles the country and the national number into one canonical value", () => {
+  const body = profileUpdateBody(draft({ phoneNationalNumber: "098 765 4321" }));
+  assert.equal(body.phone, "+593987654321");
+});
+
+test("sends a foreign number under the country the selector holds", () => {
+  const body = profileUpdateBody(
+    draft({ phoneDiallingCode: "+44", phoneNationalNumber: "7911 123456" }),
+  );
+  assert.equal(body.phone, "+447911123456");
+});
+
+test("treats an empty phone field as clearing rather than as an error", () => {
+  // Withdrawing a stored number is a capability the Customer is owed (#103), so
+  // an emptied field must reach the API as an explicit null and not as silence.
+  assert.deepEqual(validateProfileDraft(draft({ phoneNationalNumber: "" })), {});
+  assert.deepEqual(validateProfileDraft(draft({ phoneNationalNumber: "   " })), {});
+  assert.equal(profileUpdateBody(draft({ phoneNationalNumber: "  " })).phone, null);
+});
+
+test("rejects a phone the API would reject, in the API's own words", () => {
+  // An Ecuadorian landline: a real number, refused because the hosted payment
+  // form wants a cardholder's mobile.
+  assert.equal(
+    validateProfileDraft(draft({ phoneNationalNumber: "22345678" })).phone,
+    PHONE_ECUADOR_MESSAGE,
+  );
+  // A mobile a digit short gets the same tier's message.
+  assert.equal(
+    validateProfileDraft(draft({ phoneNationalNumber: "98765432" })).phone,
+    PHONE_ECUADOR_MESSAGE,
+  );
+  // Everywhere else, the permissive tier and its wording.
+  assert.equal(
+    validateProfileDraft(draft({ phoneDiallingCode: "+1", phoneNationalNumber: "202555012345678" }))
+      .phone,
+    PHONE_GENERIC_MESSAGE,
+  );
+});
+
+test("resolves a stored number back into the two controls that typed it", () => {
+  assert.deepEqual(profileDraftPhone("+593987654321"), {
+    phoneDiallingCode: "+593",
+    phoneNationalNumber: "987654321",
+  });
+  assert.deepEqual(profileDraftPhone("+447911123456"), {
+    phoneDiallingCode: "+44",
+    phoneNationalNumber: "7911123456",
+  });
+});
+
+test("opens on Ecuador and an empty field for a Customer with no stored number", () => {
+  // Unchanged from the state the checkout dialog opens in: the home market is
+  // the common case and should need no interaction at all.
+  assert.deepEqual(profileDraftPhone(null), {
+    phoneDiallingCode: ECUADOR_DIALLING_CODE,
+    phoneNationalNumber: "",
+  });
+});
+
+test("a stored number survives the round trip through the form untouched", () => {
+  // The property that makes the prefill safe: opening "My info" and pressing
+  // Save without touching the phone stores exactly what was there before.
+  const stored = "+593987654321";
+  const body = profileUpdateBody(draft(profileDraftPhone(stored)));
+  assert.equal(body.phone, stored);
 });
 
 test("reads the API's field errors and ignores fields the form has no input for", () => {

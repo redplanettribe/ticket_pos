@@ -30,6 +30,15 @@ type CustomerProfileView struct {
 	LastName    string  `json:"last_name"`
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// The Customer's stored phone number in canonical E.164 form, null when they
+	// have none (#108). Shown here so a person can see, correct, and withdraw the
+	// number the platform holds about them without starting a checkout — the last
+	// of which is a capability in its own right, not an oversight.
+	//
+	// Canonical, not split: the Storefront resolves it back into a country
+	// selection and a national number for display, because that is a presentation
+	// concern and nothing below the form ever wants the halves (#103).
+	Phone *string `json:"phone"`
 	// The Customer's Avatar as a browser-loadable URL, null when they have none.
 	// Attaching and removing one goes through the avatar endpoints (avatar.go),
 	// never through the profile PATCH.
@@ -48,11 +57,19 @@ type CustomerProfileView struct {
 // TaxIDType and TaxIDNumber are nil together to clear the Tax ID and set
 // together to assert one. Half a pair is not representable by the time it gets
 // here, which is the point: the two halves are one fact.
+//
+// The phone is the one field on this input that can say nothing at all.
+// PhoneSet false means the request never mentioned it and the stored number must
+// not move; set with a nil Phone is the Customer withdrawing it; set with a value
+// is a number the handler has already put through platform.ValidatePhone, so
+// what arrives here is canonical E.164 and nothing else (#108).
 type UpdateProfileInput struct {
 	FirstName   string
 	LastName    string
 	TaxIDType   *string
 	TaxIDNumber *string
+	PhoneSet    bool
+	Phone       *string
 }
 
 // UpdateProfile writes the signed-in Customer's name and Tax ID and returns the
@@ -85,6 +102,8 @@ func (s *Service) UpdateProfile(ctx context.Context, token string, in UpdateProf
 		LastName:    in.LastName,
 		TaxIDType:   in.TaxIDType,
 		TaxIDNumber: in.TaxIDNumber,
+		PhoneSet:    in.PhoneSet,
+		Phone:       in.Phone,
 	})
 	if err != nil {
 		return nil, err
@@ -108,6 +127,10 @@ func (s *Service) profileView(customer *repository.Customer) *CustomerProfileVie
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String
 		view.TaxIDType, view.TaxIDNumber = &taxIDType, &taxIDNumber
+	}
+	if customer.Phone.Valid {
+		phone := customer.Phone.String
+		view.Phone = &phone
 	}
 	return view
 }
