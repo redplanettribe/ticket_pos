@@ -20,8 +20,14 @@ import {
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
-import type { PublicTicketType } from "@/lib/api";
-import { clampQuantity, selectionLines, totalCents, totalQuantity } from "@/lib/checkout";
+import type { BeginCheckoutResult, PublicTicketType } from "@/lib/api";
+import {
+  checkoutDestination,
+  clampQuantity,
+  selectionLines,
+  totalCents,
+  totalQuantity,
+} from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
 import {
   COUNTRIES,
@@ -299,7 +305,7 @@ export function TicketSelection({
           lines: selectionLines(quantities),
         }),
       });
-      const envelope = (await response.json()) as Envelope<{ redirect_url: string }>;
+      const envelope = (await response.json()) as Envelope<BeginCheckoutResult>;
       if (!response.ok || envelope.error || !envelope.data) {
         const apiError = envelope.error;
         setFieldErrors(fieldErrorsFromDetails(apiError?.details));
@@ -310,10 +316,22 @@ export function TicketSelection({
         setSubmitting(false);
         return;
       }
-      // Full-page navigation to the provider's hosted payment page. submitting
-      // stays true so the button cannot fire a second Payment while the
-      // browser unloads.
-      window.location.assign(envelope.data.redirect_url);
+      const destination = checkoutDestination(envelope.data);
+      if (!destination) {
+        // The API accepted the checkout but named nowhere to go, so there is
+        // nothing truthful to navigate to. Say so rather than assign a missing
+        // redirect_url, which the browser would resolve against this event page.
+        setError({
+          code: null,
+          message: "The checkout could not be started. Please try again.",
+        });
+        setSubmitting(false);
+        return;
+      }
+      // Full-page navigation: to the provider's hosted payment page, or straight
+      // to the confirmation when there was nothing to pay. submitting stays true
+      // so the button cannot fire a second Payment while the browser unloads.
+      window.location.assign(destination);
     } catch {
       setError({
         code: null,

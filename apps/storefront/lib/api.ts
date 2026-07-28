@@ -351,10 +351,23 @@ export type BeginCheckoutRequest = {
   lines: { ticket_type_id: string; quantity: number }[];
 };
 
-/** What begin-checkout returns: our id for the attempt and where to send the Customer. */
+/**
+ * What begin-checkout returns: our id for the attempt, how it was left, and
+ * where to send the Customer next.
+ *
+ * The two settlements are mutually exclusive and the absent field says which
+ * happened. A cart with money to collect is left `pending` and carries the
+ * provider's `redirect_url`; one that costs nothing is already `approved` and
+ * carries the `confirmation_ref` of the Ticket Sale it recorded, with no
+ * redirect because there is nowhere to send anybody (ADR 0017).
+ */
 export type BeginCheckoutResult = {
   client_transaction_id: string;
-  redirect_url: string;
+  status: "pending" | "approved";
+  /** Set only on a pending checkout — where the buyer goes to pay. */
+  redirect_url?: string;
+  /** Set only on an approved checkout — the buyer has their tickets already. */
+  confirmation_ref?: string;
   amount_cents: number;
   currency: string;
 };

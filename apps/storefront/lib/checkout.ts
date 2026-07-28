@@ -155,6 +155,29 @@ export function parseProviderReturn(params: URLSearchParams): {
   return { clientTransactionId, providerParams };
 }
 
+/**
+ * checkoutDestination decides where a begun checkout sends the buyer. A cart
+ * with money to collect goes to the Payment Provider's hosted page; one that
+ * cost nothing settled on the spot and goes straight to the terminal success
+ * page — the same place the provider return leg lands (ADR 0017).
+ *
+ * Returns null when the API said neither, because there is nowhere honest to
+ * go. Navigating to a redirect_url that was never sent is what put buyers on
+ * `/{orgSlug}/events/undefined`: the browser resolves the string "undefined"
+ * against the event page it came from.
+ */
+export function checkoutDestination(result: {
+  status?: string;
+  redirect_url?: string;
+  confirmation_ref?: string;
+}): string | null {
+  if (result.status === "approved" && result.confirmation_ref) {
+    return `/checkout/success?ref=${encodeURIComponent(result.confirmation_ref)}`;
+  }
+  const redirect = result.redirect_url?.trim();
+  return redirect ? redirect : null;
+}
+
 // --- Checkout context ------------------------------------------------------
 
 /**

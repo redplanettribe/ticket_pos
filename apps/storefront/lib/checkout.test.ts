@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  checkoutDestination,
   clampQuantity,
   parseProviderReturn,
   parseStubPaymentRequest,
@@ -140,4 +141,37 @@ test("parseProviderReturn reads PayPhone's return shape and relays id verbatim",
 test("parseProviderReturn yields an empty id when neither spelling is present", () => {
   const { clientTransactionId } = parseProviderReturn(new URLSearchParams({ id: "12345" }));
   assert.equal(clientTransactionId, "");
+});
+
+test("checkoutDestination sends a pending checkout to the provider's page", () => {
+  assert.equal(
+    checkoutDestination({
+      status: "pending",
+      redirect_url: "https://pay.example/hosted/abc",
+    }),
+    "https://pay.example/hosted/abc",
+  );
+});
+
+test("checkoutDestination sends an approved checkout straight to the confirmation", () => {
+  assert.equal(
+    checkoutDestination({ status: "approved", confirmation_ref: "TP-2026-0042" }),
+    "/checkout/success?ref=TP-2026-0042",
+  );
+});
+
+test("checkoutDestination encodes the confirmation reference", () => {
+  assert.equal(
+    checkoutDestination({ status: "approved", confirmation_ref: "a b&c" }),
+    "/checkout/success?ref=a%20b%26c",
+  );
+});
+
+test("checkoutDestination refuses a checkout that named nowhere to go", () => {
+  // The shape that put buyers on /{orgSlug}/events/undefined: approved with no
+  // redirect_url, read as though there were one.
+  assert.equal(checkoutDestination({ status: "approved" }), null);
+  assert.equal(checkoutDestination({ status: "pending" }), null);
+  assert.equal(checkoutDestination({ status: "pending", redirect_url: "  " }), null);
+  assert.equal(checkoutDestination({}), null);
 });
