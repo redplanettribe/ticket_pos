@@ -1952,8 +1952,11 @@ paths:
         provider was asked and would not reverse it: the response carries the Sale
         Confirmation reference and makes no claim about the cause, because the provider
         publishes no code meaning the deadline passed, and the provider''s own error
-        code goes to the log only. Pressing twice reverses once: the second request
-        is refused as already reversed and capacity is never restored twice.'
+        code goes to the log only. Pressing twice reverses once, whether the presses
+        are sequential or simultaneous: attempts on one Ticket Sale are serialised
+        for the whole attempt including the call to the Payment Provider, so the second
+        is refused as already reversed (SALE_ALREADY_REVERSED), the provider is asked
+        exactly once, and capacity is never restored twice.'
       parameters:
       - description: Ticket Sale id
         in: path
