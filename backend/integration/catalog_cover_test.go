@@ -6,11 +6,21 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-type mockObjectStorage struct{}
+// mockObjectStorage stands in for the bucket. Deletes are recorded rather than
+// performed, because delete-on-replace (#134) is best-effort and swallowed: the
+// only way a test can see it happen — or see a failure NOT surface — is a
+// recorder. Guarded by a mutex because the storage is shared by every request
+// the test server handles.
+type mockObjectStorage struct {
+	mu        sync.Mutex
+	deleted   []string
+	deleteErr error
+}
 
 func (m *mockObjectStorage) Put(ctx context.Context, key, contentType string, body io.Reader) error {
 	return nil
@@ -22,6 +32,38 @@ func (m *mockObjectStorage) PresignPut(ctx context.Context, key, contentType str
 
 func (m *mockObjectStorage) PublicURL(key string) string {
 	return "https://storage.example/" + key
+}
+
+// Delete records the attempt and then fails if the test asked it to, so a
+// failing delete is still observable as an attempt.
+func (m *mockObjectStorage) Delete(ctx context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deleted = append(m.deleted, key)
+	return m.deleteErr
+}
+
+// deletedKeys returns a copy of the keys deletion was attempted for, in order.
+func (m *mockObjectStorage) deletedKeys() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.deleted))
+	copy(out, m.deleted)
+	return out
+}
+
+// failDeletes makes every subsequent Delete return err. Cleared by reset.
+func (m *mockObjectStorage) failDeletes(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deleteErr = err
+}
+
+func (m *mockObjectStorage) reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deleted = nil
+	m.deleteErr = nil
 }
 
 func TestCatalogCoverUploadURL(t *testing.T) {
