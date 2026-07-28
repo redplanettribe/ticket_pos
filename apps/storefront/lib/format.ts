@@ -45,6 +45,27 @@ export function formatEventDateTime(startsAt: string | null, timezone: string | 
   return `${day} · ${time}`;
 }
 
+/**
+ * The platform's own wall clock, and the zone the Reversal Window's 20:00 cutoff
+ * is stated in (ADR 0018). It is the same for every Event on the platform no
+ * matter where the Event is, and it must never be confused with an Event's own
+ * timezone — that one interprets the Event's schedule and nothing else.
+ */
+export const ECUADOR_TIME_ZONE = "America/Guayaquil";
+
+/**
+ * The instant a Reversal Window closes, drawn in Ecuador time: "Tue, Jul 7 ·
+ * 8:00 PM".
+ *
+ * A deadline set by an Ecuadorian wall-clock rule is read in Ecuadorian
+ * wall-clock time, so the "8:00 PM" a buyer sees is the same 8:00 PM the rule
+ * names. Drawing it in the Event's timezone — the obvious-looking thing to do on
+ * a card about an Event — would print a deadline nobody's clock agrees with.
+ */
+export function formatReversalDeadline(closesAt: string): string | null {
+  return formatEventDateShort(closesAt, ECUADOR_TIME_ZONE);
+}
+
 // Compact form for cards: "Sat, Jul 12 · 7:00 PM".
 export function formatEventDateShort(startsAt: string | null, timezone: string | null): string | null {
   if (!startsAt) return null;

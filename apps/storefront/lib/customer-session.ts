@@ -157,6 +157,21 @@ export type TicketSale = {
    */
   tax_id_type: string | null;
   tax_id_number: string | null;
+  /**
+   * Whether this Ticket Sale is inside its Reversal Window right now (#118), and
+   * the instant that window closes — the earlier of 20:00 Ecuador time on the day
+   * of purchase or the Event's start.
+   *
+   * The API answers both together: `reversal_window_closes_at` is null whenever
+   * `reversible` is false, so there is no closed deadline for this app to draw by
+   * mistake. Only an active Online Sale is ever reversible, and a free claim is
+   * reported exactly like a paid purchase.
+   *
+   * Nothing acts on this yet. The Customer Area only tells the Customer how long
+   * they have; the undo itself is a later ticket.
+   */
+  reversible: boolean;
+  reversal_window_closes_at: string | null;
 };
 
 /** The Customer Area read: purchases split into what is still to come and what has happened. */

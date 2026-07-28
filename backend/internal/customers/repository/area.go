@@ -20,8 +20,17 @@ type TicketSaleLineRow struct {
 // Organization that sold it, what was bought, and the Sale Confirmation
 // reference the Customer can quote to a promoter.
 type TicketSaleRow struct {
-	ID               string
-	ConfirmationRef  string
+	ID              string
+	ConfirmationRef string
+	// Channel is the Sales Channel the sale was recorded on: 'online',
+	// 'in_person' or 'import'. The Customer Area reads it for one reason — the
+	// Reversal Window belongs to an Online Sale alone, since a sale the platform
+	// never collected for is not a sale the platform can undo (ADR 0018).
+	Channel string
+	// SoldAt on an Online Sale is the instant its Payment was approved: the sale
+	// is committed in the SAME transaction that flips the Payment to approved, so
+	// there is no second instant to carry. That equality is what lets the
+	// Reversal Window be computed from this row without reading `payments`.
 	SoldAt           time.Time
 	Status           string
 	AmountCents      int
@@ -66,6 +75,7 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 		SELECT
 			ts.id,
 			ts.confirmation_ref,
+			ts.channel,
 			ts.sold_at,
 			ts.status,
 			lines.amount_cents,
@@ -111,6 +121,7 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 		if err := rows.Scan(
 			&s.ID,
 			&s.ConfirmationRef,
+			&s.Channel,
 			&s.SoldAt,
 			&s.Status,
 			&s.AmountCents,

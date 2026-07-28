@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Badge } from "@ticket-pos/ui";
 
 import type { TicketSale } from "@/lib/customer-session";
-import { formatEventDateTime, formatPrice } from "@/lib/format";
+import { formatEventDateTime, formatPrice, formatReversalDeadline } from "@/lib/format";
 import { formatTaxId } from "@/lib/tax-id";
 
 /**
@@ -21,6 +21,16 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
   // feature — and imported ones that never carried an ID — show a plain "—";
   // history is never backfilled, so an honest blank is the whole rendering.
   const taxId = formatTaxId(sale.tax_id_type, sale.tax_id_number);
+  // The Reversal Window, when this sale is inside one (#118). The API answers
+  // `reversible` and the closing instant together and sends null for the second
+  // whenever the first is false, so a sale that cannot be undone has no deadline
+  // to draw and this card says nothing at all about reversing. There is no undo
+  // button yet — the Customer is told how long they have, and that is the whole
+  // of this release.
+  const reversalDeadline =
+    sale.reversible && sale.reversal_window_closes_at
+      ? formatReversalDeadline(sale.reversal_window_closes_at)
+      : null;
 
   return (
     <li className="rounded-lg border bg-card p-5 sm:p-6">
@@ -76,6 +86,16 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
           </p>
         </div>
       </div>
+
+      {/* The deadline is named in Ecuador time and says so: it is the platform's
+          own wall clock, not the Event's, and a buyer whose show is abroad would
+          otherwise have no way to tell which 8:00 PM was meant. */}
+      {reversalDeadline ? (
+        <p className="mt-4 border-t pt-4 text-sm text-muted-foreground">
+          You can cancel this purchase until{" "}
+          <span className="font-medium text-foreground">{reversalDeadline}</span> Ecuador time.
+        </p>
+      ) : null}
     </li>
   );
 }

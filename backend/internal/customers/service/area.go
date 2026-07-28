@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // TicketSaleLineView is one Ticket Type and the quantity bought within a Ticket
@@ -58,6 +59,25 @@ type TicketSaleView struct {
 	// client draws "—" rather than a value nobody supplied.
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// Reversible reports whether this Ticket Sale is inside its Reversal Window
+	// right now (ADR 0018) — whether the Customer could undo it themselves.
+	//
+	// It is an answer about this instant and nothing more. It is not a promise:
+	// the window is offered, not guaranteed, and a true here read a minute ago
+	// may be a refusal a minute from now. Nothing acts on it yet; this release
+	// only reports it.
+	//
+	// It is false for everything that is not an Online Sale — an In-Person Sale
+	// or an imported one was never collected by the platform, so the platform has
+	// nothing to give back — and false for a Ticket Sale already reversed.
+	Reversible bool `json:"reversible"`
+	// ReversalWindowClosesAt is the instant the Reversal Window shuts, RFC3339 in
+	// UTC, so the Customer can be told how long they have.
+	//
+	// Null whenever Reversible is false, and deliberately so: a closing time on a
+	// sale nobody may reverse is a deadline that means nothing, and a client that
+	// cannot draw one cannot mislead somebody with it.
+	ReversalWindowClosesAt *string `json:"reversal_window_closes_at"`
 }
 
 // CustomerAreaView is the signed-in Customer's purchases, split into what is
@@ -110,8 +130,8 @@ func (s *Service) GetCustomerArea(ctx context.Context, token string) (*CustomerA
 	sortByEventDate(past, false)
 
 	area := &CustomerAreaView{
-		Upcoming: ticketSaleViews(upcoming),
-		Past:     ticketSaleViews(past),
+		Upcoming: ticketSaleViews(upcoming, now),
+		Past:     ticketSaleViews(past, now),
 	}
 	return area, nil
 }
@@ -153,12 +173,43 @@ func eventMoment(sale repository.TicketSaleRow) (time.Time, bool) {
 	}
 }
 
-func ticketSaleViews(sales []repository.TicketSaleRow) []TicketSaleView {
+func ticketSaleViews(sales []repository.TicketSaleRow, now time.Time) []TicketSaleView {
 	views := make([]TicketSaleView, 0, len(sales))
 	for _, sale := range sales {
-		views = append(views, ticketSaleView(sale))
+		views = append(views, ticketSaleView(sale, now))
 	}
 	return views
+}
+
+// onlineChannel is the Sales Channel a Reversal Window can exist on. The other
+// two — in_person and import — record money the platform never touched.
+const onlineChannel = "online"
+
+// activeStatus is the Ticket Sale that still stands. A reversed one has already
+// been undone and cannot be undone again.
+const activeStatus = "active"
+
+// reversalWindow is the Reversal Window of one Ticket Sale, and nil when the sale
+// can have none at all.
+//
+// Three things disqualify a sale outright, before any clock is consulted: a
+// Sales Channel other than online, a sale already reversed, and an Event with no
+// recorded start. The last cannot happen for an Online Sale — publishing requires
+// a start and a valid timezone, and only a published Event is sellable — but the
+// row type admits a null, and inventing a start for one would invent a deadline.
+//
+// Notice what is absent: the amount and the Payment Method. A free Online Sale
+// settled by the platform, with no Payment Provider anywhere in it, reaches
+// platform.NewReversalWindow on exactly the terms a PayPhone sale does. The
+// window is a platform rule, not a provider one (ADR 0018).
+func reversalWindow(sale repository.TicketSaleRow) *platform.ReversalWindow {
+	if sale.Channel != onlineChannel || sale.Status != activeStatus || !sale.EventStartsAt.Valid {
+		return nil
+	}
+	// SoldAt is the Payment approval instant on an Online Sale: the sale is
+	// committed in the same transaction that approves the Payment.
+	window := platform.NewReversalWindow(sale.SoldAt, sale.EventStartsAt.Time)
+	return &window
 }
 
 // isUpcoming reports whether a Ticket Sale's Event is still ahead of the
@@ -176,7 +227,17 @@ func isUpcoming(sale repository.TicketSaleRow, now time.Time) bool {
 	}
 }
 
-func ticketSaleView(sale repository.TicketSaleRow) TicketSaleView {
+func ticketSaleView(sale repository.TicketSaleRow, now time.Time) TicketSaleView {
+	// The Reversal Window is reported only while it is actually open. A closed or
+	// never-opened window says nothing at all rather than publishing a deadline
+	// that has already gone.
+	var reversible bool
+	var closesAt *string
+	if window := reversalWindow(sale); window != nil && window.IsOpenAt(now) {
+		reversible = true
+		closesAt = timePtr(true, window.ClosesAt)
+	}
+
 	lines := make([]TicketSaleLineView, 0, len(sale.Lines))
 	for _, l := range sale.Lines {
 		lines = append(lines, TicketSaleLineView{
@@ -208,8 +269,10 @@ func ticketSaleView(sale repository.TicketSaleRow) TicketSaleView {
 			Name: sale.OrganizationName,
 			Slug: sale.OrganizationSlug,
 		},
-		TaxIDType:   stringPtr(sale.TaxIDType.Valid, sale.TaxIDType.String),
-		TaxIDNumber: stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
+		TaxIDType:              stringPtr(sale.TaxIDType.Valid, sale.TaxIDType.String),
+		TaxIDNumber:            stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
+		Reversible:             reversible,
+		ReversalWindowClosesAt: closesAt,
 	}
 }
 
