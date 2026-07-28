@@ -18,7 +18,7 @@ function formatRole(role: string): string {
 function MembershipDetails({ membership }: { membership: Membership }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <OrgAvatar logoUrl={membership.organization_logo_url} name={membership.organization_name} />
+      <OrgAvatar logoUrl={membership.organization_logo_url} name={membership.organization_name} shape="tile" />
       <div className="min-w-0">
         <p className="font-medium">{membership.organization_name}</p>
         <p className="text-sm text-muted-foreground">
