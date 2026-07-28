@@ -2438,16 +2438,21 @@ paths:
         is a later event on the Sale). On commit the sale carries the third reversal
         actor `operator` with the acting operator''s email (taken from the Staff Session,
         never from the body) and the moment, capacity returns to the Ticket Types,
-        and the buyer receives the same Sale Voided email every reversal sends. refunded_amount_cents
-        is required, strictly positive and at most what the sale collected, with no
-        pre-fill; platform_fee_kept is required with no default (the Platform Fee
-        and its Fee IVA travel together, so one flag decides both); note is optional
-        and at most 500 characters. There is NO Reversal Window check on this path
-        — a sale inside its window is marked exactly as one past it, which is the
-        point of the operation. Refused for a sale that is not an Online Sale (an
-        imported sale is undone through its Sale Import) and for one already reversed,
-        including when the buyer''s own undo committed first. Irreversible: no un-reversal
-        exists. Platform Operator only.'
+        and the buyer receives the same Sale Voided email every reversal sends. The
+        money memo depends on what the sale COLLECTED. On a paid sale refunded_amount_cents
+        and platform_fee_kept are both required, with no pre-fill and no default:
+        the amount is strictly positive and at most what the sale collected, and the
+        one fee flag decides both the Platform Fee and its Fee IVA, which always travel
+        together. On a FREE Online Sale both are refused — it collected nothing, so
+        there was nothing to refund and no fee to keep, and the record says so with
+        nulls rather than zeros. The two always travel together: giving one without
+        the other is refused on any sale. note is optional and at most 500 characters
+        on both. There is NO Reversal Window check on this path — a sale inside its
+        window is marked exactly as one past it, which is the point of the operation.
+        Refused for a sale that is not an Online Sale (an imported sale is undone
+        through its Sale Import) and for one already reversed, including when the
+        buyer''s own undo committed first. Irreversible: no un-reversal exists. Platform
+        Operator only.'
       parameters:
       - description: Sale Confirmation reference (case-insensitive)
         in: path
