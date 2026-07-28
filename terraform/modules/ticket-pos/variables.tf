@@ -125,7 +125,7 @@ variable "storage_bucket_name" {
 }
 
 variable "storage_cors_origins" {
-  description = "Origins allowed to PUT to the bucket. This is the Staff app's origin: browsers upload cover images and logos directly using presigned URLs, so an origin missing here fails uploads in production while working against MinIO locally."
+  description = "Origins allowed to PUT to the bucket: every browser-facing surface that uploads directly with a presigned URL. Staff does cover images and logos, the Storefront does Customer Avatars. An origin missing here fails uploads in production while working against MinIO locally."
   type        = list(string)
 
   validation {

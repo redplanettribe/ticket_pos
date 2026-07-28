@@ -103,14 +103,16 @@ gcloud and the console. Both must be flipped off, in two applies, before the ins
 Single-zone is deliberate and recorded in ADR 0007. Regional HA is `availability_type = "REGIONAL"` in
 `cloud_sql.tf` — an in-place update, not a recreate, and roughly double the bill.
 
-**Bucket.** One public-read bucket for `covers/` and `logos/`. Two things about it matter:
+**Bucket.** One public-read bucket for `covers/`, `logos/`, and `avatars/`. Two things about it matter:
 
 - *Everything in it is world-readable to anyone with the URL, forever.* The `allUsers` grant is
   bucket-wide and uniform access gives no per-object escape. Nothing private goes here.
 - *The CORS rule is load-bearing.* The API hands the browser a presigned PUT URL and the browser uploads
-  directly, cross-origin, from the Staff app. MinIO is permissive by default, so a missing origin here is
-  invisible locally and surfaces in production as an opaque browser network error on every image upload.
-  The origin comes from `staff_origin` in `envs/prod/terraform.tfvars`.
+  directly, cross-origin — from Staff for covers and logos, from the Storefront for Customer Avatars.
+  MinIO is permissive by default, so a missing origin here is invisible locally and surfaces in production
+  as an opaque browser network error on every image upload. The origins come from `staff_origin` and
+  `storefront_origin` in `envs/prod/terraform.tfvars`; a new browser surface that uploads needs its origin
+  added to both.
 
 Access is via the S3-compatible API with an HMAC key, so `platform/storage` runs the same code against
 GCS and MinIO (ADR 0007). The key belongs to a dedicated service account holding `objectAdmin` on this

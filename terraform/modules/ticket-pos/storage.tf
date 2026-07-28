@@ -24,10 +24,11 @@ resource "google_storage_bucket" "media" {
   force_destroy = false
 
   # The application uploads through presigned PUT URLs, which means the *browser*
-  # makes the request, cross-origin, from the Staff app. A cross-origin PUT is
-  # preflighted, and a bucket with no CORS configuration answers the preflight
-  # with a failure the browser reports only as an opaque network error. MinIO is
-  # permissive by default, so an upload path that works locally breaks here.
+  # makes the request, cross-origin — from Staff for covers and logos, from the
+  # Storefront for Customer Avatars. A cross-origin PUT is preflighted, and an
+  # origin the bucket does not list gets a preflight failure the browser reports
+  # only as an opaque network error. MinIO is permissive by default, so an upload
+  # path that works locally breaks here.
   cors {
     origin = var.storage_cors_origins
     method = ["GET", "HEAD", "PUT", "OPTIONS"]

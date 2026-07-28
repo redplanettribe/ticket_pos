@@ -8,10 +8,12 @@ module "ticket_pos" {
   region      = var.region
   environment = "prod"
 
-  # The Staff app's production origin. Browsers PUT cover images and logos
-  # straight to the bucket with presigned URLs, so this is the origin the
-  # bucket's CORS policy has to accept. It is a prod fact, hence it lives here.
-  storage_cors_origins = [var.staff_origin]
+  # Both browser-facing origins. Browsers PUT straight to the bucket with
+  # presigned URLs — cover images and logos from Staff, Customer Avatars from the
+  # Storefront — so both origins have to be in the bucket's CORS policy or the
+  # preflight fails and the upload dies as an opaque network error. Prod facts,
+  # hence they live here.
+  storage_cors_origins = [var.staff_origin, var.storefront_origin]
 
   # The hostnames the two browser-facing surfaces answer on. Prod facts, so they
   # live here; the module treats them as optional and skips the domain mappings
