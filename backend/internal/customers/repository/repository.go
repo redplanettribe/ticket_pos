@@ -30,7 +30,20 @@ type UpsertInput struct {
 	// TaxID is the Tax ID this sale was transacted under, unset on a sale that
 	// carries none (the `import` channel). Its SelfAsserted flag decides whether
 	// a Verified Customer's stored Tax ID may be overwritten; see Upsert.
+	//
+	// That flag describes the *checkout*, not the Tax ID: it reports that the
+	// begin-checkout ran under this Customer's own full Customer Session. Phone
+	// below is guarded by the same flag for that reason (#107).
 	TaxID platform.SaleTaxID
+	// Phone is the buyer's phone number in canonical E.164 form as typed at
+	// checkout, empty when they gave none or when the channel never collects one
+	// (import, and the staff-recorded sale). It is written back onto the Customer
+	// under the same guard as the Tax ID; see Upsert.
+	//
+	// Unlike the Tax ID it is NOT recorded on the Ticket Sale — a phone number is
+	// no fiscal fact of a sale (#103, #107) — so this is the only column any of
+	// it reaches.
+	Phone string
 	Now   time.Time
 }
 
@@ -75,16 +88,44 @@ type UpsertInput struct {
 // A sale carrying no Tax ID at all — the `import` channel, where the ID may
 // never have been collected — writes nothing: the EXCLUDED-is-not-null guard
 // below means an import can never blank a Tax ID somebody supplied.
+//
+// The phone (#107, parent #103) is guarded IDENTICALLY to the Tax ID, clause for
+// clause, and that is a deliberate copy rather than an accident of shape. The
+// tampering vector is the same one: anyone can type a known email address into a
+// guest checkout, so without the guard a stranger could silently rewrite a
+// Verified Customer's stored number — and a phone is if anything more likely
+// than a Tax ID to be used later as a support identity check. The three arms
+// that open the write are the same three, for the same reasons: a Customer who
+// has never set a phone may be seeded by any checkout, an unverified record
+// self-corrects until somebody claims it, and a checkout under the person's own
+// Customer Session is that person restating a fact about themselves.
+//
+// It reads $7 — in.TaxID.SelfAsserted — because that flag describes the
+// CHECKOUT, not the Tax ID: it records that the begin-checkout carried this
+// Customer's own full Customer Session. It is the same proof of email ownership
+// whichever value it is protecting, so the phone reuses it rather than
+// duplicating a second flag that could only ever hold the same boolean.
+//
+// A checkout that carried no phone leaves EXCLUDED.phone NULL and writes
+// nothing: like the import channel and the Tax ID, an absent value never blanks
+// one somebody supplied. Clearing a phone is "My info"'s alone (#108).
 func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (string, error) {
 	var taxIDType, taxIDNumber any
 	if in.TaxID.Set() {
 		taxIDType, taxIDNumber = in.TaxID.Type, in.TaxID.Number
 	}
+	// nil, not "": the guard below distinguishes "the buyer gave a phone" from
+	// "they did not" by NULL-ness, and an empty string is a value that would
+	// pass IS NOT NULL and blank a stored number.
+	var phone any
+	if in.Phone != "" {
+		phone = in.Phone
+	}
 
 	var id string
 	err := tx.QueryRowContext(ctx, `
-		INSERT INTO customers (email, first_name, last_name, tax_id_type, tax_id_number, created_at)
-		VALUES ($1, $2, $3, $5, $6, $4)
+		INSERT INTO customers (email, first_name, last_name, tax_id_type, tax_id_number, phone, created_at)
+		VALUES ($1, $2, $3, $5, $6, $8, $4)
 		ON CONFLICT (email) DO UPDATE SET
 			first_name = CASE WHEN customers.verified_at IS NULL OR (customers.first_name = '' AND customers.last_name = '')
 				THEN EXCLUDED.first_name ELSE customers.first_name END,
@@ -95,9 +136,12 @@ func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (st
 				THEN EXCLUDED.tax_id_type ELSE customers.tax_id_type END,
 			tax_id_number = CASE WHEN EXCLUDED.tax_id_number IS NOT NULL
 				AND (customers.tax_id_type IS NULL OR customers.verified_at IS NULL OR $7)
-				THEN EXCLUDED.tax_id_number ELSE customers.tax_id_number END
+				THEN EXCLUDED.tax_id_number ELSE customers.tax_id_number END,
+			phone = CASE WHEN EXCLUDED.phone IS NOT NULL
+				AND (customers.phone IS NULL OR customers.verified_at IS NULL OR $7)
+				THEN EXCLUDED.phone ELSE customers.phone END
 		RETURNING id
-	`, in.Email, in.FirstName, in.LastName, in.Now, taxIDType, taxIDNumber, in.TaxID.SelfAsserted).Scan(&id)
+	`, in.Email, in.FirstName, in.LastName, in.Now, taxIDType, taxIDNumber, in.TaxID.SelfAsserted, phone).Scan(&id)
 	if err != nil {
 		return "", err
 	}

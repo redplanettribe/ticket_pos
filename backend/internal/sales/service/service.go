@@ -70,7 +70,13 @@ type CustomerService interface {
 	// carries none); what the customers module does with it — fill, refresh, or
 	// leave a verified assertion alone — is that module's rule, not this one's
 	// (ADR 0016).
-	UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, now time.Time) (string, error)
+	//
+	// phone is the number the buyer typed at checkout, canonical E.164 and empty
+	// on every channel that collects none (#107). Sales carries it here and no
+	// further: it is deliberately absent from the Ticket Sale, so this seam is
+	// the whole of its journey out of this module, and whether it may overwrite
+	// what the Customer already holds is likewise the customers module's rule.
+	UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, phone string, now time.Time) (string, error)
 	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
 	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
 	// when it has no schedule; how long the link then lives is the customers
