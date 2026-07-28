@@ -1601,6 +1601,13 @@ const docTemplate = `{
                     "fee_iva_cents": {
                         "type": "integer"
                     },
+                    "kept_fee_cents": {
+                        "description": "KeptFeeCents and KeptFeeIVACents are the part of the two figures above\nthat stands on reversed sales, because an Operator Reversal stated the\nplatform kept its commission on the refunded sale (#127). They are already\nincluded in PlatformFeeCents and FeeIVACents — never add them again — and\ntravel together like every fee figure here. Zero means no Operator\nReversal has ever kept a fee, and the dashboard then says nothing.",
+                        "type": "integer"
+                    },
+                    "kept_fee_iva_cents": {
+                        "type": "integer"
+                    },
                     "platform_fee_cents": {
                         "type": "integer"
                     },

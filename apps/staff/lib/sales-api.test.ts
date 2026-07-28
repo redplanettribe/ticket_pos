@@ -67,6 +67,10 @@ test("reversalLabel names when the sale went and which side asked", () => {
     reversalLabel("2026-07-07T12:00:00Z", "staff", "UTC"),
     "Jul 7, 2026, 12:00 PM by Staff",
   );
+  assert.equal(
+    reversalLabel("2026-07-07T12:00:00Z", "operator", "UTC"),
+    "Jul 7, 2026, 12:00 PM by The platform",
+  );
 });
 
 test("reversalLabel says so plainly when nothing was recorded", () => {
@@ -75,8 +79,8 @@ test("reversalLabel says so plainly when nothing was recorded", () => {
 
 test("reversalLabel falls back to the raw actor for one it does not know", () => {
   assert.equal(
-    reversalLabel("2026-07-07T12:00:00Z", "operator", "UTC"),
-    "Jul 7, 2026, 12:00 PM by operator",
+    reversalLabel("2026-07-07T12:00:00Z", "auditor", "UTC"),
+    "Jul 7, 2026, 12:00 PM by auditor",
   );
 });
 

@@ -36,6 +36,14 @@ type CurrencyTotals struct {
 	// owes the platform instead, and netting that off would understate the cash
 	// that must stay on hand.
 	TotalOwedCents int `json:"total_owed_cents"`
+	// KeptFeeCents and KeptFeeIVACents are the part of the two figures above
+	// that stands on reversed sales, because an Operator Reversal stated the
+	// platform kept its commission on the refunded sale (#127). They are already
+	// included in PlatformFeeCents and FeeIVACents — never add them again — and
+	// travel together like every fee figure here. Zero means no Operator
+	// Reversal has ever kept a fee, and the dashboard then says nothing.
+	KeptFeeCents    int `json:"kept_fee_cents"`
+	KeptFeeIVACents int `json:"kept_fee_iva_cents"`
 }
 
 // RecordPayoutInput is a Payout an operator is recording after settling
@@ -77,6 +85,8 @@ func (s *Service) PlatformTotals(ctx context.Context) ([]CurrencyTotals, error) 
 			PlatformFeeCents: t.PlatformFeeCents,
 			FeeIVACents:      t.FeeIVACents,
 			TotalOwedCents:   t.TotalOwedCents,
+			KeptFeeCents:     t.KeptFeeCents,
+			KeptFeeIVACents:  t.KeptFeeIVACents,
 		})
 	}
 	return totals, nil

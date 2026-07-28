@@ -36,6 +36,11 @@ type operatorCurrencyTotals struct {
 	PlatformFeeCents int    `json:"platform_fee_cents"`
 	FeeIVACents      int    `json:"fee_iva_cents"`
 	TotalOwedCents   int    `json:"total_owed_cents"`
+	// How much of the two fee figures above stands on reversed sales because an
+	// Operator Reversal said the platform kept its commission (#127). Zero
+	// unless that has happened, and the Operator Dashboard stays silent then.
+	KeptFeeCents    int `json:"kept_fee_cents"`
+	KeptFeeIVACents int `json:"kept_fee_iva_cents"`
 }
 
 type operatorSummary struct {

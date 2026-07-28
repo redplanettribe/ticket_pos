@@ -14,12 +14,23 @@ import { fetchEventsJSON } from "./events-api";
  */
 export type OperatorCurrencyTotals = {
   currency: string;
-  /** Accumulated Platform Fees snapshotted on active Online Sale lines. */
+  /**
+   * Accumulated Platform Fees: the ones snapshotted on active Online Sale
+   * lines, plus the ones kept on reversed sales (see kept_fee_cents).
+   */
   platform_fee_cents: number;
-  /** Accumulated Fee IVA on those same lines. */
+  /** Accumulated Fee IVA on those same lines, under the same rule. */
   fee_iva_cents: number;
   /** Sum of the POSITIVE Withdrawable Balances — what the platform owes. */
   total_owed_cents: number;
+  /**
+   * The part of platform_fee_cents standing on sales an Operator Reversal
+   * voided while the platform kept its commission. Already inside the figure
+   * above — never add it on — and zero until such a reversal happens.
+   */
+  kept_fee_cents: number;
+  /** The Fee IVA half of that same kept term, inside fee_iva_cents. */
+  kept_fee_iva_cents: number;
 };
 
 export type OperatorSummary = {
