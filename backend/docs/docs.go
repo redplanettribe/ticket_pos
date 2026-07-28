@@ -1697,12 +1697,16 @@ const docTemplate = `{
             },
             "service.ReversalOffer": {
                 "properties": {
-                    "reversal_window_closes_at": {
-                        "description": "ClosesAt is the instant the Reversal Window shuts, RFC3339 in UTC.",
-                        "type": "string"
-                    },
                     "reversible": {
                         "type": "boolean"
+                    },
+                    "reversible_until": {
+                        "description": "ReversibleUntil is the instant this offer runs out, RFC3339 in UTC. Named\nfor Reversible rather than for the Reversal Window: it is the deadline on\nthe offer, and an offer can be absent while the Window is still open (a\nPayment Provider that cannot reverse), in which case it is null.",
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID names the sale this offer is about, so a guest surface can\nsend somebody to their own purchase in the Customer Area rather than to the\nwhole list (#121).\n\nIt is an identifier and not a credential: reaching that sale still requires\na Customer Session, which this endpoint cannot mint and does not check. It\nis null exactly when the offer is, because a destination for an undo that\nis not on offer is a link to nothing.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1813,13 +1817,13 @@ const docTemplate = `{
                     "organization": {
                         "$ref": "#/components/schemas/internal_customers_service.OrganizationView"
                     },
-                    "reversal_window_closes_at": {
-                        "description": "ReversalWindowClosesAt is the instant the Reversal Window shuts, RFC3339 in\nUTC, so the Customer can be told how long they have.\n\nNull whenever Reversible is false, and deliberately so: a closing time on a\nsale nobody may reverse is a deadline that means nothing, and a client that\ncannot draw one cannot mislead somebody with it.",
-                        "type": "string"
-                    },
                     "reversible": {
                         "description": "Reversible reports whether the Customer could undo this Ticket Sale right\nnow (ADR 0018) — and it is the exact question the reversal endpoint asks\nitself, so a true here is an offer the API will honour if taken promptly.\n\nIt is an answer about this instant and nothing more. It is not a promise:\nthe window is offered, not guaranteed, and a true read a minute ago may be\na refusal a minute from now.\n\nThree things must all hold. The sale is an active Online Sale — an\nIn-Person Sale or an imported one was never collected by the platform, so\nthe platform has nothing to give back, and a sale already reversed cannot\nbe reversed again. Its Reversal Window is open. And its Payment can in fact\nbe undone: a free claim always can, since there is nothing to return, while\na paid one can only when the Payment Provider that collected it supports\nreversal. That last clause is why a paid purchase inside its window can\nreport false — the alternative is an Undo button that fails when pressed.",
                         "type": "boolean"
+                    },
+                    "reversible_until": {
+                        "description": "ReversibleUntil is the instant this offer runs out, RFC3339 in UTC, so the\nCustomer can be told how long they have.\n\nIt is named for Reversible, not for the Reversal Window, because it is the\ndeadline on the offer above rather than a publication of the platform's\nrule. The two are the same instant today only because every Payment this\ndeployment accepts happens to be reversible; a Payment Provider that could\nnot give money back would leave a sale with an open Window and no offer at\nall, and this field would correctly be null rather than reporting a\ndeadline nobody could act on.\n\nNull whenever Reversible is false, and deliberately so: a deadline on a sale\nnobody may reverse means nothing, and a client that cannot draw one cannot\nmislead somebody with it.",
+                        "type": "string"
                     },
                     "sold_at": {
                         "type": "string"
@@ -2774,7 +2778,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/ticket-sales": {
             "get": {
-                "description": "Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request. Each sale reports whether it is inside its Reversal Window right now (` + "`" + `reversible` + "`" + `) and, when it is, the instant that window closes (` + "`" + `reversal_window_closes_at` + "`" + `, RFC3339 UTC) — the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018). Only an active Online Sale can be reversible, and its Payment must be one this deployment can actually undo: a free claim always is, since nothing was collected, and a paid one is when the Payment Provider that collected it supports reversal (ADR 0012). A sale settled by some other provider therefore reports false inside its window rather than offering an undo that would fail. The closing time is null whenever ` + "`" + `reversible` + "`" + ` is false. This endpoint reports the window and nothing more: there is no reversal action here.",
+                "description": "Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request. Each sale reports whether the Customer could undo it right now (` + "`" + `reversible` + "`" + `) and, when they could, until when (` + "`" + `reversible_until` + "`" + `, RFC3339 UTC). That deadline is the offer's rather than a publication of the Reversal Window: while an undo is on offer it is the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018), and it is null whenever no undo is on offer even if that Window is still open. Only an active Online Sale can be reversible, and its Payment must be one this deployment can actually undo: a free claim always is, since nothing was collected, and a paid one is when the Payment Provider that collected it supports reversal (ADR 0012). A sale settled by some other provider therefore reports false inside its window rather than offering an undo that would fail. ` + "`" + `reversible_until` + "`" + ` is null whenever ` + "`" + `reversible` + "`" + ` is false. This endpoint reports the window and nothing more: there is no reversal action here.",
                 "responses": {
                     "200": {
                         "content": {
@@ -3252,7 +3256,7 @@ const docTemplate = `{
         },
         "/api/v1/public/checkout/{clientTransactionId}/reversal": {
             "get": {
-                "description": "Reports whether the Ticket Sale produced by one online checkout can be undone right now (` + "`" + `reversible` + "`" + `) and, when it can, the instant its Reversal Window closes (` + "`" + `reversal_window_closes_at` + "`" + `, RFC3339 UTC) — the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018). Keyed by our own client transaction id, so a guest who has just checked out and holds no Customer Session can still be told the deadline; the response carries nothing about the buyer. The same rule the Customer Area applies is applied here, so both surfaces report the same instant for the same sale: an active Online Sale, inside its window, whose Payment this deployment could actually undo. Anything else — a checkout that does not exist, a Payment not approved, a sale already reversed, a closed window, a Payment Provider that cannot reverse — reports ` + "`" + `reversible: false` + "`" + ` with a null closing time. Read-only: no reversal can be performed here, which requires a Customer Session.",
+                "description": "Reports whether the Ticket Sale produced by one online checkout can be undone right now (` + "`" + `reversible` + "`" + `), until when (` + "`" + `reversible_until` + "`" + `, RFC3339 UTC), and which sale it is (` + "`" + `ticket_sale_id` + "`" + `). The deadline is the offer's, not a publication of the Reversal Window: while an undo is on offer it is the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018), and it is null whenever no undo is on offer even if that Window is still open. Keyed by our own client transaction id, so a guest who has just checked out and holds no Customer Session can still be told the deadline; the response carries nothing about the buyer, and ` + "`" + `ticket_sale_id` + "`" + ` is an address for the Customer Area rather than a credential for it. The same rule the Customer Area applies is applied here, so both surfaces report the same instant for the same sale: an active Online Sale, inside its window, whose Payment this deployment could actually undo. Anything else — a checkout that does not exist, a Payment not approved, a sale already reversed, a closed window, a Payment Provider that cannot reverse — reports ` + "`" + `reversible: false` + "`" + ` with a null deadline and a null sale id. Read-only: no reversal can be performed here, which requires a Customer Session.",
                 "parameters": [
                     {
                         "description": "Our client transaction id for the checkout",
