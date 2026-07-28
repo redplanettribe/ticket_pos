@@ -21,12 +21,20 @@ import (
 //
 // The balance is signed — a sale reversed after it was paid out leaves the
 // Organization owing the platform — and callers decide what to do with that.
+//
+// Beside those, and touching none of them, the kept-fee term: the Platform Fee
+// and Fee IVA of sales an Operator Reversal voided while stating the platform
+// kept its commission (#127). It is the one exception to the active-only rule,
+// it belongs to the platform's revenue alone, and it is carried in its own
+// columns so that no Organization-facing figure can pick it up by accident.
 const orgMoneySQL = `
 	SELECT
 		org.id AS organization_id,
 		org.currency AS currency,
 		COALESCE(lines.fee_cents, 0) AS fee_cents,
 		COALESCE(lines.fee_iva_cents, 0) AS fee_iva_cents,
+		COALESCE(kept.fee_cents, 0) AS kept_fee_cents,
+		COALESCE(kept.fee_iva_cents, 0) AS kept_fee_iva_cents,
 		COALESCE(lines.net_proceeds_cents, 0) - COALESCE(paid.paid_cents, 0) AS balance_cents
 	FROM organizations org
 	LEFT JOIN LATERAL (
@@ -41,6 +49,17 @@ const orgMoneySQL = `
 		  AND ts.status = 'active'
 	) lines ON TRUE
 	LEFT JOIN LATERAL (
+		SELECT
+			SUM(tsl.quantity * tsl.fee_cents) AS fee_cents,
+			SUM(tsl.quantity * tsl.fee_iva_cents) AS fee_iva_cents
+		FROM ticket_sale_lines tsl
+		JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
+		WHERE ts.organization_id = org.id
+		  AND ts.channel = 'online'
+		  AND ts.status = 'reversed'
+		  AND ts.platform_fee_kept
+	) kept ON TRUE
+	LEFT JOIN LATERAL (
 		SELECT SUM(p.amount_cents) AS paid_cents
 		FROM payouts p
 		WHERE p.organization_id = org.id
@@ -49,11 +68,17 @@ const orgMoneySQL = `
 
 // CurrencyTotalsRow is the platform's own money in one currency: what it has
 // earned in Platform Fees and Fee IVA, and what it currently owes.
+//
+// KeptFee* is the part of the two fee figures that stands on reversed sales,
+// already counted inside them, reported separately only so the Operator
+// Dashboard can say why the revenue figure survived a reversal.
 type CurrencyTotalsRow struct {
 	Currency         string
 	PlatformFeeCents int
 	FeeIVACents      int
 	TotalOwedCents   int
+	KeptFeeCents     int
+	KeptFeeIVACents  int
 }
 
 // OperatorPayoutRow is one recorded Payout with its audit trail: who entered it
@@ -106,13 +131,20 @@ func (r *Repository) BalancesByOrganizationIDs(ctx context.Context, orgIDs []str
 // Total owed sums only POSITIVE balances. A negative balance is an Organization
 // owing the platform after a post-settlement reversal, and netting it off would
 // understate the cash the platform must keep on hand to settle everyone else.
+//
+// Revenue is the one figure on the platform that is not active-only: the fees
+// of a reversed sale whose Operator Reversal said the platform kept its
+// commission are money the platform still holds, so they stay in the total and
+// are also reported on their own for the dashboard's disclosure (#127).
 func (r *Repository) PlatformCurrencyTotals(ctx context.Context) ([]CurrencyTotalsRow, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT
 			currency,
-			SUM(fee_cents),
-			SUM(fee_iva_cents),
-			SUM(GREATEST(balance_cents, 0))
+			SUM(fee_cents + kept_fee_cents),
+			SUM(fee_iva_cents + kept_fee_iva_cents),
+			SUM(GREATEST(balance_cents, 0)),
+			SUM(kept_fee_cents),
+			SUM(kept_fee_iva_cents)
 		FROM (`+orgMoneySQL+`) money
 		GROUP BY currency
 		ORDER BY currency ASC
@@ -125,7 +157,10 @@ func (r *Repository) PlatformCurrencyTotals(ctx context.Context) ([]CurrencyTota
 	var out []CurrencyTotalsRow
 	for rows.Next() {
 		var t CurrencyTotalsRow
-		if err := rows.Scan(&t.Currency, &t.PlatformFeeCents, &t.FeeIVACents, &t.TotalOwedCents); err != nil {
+		if err := rows.Scan(
+			&t.Currency, &t.PlatformFeeCents, &t.FeeIVACents, &t.TotalOwedCents,
+			&t.KeptFeeCents, &t.KeptFeeIVACents,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

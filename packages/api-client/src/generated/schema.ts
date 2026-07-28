@@ -4654,6 +4654,16 @@ export interface components {
         "service.PlatformTotals": {
             currency?: string;
             fee_iva_cents?: number;
+            /**
+             * @description KeptFeeCents and KeptFeeIVACents are the part of the two figures above
+             *     that stands on reversed sales, because an Operator Reversal stated the
+             *     platform kept its commission on the refunded sale (#127). They are already
+             *     included in PlatformFeeCents and FeeIVACents — never add them again — and
+             *     travel together like every fee figure here. Zero means no Operator
+             *     Reversal has ever kept a fee, and the dashboard then says nothing.
+             */
+            kept_fee_cents?: number;
+            kept_fee_iva_cents?: number;
             platform_fee_cents?: number;
             /**
              * @description TotalOwedCents sums only the positive Withdrawable Balances: what the

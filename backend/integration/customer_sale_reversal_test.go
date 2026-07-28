@@ -629,6 +629,11 @@ type moneyReading struct {
 	platformFeeCents int
 	feeIVACents      int
 	totalOwedCents   int
+	// The part of the two figures above that comes from fees the platform kept
+	// on Operator Reversals (#127). Zero on every route a Customer or a Member
+	// can take, which is what the reversal tests around this helper assert.
+	keptFeeCents    int
+	keptFeeIVACents int
 }
 
 func moneySurfaces(t *testing.T, env *testEnv, staffSession, operatorSessionID, eventID string) moneyReading {
@@ -644,5 +649,7 @@ func moneySurfaces(t *testing.T, env *testEnv, staffSession, operatorSessionID, 
 		platformFeeCents: summary.Totals[0].PlatformFeeCents,
 		feeIVACents:      summary.Totals[0].FeeIVACents,
 		totalOwedCents:   summary.Totals[0].TotalOwedCents,
+		keptFeeCents:     summary.Totals[0].KeptFeeCents,
+		keptFeeIVACents:  summary.Totals[0].KeptFeeIVACents,
 	}
 }

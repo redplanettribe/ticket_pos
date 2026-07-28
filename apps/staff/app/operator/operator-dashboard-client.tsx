@@ -42,6 +42,28 @@ function SignedAmount({ cents, currency }: { cents: number; currency: string }) 
   );
 }
 
+/**
+ * The one place platform revenue stops being "active sales only": fees kept on
+ * sales an operator reversed out of band (#127). The disclosure appears only
+ * when that term is non-zero — a footnote about zero is noise, and the figure
+ * needs no explaining until something is standing on a voided sale.
+ *
+ * Fee and Fee IVA travel together everywhere, so they are disclosed as one
+ * amount: what the platform kept in total.
+ */
+function KeptFeeNote({ totals }: { totals: OperatorCurrencyTotals }) {
+  const keptCents = totals.kept_fee_cents + totals.kept_fee_iva_cents;
+  if (keptCents === 0) {
+    return null;
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      Includes {formatPriceCents(keptCents, totals.currency)} in fees and fee IVA kept on reversed
+      sales.
+    </p>
+  );
+}
+
 function TotalsCard({ totals }: { totals: OperatorCurrencyTotals }) {
   return (
     <Card>
@@ -51,25 +73,28 @@ function TotalsCard({ totals }: { totals: OperatorCurrencyTotals }) {
           Accumulated platform revenue and what the platform currently owes, in {totals.currency}.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-6 sm:grid-cols-3">
-        <div>
-          <p className="text-sm text-muted-foreground">Platform fees</p>
-          <p className="text-2xl font-semibold tabular-nums">
-            {formatPriceCents(totals.platform_fee_cents, totals.currency)}
-          </p>
+      <CardContent className="space-y-4">
+        <div className="grid gap-6 sm:grid-cols-3">
+          <div>
+            <p className="text-sm text-muted-foreground">Platform fees</p>
+            <p className="text-2xl font-semibold tabular-nums">
+              {formatPriceCents(totals.platform_fee_cents, totals.currency)}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Fee IVA</p>
+            <p className="text-2xl font-semibold tabular-nums">
+              {formatPriceCents(totals.fee_iva_cents, totals.currency)}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Total owed</p>
+            <p className="text-2xl font-semibold tabular-nums">
+              {formatPriceCents(totals.total_owed_cents, totals.currency)}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Fee IVA</p>
-          <p className="text-2xl font-semibold tabular-nums">
-            {formatPriceCents(totals.fee_iva_cents, totals.currency)}
-          </p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Total owed</p>
-          <p className="text-2xl font-semibold tabular-nums">
-            {formatPriceCents(totals.total_owed_cents, totals.currency)}
-          </p>
-        </div>
+        <KeptFeeNote totals={totals} />
       </CardContent>
     </Card>
   );
