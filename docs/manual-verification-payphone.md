@@ -88,7 +88,53 @@ means the return handler did not recognize the params PayPhone sent. **Stop and 
 release blocker**: the customer's charge will auto-reverse (money-safe), but every real sale would
 be lost the same way.
 
-## 4. Sandbox decline pass
+## 4. Sandbox prefill pass
+
+This is the pass that closes the one assumption the prefill feature (#103) ships on. PayPhone's
+Prepare call accepts `email`, `documentId` and `phoneNumber` as optional prefills — its docs say of
+each *"se solicitará si no se proporciona"* (it will be asked for if not provided) — and the
+integration suite proves what we **send**. Only a real hosted form proves what PayPhone **does**
+with it. In particular, PayPhone's documentation never states whether a non-Ecuadorian dialling
+code is accepted, and never denies it either.
+
+Watch the backend log throughout. The line
+
+```
+payphone prepare rejected our request; retrying once without the prefills
+```
+
+is the fallback firing: PayPhone refused the payload, and the checkout completed on a retry
+carrying no prefills at all. It reports `had_email` / `had_document_id` / `had_phone_number`
+booleans — never the values — so the field to suspect is named without any PII reaching the log.
+**A checkout that succeeds is not evidence of nothing wrong**; that line is where a systematic
+rejection shows up.
+
+1. **Ecuadorian pass.** Buy one ticket with Tax ID Type **Cédula** and a valid cédula, and a phone
+   with Ecuador (+593) selected and a real mobile. On PayPhone's hosted form assert the email, the
+   identification number and the phone all arrive **already filled**, and that the card is the only
+   thing left to enter. Complete the payment and assert the sale lands as in the approve pass
+2. **Foreign-number pass.** Repeat with a non-Ecuadorian country selected and a valid number for
+   that country. Assert whether the phone arrives prefilled, **and check the log for the retry
+   line**. This is the assumption under test: record the outcome either way
+3. **Passport pass.** Repeat with Tax ID Type **Pasaporte** and a passport number. Assert the
+   identification field on PayPhone's form is **empty and asked for** — a passport is deliberately
+   withheld, because `documentId` is built around Ecuadorian identifiers and a refused Prepare is a
+   failed checkout. Assert the email and phone still arrive filled, and that the checkout succeeds
+4. **Omitted-phone pass.** Repeat leaving the phone field blank. Assert PayPhone asks for the phone
+   as it always did and the checkout is otherwise unchanged — the field is optional, and a blank one
+   must send no `phoneNumber` at all rather than an empty value
+5. **Record the findings** in this file or the issue: specifically, whether foreign dialling codes
+   are accepted. If they are refused, narrow the country table in `apps/storefront/lib/phone.ts` to
+   what PayPhone takes and note why — the fallback means this is a tidy-up, not an incident
+
+What this pass cannot settle: PayPhone prohibits static or hardcoded cardholder data (*"datos
+quemados o estáticos"*) and enforces it through fraud monitoring, not through the API. A Prepare
+returning 200 therefore proves nothing about long-term account safety. The structural protection is
+that every value sent is buyer-entered or omitted, with no defaults anywhere in the path — if a
+future change ever introduces a fallback value for any of these three fields, that protection is
+gone regardless of what this pass showed.
+
+## 5. Sandbox decline pass
 
 1. Start another purchase, and on PayPhone's payment page **cancel** instead of paying
 2. Assert you land on `/checkout/failed` with a retry action, and that retrying opens a fresh
@@ -99,7 +145,7 @@ be lost the same way.
    capacity recovers within the ~20-minute hold window (ADR 0013) — the pending Payment's Capacity
    Hold lapses on its own; nothing needs cleaning up
 
-## 5. Production spot checks (at go-live)
+## 6. Production spot checks (at go-live)
 
 After the production credentials are applied per [gcp-deployment.md](gcp-deployment.md):
 
