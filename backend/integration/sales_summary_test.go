@@ -40,10 +40,15 @@ func salesSummaryOK(t *testing.T, env *testEnv, sessionID, eventID string) sales
 	return out
 }
 
-// reverseSale marks a Ticket Sale reversed directly. Online Sales have no
-// reversal endpoint yet (ADR 0012 — only Sale Import batches can be undone), so
-// the state a refund would leave behind is staged in SQL. Both the Net Proceeds
-// summary and the Withdrawable Balance must already respect that status.
+// reverseSale marks a Ticket Sale reversed directly, staging in SQL the state a
+// reversal leaves behind. Both the Net Proceeds summary and the Withdrawable
+// Balance must respect that status however the sale came to carry it.
+//
+// A Customer can now undo their own Online Sale through a real endpoint (#120),
+// and undoOwnSale drives it where the sale qualifies — see the Net Proceeds test
+// below. This helper stays for the sales that do NOT qualify: a purchase outside
+// its Reversal Window, or one reversed by a Sale Import undo rather than by its
+// buyer. Both reach the same status, and these surfaces are about the status.
 func reverseSale(t *testing.T, env *testEnv, confirmationRef string) {
 	t.Helper()
 	res, err := env.db.Exec(`UPDATE ticket_sales SET status = 'reversed' WHERE confirmation_ref = $1`, confirmationRef)
@@ -76,11 +81,14 @@ func TestSalesSummaryNetsThePlatformFeeOutOfOnlineSales(t *testing.T) {
 		checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
-	// A second online sale, later reversed: refunded money is never proceeds.
+	// A second online sale, undone by its buyer: money given back is never
+	// proceeds. The undo goes through the Customer's own endpoint (#120) rather
+	// than an UPDATE, so this figure is measured against a reversal the system
+	// actually performed.
 	reversed := beginCheckoutOK(t, env, "test-org", "net-fest",
 		checkoutBody("bea@example.com", "Bea", "Ruiz", map[string]any{"ticket_type_id": gaID, "quantity": 3}))
 	reversedConfirm := confirmCheckoutOK(t, env, reversed.ClientTransactionID, "approved")
-	reverseSale(t, env, reversedConfirm.ConfirmationRef)
+	undoOwnSale(t, env, "bea@example.com", reversedConfirm.ConfirmationRef)
 
 	// Cash at the door: the platform never held the money, so it withheld
 	// nothing and the sale leaves the Net Proceeds figure alone.

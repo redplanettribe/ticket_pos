@@ -60,8 +60,10 @@ type payPhoneServerStub struct {
 	mu          sync.Mutex
 	prepare     func(w http.ResponseWriter)
 	confirm     func(w http.ResponseWriter)
+	reverse     func(w http.ResponseWriter)
 	prepares    []*payPhoneRecordedRequest
 	lastConfirm *payPhoneRecordedRequest
+	reverses    []*payPhoneRecordedRequest
 }
 
 // payPhoneRecordedRequest is one request as the fake PayPhone server saw it.
@@ -95,6 +97,14 @@ func startPayPhoneStub() *payPhoneServerStub {
 			respond = stub.confirm
 			if respond == nil {
 				respond = payPhoneConfirmVerdict(3, "Approved")
+			}
+		// The merchant-keyed reversal endpoint (#120): its documented success is
+		// a literal JSON true, which is what the default answers.
+		case "/api/Reverse/Client":
+			stub.reverses = append(stub.reverses, rec)
+			respond = stub.reverse
+			if respond == nil {
+				respond = payPhoneReverseSucceeds
 			}
 		default:
 			respond = func(w http.ResponseWriter) { http.Error(w, "no such endpoint", http.StatusNotFound) }
@@ -138,13 +148,82 @@ func payPhoneConfirmVerdict(statusCode int, transactionStatus string) func(w htt
 	}
 }
 
+// payPhoneReverseSucceeds is PayPhone's documented answer to a completed
+// reversal: the literal value true, with no object around it.
+func payPhoneReverseSucceeds(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte("true"))
+}
+
 func (s *payPhoneServerStub) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.prepare = nil
 	s.confirm = nil
+	s.reverse = nil
 	s.prepares = nil
 	s.lastConfirm = nil
+	s.reverses = nil
+}
+
+// reverseAnswers makes every reversal answer 200 with a raw body — the seam for
+// every not-quite-true body PayPhone could send.
+func (s *payPhoneServerStub) reverseAnswers(body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reverse = func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+// reverseRefuses makes every reversal answer with PayPhone's failure shape: a
+// non-2xx carrying a message and an errorCode.
+func (s *payPhoneServerStub) reverseRefuses(status int, message string, errorCode int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reverse = func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": message, "errorCode": errorCode})
+	}
+}
+
+// reverseHangsUp drops the connection without answering at all: a transport
+// failure, where PayPhone may or may not have acted and nothing can be inferred.
+func (s *payPhoneServerStub) reverseHangsUp() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reverse = func(w http.ResponseWriter) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "cannot hijack", http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hijacker.Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}
+}
+
+// reverseCount is how many reversals PayPhone has been asked for since the last
+// reset. One per attempt and never more: a reversal is never retried.
+func (s *payPhoneServerStub) reverseCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.reverses)
+}
+
+// lastReverseRequest returns the most recent reversal as the stub saw it.
+func (s *payPhoneServerStub) lastReverseRequest(t *testing.T) *payPhoneRecordedRequest {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.reverses) == 0 {
+		t.Fatal("PayPhone Reverse/Client was never called")
+	}
+	return s.reverses[len(s.reverses)-1]
 }
 
 // prepareFails makes every Prepare answer with an HTTP error, as PayPhone does

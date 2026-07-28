@@ -12,12 +12,16 @@ import (
 // Customer-initiated Sale Reversal, end to end (issue #119, ADR 0018): a
 // signed-in Customer undoes their own free Online Sale.
 //
-// Free sales are the whole of this slice, and that is what makes it a complete
-// proof rather than a partial one. A zero-total checkout settles with no Payment
-// Provider in the loop at all (ADR 0017), so every part of the domain —
+// Free sales are almost the whole of this slice, and that is what makes it a
+// complete proof rather than a partial one. A zero-total checkout settles with no
+// Payment Provider in the loop at all (ADR 0017), so every part of the domain —
 // authorization, window enforcement, capacity restoration, the void notice, the
 // badge, the money surfaces — is exercised here with nothing external mocked or
-// skipped. A paid sale adds one call to a provider and reuses all of it.
+// skipped. A paid sale adds one call to a provider and reuses all of it, which
+// is what customer_sale_reversal_payphone_test.go drives against the fake
+// PayPhone server; the two paid tests below are about the provider SELECTION —
+// the development stub, and a Payment Method naming a provider this deployment
+// cannot ask.
 //
 // The buyer-facing word is "undo". Never "cancel", which belongs to an Event's
 // lifecycle status, and never "refund", which is wrong where no money moved.
@@ -35,6 +39,22 @@ func reverseSaleRequest(t *testing.T, env *testEnv, token, saleID string) (*http
 		headers = authHeader(token)
 	}
 	return env.post(t, "/api/v1/customer/ticket-sales/"+saleID+"/reverse", nil, headers)
+}
+
+// undoOwnSale drives a whole real undo from a Sale Confirmation reference: the
+// buyer signs in, finds their own sale in their Area, and presses Undo.
+//
+// It exists for the tests that need a reversed Ticket Sale as a FIXTURE — the
+// money surfaces, mostly — and used to be an UPDATE statement in each of them,
+// because no endpoint could reverse an Online Sale. One now can, and a fixture
+// staged by the code under test is worth more than one staged beside it: a
+// reversal that stopped restoring capacity or stopped voiding the sale would
+// break those tests too.
+func undoOwnSale(t *testing.T, env *testEnv, email, confirmationRef string) {
+	t.Helper()
+	token := customerSignIn(t, env, email)
+	sale := saleByRef(t, readCustomerArea(t, env, token, ""), confirmationRef)
+	reverseSaleOK(t, env, token, sale.ID)
 }
 
 // saleReversalResult is the endpoint's success body.
@@ -469,40 +489,59 @@ func TestUndoIsRefusedOnAnImportedSale(t *testing.T) {
 	}
 }
 
-// TestUndoIsRefusedWhenThePaymentProviderCannotReverseIt is the boundary this
-// ticket turns on.
+// #119's TestUndoIsRefusedWhenThePaymentProviderCannotReverseIt stood here, and
+// it is gone rather than rewritten.
 //
-// A paid Online Sale bought this morning is inside its Reversal Window on every
-// clock — and it is still not undoable, because the Payment Provider that
-// collected the money cannot reverse it (ADR 0012, every implementation returns
-// ErrPaymentReverseNotSupported today). The offer and the refusal are derived
-// from that ONE fact: the Customer Area does not advertise it, and the endpoint
-// refuses it if asked anyway.
+// It proved that the offer and the refusal came from ONE fact — can the Payment
+// Provider that collected this money give it back? — using the only answer
+// available then: no provider could. The fact has not moved, only the answer
+// has, and there is no longer a Ticket Sale this suite can stage that the answer
+// is "no" for. A sale settled by some other provider is the remaining case, and
+// the schema cannot hold one: ticket_sales.payment_method is constrained to
+// cash, transfer, payphone and free, so a foreign provider's name is not a row
+// this database will accept. That arm is pinned in TestPaymentReversalSupports
+// (internal/platform), against the rule itself.
 //
-// When the provider's reversal API is integrated, both halves flip together with
-// no change to anything asserted here.
-func TestUndoIsRefusedWhenThePaymentProviderCannotReverseIt(t *testing.T) {
+// What replaces it here is the case the deployment actually has: the stub.
+
+// TestCustomerUndoesAPaidSaleOnTheStubProvider is the development path, and it
+// is the reason the stub reverses at all (#120).
+//
+// A deployment with no PayPhone credentials configured — every developer's, and
+// the whole Playwright suite's — settles its Online Sales through the stub, and
+// those sales record Payment Method `payphone` all the same (ADR 0012). If the
+// stub refused reversal, or were mistaken for a provider that never collected
+// the money, the Undo would be missing from every local paid purchase and the
+// first place the feature ran end to end would be production.
+//
+// The provider leg's real behaviour is proved against the fake PayPhone server
+// in customer_sale_reversal_payphone_test.go; what is proved here is that the
+// stub does not stand in the way of it.
+func TestCustomerUndoesAPaidSaleOnTheStubProvider(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
-	_, paidID := publishEventStarting(t, env, sessionID, "Paid Fest", "paid-fest",
+	_, paidID := publishEventStarting(t, env, sessionID, "Stub Paid Fest", "stub-paid-fest",
 		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
 
-	ref := buyOnline(t, env, "paid-fest", paidID, "ana@example.com")
+	ref := buyOnline(t, env, "stub-paid-fest", paidID, "ana@example.com")
 	token := customerSignIn(t, env, "ana@example.com")
 	sale := saleByRef(t, readCustomerArea(t, env, token, ""), ref)
 	env.email.Reset()
 
-	if sale.Reversible {
-		t.Fatal("a paid sale is offered as reversible while no Payment Provider can reverse one; the button would fail when pressed")
-	}
-	if sale.ReversalWindowClosesAt != nil {
-		t.Fatalf("reversal_window_closes_at = %q on a sale that cannot be undone; that deadline means nothing",
-			*sale.ReversalWindowClosesAt)
+	if !sale.Reversible {
+		t.Fatal("a paid sale the stub settled is not offered as reversible; the flow is then unreachable without PayPhone credentials")
 	}
 
-	resp, body := reverseSaleRequest(t, env, token, sale.ID)
-	assertRefused(t, resp, body, http.StatusConflict, "SALE_NOT_REVERSIBLE")
-	assertNothingChanged(t, env, ref, "paid-fest", "GA", 9)
+	reverseSaleOK(t, env, token, sale.ID)
+	if status, _, _ := saleProvenance(t, env, ref); status != "reversed" {
+		t.Fatalf("status = %q, want reversed", status)
+	}
+	if got := remaining(t, env, "stub-paid-fest", "GA"); got != 10 {
+		t.Fatalf("remaining = %d after the undo, want 10", got)
+	}
+	if voided := env.email.Voided(); len(voided) != 1 {
+		t.Fatalf("captured %d void notices, want exactly 1", len(voided))
+	}
 }
 
 // TestReversedFreeClaimDropsOutOfTheMoneySurfaces walks the reversal's effect on

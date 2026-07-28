@@ -20,9 +20,13 @@ import { useState } from "react";
  * ADR 0018).
  *
  * The word is "undo" throughout. Not "cancel", which in this system means an
- * Event being called off, and not "refund", which would be wrong on the free
- * claims this first release covers — nothing was collected, so nothing is
- * returned.
+ * Event being called off, and not "refund" — the platform's own word for what
+ * happens to a Ticket Sale is a Sale Reversal, whether or not money moves.
+ *
+ * A purchase that cost something says so in the dialog (#120): the payment goes
+ * back through the Payment Provider that took it, and a buyer about to release
+ * their tickets deserves to be told that in the same breath. A free claim keeps
+ * the shorter sentence, because there is nothing to return.
  *
  * It is drawn only where the API said `reversible`, and pressing it is still a
  * question the API answers fresh: the window is enforced server-side, so a card
@@ -41,6 +45,12 @@ type UndoPurchaseProps = {
   eventName: string;
   /** The Sale Confirmation reference, the thing a Customer would quote to an organizer. */
   confirmationRef: string;
+  /**
+   * What the purchase cost, already formatted, or null when it cost nothing.
+   * Present it and the dialog promises the payment back; absent, it stays quiet
+   * rather than mentioning money that never changed hands.
+   */
+  paidLabel?: string | null;
 };
 
 type Envelope = {
@@ -48,7 +58,12 @@ type Envelope = {
   error: { code: string; message: string } | null;
 };
 
-export function UndoPurchase({ saleId, eventName, confirmationRef }: UndoPurchaseProps) {
+export function UndoPurchase({
+  saleId,
+  eventName,
+  confirmationRef,
+  paidLabel = null,
+}: UndoPurchaseProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -111,8 +126,13 @@ export function UndoPurchase({ saleId, eventName, confirmationRef }: UndoPurchas
             <DialogTitle>Undo this purchase?</DialogTitle>
             <DialogDescription>
               Your tickets for {eventName} will be released and this purchase will be marked
-              reversed. You can&apos;t take this back — if the tickets sell out, you won&apos;t be
-              able to get them again.
+              reversed.{" "}
+              {/* No claim about how or when the money arrives: that is the
+                  Payment Provider's and the bank's business, and this dialog
+                  promises only what the platform itself does. */}
+              {paidLabel ? `Your ${paidLabel} payment will be returned. ` : null}
+              You can&apos;t take this back — if the tickets sell out, you won&apos;t be able to get
+              them again.
             </DialogDescription>
           </DialogHeader>
 

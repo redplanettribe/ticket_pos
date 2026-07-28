@@ -78,11 +78,80 @@ func TestStubPaymentProviderConfirmFailsClosed(t *testing.T) {
 	}
 }
 
-// TestStubPaymentProviderReverseIsReserved pins that reversal is a documented
-// no-op until a provider supports it (ADR 0012).
-func TestStubPaymentProviderReverseIsReserved(t *testing.T) {
+// TestStubPaymentProviderReverseSucceeds: the stub agrees to every reversal,
+// which is what makes Customer-initiated Sale Reversal exercisable with no
+// PayPhone credentials configured (ADR 0018). There is no service to ask and no
+// money to give back, so yes is the honest answer.
+func TestStubPaymentProviderReverseSucceeds(t *testing.T) {
 	p := NewStubPaymentProvider("http://storefront.example")
-	if err := p.Reverse(context.Background(), "ctid-123"); !errors.Is(err, ErrPaymentReverseNotSupported) {
-		t.Fatalf("reverse error = %v, want ErrPaymentReverseNotSupported", err)
+	if err := p.Reverse(context.Background(), "ctid-123"); err != nil {
+		t.Fatalf("reverse: %v, want the stub to agree", err)
+	}
+	if !p.SupportsReverse() {
+		t.Fatal("SupportsReverse is false while Reverse succeeds; the pair moves together or the Undo is withheld from a sale it would have honoured")
 	}
 }
+
+// TestPaymentReversalSupports pins the one rule that decides both whether the
+// Customer Area offers an Undo and whether the endpoint goes ahead.
+func TestPaymentReversalSupports(t *testing.T) {
+	t.Run("a free claim needs no provider at all", func(t *testing.T) {
+		// Including on a deployment that never wired one in: the zero value must
+		// still honour the sale nobody had to collect money for.
+		if !(PaymentReversal{}).Supports(FreePaymentMethod) {
+			t.Fatal("a free Online Sale is not reversible without a provider; there is nothing to ask anybody")
+		}
+		if (PaymentReversal{}).Supports(PayPhoneProviderName) {
+			t.Fatal("a paid sale is reversible with no provider configured; there is nobody to reverse it")
+		}
+	})
+
+	t.Run("the stub stands in for the launch provider", func(t *testing.T) {
+		// An Online Sale the stub settles records Payment Method "payphone", never
+		// "stub" (ADR 0012). Comparing names alone would decide a dev deployment's
+		// every paid sale was collected by somebody else.
+		reversal := NewPaymentReversal(NewStubPaymentProvider("http://storefront.example"))
+		if !reversal.Supports(PayPhoneProviderName) {
+			t.Fatal("a paid sale the stub settled is not reversible; the whole flow is then unreachable in development")
+		}
+		if reversal.Supports("some-other-provider") {
+			t.Fatal("a sale settled by another provider is reversible; nobody here can reverse it")
+		}
+	})
+
+	t.Run("the real provider answers for its own name", func(t *testing.T) {
+		reversal := NewPaymentReversal(NewPayPhoneProvider("token", "store-1", "http://payphone.invalid", discardLogger()))
+		if !reversal.Supports(PayPhoneProviderName) {
+			t.Fatal("a PayPhone sale is not reversible while the PayPhone provider supports reversal")
+		}
+		if reversal.Supports("some-other-provider") {
+			t.Fatal("a sale settled by another provider was handed to PayPhone, which never saw it")
+		}
+	})
+
+	t.Run("a provider that cannot reverse is never offered", func(t *testing.T) {
+		reversal := NewPaymentReversal(unreversibleProvider{})
+		if reversal.Supports("unreversible") {
+			t.Fatal("a provider that refuses Reverse is offered anyway; the button would fail when pressed")
+		}
+		if !reversal.Supports(FreePaymentMethod) {
+			t.Fatal("a free claim was refused because some provider cannot reverse; no provider was involved in it")
+		}
+	})
+}
+
+// unreversibleProvider is the future provider the boundary keeps
+// ErrPaymentReverseNotSupported for: one with no reversal API at all.
+type unreversibleProvider struct{}
+
+func (unreversibleProvider) Name() string { return "unreversible" }
+func (unreversibleProvider) Initiate(context.Context, PaymentInitiateInput) (*PaymentInitiation, error) {
+	return nil, errors.New("not used")
+}
+func (unreversibleProvider) Confirm(context.Context, PaymentConfirmInput) (*PaymentConfirmation, error) {
+	return nil, errors.New("not used")
+}
+func (unreversibleProvider) Reverse(context.Context, string) error {
+	return ErrPaymentReverseNotSupported
+}
+func (unreversibleProvider) SupportsReverse() bool { return false }

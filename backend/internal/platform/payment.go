@@ -105,6 +105,12 @@ type PaymentConfirmation struct {
 // ErrPaymentReverseNotSupported is returned by providers that cannot reverse a
 // payment programmatically; reversal is then a manual operation on the
 // provider's dashboard (ADR 0012).
+//
+// Neither provider in this system returns it any more — PayPhone reverses
+// through its own API (ADR 0018) and the stub always agrees — and it stays on
+// the boundary for the next one, which may well not. Removing it would mean the
+// interface had no way to say "cannot", and a provider without a reversal API
+// would have to invent a failure instead of declaring an absence.
 var ErrPaymentReverseNotSupported = errors.New("payment provider: reverse is not supported")
 
 // PaymentProvider collects money for Online Sales behind a provider-agnostic
@@ -122,9 +128,17 @@ type PaymentProvider interface {
 	// guarantee idempotency across retries by consulting their own Payment
 	// record first.
 	Confirm(ctx context.Context, in PaymentConfirmInput) (*PaymentConfirmation, error)
-	// Reverse undoes a collected payment. Reserved: no current implementation
-	// supports it (refunds are manual via the provider dashboard, ADR 0012);
-	// implementations without support return ErrPaymentReverseNotSupported.
+	// Reverse undoes a collected payment, identified by our client transaction
+	// id. It must return nil only when the money is genuinely on its way back:
+	// an ambiguous answer — an unrecognized body, a transport failure, a
+	// timeout — is an error, because the caller reverses the Ticket Sale on nil
+	// and a buyer must never be told their money was returned when it was not.
+	//
+	// It must not retry. Re-posting a reversal into silence risks returning the
+	// money twice, the same reasoning ADR 0012 applies to Confirm.
+	//
+	// A provider that cannot reverse programmatically returns
+	// ErrPaymentReverseNotSupported and says so through SupportsReverse below.
 	Reverse(ctx context.Context, clientTransactionID string) error
 	// SupportsReverse reports whether Reverse does anything but refuse.
 	//
@@ -187,10 +201,40 @@ func (r PaymentReversal) Supports(paymentMethod string) bool {
 	if paymentMethod == FreePaymentMethod {
 		return true
 	}
-	if r.provider == nil || r.provider.Name() != paymentMethod {
+	if r.provider == nil || !settledBy(r.provider, paymentMethod) {
 		return false
 	}
 	return r.provider.SupportsReverse()
+}
+
+// paymentMethodStandIn is a Payment Provider that settles Online Sales under a
+// Payment Method other than its own Name. Exactly one implementation exists and
+// exactly one can: the development stub, which stands in for the launch provider
+// so a dev deployment's Sales list reads the same as production's (ADR 0012).
+//
+// It is an optional interface rather than a field on PaymentProvider because a
+// real provider never has an answer to give — its Name IS the Payment Method its
+// sales record.
+type paymentMethodStandIn interface {
+	// StandsInFor is the Payment Method recorded on the Online Sales this
+	// provider settles.
+	StandsInFor() string
+}
+
+// settledBy reports whether paymentMethod names this provider — the question
+// "did the provider we can actually ask collect this money?".
+//
+// Name equality answers it for a real provider. The stub needs the second arm:
+// an Online Sale it settles records the launch provider's Payment Method, not
+// "stub", so comparing names alone would decide that a dev deployment's every
+// paid sale was collected by somebody else and quietly withhold the Undo the
+// stub exists to make exercisable.
+func settledBy(provider PaymentProvider, paymentMethod string) bool {
+	if provider.Name() == paymentMethod {
+		return true
+	}
+	standIn, ok := provider.(paymentMethodStandIn)
+	return ok && standIn.StandsInFor() == paymentMethod
 }
 
 // Stub payment page contract, honoured by the Storefront's dev-only
@@ -268,13 +312,24 @@ func (p *StubPaymentProvider) Confirm(_ context.Context, in PaymentConfirmInput)
 	}, nil
 }
 
-// Reverse is reserved (ADR 0012): the stub, like the launch PayPhone
-// integration, has no programmatic reversal.
+// Reverse succeeds, unconditionally. There is no external service to ask and no
+// money to give back, so the stub's honest answer to "was the payment reversed?"
+// is yes — the same answer its Confirm gives the interstitial's Approve.
+//
+// It succeeds rather than refusing because the alternative makes the whole
+// Customer-initiated Sale Reversal flow unreachable without PayPhone
+// credentials: nobody could press Undo on a paid sale locally, and the first
+// place the feature would be exercised end to end is production.
 func (p *StubPaymentProvider) Reverse(_ context.Context, _ string) error {
-	return ErrPaymentReverseNotSupported
+	return nil
 }
 
-// SupportsReverse is false while Reverse above refuses, which is what keeps the
-// Customer Area from offering Undo on a stub-settled sale it could not honour.
-// The two move together or the offer becomes a lie.
-func (p *StubPaymentProvider) SupportsReverse() bool { return false }
+// SupportsReverse is true, in step with Reverse above (see the interface). The
+// pair is what makes a paid Online Sale offer its Undo in development.
+func (p *StubPaymentProvider) SupportsReverse() bool { return true }
+
+// StandsInFor is the Payment Method the Online Sales this stub settles actually
+// record: the launch provider's, never "stub" (ADR 0012). Without it the
+// reversal rule would compare "payphone" against "stub" and conclude that every
+// dev sale was collected by a provider this deployment cannot ask.
+func (p *StubPaymentProvider) StandsInFor() string { return PayPhoneProviderName }

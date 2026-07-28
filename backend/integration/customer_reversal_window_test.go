@@ -18,9 +18,9 @@ import (
 // must be open AND the sale's Payment must actually be undoable. A free claim
 // settles with no Payment Provider at all (ADR 0017), so it is the sale whose
 // offer depends on the clock alone — exactly what these tests are measuring. A
-// paid purchase is withheld for a reason that has nothing to do with time, and
-// TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse below is what pins that
-// difference down.
+// paid purchase now clears the provider half too (#120), and
+// TestAPaidSaleAndAFreeClaimShareOneReversalWindow below is what pins the two
+// to one deadline.
 //
 // Every expectation is anchored to the harness clock, 2026-07-07T12:00:00Z, which
 // is 07:00 in Ecuador — a morning purchase, comfortably before the 20:00 cutoff.
@@ -127,22 +127,25 @@ func TestOnlineSaleReportsItsReversalWindow(t *testing.T) {
 	}
 }
 
-// TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse separates the two
-// halves of `reversible`, which is the distinction #119 introduced.
+// TestAPaidSaleAndAFreeClaimShareOneReversalWindow is what #119's
+// TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse became once the launch
+// provider's reversal API was integrated (#120).
 //
-// A paid purchase and a free claim are made in the same minute, for two Events
-// starting at the same instant in the same timezone. Their Reversal Windows are
-// therefore identical to the second: the window is a platform rule and knows
-// nothing about money (ADR 0018). What differs is whether the platform could
-// actually honour an undo — the free claim has no Payment Provider to ask, while
-// the paid one was collected by a provider that cannot reverse anything today
-// (ADR 0012). So only the free claim is offered, and the paid one carries no
-// deadline at all rather than a countdown to a refusal.
+// Its premise then was that the two sales diverged: the free claim had no
+// Payment Provider to ask, while the paid one was collected by a provider that
+// could not reverse anything, so only the free claim was offered. That premise
+// is gone — PayPhone reverses, and the stub stands in for it and agrees — and
+// the thing worth pinning is what was always underneath it. A paid purchase and
+// a free claim made in the same minute, for two Events starting at the same
+// instant in the same timezone, are offered on the SAME deadline: the Reversal
+// Window is a platform rule and knows nothing about money (ADR 0018).
 //
-// When the launch provider's reversal API is integrated, this test is the one
-// that changes: both sales become reversible, on the same deadline they always
-// shared.
-func TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse(t *testing.T) {
+// The provider half of `reversible` has not stopped mattering; it is simply no
+// longer what separates these two. It is pinned where it is now visible — on a
+// sale settled by a provider this deployment cannot ask, in
+// TestPaymentReversalSupports (internal/platform), and on the paid sale driven
+// all the way through PayPhone in customer_sale_reversal_payphone_test.go.
+func TestAPaidSaleAndAFreeClaimShareOneReversalWindow(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	startsAt := env.fixedClock.Add(72 * time.Hour)
@@ -169,8 +172,14 @@ func TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse(t *testing.T) {
 		t.Fatalf("free claim closes at %v, want %q", free.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
 	}
 
-	assertNotReversible(t, saleByRef(t, area, paidRef),
-		"a paid purchase whose Payment Provider cannot reverse it")
+	paid := saleByRef(t, area, paidRef)
+	if !paid.Reversible {
+		t.Fatal("the paid purchase is not offered; the provider that collected the money can give it back")
+	}
+	if paid.ReversalWindowClosesAt == nil || *paid.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("paid purchase closes at %v, want the free claim's own deadline %q — the window never knew about money",
+			paid.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	}
 }
 
 // TestReversalWindowEndsAtEventStartOnASameDayShow: a matinee starting at 17:00

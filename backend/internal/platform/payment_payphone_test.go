@@ -266,10 +266,108 @@ func TestPayPhoneConfirmUnknownOutcomeErrors(t *testing.T) {
 	})
 }
 
-func TestPayPhoneReverseIsReserved(t *testing.T) {
-	p := NewPayPhoneProvider("token", "store-1", "http://payphone.invalid", discardLogger())
-	if err := p.Reverse(context.Background(), "ctid-123"); !errors.Is(err, ErrPaymentReverseNotSupported) {
-		t.Fatalf("reverse error = %v, want ErrPaymentReverseNotSupported", err)
+// TestPayPhoneReverseCallsReverseClient pins the request: the merchant-keyed
+// endpoint, our client transaction id under PayPhone's clientId name, and the
+// same bearer token Prepare and Confirm present — the token that created the
+// transaction must be the one that reverses it.
+func TestPayPhoneReverseCallsReverseClient(t *testing.T) {
+	var gotPath, gotAuth, gotContentType string
+	var gotBody map[string]any
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode reverse body: %v", err)
+		}
+		// The documented success: a bare JSON true, not an object.
+		_, _ = w.Write([]byte("true"))
+	}))
+	defer srv.Close()
+
+	p := NewPayPhoneProvider("secret-token", "store-1", srv.URL, discardLogger())
+	if err := p.Reverse(context.Background(), "ctid-123"); err != nil {
+		t.Fatalf("reverse: %v", err)
+	}
+
+	if gotPath != "/api/Reverse/Client" {
+		t.Fatalf("path = %q, want /api/Reverse/Client — the variant keyed on OUR id", gotPath)
+	}
+	if gotAuth != "Bearer secret-token" {
+		t.Fatalf("authorization = %q, want the Bearer token", gotAuth)
+	}
+	if gotContentType != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", gotContentType)
+	}
+	if gotBody["clientId"] != "ctid-123" {
+		t.Fatalf("clientId = %v, want the client transaction id", gotBody["clientId"])
+	}
+	if calls != 1 {
+		t.Fatalf("reverse posted %d times, want exactly 1 — a repeated reversal risks returning the money twice", calls)
+	}
+	if !p.SupportsReverse() {
+		t.Fatal("SupportsReverse is false while Reverse works; the Undo would never be offered")
+	}
+}
+
+// TestPayPhoneReverseAcceptsOnlyLiteralTrue is the money-safe half. The caller
+// voids the Ticket Sale, restores capacity and emails the buyer on a nil error,
+// so anything short of PayPhone's documented `true` must be an error: a refusal
+// object, a `false`, a body that is not JSON, a non-2xx, or nothing at all.
+func TestPayPhoneReverseAcceptsOnlyLiteralTrue(t *testing.T) {
+	cases := map[string]http.HandlerFunc{
+		"false": func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("false"))
+		},
+		"refusal object with an error code": func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, `{"message":"El reverso no se puede ejecutar","errorCode":42}`, http.StatusBadRequest)
+		},
+		"200 with a refusal object": func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"message":"Transaccion no encontrada","errorCode":20}`))
+		},
+		"200 with a success-shaped object": func(w http.ResponseWriter, r *http.Request) {
+			// Not the documented answer, so not an answer: reading an unrecognized
+			// shape as success would tell a buyer their money is coming back.
+			_, _ = w.Write([]byte(`{"reversed":true}`))
+		},
+		"malformed json": func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("<html>maintenance</html>"))
+		},
+		"empty body": func(w http.ResponseWriter, r *http.Request) {},
+		"server error": func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		},
+		"quoted true": func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`"true"`))
+		},
+	}
+	for name, handler := range cases {
+		srv := httptest.NewServer(handler)
+		p := NewPayPhoneProvider("token", "store-1", srv.URL, discardLogger())
+		err := p.Reverse(context.Background(), "ctid-123")
+		srv.Close()
+		if err == nil {
+			t.Fatalf("%s: reverse succeeded; only a literal true is a reversal", name)
+		}
+		if errors.Is(err, ErrPaymentReverseNotSupported) {
+			t.Fatalf("%s: reverse reported the operation unsupported; it is supported and it failed", name)
+		}
+	}
+}
+
+// TestPayPhoneReverseFailsOnTransportFailure: PayPhone was never reached, so
+// nothing is known about the money. That is an error and never a retry — a
+// second reversal posted into the silence could return the money twice.
+func TestPayPhoneReverseFailsOnTransportFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	closed := srv.URL
+	srv.Close()
+
+	p := NewPayPhoneProvider("token", "store-1", closed, discardLogger())
+	if err := p.Reverse(context.Background(), "ctid-123"); err == nil {
+		t.Fatal("reverse succeeded against an unreachable PayPhone; an unknown outcome must never reverse a Ticket Sale")
 	}
 }
 

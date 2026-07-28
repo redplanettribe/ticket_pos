@@ -98,7 +98,8 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 	// A free claim skips this because there is no provider to call — no money was
 	// collected, by anyone. Nothing else may skip it: the branch is on the
 	// Payment Method the sale was settled under, not on convenience.
-	if sale.PaymentMethod.String != platform.FreePaymentMethod {
+	paid := sale.PaymentMethod.String != platform.FreePaymentMethod
+	if paid {
 		if err := s.provider.Reverse(ctx, sale.ClientTransactionID); err != nil {
 			// The provider's code goes to the log and not to the buyer. PayPhone
 			// publishes no "too late" code, so any explanation offered here would
@@ -131,6 +132,25 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 		Now:            now,
 	})
 	if err != nil {
+		// The money is already on its way back and the Ticket Sale still stands:
+		// the buyer keeps both their tickets and their payment, and the
+		// Organization's dashboard shows revenue that no longer exists. Nothing
+		// here can fix it — re-calling the provider risks reversing twice, and the
+		// local write is the thing that just failed — so it is logged as an
+		// incident an operator resolves by hand, exactly as the checkout's own
+		// take-the-money-lose-the-sale case is (ADR 0018).
+		//
+		// The two ids are the whole point of the line: the Ticket Sale to correct
+		// here, and the client transaction id to find the reversal on the
+		// provider's dashboard.
+		if paid {
+			s.logger.Error("SALE_REVERSAL_NOT_COMMITTED: the Payment Provider reversed the payment but the Ticket Sale could not be marked reversed; the buyer keeps both the money and the tickets",
+				"ticket_sale_id", sale.ID,
+				"confirmation_ref", sale.ConfirmationRef,
+				"client_transaction_id", sale.ClientTransactionID,
+				"error", err,
+			)
+		}
 		return nil, err
 	}
 	if len(reversedSales) == 0 {

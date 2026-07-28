@@ -31,12 +31,26 @@ import (
 //     unknown status — is an ERROR, never a decline, because the charge might
 //     have succeeded and marking it failed would strand a paid Customer.
 
+// PayPhoneProviderName is what this provider calls itself, and the Payment
+// Method an Online Sale that collected money records (ADR 0012). It is exported
+// because the sales module records that method on every paid Online Sale and the
+// stub stands in for it in development: one spelling, declared beside the
+// implementation it names.
+const PayPhoneProviderName = "payphone"
+
 // payPhonePreparePath and payPhoneConfirmPath are PayPhone's two button
-// endpoints, relative to the base URL (PayPhoneBaseURL in production, the test
-// override elsewhere).
+// endpoints, and payPhoneReversePath its reversal endpoint, relative to the base
+// URL (PayPhoneBaseURL in production, the test override elsewhere).
+//
+// Reverse/Client is the merchant-keyed variant: it takes OUR id for the
+// transaction — the client transaction id already on every Payment — where the
+// plain /api/Reverse takes PayPhone's own integer id. The Payment records both,
+// but the client transaction id is what the boundary hands Reverse and what
+// every support procedure already cross-references.
 const (
 	payPhonePreparePath = "/api/button/Prepare"
 	payPhoneConfirmPath = "/api/button/V2/Confirm"
+	payPhoneReversePath = "/api/Reverse/Client"
 )
 
 // payPhoneStatus values in the V2/Confirm response. PayPhone documents exactly
@@ -92,7 +106,7 @@ func NewPayPhoneProvider(apiToken, storeID, baseURL string, logger Logger) *PayP
 }
 
 // Name identifies the implementation; recorded on every Payment it handles.
-func (p *PayPhoneProvider) Name() string { return "payphone" }
+func (p *PayPhoneProvider) Name() string { return PayPhoneProviderName }
 
 // payPhonePrepareRequest is the subset of Prepare's payload this system uses.
 // PayPhone requires amount to equal the sum of its monetary components; with no
@@ -337,17 +351,82 @@ func (p *PayPhoneProvider) Confirm(ctx context.Context, in PaymentConfirmInput) 
 	}
 }
 
-// Reverse is reserved (ADR 0012): reversals are manual on the PayPhone
-// dashboard until a reversal flow is built.
-func (p *PayPhoneProvider) Reverse(_ context.Context, _ string) error {
-	return ErrPaymentReverseNotSupported
+// payPhoneReverseRequest is Reverse/Client's whole payload: the merchant's own
+// id for the transaction, which PayPhone names clientId and this system knows as
+// the client transaction id.
+type payPhoneReverseRequest struct {
+	ClientID string `json:"clientId"`
 }
 
-// SupportsReverse is false while Reverse above refuses. PayPhone does expose a
-// reversal API (ADR 0018) and this pair is what will light up together when it
-// is integrated: nothing else in the system needs to change for a paid Online
-// Sale to become undoable, and nothing may offer it before then.
-func (p *PayPhoneProvider) SupportsReverse() bool { return false }
+// Reverse undoes a collected payment through PayPhone's Reverse/Client endpoint
+// (ADR 0018), on the same origin and bearer token as Prepare and Confirm — the
+// token that created the transaction must be the one that reverses it, which
+// holds by construction while the platform sells through a single merchant
+// account.
+//
+// **A literal JSON `true` is the only success.** PayPhone answers a completed
+// reversal with the bare value, not an object; a failure is an object carrying a
+// message and an errorCode. So `false`, an object of any shape, a non-2xx, a
+// body that is not JSON at all, and a transport failure are every one of them an
+// error here. The caller reverses nothing locally on an error (ADR 0018), and
+// the cost of reading an ambiguous answer as success would be a buyer told their
+// tickets are gone and their money returned when neither happened.
+//
+// Nothing is retried, for the reason ADR 0012 already applies to Prepare and
+// Confirm: a timeout or a 5xx says nothing about whether PayPhone acted, and
+// re-posting a reversal into that silence risks returning the money twice. One
+// bounded attempt, and a refusal costs the buyer only the attempt.
+//
+// PayPhone's error code is logged and never returned to the buyer in any form
+// the endpoint would show them: the published catalogue has no code meaning
+// "past the cutoff" (20 is transaction-not-found, 40 not-a-reversal, 42 an
+// issuing-bank refusal), so any explanation offered would be a guess about
+// somebody's money.
+func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID string) error {
+	// json.RawMessage rather than a bool: it accepts whatever PayPhone sent, so
+	// the refusal body — the one place its errorCode appears — reaches the log
+	// instead of being lost to a decode error against the wrong shape.
+	var body json.RawMessage
+	if err := p.post(ctx, payPhoneReversePath, payPhoneReverseRequest{ClientID: clientTransactionID}, &body); err != nil {
+		p.logger.Error("payphone reverse failed",
+			"client_transaction_id", clientTransactionID,
+			"error", err,
+		)
+		return fmt.Errorf("payphone reverse: %w", err)
+	}
+	if !payPhoneReversed(body) {
+		p.logger.Error("payphone refused the reversal",
+			"client_transaction_id", clientTransactionID,
+			"response", payPhoneBodySnippet(body),
+		)
+		return fmt.Errorf("payphone reverse: refused with %s", payPhoneBodySnippet(body))
+	}
+	return nil
+}
+
+// payPhoneReversed reports whether a 2xx body is PayPhone's literal `true`.
+// Anything else is a refusal, including `false`, which is a documented answer
+// and not an absence of one.
+func payPhoneReversed(body json.RawMessage) bool {
+	return strings.TrimSpace(string(body)) == "true"
+}
+
+// payPhoneBodySnippet bounds a response body for a log line. PayPhone's refusal
+// body is a short {"message":…,"errorCode":…} object, but a misbehaving response
+// must not be able to write an unbounded line.
+func payPhoneBodySnippet(body json.RawMessage) string {
+	const maxSnippet = 512
+	s := strings.TrimSpace(string(body))
+	if len(s) > maxSnippet {
+		return s[:maxSnippet] + "…"
+	}
+	return s
+}
+
+// SupportsReverse is true because Reverse above genuinely reverses. The two move
+// together (see the interface): a provider that answers true here and then
+// refuses puts an Undo button in front of a buyer that cannot work.
+func (p *PayPhoneProvider) SupportsReverse() bool { return true }
 
 // payPhoneStatusError is a non-2xx answer from PayPhone, carrying the status
 // alongside the bounded slice of the body that goes into the log. It exists so

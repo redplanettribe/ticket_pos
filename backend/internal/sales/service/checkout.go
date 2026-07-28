@@ -35,7 +35,12 @@ const checkoutReturnPath = "/checkout/return"
 // onlinePaymentMethod is the Payment Method recorded on an Online Sale that
 // collected money: the name of the Payment Provider that collected it at launch
 // (the stub stands in for it in development, driving the same legs).
-const onlinePaymentMethod = "payphone"
+//
+// It is the provider's own declared name rather than a second spelling of it,
+// because the reversal rule reads this value back and asks the provider whether
+// it settled the sale (ADR 0018). Two spellings drifting apart would mean an
+// Undo silently withheld from every paid sale.
+const onlinePaymentMethod = platform.PayPhoneProviderName
 
 // freePaymentMethod is the Payment Method recorded on an Online Sale of Free
 // Ticket Types, where there was nothing to collect and so no Payment Provider

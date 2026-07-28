@@ -96,7 +96,9 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
           own wall clock, not the Event's, and a buyer whose show is abroad would
           otherwise have no way to tell which 8:00 PM was meant.
           The word is "undo" — "cancel" belongs to an Event being called off, and
-          "refund" would be wrong on a claim that cost nothing. */}
+          "refund" is not this system's word for a Sale Reversal. What a paid
+          purchase's undo does to the money is said in the dialog, where the
+          Customer is deciding. */}
       {canUndo ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t pt-4">
           <p className="text-sm text-muted-foreground">
@@ -107,6 +109,9 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
             saleId={sale.id}
             eventName={sale.event.name}
             confirmationRef={sale.confirmation_ref}
+            paidLabel={
+              sale.amount_cents > 0 ? formatPrice(sale.amount_cents, sale.currency) : null
+            }
           />
         </div>
       ) : null}
