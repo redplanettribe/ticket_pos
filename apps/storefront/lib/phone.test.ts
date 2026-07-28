@@ -7,6 +7,7 @@ import {
   PHONE_ECUADOR_MESSAGE,
   PHONE_GENERIC_MESSAGE,
   normalizePhone,
+  composePhone,
   splitPhone,
   validatePhone,
 } from "./phone.ts";
@@ -203,4 +204,30 @@ test("splitPhone and normalizePhone are inverses over the country table", () => 
     const { diallingCode, nationalNumber } = splitPhone(canonical);
     assert.equal(normalizePhone(`${diallingCode}${nationalNumber}`), canonical);
   }
+});
+
+test("composePhone joins the selector and the field", () => {
+  assert.equal(composePhone("+593", "987654321"), "+593987654321");
+  assert.equal(composePhone("+1", "2025550123"), "+12025550123");
+  // Surrounding whitespace is the buyer's, not a second number.
+  assert.equal(composePhone("+593", "  987654321  "), "+593987654321");
+});
+
+test("composePhone reads an empty field as no number at all", () => {
+  // Never a bare dialling code: "+593" is a value nobody entered, and the phone
+  // is optional and never fabricated (#103).
+  assert.equal(composePhone("+593", ""), "");
+  assert.equal(composePhone("+593", "   "), "");
+});
+
+test("composePhone takes a pasted international number whole, ignoring the selector", () => {
+  // People paste. A buyer dropping a full international number into the field
+  // while the selector still reads Ecuador means the number they pasted — and
+  // concatenating would produce "+593+12025550123", which this mirror would
+  // reject with a message about Ecuadorian mobiles while the server would have
+  // accepted the pasted number verbatim. That is the mirror being STRICTER than
+  // the rule it mirrors, the one direction it may never differ in.
+  assert.equal(composePhone("+593", "+12025550123"), "+12025550123");
+  assert.equal(validatePhone(composePhone("+593", "+12025550123")), null);
+  assert.equal(normalizePhone(composePhone("+593", "+12025550123")), "+12025550123");
 });

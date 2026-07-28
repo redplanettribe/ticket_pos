@@ -514,6 +514,15 @@ type EmailSender interface {
   Write-back from a sale mirrors the customer-name rule with one addition: a sale may **fill** a
   never-set Tax ID and **refresh** it while the Customer is unverified, and may overwrite a verified
   one **only** when the checkout ran under that Customer's own full Customer Session.
+- A Customer may hold a **Phone Number**, carried the same way and under the same write-back guard:
+  one canonical E.164 string, validated in `platform.ValidatePhone` and mirrored by
+  `apps/storefront/lib/phone.ts`, returned on the session as `phone` so the checkout dialog can
+  prefill it. It exists for one reason — PayPhone's hosted form takes it as a prefill — so it is
+  **optional everywhere and never fabricated**, and it is **sparsely populated** by design: only
+  online checkout and "My info" collect it, never the staff-recorded sale form or the Sale Import,
+  because those channels never call a Payment Provider. Unlike the Tax ID it is **not** snapshotted
+  onto the Ticket Sale: ADR 0016 makes the Tax ID a fiscal fact of the sale, and a phone number is
+  not one. The `payments` row carries it only so it survives the provider's return redirect.
 - Each Ticket Sale's own **Tax ID snapshot** is what the buyer's paper trail shows, never the
   Customer's current assertion. It reaches the two buyer-facing surfaces as one rendering —
   `platform.SaleTaxID.Display()`, e.g. `Cédula: 1712345675`, unmasked and mirrored by
@@ -525,10 +534,15 @@ type EmailSender interface {
   Customer Area draws `—`, because history is never backfilled.
 - The Customer edits their own record through `PATCH /api/v1/customer/profile` — the "My info"
   section of the Customer Area and the customer namespace's only write. It takes `first_name`,
-  `last_name`, `tax_id_type` and `tax_id_number`, returns the updated profile beside the `email`,
+  `last_name`, `tax_id_type`, `tax_id_number` and `phone`, returns the updated profile beside the `email`,
   and rejects a blank first or last name: the customer-upsert guard reads a blank name as "never
   named", and this is the only write path that could falsify that. Sending both Tax ID halves null
-  clears it; one without the other is a field-level validation failure. The email is not accepted —
+  clears it; one without the other is a field-level validation failure. The phone clears on an
+  explicit `null` or blank, but an **absent** `phone` key means "leave it alone" — deliberately
+  unlike the Tax ID, whose absence clears. The Tax ID has been in this contract since it was
+  written, whereas the phone was added to an existing one: during a deploy window a Storefront
+  running the previous build sends no `phone` key, and it must not silently erase buyers' numbers.
+  The email is not accepted —
   it is the Customer's identity. A **full** Customer Session is required: a Confirmation Link
   session is refused with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403), because possession of a
   forwarded Sale Confirmation is not ownership of the address. The edit moves the Customer's current
@@ -587,7 +601,7 @@ implementation selected in `server.NewApp` by credential presence.
 
 | Implementation | Selected when | Behavior |
 |----------------|---------------|----------|
-| **PayPhone** (`payment_payphone.go`) | `PAYPHONE_API_TOKEN` and `PAYPHONE_STORE_ID` are both set | Redirect flow ("Botón de pago"): `Initiate` calls PayPhone `Prepare` server-side and returns the hosted card-payment URL; `Confirm` calls `V2/Confirm` and reports the verdict. Raw `net/http`, no vendor SDK; USD integer cents end to end |
+| **PayPhone** (`payment_payphone.go`) | `PAYPHONE_API_TOKEN` and `PAYPHONE_STORE_ID` are both set | Redirect flow ("Botón de pago"): `Initiate` calls PayPhone `Prepare` server-side and returns the hosted card-payment URL; `Confirm` calls `V2/Confirm` and reports the verdict. Raw `net/http`, no vendor SDK; USD integer cents end to end. `Prepare` also carries PayPhone's optional prefills — `email`, `documentId` (cédula and RUC only; a passport is withheld, and the Tax ID Type is never sent) and `phoneNumber` — so the hosted form arrives filled. A `4xx` retries **once** with all three stripped, reproducing the pre-prefill payload, so a systematic rejection degrades to the old form rather than failing checkouts; a `5xx` or a transport failure is never retried, because re-posting a charge request into silence risks a double charge |
 | **Stub** | Either credential absent | Its "hosted payment page" is a dev-only Storefront interstitial (`/checkout/stub`) with Approve and Decline actions driving the same redirect legs. A production Storefront build 404s that route unless `STOREFRONT_STUB_PAYMENTS=1` (parity stack only) |
 
 A second real provider requires only a new implementation of this interface — credentials flow
@@ -627,7 +641,8 @@ Nothing external may call the Go API (ADR 0008), so the provider's return redire
 
 1. `POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout` (guest; a Customer
    Session is optional and never required) validates the cart against live capacity and the
-   buyer's `customer_tax_id_type` / `customer_tax_id_number`, records a `pending` Payment, calls
+   buyer's `customer_tax_id_type` / `customer_tax_id_number`, plus the optional `customer_phone`
+   (absent is valid and simply means no phone), records a `pending` Payment, calls
    `PaymentProvider.Initiate`, and returns the hosted payment URL.
 2. The browser is redirected to the provider's payment page (top-level, never an iframe).
 3. The provider redirects back to `{storefront}/checkout/return`, whose handler relays the return

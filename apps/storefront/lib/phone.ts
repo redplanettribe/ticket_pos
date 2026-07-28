@@ -296,6 +296,9 @@ export const PHONE_GENERIC_MESSAGE = "must be 4–15 digits in international for
  */
 const PHONE_PUNCTUATION = /[\s\-().\/]/g;
 
+/** Ecuador's dialling code as bare digits — the strict tier's discriminator. */
+const ECUADOR_DIGITS = ECUADOR_DIALLING_CODE.slice(1);
+
 /**
  * scanPhone strips that punctuation and returns the bare digits without the
  * leading plus, or null for anything that is not a plausible international
@@ -332,8 +335,8 @@ export function normalizePhone(phone: string): string | null {
   const digits = scanPhone(phone);
   if (digits === null) return null;
 
-  if (digits.startsWith("593")) {
-    let national = digits.slice(3);
+  if (digits.startsWith(ECUADOR_DIGITS)) {
+    let national = digits.slice(ECUADOR_DIGITS.length);
     if (national.startsWith("0")) national = national.slice(1);
     if (!/^9[0-9]{8}$/.test(national)) return null;
     return `${ECUADOR_DIALLING_CODE}${national}`;
@@ -361,9 +364,46 @@ export function normalizePhone(phone: string): string | null {
 export function validatePhone(phone: string): string | null {
   if (phone.trim() === "") return null;
   if (normalizePhone(phone) !== null) return null;
-  return phone.replace(/[^0-9]/g, "").startsWith("593")
+  return phoneMessage(phone);
+}
+
+/**
+ * phoneMessage picks the tier a rejected number was aiming at, from the digits
+ * the buyer typed rather than from what parsed — the mirror of PhoneNumberMessage
+ * in phone.go, factored out here for the same reason it is a named function
+ * there: the tier choice is a rule, and a rule stated inline in one runtime and
+ * named in the other is a rule that drifts.
+ */
+function phoneMessage(phone: string): string {
+  return phone.replace(/[^0-9]/g, "").startsWith(ECUADOR_DIGITS)
     ? PHONE_ECUADOR_MESSAGE
     : PHONE_GENERIC_MESSAGE;
+}
+
+/**
+ * composePhone assembles the two controls every phone form shows — the selector's
+ * dialling code and the national number typed beside it — into the single string
+ * the rule above is written against. Both the checkout dialog and "My info" go
+ * through here, so the assembly exists once rather than once per form.
+ *
+ * An empty national number gives an empty string rather than a bare dialling
+ * code, so "the buyer typed nothing" can never be mistaken for "+593" — a value
+ * nobody entered, and one the optional-and-never-fabricated rule forbids (#103).
+ *
+ * A national number that ALREADY starts with a plus is taken whole and the
+ * selector ignored. People paste. A buyer who drops "+12025550123" into the
+ * field while the selector still reads Ecuador means the number they pasted, not
+ * "+593+12025550123" — which would be refused here with a message about
+ * Ecuadorian mobiles, while the server would have accepted the pasted number
+ * verbatim. That is the mirror being STRICTER than the rule it mirrors, the one
+ * direction this file may never differ in, and it would read to the buyer as the
+ * platform refusing a perfectly good number.
+ */
+export function composePhone(diallingCode: string, nationalNumber: string): string {
+  const national = nationalNumber.trim();
+  if (national === "") return "";
+  if (national.startsWith("+")) return national;
+  return `${diallingCode}${national}`;
 }
 
 /**

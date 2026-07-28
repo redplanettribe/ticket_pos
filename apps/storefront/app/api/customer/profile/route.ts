@@ -39,25 +39,18 @@ function asTrimmedString(value: unknown): string {
 }
 
 /**
- * A Tax ID half is either a non-empty string or null. Null is meaningful here
- * and only here: it is how the Customer clears their stored Tax ID, so an absent
- * or blank value is forwarded as null rather than as "".
- */
-function asTaxIdHalf(value: unknown): string | null {
-  const trimmed = asTrimmedString(value);
-  return trimmed === "" ? null : trimmed;
-}
-
-/**
- * The phone is nullable for the same reason and with the same spelling: null is
- * how the Customer withdraws the number the platform holds (#108).
+ * Every clearable field on this endpoint — both Tax ID halves and the phone — is
+ * either a non-empty string or null, and null is meaningful: it is how the
+ * Customer withdraws something the platform holds about them. An absent or blank
+ * value is therefore forwarded as null rather than as "", which the API would
+ * have to guess at.
  *
  * The key is always forwarded, even as null. The API reads an ABSENT phone as
  * "this request is not about the phone, leave it alone" — a reading that exists
  * for clients written before the field, not for this one, which always knows
  * what the person in front of the form meant.
  */
-function asPhone(value: unknown): string | null {
+function asClearable(value: unknown): string | null {
   const trimmed = asTrimmedString(value);
   return trimmed === "" ? null : trimmed;
 }
@@ -91,9 +84,9 @@ export async function PATCH(request: Request) {
       body: JSON.stringify({
         first_name: asTrimmedString(body.first_name),
         last_name: asTrimmedString(body.last_name),
-        tax_id_type: asTaxIdHalf(body.tax_id_type),
-        tax_id_number: asTaxIdHalf(body.tax_id_number),
-        phone: asPhone(body.phone),
+        tax_id_type: asClearable(body.tax_id_type),
+        tax_id_number: asClearable(body.tax_id_number),
+        phone: asClearable(body.phone),
       }),
       sessionToken: token,
     });

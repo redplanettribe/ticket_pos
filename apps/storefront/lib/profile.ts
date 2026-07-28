@@ -23,7 +23,13 @@
 // The ".ts" is written out because these unit tests run under
 // `node --experimental-strip-types`, whose resolution needs it (as
 // lib/google-signin.ts does for the same reason).
-import { ECUADOR_DIALLING_CODE, normalizePhone, splitPhone, validatePhone } from "./phone.ts";
+import {
+  ECUADOR_DIALLING_CODE,
+  composePhone,
+  normalizePhone,
+  splitPhone,
+  validatePhone,
+} from "./phone.ts";
 import { normalizeTaxIdNumber, validateTaxId, type TaxIdType } from "./tax-id.ts";
 
 /** The Customer's own record as the API returns it from the profile endpoint. */
@@ -124,18 +130,14 @@ export function validateProfileDraft(draft: ProfileDraft): ProfileFieldErrors {
 }
 
 /**
- * draftPhone assembles the two controls into the one string the rule is written
- * against — the same assembly the checkout dialog does, and the reason the
- * dialling code never travels on its own.
- *
- * An empty national number gives an empty string rather than a bare dialling
- * code, so "the buyer typed nothing" cannot be mistaken for "+593", which is a
- * value nobody entered.
+ * draftPhone reads the draft's two phone controls as the one string the rule is
+ * written against. The assembly itself is composePhone in lib/phone.ts, shared
+ * with the checkout dialog: the same two controls appear on both surfaces, and a
+ * second copy of the rule for joining them is a second place for them to
+ * disagree about what a pasted international number means.
  */
 function draftPhone(draft: ProfileDraft): string {
-  return draft.phoneNationalNumber.trim() === ""
-    ? ""
-    : `${draft.phoneDiallingCode}${draft.phoneNationalNumber}`;
+  return composePhone(draft.phoneDiallingCode, draft.phoneNationalNumber);
 }
 
 /**

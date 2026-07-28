@@ -26,6 +26,7 @@ import { formatPrice } from "@/lib/format";
 import {
   COUNTRIES,
   ECUADOR_DIALLING_CODE,
+  composePhone,
   normalizePhone,
   splitPhone,
   validatePhone,
@@ -262,7 +263,7 @@ export function TicketSelection({
     // on the payment page as they do today (#103). A number that IS typed is
     // held to the same mirror check as the Tax ID above, so a slipped digit is
     // caught before the round trip rather than after it.
-    const phone = phoneNationalNumber.trim() === "" ? "" : `${phoneDiallingCode}${phoneNationalNumber}`;
+    const phone = composePhone(phoneDiallingCode, phoneNationalNumber);
     const phoneProblem = validatePhone(phone);
     if (phoneProblem) {
       setError(null);
