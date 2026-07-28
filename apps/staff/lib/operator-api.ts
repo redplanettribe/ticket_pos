@@ -230,13 +230,17 @@ export async function fetchOperatorSale(confirmationRef: string): Promise<Operat
 
 /**
  * An Operator Reversal as the operator states it: what the buyer actually got
- * back and whether the platform kept its fee, both required with no default,
- * plus an optional note. Who performed it is never sent — the API takes that
- * from the session.
+ * back and whether the platform kept its fee, plus an optional note. Who
+ * performed it is never sent — the API takes that from the session.
+ *
+ * The two money facts travel together and depend on the sale. On a paid sale
+ * both are required with no default. On a free online sale both are OMITTED and
+ * sending either is refused: it collected nothing, so there was nothing to
+ * refund and no fee to keep, and a zero would claim otherwise.
  */
 export type OperatorReversalBody = {
-  refunded_amount_cents: number;
-  platform_fee_kept: boolean;
+  refunded_amount_cents?: number;
+  platform_fee_kept?: boolean;
   note?: string;
 };
 

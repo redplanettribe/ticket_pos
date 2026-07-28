@@ -359,7 +359,13 @@ type OperatorReversalResult struct {
 }
 
 // ReverseSaleAsOperator records that a Platform Operator refunded a buyer
-// off-platform, marking their Ticket Sale reversed (#125, #123).
+// off-platform, marking their Ticket Sale reversed (#125, #126, #123).
+//
+// A free Online Sale is marked by the same call with no money in it at all: it
+// collected nothing, so there was nothing to refund and no fee to keep, and the
+// memo carries the operator, the moment and the note alone (#126). Everything
+// else — the provenance, the capacity, the notice, the irreversibility — is
+// identical, because the money was never what made a sale reversible.
 //
 // The Payment Provider is not called and must never be. The money left our
 // account before this request was made — by hand in the provider's dashboard,
@@ -399,12 +405,30 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 	if row.Status != platform.ActiveSaleStatus {
 		return nil, sales.ErrSaleAlreadyReversed()
 	}
-	// What the buyer got back cannot exceed what they paid. The ceiling is this
-	// sale's own collected amount, so a free Online Sale — which collected
-	// nothing — refuses every amount, and is reversed with no money fields at all
-	// through its own path (#126).
-	if in.RefundedAmountCents != nil && *in.RefundedAmountCents > row.AmountCents {
-		return nil, sales.ErrRefundedAmountExceedsCollected(*in.RefundedAmountCents, row.AmountCents, row.Currency)
+	// Whether the money memo is required is a fact about the SALE, which is why
+	// it is judged here and not in the handler: the handler sees a request and
+	// can only check its shape (the two facts travel together, and an amount is
+	// positive), while the answer to "must there be money at all" is the amount
+	// this sale collected (#126).
+	//
+	// A free Online Sale collected nothing and was charged no Platform Fee, so
+	// both facts are claims about money that never existed and both are refused.
+	// Absent, not zero: the record must keep "nothing to refund" distinguishable
+	// from "zero refunded", and only the first is true of a free sale.
+	if row.AmountCents == 0 {
+		if in.RefundedAmountCents != nil || in.PlatformFeeKept != nil {
+			return nil, sales.ErrNothingToRefund()
+		}
+	} else {
+		// The mirror, and #125's rule unweakened: a sale that took money is never
+		// marked without saying what came back.
+		if in.RefundedAmountCents == nil || in.PlatformFeeKept == nil {
+			return nil, sales.ErrRefundedAmountRequired(row.AmountCents, row.Currency)
+		}
+		// What the buyer got back cannot exceed what they paid.
+		if *in.RefundedAmountCents > row.AmountCents {
+			return nil, sales.ErrRefundedAmountExceedsCollected(*in.RefundedAmountCents, row.AmountCents, row.Currency)
+		}
 	}
 
 	now := s.now()

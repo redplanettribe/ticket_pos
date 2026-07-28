@@ -256,10 +256,11 @@ const reversalNoteMaxLength = 500
 
 // reverseSaleBody is an Operator Reversal as the operator states it.
 //
-// The money fields are pointers because required-with-no-default is exactly
-// what they are: an absent refunded amount must be refused rather than read as
-// zero, and an absent fee decision must be refused rather than read as false.
-// A default on either would put a claim about somebody's money in the schema's
+// The money fields are pointers because absent, zero and false are three
+// different answers. Absent is the free Online Sale's answer — nothing was
+// collected, so there is nothing to refund and no fee to keep (#126) — and on a
+// paid sale it is a refusal rather than a default, because a defaulted amount
+// or fee decision would put a claim about somebody's money in the schema's
 // mouth instead of the operator's.
 type reverseSaleBody struct {
 	RefundedAmountCents *int    `json:"refunded_amount_cents"`
@@ -270,7 +271,7 @@ type reverseSaleBody struct {
 // ReverseSale records an Operator Reversal against one Ticket Sale.
 //
 // @Summary      Record an out-of-band refund and reverse a Ticket Sale
-// @Description  Marks the active Online Sale named by a Sale Confirmation reference `reversed`, recording that the Platform Operator already refunded the buyer OFF-PLATFORM — by hand in the Payment Provider's dashboard, or by bank transfer. It is a pure record: the Payment Provider is NEVER called from this endpoint, so recording a refund that already happened can never trigger a second one. The Payment stays `approved` (the checkout genuinely settled; the reversal is a later event on the Sale). On commit the sale carries the third reversal actor `operator` with the acting operator's email (taken from the Staff Session, never from the body) and the moment, capacity returns to the Ticket Types, and the buyer receives the same Sale Voided email every reversal sends. refunded_amount_cents is required, strictly positive and at most what the sale collected, with no pre-fill; platform_fee_kept is required with no default (the Platform Fee and its Fee IVA travel together, so one flag decides both); note is optional and at most 500 characters. There is NO Reversal Window check on this path — a sale inside its window is marked exactly as one past it, which is the point of the operation. Refused for a sale that is not an Online Sale (an imported sale is undone through its Sale Import) and for one already reversed, including when the buyer's own undo committed first. Irreversible: no un-reversal exists. Platform Operator only.
+// @Description  Marks the active Online Sale named by a Sale Confirmation reference `reversed`, recording that the Platform Operator already refunded the buyer OFF-PLATFORM — by hand in the Payment Provider's dashboard, or by bank transfer. It is a pure record: the Payment Provider is NEVER called from this endpoint, so recording a refund that already happened can never trigger a second one. The Payment stays `approved` (the checkout genuinely settled; the reversal is a later event on the Sale). On commit the sale carries the third reversal actor `operator` with the acting operator's email (taken from the Staff Session, never from the body) and the moment, capacity returns to the Ticket Types, and the buyer receives the same Sale Voided email every reversal sends. The money memo depends on what the sale COLLECTED. On a paid sale refunded_amount_cents and platform_fee_kept are both required, with no pre-fill and no default: the amount is strictly positive and at most what the sale collected, and the one fee flag decides both the Platform Fee and its Fee IVA, which always travel together. On a FREE Online Sale both are refused — it collected nothing, so there was nothing to refund and no fee to keep, and the record says so with nulls rather than zeros. The two always travel together: giving one without the other is refused on any sale. note is optional and at most 500 characters on both. There is NO Reversal Window check on this path — a sale inside its window is marked exactly as one past it, which is the point of the operation. Refused for a sale that is not an Online Sale (an imported sale is undone through its Sale Import) and for one already reversed, including when the buyer's own undo committed first. Irreversible: no un-reversal exists. Platform Operator only.
 // @Tags         operator
 // @Accept       json
 // @Produce      json
@@ -316,27 +317,39 @@ func (h *Handler) ReverseSale(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
-// validateReverseSale checks the marking's shape: both money facts stated, the
-// refund positive, the note within bounds.
+// validateReverseSale checks the marking's shape: the two money facts stated
+// together or not at all, a stated refund positive, the note within bounds.
 //
-// What it deliberately does NOT check is the refund against what the sale
-// collected. That ceiling is a fact about the Ticket Sale rather than about this
-// request, so it is judged where the sale is loaded — the same split the record
-// payout body makes against the Withdrawable Balance.
+// What it deliberately does NOT check is either question that needs the sale —
+// whether money must be stated at all, and whether a stated refund exceeds what
+// was collected. Both are facts about the Ticket Sale rather than about this
+// request, so they are judged where the sale is loaded: a free Online Sale takes
+// neither money fact and a paid one requires both (#126). This is the same split
+// the record payout body makes against the Withdrawable Balance.
 func validateReverseSale(body reverseSaleBody) (service.OperatorReversalInput, []platform.FieldError) {
 	var fields []platform.FieldError
 
-	// Absent is refused rather than defaulted, in both directions: a pre-filled
-	// amount invites rubber-stamping, and a defaulted fee decision would record a
-	// revenue choice nobody made.
-	switch {
-	case body.RefundedAmountCents == nil:
-		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Message: "is required"})
-	case *body.RefundedAmountCents <= 0:
-		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Message: "must be greater than zero"})
+	// The pair rule holds on every sale, free or paid: an amount with no fee
+	// decision cannot say what the platform kept, and a fee decision with no
+	// amount cannot say what the buyer got. Neither is ever defaulted into
+	// existence — a pre-filled amount invites rubber-stamping, and a defaulted
+	// fee decision would record a revenue choice nobody made.
+	if body.RefundedAmountCents == nil && body.PlatformFeeKept != nil {
+		fields = append(fields, platform.FieldError{
+			Field:   "refunded_amount_cents",
+			Message: "is required when platform_fee_kept is given",
+		})
 	}
-	if body.PlatformFeeKept == nil {
-		fields = append(fields, platform.FieldError{Field: "platform_fee_kept", Message: "is required"})
+	if body.PlatformFeeKept == nil && body.RefundedAmountCents != nil {
+		fields = append(fields, platform.FieldError{
+			Field:   "platform_fee_kept",
+			Message: "is required when refunded_amount_cents is given",
+		})
+	}
+	// Zero is refused rather than read as "nothing to refund": absence is how
+	// that is said, and a refund of nothing is not a refund.
+	if body.RefundedAmountCents != nil && *body.RefundedAmountCents <= 0 {
+		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Message: "must be greater than zero"})
 	}
 
 	var note *string

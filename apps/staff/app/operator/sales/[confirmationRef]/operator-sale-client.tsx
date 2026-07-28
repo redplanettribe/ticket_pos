@@ -48,10 +48,27 @@ import {
  * Reversal (#125), recording a refund they already made off-platform. That
  * marking never calls the payment provider and cannot be undone, so it is
  * stated plainly and confirmed before it commits.
+ *
+ * How much of that form there is depends on the sale. One that collected
+ * nothing has no money to state and refuses both money facts, so it is offered
+ * a note and nothing else (#126).
  */
 
 /** The longest note the API accepts on an Operator Reversal. */
 const REVERSAL_NOTE_MAX_LENGTH = 500;
+
+/**
+ * A marking the operator has stated and is being asked to confirm.
+ *
+ * Both money facts are null together on a free sale — absent, not zero, which
+ * is the distinction the record keeps — and both are set together on a paid
+ * one, because an amount with no fee decision says nothing about what the
+ * platform kept.
+ */
+type PendingReversal = {
+  refundedAmountCents: number | null;
+  platformFeeKept: boolean | null;
+};
 
 /** One label/value row of the detail. */
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -99,16 +116,17 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // The marking's form. Both money facts start empty on purpose: a pre-filled
   // refund invites rubber-stamping the number the platform collected rather
   // than stating what the buyer actually got, and a defaulted fee decision
-  // would record a revenue choice nobody made.
+  // would record a revenue choice nobody made. On a free sale neither field is
+  // shown at all, and both stay empty.
   const [refunded, setRefunded] = useState("");
   const [feeKept, setFeeKept] = useState<"" | "kept" | "returned">("");
   const [note, setNote] = useState("");
   const [refundedError, setRefundedError] = useState<string | null>(null);
   const [feeKeptError, setFeeKeptError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Set only while the operator is confirming; it carries the parsed cents so
-  // the dialog can restate exactly what is about to be recorded.
-  const [pendingRefundCents, setPendingRefundCents] = useState<number | null>(null);
+  // Set only while the operator is confirming; it carries the marking exactly
+  // as it will be sent, so the dialog restates what is about to be recorded.
+  const [pending, setPending] = useState<PendingReversal | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,15 +156,22 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
     void load();
   }, [load]);
 
-  async function submitReversal(refundedAmountCents: number, keptFee: boolean) {
+  async function submitReversal(marking: PendingReversal) {
     setSubmitting(true);
     try {
+      // The money facts are OMITTED on a free sale rather than sent as zeros:
+      // the API refuses either of them there, and the record must keep "nothing
+      // to refund" apart from "zero refunded".
       await reverseOperatorSale(confirmationRef, {
-        refunded_amount_cents: refundedAmountCents,
-        platform_fee_kept: keptFee,
+        ...(marking.refundedAmountCents !== null && marking.platformFeeKept !== null
+          ? {
+              refunded_amount_cents: marking.refundedAmountCents,
+              platform_fee_kept: marking.platformFeeKept,
+            }
+          : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
       });
-      setPendingRefundCents(null);
+      setPending(null);
       toast.success("Sale reversed");
       // Re-read rather than patch locally: the status, the provenance and the
       // memo are all the server's account of what just happened.
@@ -163,6 +188,12 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // unsent — so it always goes past the dialog that restates the consequences.
   function handleReverseSubmit(event: React.FormEvent) {
     event.preventDefault();
+    // A sale that collected nothing states no money at all, so there is nothing
+    // here to validate: the marking is the note and the operator's identity.
+    if (lookup && lookup.sale.amount_cents === 0) {
+      setPending({ refundedAmountCents: null, platformFeeKept: null });
+      return;
+    }
     const refundedAmountCents = parsePriceToCents(refunded);
     const amountInvalid = refundedAmountCents === null || refundedAmountCents <= 0;
     setRefundedError(amountInvalid ? "Enter the amount the buyer got back." : null);
@@ -170,7 +201,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
     if (amountInvalid || feeKept === "" || refundedAmountCents === null) {
       return;
     }
-    setPendingRefundCents(refundedAmountCents);
+    setPending({ refundedAmountCents, platformFeeKept: feeKept === "kept" });
   }
 
   if (loading) {
@@ -218,6 +249,11 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // deliberately absent from this condition — being past it is the reason the
   // action exists, and being inside it never blocks it.
   const markable = !reversed && sale.channel === "online";
+  // A sale that collected nothing: there was no refund to make and no platform
+  // fee to keep, so the marking takes neither money fact and the form does not
+  // ask for them (#126). It is the amount COLLECTED that decides this, not the
+  // payment method — that is the fact the API judges the marking against.
+  const free = sale.amount_cents === 0;
   const memo = sale.operator_reversal;
 
   return (
@@ -355,60 +391,64 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       {markable ? (
         <Card>
           <CardHeader>
-            <CardTitle>Record an out-of-band refund</CardTitle>
+            <CardTitle>{free ? "Reverse this sale" : "Record an out-of-band refund"}</CardTitle>
             <CardDescription>
-              Use this after you have already refunded the buyer yourself — in the payment
-              provider&apos;s dashboard, or by bank transfer. It records what happened: no payment
-              provider is called from here, and nothing is refunded by submitting this form.
+              {free
+                ? "This sale collected nothing, so there is no refund to record and no fee to decide. Reversing it voids the tickets, puts them back on sale and emails the buyer."
+                : "Use this after you have already refunded the buyer yourself — in the payment provider's dashboard, or by bank transfer. It records what happened: no payment provider is called from here, and nothing is refunded by submitting this form."}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={handleReverseSubmit}>
-              <FormField
-                id="reversal-refunded"
-                label={`Refunded to the buyer (${currency})`}
-                error={refundedError}
-              >
-                <Input
-                  value={refunded}
-                  onChange={(event) => setRefunded(event.target.value)}
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  disabled={submitting}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  What actually left our account. This sale collected{" "}
-                  {formatPriceCents(sale.amount_cents, currency)}, which is the most it can be.
-                </p>
-              </FormField>
-              <FormField id="reversal-fee-kept" label="Platform fee" error={feeKeptError}>
-                <div className="flex flex-col gap-2 pt-1 text-sm">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="platform-fee-kept"
-                      value="kept"
-                      checked={feeKept === "kept"}
-                      onChange={() => setFeeKept("kept")}
+              {free ? null : (
+                <>
+                  <FormField
+                    id="reversal-refunded"
+                    label={`Refunded to the buyer (${currency})`}
+                    error={refundedError}
+                  >
+                    <Input
+                      value={refunded}
+                      onChange={(event) => setRefunded(event.target.value)}
+                      inputMode="decimal"
+                      placeholder="0.00"
                       disabled={submitting}
                     />
-                    Kept — the platform keeps{" "}
-                    {formatPriceCents(sale.platform_fee_cents + sale.fee_iva_cents, currency)} (fee
-                    and fee IVA)
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="platform-fee-kept"
-                      value="returned"
-                      checked={feeKept === "returned"}
-                      onChange={() => setFeeKept("returned")}
-                      disabled={submitting}
-                    />
-                    Returned — the platform keeps nothing on this sale
-                  </label>
-                </div>
-              </FormField>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      What actually left our account. This sale collected{" "}
+                      {formatPriceCents(sale.amount_cents, currency)}, which is the most it can be.
+                    </p>
+                  </FormField>
+                  <FormField id="reversal-fee-kept" label="Platform fee" error={feeKeptError}>
+                    <div className="flex flex-col gap-2 pt-1 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="platform-fee-kept"
+                          value="kept"
+                          checked={feeKept === "kept"}
+                          onChange={() => setFeeKept("kept")}
+                          disabled={submitting}
+                        />
+                        Kept — the platform keeps{" "}
+                        {formatPriceCents(sale.platform_fee_cents + sale.fee_iva_cents, currency)}{" "}
+                        (fee and fee IVA)
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="platform-fee-kept"
+                          value="returned"
+                          checked={feeKept === "returned"}
+                          onChange={() => setFeeKept("returned")}
+                          disabled={submitting}
+                        />
+                        Returned — the platform keeps nothing on this sale
+                      </label>
+                    </div>
+                  </FormField>
+                </>
+              )}
               <div className="sm:col-span-2">
                 <FormField id="reversal-note" label="Note (optional)">
                   <Textarea
@@ -463,10 +503,10 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       </Card>
 
       <Dialog
-        open={pendingRefundCents !== null}
+        open={pending !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setPendingRefundCents(null);
+            setPending(null);
           }
         }}
       >
@@ -483,26 +523,39 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
               {sale.ticket_count} {sale.ticket_count === 1 ? "ticket returns" : "tickets return"} to{" "}
               {sale.event.name}, on sale again at once.
             </li>
-            <li>
-              {organization.name}&apos;s withdrawable balance drops by{" "}
-              {formatPriceCents(sale.net_proceeds_cents, currency)}, going negative if this sale was
-              already paid out.
-            </li>
+            {free ? null : (
+              <li>
+                {organization.name}&apos;s withdrawable balance drops by{" "}
+                {formatPriceCents(sale.net_proceeds_cents, currency)}, going negative if this sale
+                was already paid out.
+              </li>
+            )}
             <li>
               {sale.customer.email} is emailed that their tickets are no longer valid, quoting{" "}
               {sale.confirmation_ref}.
             </li>
             <li>
-              You are recording that {formatPriceCents(pendingRefundCents ?? 0, currency)} already
-              went back to the buyer, and that the platform{" "}
-              {feeKept === "kept" ? "keeps" : "returns"} its fee. No payment provider is called.
+              {pending?.refundedAmountCents === null || pending?.platformFeeKept === null ? (
+                <>
+                  No money is recorded: this sale collected nothing, so there was nothing to refund
+                  and no fee to keep. No payment provider is called.
+                </>
+              ) : (
+                <>
+                  You are recording that{" "}
+                  {formatPriceCents(pending?.refundedAmountCents ?? 0, currency)} already went back
+                  to the buyer, and that the platform{" "}
+                  {pending?.platformFeeKept ? "keeps" : "returns"} its fee. No payment provider is
+                  called.
+                </>
+              )}
             </li>
           </ul>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setPendingRefundCents(null)}
+              onClick={() => setPending(null)}
               disabled={submitting}
             >
               Cancel
@@ -511,8 +564,8 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
               type="button"
               variant="destructive"
               onClick={() => {
-                if (pendingRefundCents !== null && feeKept !== "") {
-                  void submitReversal(pendingRefundCents, feeKept === "kept");
+                if (pending !== null) {
+                  void submitReversal(pending);
                 }
               }}
               disabled={submitting}

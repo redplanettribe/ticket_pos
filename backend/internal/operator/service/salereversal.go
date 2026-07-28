@@ -10,6 +10,10 @@ import (
 // buyer actually got back, whether the platform kept its Platform Fee and Fee
 // IVA, an optional note, and the operator's own email — which the handler takes
 // from the Staff Session and never from the request body.
+//
+// The money pair is nil on a free Online Sale, which collected nothing and so
+// has nothing to state (#126). Whether that is right is judged against the sale
+// itself, below this layer.
 type OperatorReversalInput struct {
 	Operator            string
 	RefundedAmountCents *int

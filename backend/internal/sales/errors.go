@@ -142,6 +142,42 @@ func ErrRefundedAmountExceedsCollected(refundedCents, collectedCents int, curren
 	)
 }
 
+// ErrNothingToRefund is returned when a Platform Operator states a money fact
+// about a Ticket Sale that collected nothing (#126).
+//
+// A free Online Sale took no money and was charged no Platform Fee, so both
+// halves of the memo are claims about money that never existed — and a zero
+// would be worse than a refusal, because the record must keep "nothing to
+// refund" distinguishable from "zero refunded". The marking a free sale accepts
+// is the one with no money in it at all, which is what the message says.
+func ErrNothingToRefund() apperror.DomainError {
+	return apperror.New(
+		"NOTHING_TO_REFUND",
+		"This sale collected nothing, so there was nothing to refund. Record the reversal without a refunded amount or a fee decision.",
+		nil,
+	)
+}
+
+// ErrRefundedAmountRequired is returned when a Platform Operator marks a Ticket
+// Sale that DID collect money without saying what the buyer got back (#126).
+//
+// It is the mirror of ErrNothingToRefund, and lives here for the same reason:
+// whether the money facts are required is a fact about the sale, which the
+// handler validating the request's shape cannot know. Neither has a default —
+// a pre-filled amount invites rubber-stamping and a defaulted fee decision
+// would record a revenue choice nobody made (#125) — so the collected amount
+// travels in details as the figure the operator is being asked about.
+func ErrRefundedAmountRequired(collectedCents int, currency string) apperror.DomainError {
+	return apperror.New(
+		"REFUNDED_AMOUNT_REQUIRED",
+		"This sale collected money. State what the buyer got back and whether the platform kept its fee.",
+		map[string]any{
+			"amount_cents": collectedCents,
+			"currency":     currency,
+		},
+	)
+}
+
 // ErrReversalWindowClosed is returned when the Reversal Window has shut: it is
 // past 20:00 Ecuador time on the day of purchase, or the Event has started.
 //
