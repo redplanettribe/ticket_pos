@@ -74,8 +74,19 @@ _Avoid_: Admin panel, back office, console
 
 **Event**:
 A scheduled occurrence belonging to an Organization, for which tickets are sold.
-Has scheduling (start and optional end, timezone, venue), optional markdown description and cover image, and a lifecycle status.
+Has scheduling (start and optional end, timezone, venue), optional markdown description, Cover Image, and Cover Video, and a lifecycle status.
 _Avoid_: Show, gig, occurrence
+
+**Cover Image**:
+An Event's optional still image, shown on Storefront listings, the Event page hero, and link previews.
+Required before a Cover Video may be attached, and cannot be removed while one is; it serves as the Cover Video's poster.
+Distinct from a Logo, which represents the Organization rather than a single Event.
+_Avoid_: Banner, thumbnail, hero image, photo
+
+**Cover Video**:
+An Event's optional short looping video, shown in the Event page hero in place of the Cover Image once it has loaded.
+Requires a Cover Image to exist as its poster; appears only in the hero — listings and link previews always use the Cover Image.
+_Avoid_: Trailer, promo video, hero video, clip
 
 **Event status**:
 Where an Event is in its lifecycle: `draft` (being prepared), `published` (visible and sellable when sales exist), or `cancelled` (terminal; no longer active).
