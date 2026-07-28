@@ -1755,6 +1755,14 @@ const docTemplate = `{
                     "organization": {
                         "$ref": "#/components/schemas/internal_customers_service.OrganizationView"
                     },
+                    "reversal_window_closes_at": {
+                        "description": "ReversalWindowClosesAt is the instant the Reversal Window shuts, RFC3339 in\nUTC, so the Customer can be told how long they have.\n\nNull whenever Reversible is false, and deliberately so: a closing time on a\nsale nobody may reverse is a deadline that means nothing, and a client that\ncannot draw one cannot mislead somebody with it.",
+                        "type": "string"
+                    },
+                    "reversible": {
+                        "description": "Reversible reports whether this Ticket Sale is inside its Reversal Window\nright now (ADR 0018) — whether the Customer could undo it themselves.\n\nIt is an answer about this instant and nothing more. It is not a promise:\nthe window is offered, not guaranteed, and a true here read a minute ago\nmay be a refusal a minute from now. Nothing acts on it yet; this release\nonly reports it.\n\nIt is false for everything that is not an Online Sale — an In-Person Sale\nor an imported one was never collected by the platform, so the platform has\nnothing to give back — and false for a Ticket Sale already reversed.",
+                        "type": "boolean"
+                    },
                     "sold_at": {
                         "type": "string"
                     },
@@ -2708,7 +2716,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/ticket-sales": {
             "get": {
-                "description": "Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request.",
+                "description": "Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request. Each sale reports whether it is inside its Reversal Window right now (` + "`" + `reversible` + "`" + `) and, when it is, the instant that window closes (` + "`" + `reversal_window_closes_at` + "`" + `, RFC3339 UTC) — the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018). Only an active Online Sale can be reversible; the answer does not depend on the Payment Provider, so a free claim reports exactly like a paid purchase. The closing time is null whenever ` + "`" + `reversible` + "`" + ` is false. This endpoint reports the window and nothing more: there is no reversal action here.",
                 "responses": {
                     "200": {
                         "content": {
@@ -4583,7 +4591,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales": {
             "get": {
-                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.",
+                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale and ` + "`" + `staff` + "`" + ` when a Sale Import undo did; both null on an active sale and on a sale reversed before either was recorded), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.",
                 "parameters": [
                     {
                         "description": "Event ID",
