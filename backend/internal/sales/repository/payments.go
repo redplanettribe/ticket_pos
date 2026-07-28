@@ -73,23 +73,24 @@ type CreatePaymentInput struct {
 	Provider            string
 	ClientTransactionID string
 	AmountCents         int
-	CustomerEmail       string
-	CustomerFirstName   string
-	CustomerLastName    string
-	// CustomerTaxID is the Tax ID the buyer supplied at begin-checkout,
-	// snapshotted here because confirm — running on the provider's return
-	// redirect — carries nothing of the checkout form. Its SelfAsserted flag
-	// records that the begin request ran under this buyer's own Customer
-	// Session, which is what the Customer upsert reads at confirm time to decide
-	// whether the override may replace a verified stored Tax ID (ADR 0016).
-	CustomerTaxID platform.SaleTaxID
-	// CustomerPhone is the buyer's phone number in canonical E.164 form, or empty
-	// when they gave none — the checkout field is optional (#106). Empty is
-	// stored as NULL rather than as a blank string: "no phone" is one state, not
-	// two, and the column's only consumers ask whether there is a number at all.
-	CustomerPhone string
-	Lines         []PaymentLine
-	Now           time.Time
+	// Customer is the buyer as they filled in the checkout form, snapshotted here
+	// in full because confirm — running on the provider's return redirect —
+	// carries nothing of that form back: what is not on this row at begin is lost
+	// by the time the sale is committed.
+	//
+	// That is why the self-asserted flag is stored too, in
+	// `customer_session_authorized` (migration 027): the Customer Session was
+	// presented to the begin request and cannot be re-established at confirm, and
+	// it is what the Customer upsert reads then to decide whether this buyer may
+	// replace what a Verified Customer already holds (ADR 0016, #111).
+	//
+	// The phone is stored NULL when they gave none — the checkout field is
+	// optional (#106) — rather than as a blank string: "no phone" is one state,
+	// not two, and the column's only consumers ask whether there is a number at
+	// all.
+	Customer platform.SaleCustomer
+	Lines    []PaymentLine
+	Now      time.Time
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -112,9 +113,9 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
-		in.AmountCents, in.CustomerEmail, in.CustomerFirstName, in.CustomerLastName, in.Now,
-		nullString(in.CustomerTaxID.Type), nullString(in.CustomerTaxID.Number), in.CustomerTaxID.SelfAsserted,
-		nullString(in.CustomerPhone)).Scan(&paymentID)
+		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
+		nullString(in.Customer.TaxID.Type), nullString(in.Customer.TaxID.Number), in.Customer.SelfAsserted,
+		nullString(in.Customer.Phone)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -356,23 +357,27 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		// against itself (ADR 0013).
 		ExcludePaymentID: paymentID,
 		Sales: []CommitSale{{
-			CustomerEmail:     email,
-			CustomerFirstName: firstName,
-			CustomerLastName:  lastName,
-			// Copied verbatim from the Payment, like the email and name beside
-			// it: the sale records what the buyer supplied at begin-checkout,
-			// whatever their profile says by the time the provider answers.
-			CustomerTaxID: platform.SaleTaxID{
-				Type:         taxIDType.String,
-				Number:       taxIDNumber.String,
+			// The buyer is rebuilt from the Payment verbatim: the sale records
+			// what they supplied at begin-checkout, whatever their profile says
+			// by the time the provider answers.
+			//
+			// The phone travels no further than the Customer upsert — unlike the
+			// Tax ID beside it, nothing writes it onto the Ticket Sale (#107) —
+			// and whether it may replace what the Customer already holds is
+			// decided there, by customer_session_authorized, restored here onto
+			// the buyer it describes rather than onto either value it guards
+			// (#111).
+			Customer: platform.SaleCustomer{
+				Email:     email,
+				FirstName: firstName,
+				LastName:  lastName,
+				TaxID: platform.SaleTaxID{
+					Type:   taxIDType.String,
+					Number: taxIDNumber.String,
+				},
+				Phone:        phone.String,
 				SelfAsserted: sessionAuthorized,
 			},
-			// The phone travels no further than the Customer upsert: unlike the
-			// Tax ID beside it, nothing writes it onto the Ticket Sale (#107).
-			// Whether it may replace what the Customer already holds is decided
-			// there, by the same customer_session_authorized flag the Tax ID
-			// carries — that flag describes this checkout, not either value.
-			CustomerPhone:   phone.String,
 			PaymentMethod:   in.PaymentMethod,
 			SoldAt:          in.Now,
 			ConfirmationRef: in.ConfirmationRef,

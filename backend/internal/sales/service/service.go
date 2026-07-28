@@ -31,10 +31,11 @@ type ImportSaleInput struct {
 	// CustomerTaxID is the Tax ID this row was transacted under, already
 	// validated and normalised, and unset when the file supplied none — the
 	// `import` channel is the one channel allowed to record a sale without one
-	// (ADR 0016). SelfAsserted is always false here: a spreadsheet is a Member's
-	// account of what happened elsewhere, never the buyer proving they own the
-	// email, so an import can fill or refresh a Customer's stored Tax ID but can
-	// never overwrite a verified one.
+	// (ADR 0016). It is never self-asserted: a spreadsheet is a Member's account
+	// of what happened elsewhere, never the buyer proving they own the email, so
+	// an import can fill or refresh a Customer's stored Tax ID but can never
+	// overwrite a verified one. There is nothing to set for that — this channel
+	// simply builds no self-assertion into the buyer it commits (#111).
 	CustomerTaxID platform.SaleTaxID
 	TicketTypeID  string
 	Quantity      int
@@ -66,17 +67,19 @@ type ImportResult struct {
 type CustomerService interface {
 	// UpsertForSale creates or reuses the platform-global Customer for a Ticket
 	// Sale and returns the Customer id, inside the transaction that records the
-	// sale. taxID is what the sale was transacted under (unset on a channel that
-	// carries none); what the customers module does with it — fill, refresh, or
+	// sale. It is handed the buyer whole (#111): sales states who bought, and
+	// what the customers module then does with each fact — fill, refresh, or
 	// leave a verified assertion alone — is that module's rule, not this one's
 	// (ADR 0016).
 	//
-	// phone is the number the buyer typed at checkout, canonical E.164 and empty
-	// on every channel that collects none (#107). Sales carries it here and no
-	// further: it is deliberately absent from the Ticket Sale, so this seam is
-	// the whole of its journey out of this module, and whether it may overwrite
-	// what the Customer already holds is likewise the customers module's rule.
-	UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, phone string, now time.Time) (string, error)
+	// The bundle carries two things sales itself never stores. The phone is the
+	// number the buyer typed at checkout, canonical E.164 and empty on every
+	// channel that collects none (#107); it is deliberately absent from the
+	// Ticket Sale, so this seam is the whole of its journey out of this module.
+	// SelfAsserted says the checkout ran under the buyer's own Customer Session,
+	// which is what the far side needs to tell a person correcting their own
+	// record from a stranger typing a known email.
+	UpsertForSale(ctx context.Context, tx *sql.Tx, customer platform.SaleCustomer, now time.Time) (string, error)
 	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
 	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
 	// when it has no schedule; how long the link then lives is the customers
@@ -155,13 +158,19 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 			return nil, err
 		}
 		commitSales = append(commitSales, repository.CommitSale{
-			CustomerEmail:     row.CustomerEmail,
-			CustomerFirstName: row.CustomerFirstName,
-			CustomerLastName:  row.CustomerLastName,
-			CustomerTaxID:     row.CustomerTaxID,
-			PaymentMethod:     row.PaymentMethod,
-			SoldAt:            row.SoldAt,
-			ConfirmationRef:   ref,
+			// No phone and no self-assertion: this channel collects neither. A
+			// Member's account of a purchase made elsewhere never proves the buyer
+			// owns the email, so the zero value here is the correct statement and
+			// not a gap — see ImportSaleInput.CustomerTaxID.
+			Customer: platform.SaleCustomer{
+				Email:     row.CustomerEmail,
+				FirstName: row.CustomerFirstName,
+				LastName:  row.CustomerLastName,
+				TaxID:     row.CustomerTaxID,
+			},
+			PaymentMethod:   row.PaymentMethod,
+			SoldAt:          row.SoldAt,
+			ConfirmationRef: ref,
 			Lines: []repository.CommitLine{{
 				TicketTypeID:   row.TicketTypeID,
 				Quantity:       row.Quantity,
@@ -646,7 +655,6 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 			CustomerEmail:     row.CustomerEmail,
 			CustomerFirstName: row.CustomerFirstName,
 			CustomerLastName:  row.CustomerLastName,
-			// SelfAsserted stays false — see ImportSaleInput.CustomerTaxID.
 			CustomerTaxID: platform.SaleTaxID{
 				Type:   row.CustomerTaxIDType,
 				Number: row.CustomerTaxIDNumber,

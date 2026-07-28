@@ -82,36 +82,42 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // its service, passing the transaction that records the sale, so the Customer and
 // the sale referencing it commit or roll back together.
 //
+// It takes the buyer whole — platform.SaleCustomer, the Sales Channel's account
+// of one person — rather than their facts one positional argument at a time
+// (#111). Which of those facts may be written back is decided in one place, by
+// customer.SelfAsserted and the Customer's own verified state; a new guarded
+// buyer fact therefore arrives on the bundle and changes no signature between
+// the checkout form and the SQL.
+//
 // The email is normalised here, through platform.NormalizeEmail — the one rule
 // every Customer entry path shares. The name is the one recorded on this sale; it
 // refreshes the Customer's profile name only while the Customer is unverified.
 // The sale's own recorded name is never touched by this call.
 //
-// taxID is the Tax ID the sale was transacted under, unset on a channel that
+// The Tax ID is what the sale was transacted under, unset on a channel that
 // carries none. Its write-back follows the same fill/refresh shape as the name
 // plus one override — a Tax ID asserted under the Customer's own session
 // replaces a verified one — and the rule itself is stated at repository.Upsert
 // (ADR 0016). As with the name, the sale's own snapshot is written by the sales
 // module and never touched here.
 //
-// phone is the number the buyer typed at checkout, in canonical E.164 form and
-// empty on every channel that collects none. It is what makes the same value
+// The phone is the number the buyer typed at checkout, in canonical E.164 form
+// and empty on every channel that collects none. It is what makes the same value
 // prefill their NEXT purchase (#107, parent #103), and this seam is the only way
 // it can reach the profile: a guest checkout proves nothing, so it cannot be
 // written by the Customer Area, and the redirect brings nothing back but a
 // transaction id, so it rides the Payment to get here. Its write-back is guarded
-// exactly as the Tax ID's is — same three arms, same SelfAsserted flag, stated
+// exactly as the Tax ID's is — same three arms, same self-asserted flag, stated
 // once at repository.Upsert — because the tampering vector is the same one.
 //
 // Unlike the Tax ID it is NOT snapshotted onto the Ticket Sale: ADR 0016 makes
 // a Tax ID a fiscal fact of the sale, and a phone number is nothing of the kind.
-func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, phone string, now time.Time) (string, error) {
+func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, customer platform.SaleCustomer, now time.Time) (string, error) {
+	// The copy is local: normalising here must not edit the caller's buyer, whose
+	// email the sales module records on the Ticket Sale verbatim, as transacted.
+	customer.Email = platform.NormalizeEmail(customer.Email)
 	return s.repo.Upsert(ctx, tx, repository.UpsertInput{
-		Email:     platform.NormalizeEmail(email),
-		FirstName: firstName,
-		LastName:  lastName,
-		TaxID:     taxID,
-		Phone:     phone,
-		Now:       now,
+		Customer: customer,
+		Now:      now,
 	})
 }

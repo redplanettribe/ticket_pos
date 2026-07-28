@@ -45,6 +45,12 @@ type PaymentInitiateInput struct {
 // every value is already on hand at Initiate, and every one is optional to a
 // provider that has no use for it.
 //
+// It is deliberately NOT SaleCustomer, though the checkout builds it from one.
+// This is a prefill offered across a third-party boundary and holds only what a
+// hosted payment page could ask the buyer for; the buyer's name and the
+// provenance of their own assertions (SaleCustomer.SelfAsserted) are the
+// platform's business and do not cross it (#111).
+//
 // The Tax ID travels as the PAIR — Type and Number — never as a pre-resolved
 // document string. Which Tax ID Types a provider's identification field can
 // accept is that provider's knowledge, and it lives in that provider's
@@ -66,8 +72,6 @@ type PaymentCustomer struct {
 	// provider asks them on its own form.
 	Phone string
 	// TaxID is the Tax ID the Online Sale is to be declared under (ADR 0016).
-	// Its SelfAsserted flag is irrelevant here — a Payment Provider has no
-	// interest in who vouched for the number — and providers ignore it.
 	TaxID SaleTaxID
 }
 

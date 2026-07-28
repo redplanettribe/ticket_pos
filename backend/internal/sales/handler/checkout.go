@@ -94,7 +94,10 @@ func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
-	input.CustomerTaxID.SelfAsserted = taxIDSelfAsserted(r, input.CustomerEmail)
+	// Set after validation rather than inside it: this is the one fact about the
+	// buyer that comes from the REQUEST rather than the form, so it needs the
+	// *http.Request that validateBeginCheckout deliberately does not see.
+	input.Customer.SelfAsserted = selfAssertedCheckout(r, input.Customer.Email)
 
 	result, err := h.svc.BeginCheckout(r.Context(), input)
 	if err != nil {
@@ -194,32 +197,41 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 	}
 
 	return fields, service.BeginCheckoutInput{
-		OrganizationSlug:  orgSlug,
-		EventSlug:         eventSlug,
-		CustomerEmail:     strings.TrimSpace(body.CustomerEmail),
-		CustomerFirstName: strings.TrimSpace(body.CustomerFirstName),
-		CustomerLastName:  strings.TrimSpace(body.CustomerLastName),
-		CustomerTaxID:     taxID,
-		CustomerPhone:     phone,
-		Lines:             lines,
+		OrganizationSlug: orgSlug,
+		EventSlug:        eventSlug,
+		// SelfAsserted is deliberately left unset here: it is a fact about the
+		// request, not about the body, and BeginCheckout sets it above.
+		Customer: platform.SaleCustomer{
+			Email:     strings.TrimSpace(body.CustomerEmail),
+			FirstName: strings.TrimSpace(body.CustomerFirstName),
+			LastName:  strings.TrimSpace(body.CustomerLastName),
+			TaxID:     taxID,
+			Phone:     phone,
+		},
+		Lines: lines,
 	}
 }
 
-// taxIDSelfAsserted reports whether this checkout is the buyer restating their
-// own Tax ID: the request carries a full Customer Session and it belongs to the
+// selfAssertedCheckout reports whether this checkout is the buyer speaking about
+// themselves: the request carries a full Customer Session and it belongs to the
 // very email being bought under.
 //
 // Both halves matter. The session is what proves ownership of the address, so
 // without one an anonymous visitor typing a known email could rewrite a
 // stranger's profile; and the email must match, because a signed-in Customer
-// buying tickets for a friend is supplying the friend's Tax ID, not their own
+// buying tickets for a friend is supplying the friend's details, not their own
 // (ADR 0016).
+//
+// The verdict is about the checkout, not about any one field of it, which is why
+// it is recorded on the buyer (platform.SaleCustomer.SelfAsserted) and guards
+// every value the upsert may write back — the Tax ID and the phone today (#107),
+// whatever the form collects on the buyer's own behalf next (#111).
 //
 // A Confirmation Link session is deliberately not enough. It is minted from a
 // token in a forwarded email rather than from Proof of Email Ownership, and it
 // exists to show one Ticket Sale; letting it rewrite the profile behind it would
 // hand that power to whoever the confirmation was forwarded to.
-func taxIDSelfAsserted(r *http.Request, checkoutEmail string) bool {
+func selfAssertedCheckout(r *http.Request, checkoutEmail string) bool {
 	session, ok := customersmiddleware.SessionFromContext(r.Context())
 	if !ok || session.TicketSaleID != "" {
 		return false

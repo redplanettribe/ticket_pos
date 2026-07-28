@@ -550,7 +550,7 @@ func TestGuestCheckoutNeverOverwritesVerifiedPhone(t *testing.T) {
 // precisely what the guest checkout above could not.
 //
 // The flag it reads is customer_session_authorized, snapshotted on the Payment
-// and already carried as platform.SaleTaxID.SelfAsserted. It describes the
+// and carried as platform.SaleCustomer.SelfAsserted (#111). It describes the
 // checkout rather than the Tax ID, which is why the phone is entitled to it.
 func TestSessionCheckoutOverwritesStoredPhone(t *testing.T) {
 	env := setupTest(t)

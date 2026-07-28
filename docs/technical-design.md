@@ -617,7 +617,10 @@ unit prices (so a catalog edit mid-payment cannot change what was bought), and t
 email/name/Tax ID. Everything the recorded sale needs is snapshotted at begin-checkout because
 confirm arrives on the provider's redirect and carries none of the form — including
 `customer_session_authorized` (migration 027), which remembers that the begin request ran under the
-buyer's own Customer Session and is what lets their Tax ID override replace the stored one.
+buyer's own Customer Session and is what lets their overrides replace the values a Verified Customer
+already holds. It is a fact about the checkout, not about any one field of it, so it travels on the
+buyer (`platform.SaleCustomer.SelfAsserted`) and guards every value the Customer upsert may write
+back — the Tax ID and the phone today (#111).
 Lifecycle:
 
 ```text
