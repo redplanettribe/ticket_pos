@@ -25,11 +25,20 @@ const ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 type EventCoverImageProps = {
   eventId: string;
   coverImageUrl: string | null;
+  // The Cover Image is the Cover Video's poster, so it cannot be removed while a
+  // video exists — the server rejects it, and the remove action says so first.
+  coverVideoUrl: string | null;
   patchBody: EventPatchBody;
   onUpdated: (event: EventDetail) => void;
 };
 
-export function EventCoverImage({ eventId, coverImageUrl, patchBody, onUpdated }: EventCoverImageProps) {
+export function EventCoverImage({
+  eventId,
+  coverImageUrl,
+  coverVideoUrl,
+  patchBody,
+  onUpdated,
+}: EventCoverImageProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -132,12 +141,21 @@ export function EventCoverImage({ eventId, coverImageUrl, patchBody, onUpdated }
           onChange={(event) => void handleFileChange(event)}
         />
 
+        {coverImageUrl && coverVideoUrl ? (
+          <p className="text-sm text-muted-foreground">Remove the video first — this image is its poster.</p>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" disabled={uploading || removing} onClick={() => inputRef.current?.click()}>
             {uploading ? "Uploading..." : coverImageUrl ? "Replace image" : "Upload image"}
           </Button>
           {coverImageUrl ? (
-            <Button type="button" variant="ghost" disabled={uploading || removing} onClick={() => void handleRemove()}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={uploading || removing || Boolean(coverVideoUrl)}
+              onClick={() => void handleRemove()}
+            >
               {removing ? "Removing..." : "Remove image"}
             </Button>
           ) : null}

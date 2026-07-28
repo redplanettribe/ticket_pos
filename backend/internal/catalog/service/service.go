@@ -264,6 +264,15 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 		params.CoverVideoKey = event.CoverVideoKey
 	}
 
+	// The poster invariant: a Cover Video requires a Cover Image. It binds on the
+	// final state the update would leave behind, not on the fields the request
+	// happens to carry — so setting both at once is fine, clearing both is fine,
+	// and replacing the image under a video is fine, while attaching a video to an
+	// imageless Event or clearing the image out from under a video is not.
+	if params.CoverVideoKey.Valid && !params.CoverImageKey.Valid {
+		return nil, catalog.ErrCoverVideoRequiresCoverImage()
+	}
+
 	params.Discoverable = event.Discoverable
 
 	// Fee Handling takes effect on future checkouts only: pending Payments carry

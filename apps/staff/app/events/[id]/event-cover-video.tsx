@@ -152,8 +152,17 @@ export function EventCoverVideo({
           onChange={(event) => void handleFileChange(event)}
         />
 
+        {coverImageUrl ? null : (
+          <p className="text-sm text-muted-foreground">Add a cover image first — it&apos;s the video&apos;s poster.</p>
+        )}
+
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" disabled={uploading || removing} onClick={() => inputRef.current?.click()}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={uploading || removing || !coverImageUrl}
+            onClick={() => inputRef.current?.click()}
+          >
             {uploading ? "Uploading..." : coverVideoUrl ? "Replace video" : "Upload video"}
           </Button>
           {coverVideoUrl ? (

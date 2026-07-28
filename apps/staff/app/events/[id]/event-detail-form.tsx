@@ -230,6 +230,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
       <EventCoverImage
         eventId={eventId}
         coverImageUrl={coverImageUrl}
+        coverVideoUrl={coverVideoUrl}
         patchBody={patchBody}
         onUpdated={(event) => {
           applyEvent(event);
