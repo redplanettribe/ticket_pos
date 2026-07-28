@@ -172,7 +172,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		FeeIVABasisPoints: cfg.Fees.FeeIVABasisPoints,
 	}
 
-	catalogService := catalogsvc.New(catalogRepo, objectStorage, feeRates)
+	catalogService := catalogsvc.New(catalogRepo, objectStorage, feeRates, platformLogger)
 	if options.clock != nil {
 		catalogService = catalogService.WithClock(options.clock)
 	}

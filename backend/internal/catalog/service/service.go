@@ -9,6 +9,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 )
@@ -136,17 +137,22 @@ type Service struct {
 	storage storage.ObjectStorage
 	fees    sales.FeeRates
 	now     func() time.Time
+	// logger is where a failed media cleanup goes to be seen. The organizer
+	// never hears about it (ADR 0020), so the log line is the only record that
+	// an object outlived the Event that referenced it.
+	logger platform.Logger
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
 // Platform Fee schedule, surfaced on Event payloads so the staff forms derive
 // buyer and take-home figures with the checkout arithmetic (ADR 0014).
-func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates) *Service {
+func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates, logger platform.Logger) *Service {
 	return &Service{
 		repo:    repo,
 		storage: objectStorage,
 		fees:    fees,
 		now:     time.Now,
+		logger:  logger,
 	}
 }
 
@@ -277,8 +283,34 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	if err != nil {
 		return nil, err
 	}
+
+	// The row is committed, so the old objects are unreachable from here on:
+	// whatever happens next cannot make this request wrong (ADR 0020).
+	s.deleteReplacedObject(ctx, event.CoverImageKey, params.CoverImageKey, "cover image", eventID)
+	s.deleteReplacedObject(ctx, event.CoverVideoKey, params.CoverVideoKey, "cover video", eventID)
+
 	detail := s.toEventDetail(updated)
 	return &detail, nil
+}
+
+// deleteReplacedObject removes the object an Event has stopped pointing at, when
+// the update replaced its key with a different one or cleared it. Preserved and
+// unchanged keys are still in use and are left alone.
+//
+// Best-effort by design: the database has already committed, and the worst a
+// failure can do is leave an orphan — the status quo before delete-on-replace
+// existed. So it is logged and never returned (ADR 0020).
+func (s *Service) deleteReplacedObject(ctx context.Context, before, after sql.NullString, kind, eventID string) {
+	if s.storage == nil || !before.Valid || before.String == "" {
+		return
+	}
+	if after.Valid && after.String == before.String {
+		return
+	}
+	if err := s.storage.Delete(ctx, before.String); err != nil && s.logger != nil {
+		s.logger.Error("media cleanup: the replaced object could not be deleted and is now an orphan",
+			"kind", kind, "event_id", eventID, "object_key", before.String, "error", err)
+	}
 }
 
 // SetEventDiscoverable sets whether a published Event is listed in public discovery
