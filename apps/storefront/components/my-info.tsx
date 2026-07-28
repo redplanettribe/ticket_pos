@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { CustomerAvatar } from "@/components/customer-avatar";
+import { COUNTRIES } from "@/lib/phone";
 import {
+  profileDraftPhone,
   profileFieldErrorsFromDetails,
   profileUpdateBody,
   validateProfileDraft,
@@ -58,6 +60,19 @@ function taxIdLabel(profile: CustomerProfile): string {
   return `${label}: ${profile.tax_id_number}`;
 }
 
+/**
+ * The stored phone as it is held — canonical E.164, plus and all — or the em
+ * dash for "none".
+ *
+ * Shown canonical rather than split back into "Ecuador +593 / 98 765 4321",
+ * because this line answers "what does the platform hold about me", and the
+ * answer is one string. The two-control split belongs to the form below, where
+ * it is how a number gets typed.
+ */
+function phoneLabel(profile: CustomerProfile): string {
+  return profile.phone ?? "—";
+}
+
 function fullName(profile: CustomerProfile): string {
   const name = `${profile.first_name} ${profile.last_name}`.trim();
   return name === "" ? "—" : name;
@@ -78,6 +93,12 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       : "cedula",
   );
   const [taxIdNumber, setTaxIdNumber] = useState(initialProfile.tax_id_number ?? "");
+  // The stored number resolved back into the two controls a person edits it
+  // with. A Customer who has none gets Ecuador and an empty field, which is the
+  // same state the checkout dialog opens in.
+  const initialPhone = profileDraftPhone(initialProfile.phone);
+  const [phoneDiallingCode, setPhoneDiallingCode] = useState(initialPhone.phoneDiallingCode);
+  const [phoneNationalNumber, setPhoneNationalNumber] = useState(initialPhone.phoneNationalNumber);
   const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -183,6 +204,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       profile.tax_id_type && isTaxIdType(profile.tax_id_type) ? profile.tax_id_type : "cedula",
     );
     setTaxIdNumber(profile.tax_id_number ?? "");
+    const phone = profileDraftPhone(profile.phone);
+    setPhoneDiallingCode(phone.phoneDiallingCode);
+    setPhoneNationalNumber(phone.phoneNationalNumber);
     setFieldErrors({});
     setError(null);
     setEditing(true);
@@ -191,7 +215,14 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const draft = { firstName, lastName, taxIdType, taxIdNumber };
+    const draft = {
+      firstName,
+      lastName,
+      taxIdType,
+      taxIdNumber,
+      phoneDiallingCode,
+      phoneNationalNumber,
+    };
 
     // The mirror check: a blank name or a mistyped cédula is caught here so the
     // Customer is told before a round trip. The API applies the same rules and
@@ -315,6 +346,13 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                 <dt className="text-muted-foreground">ID</dt>
                 <dd className="font-medium">{taxIdLabel(profile)}</dd>
               </div>
+              {/* The phone sits beside the ID because they are the same kind of
+                  thing to the person reading: details the platform holds, given
+                  once, reused at every checkout (#108). */}
+              <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                <dt className="text-muted-foreground">Phone</dt>
+                <dd className="font-medium tabular-nums">{phoneLabel(profile)}</dd>
+              </div>
             </>
           )}
         </dl>
@@ -393,6 +431,48 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                   autoComplete="off"
                   value={taxIdNumber}
                   onChange={(event) => setTaxIdNumber(event.target.value)}
+                />
+              </FormField>
+            </div>
+
+            {/* The phone, entered the way the checkout dialog enters it — a
+                country and a national number, assembled into the one canonical
+                string that is stored and sent. Optional here as it is there
+                (#103): a Customer who never gives one loses nothing, and one
+                who empties the field withdraws the number entirely. */}
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
+              <FormField id="my-info-phone-country" label="Country code">
+                <select
+                  name="phone-country"
+                  className={SELECT_CLASS}
+                  value={phoneDiallingCode}
+                  onChange={(event) => setPhoneDiallingCode(event.target.value)}
+                >
+                  {/* Keyed by name, valued by dialling code: the codes are not
+                      unique (+1 covers the US, Canada and twenty more), so a
+                      stored +1 number shows under the first country listed
+                      under it. The accepted cosmetic imperfection from #103 —
+                      the number stored and sent is identical either way. */}
+                  {COUNTRIES.map((country) => (
+                    <option key={country.name} value={country.diallingCode}>
+                      {country.name} ({country.diallingCode})
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField
+                id="my-info-phone"
+                label="Phone (optional)"
+                error={fieldErrors.phone}
+                description="Leave blank to remove it. We'll fill it in at your next checkout."
+              >
+                <Input
+                  name="tel-national"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel-national"
+                  value={phoneNationalNumber}
+                  onChange={(event) => setPhoneNationalNumber(event.target.value)}
                 />
               </FormField>
             </div>

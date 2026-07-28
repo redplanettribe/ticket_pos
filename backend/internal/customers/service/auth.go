@@ -38,6 +38,13 @@ type CustomerSessionView struct {
 	// session.
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// The Customer's stored phone number in canonical E.164 form, null until they
+	// have one. It rides on the session for exactly the reason the Tax ID does: the
+	// checkout dialog prefills the field from here, which is what closes the "give
+	// it once, never again" loop the phone exists to close (#103, #108). The
+	// Storefront splits it back into a country selection and a national number for
+	// display; nothing below the form ever sees the halves.
+	Phone *string `json:"phone"`
 	// The Customer's Avatar as a browser-loadable URL, null when they have none
 	// (the Storefront renders initials instead). A URL rather than an object key
 	// because no client of this view writes Avatars — the header only shows one.
@@ -248,6 +255,10 @@ func (s *Service) sessionView(customer *repository.Customer, session *repository
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String
 		view.TaxIDType, view.TaxIDNumber = &taxIDType, &taxIDNumber
+	}
+	if customer.Phone.Valid {
+		phone := customer.Phone.String
+		view.Phone = &phone
 	}
 	if customer.VerifiedAt.Valid {
 		verified := customer.VerifiedAt.Time.UTC().Format(time.RFC3339)

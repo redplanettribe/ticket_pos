@@ -39,6 +39,10 @@ type customerSessionView struct {
 	// checkout dialog prefills from these (#98).
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// The stored phone in canonical E.164 form, null until the Customer has one.
+	// The checkout dialog prefills from it, which is what stops a returning buyer
+	// typing their number a second time (#108).
+	Phone *string `json:"phone"`
 	// The Avatar as a served URL, null until the Customer has one.
 	AvatarURL    *string `json:"avatar_url"`
 	VerifiedAt   *string `json:"verified_at"`

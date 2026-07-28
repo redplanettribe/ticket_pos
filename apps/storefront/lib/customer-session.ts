@@ -95,6 +95,13 @@ export type CustomerSession = {
   tax_id_type: string | null;
   tax_id_number: string | null;
   /**
+   * The Customer's stored phone number in canonical E.164 form, null until they
+   * have one. The checkout dialog splits it back into a country selection and a
+   * national number and prefills the field from it, which is what stops a
+   * returning buyer typing their number a second time (#108).
+   */
+  phone: string | null;
+  /**
    * The Customer's Avatar as a browser-loadable URL, null when they have none —
    * the header menu and "My info" render initials in its place.
    */

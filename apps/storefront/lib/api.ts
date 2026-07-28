@@ -340,6 +340,14 @@ export type BeginCheckoutRequest = {
   /** The buyer's Tax ID, required on this native Sales Channel (ADR 0016). */
   customer_tax_id_type: string;
   customer_tax_id_number: string;
+  /**
+   * The buyer's phone number in canonical E.164 form, offered to the Payment
+   * Provider so its hosted payment page arrives prefilled (#103). Optional in
+   * the strongest sense: the key is left off entirely when the buyer gave none,
+   * because a value nobody typed is exactly the fabricated cardholder data
+   * PayPhone's rules prohibit. Never an empty string, never a placeholder.
+   */
+  customer_phone?: string;
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

@@ -52,7 +52,20 @@ type CommitSale struct {
 	// onto the sale exactly once, here, and no later sale or profile edit ever
 	// touches it (ADR 0016). Unset on a sale that carries none — the `import`
 	// channel, and every sale recorded before the Tax ID existed.
-	CustomerTaxID   platform.SaleTaxID
+	CustomerTaxID platform.SaleTaxID
+	// CustomerPhone is the buyer's phone number in canonical E.164 form as typed
+	// at checkout, empty on every channel that collects none — the `import` file,
+	// the staff-recorded sale, and an online buyer who skipped the optional field.
+	//
+	// It is the one field here that is NOT written onto the Ticket Sale. It rides
+	// this struct only to reach UpsertCustomer below, which may write it onto the
+	// Customer profile so it prefills their next purchase (#107). The Tax ID is
+	// snapshotted beside it because ADR 0016 makes it a fiscal fact of the sale,
+	// frozen against later profile edits; a phone number carries no such
+	// requirement, and snapshotting it would cascade into the staff sales list,
+	// receipts, the Sale Import format and the public contract for a value none of
+	// them read (#103).
+	CustomerPhone   string
 	PaymentMethod   string
 	SoldAt          time.Time
 	ConfirmationRef string
@@ -63,7 +76,12 @@ type CommitSale struct {
 // batch's transaction and returns the Customer id. The sales service supplies it,
 // bound to the customers service, so the cross-module call goes through that
 // module's service rather than its repository.
-type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, now time.Time) (string, error)
+//
+// phone is the buyer's canonical E.164 number, empty on the channels that
+// collect none. It is passed here rather than written by this package because
+// nothing in sales stores it beyond the Payment: the profile is its destination
+// (#107).
+type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, phone string, now time.Time) (string, error)
 
 // CommitSalesInput is a set of prepared Ticket Sales to record on one Sales
 // Channel — the channel-agnostic sale-commit spine's input. Source qualifies
@@ -381,7 +399,10 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// The Customer is created or reused in this same transaction, so a sale and
 		// the Customer it references are never recorded apart. The sale keeps its own
 		// copy of the recorded name and email verbatim; the upsert never rewrites it.
-		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.CustomerTaxID, in.Now)
+		//
+		// The phone goes through here and stops: the INSERT below has no column
+		// for it, deliberately (see CommitSale.CustomerPhone).
+		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.CustomerTaxID, s.CustomerPhone, in.Now)
 		if err != nil {
 			return nil, err
 		}

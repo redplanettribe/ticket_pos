@@ -663,7 +663,7 @@ export interface paths {
         head?: never;
         /**
          * Update the Customer's profile
-         * @description Edits the signed-in Customer's name and Tax ID — the "My info" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.
+         * @description Edits the signed-in Customer's name, Tax ID, and phone number — the "My info" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The phone is validated by the same rule as checkout and stored in canonical E.164 form; sending it null or blank clears it, and omitting the field entirely leaves the stored number untouched. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.
          */
         patch: {
             parameters: {
@@ -672,7 +672,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            /** @description Name and Tax ID */
+            /** @description Name, Tax ID, and phone */
             requestBody: {
                 content: {
                     "application/json": Record<string, never> | components["schemas"]["handler.updateProfileBody"];
@@ -1471,7 +1471,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.
          */
         post: {
             parameters: {
@@ -1485,7 +1485,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            /** @description Checkout lines, customer identity and Tax ID */
+            /** @description Checkout lines, customer identity, Tax ID and optional phone */
             requestBody: {
                 content: {
                     "application/json": Record<string, never> | components["schemas"]["handler.beginCheckoutBody"];
@@ -3710,6 +3710,14 @@ export interface components {
             customer_email?: string;
             customer_first_name?: string;
             customer_last_name?: string;
+            /**
+             * @description The buyer's phone number, OPTIONAL and never fabricated (#106). It exists
+             *     to be handed to the Payment Provider so its hosted card form arrives with
+             *     nothing left to type but the card; a buyer who omits it checks out exactly
+             *     as they did before the field existed. Absent, empty, or whitespace all mean
+             *     the same thing — no phone — and are not validation failures.
+             */
+            customer_phone?: string;
             customer_tax_id_number?: string;
             /**
              * @description The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its
@@ -3812,6 +3820,11 @@ export interface components {
         "handler.updateProfileBody": {
             first_name?: string;
             last_name?: string;
+            /**
+             * @description The phone number in canonical E.164 form, e.g. +593987654321. Null or blank
+             *     clears the stored number; omitting the field leaves it untouched.
+             */
+            phone?: string;
             tax_id_number?: string;
             tax_id_type?: string;
         };
@@ -4094,6 +4107,17 @@ export interface components {
             email?: string;
             first_name?: string;
             last_name?: string;
+            /**
+             * @description The Customer's stored phone number in canonical E.164 form, null when they
+             *     have none (#108). Shown here so a person can see, correct, and withdraw the
+             *     number the platform holds about them without starting a checkout — the last
+             *     of which is a capability in its own right, not an oversight.
+             *
+             *     Canonical, not split: the Storefront resolves it back into a country
+             *     selection and a national number for display, because that is a presentation
+             *     concern and nothing below the form ever wants the halves (#103).
+             */
+            phone?: string;
             tax_id_number?: string;
             tax_id_type?: string;
         };
@@ -4107,6 +4131,15 @@ export interface components {
             email?: string;
             first_name?: string;
             last_name?: string;
+            /**
+             * @description The Customer's stored phone number in canonical E.164 form, null until they
+             *     have one. It rides on the session for exactly the reason the Tax ID does: the
+             *     checkout dialog prefills the field from here, which is what closes the "give
+             *     it once, never again" loop the phone exists to close (#103, #108). The
+             *     Storefront splits it back into a country selection and a national number for
+             *     display; nothing below the form ever sees the halves.
+             */
+            phone?: string;
             tax_id_number?: string;
             /**
              * @description The Customer's stored Tax ID, both halves null until they have one. It is

@@ -83,6 +83,11 @@ type CreatePaymentInput struct {
 	// Session, which is what the Customer upsert reads at confirm time to decide
 	// whether the override may replace a verified stored Tax ID (ADR 0016).
 	CustomerTaxID platform.SaleTaxID
+	// CustomerPhone is the buyer's phone number in canonical E.164 form, or empty
+	// when they gave none — the checkout field is optional (#106). Empty is
+	// stored as NULL rather than as a blank string: "no phone" is one state, not
+	// two, and the column's only consumers ask whether there is a number at all.
+	CustomerPhone string
 	Lines         []PaymentLine
 	Now           time.Time
 }
@@ -102,13 +107,14 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			event_id, organization_id, provider, client_transaction_id,
 			status, amount_cents, customer_email, customer_first_name, customer_last_name,
 			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
-			created_at, updated_at
+			customer_phone, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $9, $9)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.CustomerEmail, in.CustomerFirstName, in.CustomerLastName, in.Now,
-		nullString(in.CustomerTaxID.Type), nullString(in.CustomerTaxID.Number), in.CustomerTaxID.SelfAsserted).Scan(&paymentID)
+		nullString(in.CustomerTaxID.Type), nullString(in.CustomerTaxID.Number), in.CustomerTaxID.SelfAsserted,
+		nullString(in.CustomerPhone)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -284,15 +290,21 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// the checkout collected one confirms into a sale with no Tax ID rather than
 	// failing years later at the till.
 	var taxIDType, taxIDNumber sql.NullString
+	// The phone is nullable for a different reason: the checkout field is
+	// OPTIONAL and never fabricated (#103), so a buyer who skipped it leaves NULL
+	// here forever. This read is the whole point of snapshotting it at begin —
+	// the provider's return redirect carries a transaction id and nothing else,
+	// so a phone not stored on the Payment is a phone lost (#106, #107).
+	var phone sql.NullString
 	var sessionAuthorized bool
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
-		       customer_tax_id_type, customer_tax_id_number, customer_session_authorized
+		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized
 		FROM payments
 		WHERE client_transaction_id = $1
 		FOR UPDATE
 	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
-		&taxIDType, &taxIDNumber, &sessionAuthorized)
+		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized)
 	if err != nil {
 		return nil, err
 	}
@@ -355,6 +367,12 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 				Number:       taxIDNumber.String,
 				SelfAsserted: sessionAuthorized,
 			},
+			// The phone travels no further than the Customer upsert: unlike the
+			// Tax ID beside it, nothing writes it onto the Ticket Sale (#107).
+			// Whether it may replace what the Customer already holds is decided
+			// there, by the same customer_session_authorized flag the Tax ID
+			// carries — that flag describes this checkout, not either value.
+			CustomerPhone:   phone.String,
 			PaymentMethod:   in.PaymentMethod,
 			SoldAt:          in.Now,
 			ConfirmationRef: in.ConfirmationRef,

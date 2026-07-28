@@ -1,0 +1,68 @@
+-- The Customer's phone number, on the Customer and on the Payment (#106,
+-- parent #103).
+--
+-- A phone number exists in this system for exactly one reason: it is handed to
+-- PayPhone's Prepare call as `phoneNumber` so the hosted card form arrives with
+-- the cardholder's number already filled, leaving the buyer nothing to type but
+-- their card. That single purpose decides every choice below.
+--
+-- ONE column, not two. The number is stored as a single canonical E.164 string
+-- ("+593987654321"), never split into a dialling code and a national part. That
+-- is the exact form PayPhone wants, so a split would mean reassembly at every
+-- use and a half-populated pair to guard against — the very failure mode the Tax
+-- ID needs a dedicated CHECK constraint to prevent (migration 026). Splitting
+-- for display is a presentation concern: the Storefront resolves the dialling
+-- code by longest-prefix match against its own country table (lib/phone.ts).
+--
+-- No CHECK constraint on the shape. What counts as a valid phone number is two
+-- tiers of rule that key off the dialling code (platform.ValidatePhone), and a
+-- rule that permissive is not a shape a column constraint can usefully state;
+-- worse, a stricter rule frozen into the schema would one day reject a
+-- legitimate foreign number the service layer had already accepted. The verdict
+-- lives in one place, in Go, mirrored in the Storefront for instant feedback.
+--
+-- No index. Nothing looks a Customer up by phone number, and nothing is planned
+-- to: email remains the sole Customer identity, and this value is write-then-
+-- forward, read only to prefill a form and a Prepare payload.
+
+-- The Customer's current assertion, alongside the Tax ID they already hold
+-- (migration 026) and their Avatar (migration 028). Nullable forever, and
+-- SPARSELY populated by design: the field is collected only through online
+-- checkout and "My info", never on the staff-recorded sale form or in the Sale
+-- Import file, because a number captured through those channels could never
+-- reach a PayPhone prefill — those channels never call PayPhone. Anything that
+-- one day wants to treat this as "the Customer's phone number" in general (a
+-- bulk notification, say) needs a deliberate backfill decision first.
+--
+-- Written by the customer upsert at sale commit, under the Tax ID's guard —
+-- filled when never set, refreshed while the Customer is unverified, and
+-- overwritten on a verified Customer only from their own Customer Session
+-- (#107) — and read by the profile and the Customer Session so "My info" and
+-- the next checkout can show it (#108). The column arrived one ticket ahead of
+-- both, so the schema moved once.
+ALTER TABLE customers ADD COLUMN phone TEXT;
+
+-- The Payment's record of what this buyer typed at begin-checkout, named with
+-- the customer_ prefix every other buyer snapshot on this table already uses
+-- (customer_email, customer_first_name, customer_tax_id_number).
+--
+-- It is here for the same reason the Tax ID snapshot is (migration 027): the
+-- Ticket Sale is recorded at *confirm* time, in a request that carries nothing
+-- of the checkout form — the Payment Provider's return redirect brings back a
+-- transaction id and nothing else. Any buyer fact collected at begin has to
+-- survive the redirect on the Payment or be lost. This is what #107 will read
+-- to reach the Customer profile.
+--
+-- Deliberately NOT snapshotted onto ticket_sales. The Tax ID is, because ADR
+-- 0016 makes it a fiscal fact of that sale, frozen against later profile edits.
+-- A phone number carries no such requirement, and snapshotting it would cascade
+-- into the staff sales list, receipts, the Sale Import format and the public API
+-- contract for a value none of them consume. The per-attempt record here is
+-- durable if the question ever arises.
+--
+-- Nullable, and blank means blank: the checkout field is OPTIONAL and its value
+-- is never fabricated. PayPhone's own documentation prohibits "datos quemados o
+-- estáticos" — hardcoded or static cardholder data — on pain of transaction
+-- rejection and account blocking, so a buyer who skips the field leaves NULL
+-- here and no phoneNumber key on the Prepare at all.
+ALTER TABLE payments ADD COLUMN customer_phone TEXT;

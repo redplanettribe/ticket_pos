@@ -34,6 +34,41 @@ type PaymentInitiateInput struct {
 	// ResponseURL is the Storefront route the provider redirects the Customer to
 	// once the payment page is done with them, whatever the outcome.
 	ResponseURL string
+	// Customer is what the platform already knows about the buyer, offered to
+	// the provider so its hosted payment page can arrive with those fields
+	// filled in rather than asking a second time (#103).
+	Customer PaymentCustomer
+}
+
+// PaymentCustomer is the buyer, as much of them as the platform holds when a
+// payment attempt starts. Nothing here is collected for the provider's benefit:
+// every value is already on hand at Initiate, and every one is optional to a
+// provider that has no use for it.
+//
+// The Tax ID travels as the PAIR — Type and Number — never as a pre-resolved
+// document string. Which Tax ID Types a provider's identification field can
+// accept is that provider's knowledge, and it lives in that provider's
+// implementation (ADR 0012): PayPhone maps cédula and RUC onto its documentId
+// and withholds a passport, and a second provider must be free to decide
+// otherwise about exactly the same pair without this boundary moving.
+type PaymentCustomer struct {
+	// Email is the address the Ticket Sale will be confirmed to, as snapshotted
+	// on the Payment.
+	Email string
+	// Phone is the buyer's phone number in canonical E.164 form
+	// ("+593987654321"), or empty when they gave none (#106).
+	//
+	// Empty is the ordinary case and means exactly nothing was collected: the
+	// checkout field is optional and its value is never invented. A provider
+	// must therefore send nothing at all rather than a blank or a placeholder —
+	// PayPhone's rules prohibit static or hardcoded cardholder data, and the
+	// buyer who skipped the field is entitled to today's behaviour, where the
+	// provider asks them on its own form.
+	Phone string
+	// TaxID is the Tax ID the Online Sale is to be declared under (ADR 0016).
+	// Its SelfAsserted flag is irrelevant here — a Payment Provider has no
+	// interest in who vouched for the number — and providers ignore it.
+	TaxID SaleTaxID
 }
 
 // PaymentInitiation is the provider's answer to Initiate: where to send the
@@ -134,6 +169,11 @@ func (p *StubPaymentProvider) Name() string { return "stub" }
 
 // Initiate builds the interstitial URL per the stub contract above. It cannot
 // fail: there is no external service to refuse.
+//
+// The Customer block is ignored in full: the interstitial has no card form and
+// therefore nothing to prefill, and putting a Customer's email, phone number or
+// Tax ID number in a query string the browser then displays would be a needless
+// leak of the buyer's identity into their own URL bar and history.
 func (p *StubPaymentProvider) Initiate(_ context.Context, in PaymentInitiateInput) (*PaymentInitiation, error) {
 	q := url.Values{}
 	q.Set("client_transaction_id", in.ClientTransactionID)

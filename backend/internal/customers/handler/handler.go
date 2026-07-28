@@ -310,26 +310,66 @@ func (h *Handler) ListTicketSales(w http.ResponseWriter, r *http.Request) {
 // endpoint and only on this one — it is how "clear my Tax ID" is spelled. Sent
 // together they assert a Tax ID, absent together they clear it, and one without
 // the other is a validation failure: the pair is one fact.
+//
+// The phone needs one more state than a pointer can hold, hence optionalString
+// below: this field was added to an endpoint that already existed (#108), so a
+// request that never mentions the phone must leave it exactly where it is rather
+// than be read as a clear. A Storefront running the previous build sends no phone
+// key at all, and a deploy window is no reason for a buyer to lose their number.
 type updateProfileBody struct {
 	FirstName   string  `json:"first_name"`
 	LastName    string  `json:"last_name"`
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// The phone number in canonical E.164 form, e.g. +593987654321. Null or blank
+	// clears the stored number; omitting the field leaves it untouched.
+	Phone optionalString `json:"phone" swaggertype:"string"`
 }
 
-// UpdateProfile edits the signed-in Customer's "My info": their name and their
-// one current Tax ID assertion.
+// optionalString distinguishes the three things a JSON field can say: nothing at
+// all, an explicit null or blank, and a value. encoding/json flattens the first
+// two into a nil *string, which is enough for every other field in this package
+// and not enough for the phone — see updateProfileBody.
+//
+// Present is set by UnmarshalJSON, which the decoder calls only for a key that
+// actually appeared in the document, so the zero value is "absent" and needs no
+// help from the caller.
+//
+// It is a decoding device and never a wire shape, which is why the field above
+// carries `swaggertype:"string"`: without it the generated contract would
+// publish these two Go fields as an object nobody sends.
+type optionalString struct {
+	Present bool
+	Value   *string
+}
+
+func (o *optionalString) UnmarshalJSON(data []byte) error {
+	o.Present = true
+	if string(data) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = &value
+	return nil
+}
+
+// UpdateProfile edits the signed-in Customer's "My info": their name, their one
+// current Tax ID assertion, and their phone number.
 //
 // The request carries no identifier of who is being edited. The Customer is the
 // one on the session and can be no other, exactly as for the Customer Area read.
 //
 // @Summary      Update the Customer's profile
-// @Description  Edits the signed-in Customer's name and Tax ID — the "My info" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.
+// @Description  Edits the signed-in Customer's name, Tax ID, and phone number — the "My info" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The phone is validated by the same rule as checkout and stored in canonical E.164 form; sending it null or blank clears it, and omitting the field entirely leaves the stored number untouched. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        body  body      updateProfileBody  true  "Name and Tax ID"
+// @Param        body  body      updateProfileBody  true  "Name, Tax ID, and phone"
 // @Success      200   {object}  openapi.EnvelopeCustomerProfile
 // @Failure      400   {object}  platform.Envelope
 // @Failure      401   {object}  platform.Envelope
@@ -359,8 +399,9 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, profile)
 }
 
-// validateUpdateProfile applies the handler-layer rules: non-blank names, and a
-// Tax ID that is either wholly absent or wholly valid.
+// validateUpdateProfile applies the handler-layer rules: non-blank names, a Tax
+// ID that is either wholly absent or wholly valid, and a phone that is either
+// being cleared or passes the shared rule.
 //
 // The blank-name rejection is the one rule here that is load-bearing beyond this
 // endpoint. repository.Upsert treats a Customer whose name is currently blank as
@@ -399,6 +440,25 @@ func validateUpdateProfile(body updateProfileBody) ([]platform.FieldError, servi
 			fields = append(fields, taxIDFields...)
 		} else {
 			input.TaxIDType, input.TaxIDNumber = &taxIDType, &normalized
+		}
+	}
+
+	// The phone. Whether the request is talking about it at all is decided by the
+	// key's presence, and only then by its value: a blank or null clears the
+	// stored number, which is a capability the Customer is entitled to (#103,
+	// user story 10) rather than an empty form nobody filled in. Anything else
+	// goes through the one shared rule, under the field name it travels under
+	// here — `phone`, where checkout says `customer_phone` — so the wording a
+	// person reads is identical on both surfaces (#105).
+	if body.Phone.Present {
+		input.PhoneSet = true
+		if phone := trimmedOrEmpty(body.Phone.Value); phone != "" {
+			normalized, phoneFields := platform.PhoneFieldErrors("phone", phone)
+			if len(phoneFields) > 0 {
+				fields = append(fields, phoneFields...)
+			} else {
+				input.Phone = &normalized
+			}
 		}
 	}
 

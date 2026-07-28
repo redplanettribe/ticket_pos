@@ -93,12 +93,25 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // replaces a verified one — and the rule itself is stated at repository.Upsert
 // (ADR 0016). As with the name, the sale's own snapshot is written by the sales
 // module and never touched here.
-func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, now time.Time) (string, error) {
+//
+// phone is the number the buyer typed at checkout, in canonical E.164 form and
+// empty on every channel that collects none. It is what makes the same value
+// prefill their NEXT purchase (#107, parent #103), and this seam is the only way
+// it can reach the profile: a guest checkout proves nothing, so it cannot be
+// written by the Customer Area, and the redirect brings nothing back but a
+// transaction id, so it rides the Payment to get here. Its write-back is guarded
+// exactly as the Tax ID's is — same three arms, same SelfAsserted flag, stated
+// once at repository.Upsert — because the tampering vector is the same one.
+//
+// Unlike the Tax ID it is NOT snapshotted onto the Ticket Sale: ADR 0016 makes
+// a Tax ID a fiscal fact of the sale, and a phone number is nothing of the kind.
+func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, phone string, now time.Time) (string, error) {
 	return s.repo.Upsert(ctx, tx, repository.UpsertInput{
 		Email:     platform.NormalizeEmail(email),
 		FirstName: firstName,
 		LastName:  lastName,
 		TaxID:     taxID,
+		Phone:     phone,
 		Now:       now,
 	})
 }

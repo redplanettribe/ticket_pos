@@ -30,6 +30,10 @@ const docTemplate = `{
                     "customer_last_name": {
                         "type": "string"
                     },
+                    "customer_phone": {
+                        "description": "The buyer's phone number, OPTIONAL and never fabricated (#106). It exists\nto be handed to the Payment Provider so its hosted card form arrives with\nnothing left to type but the card; a buyer who omits it checks out exactly\nas they did before the field existed. Absent, empty, or whitespace all mean\nthe same thing — no phone — and are not validation failures.",
+                        "type": "string"
+                    },
                     "customer_tax_id_number": {
                         "type": "string"
                     },
@@ -284,6 +288,10 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "last_name": {
+                        "type": "string"
+                    },
+                    "phone": {
+                        "description": "The phone number in canonical E.164 form, e.g. +593987654321. Null or blank\nclears the stored number; omitting the field leaves it untouched.",
                         "type": "string"
                     },
                     "tax_id_number": {
@@ -1080,6 +1088,10 @@ const docTemplate = `{
                     "last_name": {
                         "type": "string"
                     },
+                    "phone": {
+                        "description": "The Customer's stored phone number in canonical E.164 form, null when they\nhave none (#108). Shown here so a person can see, correct, and withdraw the\nnumber the platform holds about them without starting a checkout — the last\nof which is a capability in its own right, not an oversight.\n\nCanonical, not split: the Storefront resolves it back into a country\nselection and a national number for display, because that is a presentation\nconcern and nothing below the form ever wants the halves (#103).",
+                        "type": "string"
+                    },
                     "tax_id_number": {
                         "type": "string"
                     },
@@ -1102,6 +1114,10 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "last_name": {
+                        "type": "string"
+                    },
+                    "phone": {
+                        "description": "The Customer's stored phone number in canonical E.164 form, null until they\nhave one. It rides on the session for exactly the reason the Tax ID does: the\ncheckout dialog prefills the field from here, which is what closes the \"give\nit once, never again\" loop the phone exists to close (#103, #108). The\nStorefront splits it back into a country selection and a national number for\ndisplay; nothing below the form ever sees the halves.",
                         "type": "string"
                     },
                     "tax_id_number": {
@@ -2408,7 +2424,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/profile": {
             "patch": {
-                "description": "Edits the signed-in Customer's name and Tax ID — the \"My info\" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.",
+                "description": "Edits the signed-in Customer's name, Tax ID, and phone number — the \"My info\" section of the Customer Area. The name must be non-blank on both halves; the Tax ID is validated by the same rules as checkout, and sending both halves null clears it. The phone is validated by the same rule as checkout and stored in canonical E.164 form; sending it null or blank clears it, and omitting the field entirely leaves the stored number untouched. The email is the Customer's identity and is not editable here. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. The edit moves the Customer's current assertion only — every Ticket Sale keeps the name and Tax ID it was transacted under.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -2420,13 +2436,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/handler.updateProfileBody",
                                         "summary": "body",
-                                        "description": "Name and Tax ID"
+                                        "description": "Name, Tax ID, and phone"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Name and Tax ID",
+                    "description": "Name, Tax ID, and phone",
                     "required": true
                 },
                 "responses": {
@@ -3245,7 +3261,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.",
+                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a pending Payment, asks the Payment Provider to initiate, and returns our client transaction id with the provider's redirect URL. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it only marks the Tax ID as the buyer's own assertion, which lets it replace their stored one.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -3277,13 +3293,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/handler.beginCheckoutBody",
                                         "summary": "body",
-                                        "description": "Checkout lines, customer identity and Tax ID"
+                                        "description": "Checkout lines, customer identity, Tax ID and optional phone"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Checkout lines, customer identity and Tax ID",
+                    "description": "Checkout lines, customer identity, Tax ID and optional phone",
                     "required": true
                 },
                 "responses": {

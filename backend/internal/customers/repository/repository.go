@@ -30,7 +30,20 @@ type UpsertInput struct {
 	// TaxID is the Tax ID this sale was transacted under, unset on a sale that
 	// carries none (the `import` channel). Its SelfAsserted flag decides whether
 	// a Verified Customer's stored Tax ID may be overwritten; see Upsert.
+	//
+	// That flag describes the *checkout*, not the Tax ID: it reports that the
+	// begin-checkout ran under this Customer's own full Customer Session. Phone
+	// below is guarded by the same flag for that reason (#107).
 	TaxID platform.SaleTaxID
+	// Phone is the buyer's phone number in canonical E.164 form as typed at
+	// checkout, empty when they gave none or when the channel never collects one
+	// (import, and the staff-recorded sale). It is written back onto the Customer
+	// under the same guard as the Tax ID; see Upsert.
+	//
+	// Unlike the Tax ID it is NOT recorded on the Ticket Sale — a phone number is
+	// no fiscal fact of a sale (#103, #107) — so this is the only column any of
+	// it reaches.
+	Phone string
 	Now   time.Time
 }
 
@@ -75,16 +88,44 @@ type UpsertInput struct {
 // A sale carrying no Tax ID at all — the `import` channel, where the ID may
 // never have been collected — writes nothing: the EXCLUDED-is-not-null guard
 // below means an import can never blank a Tax ID somebody supplied.
+//
+// The phone (#107, parent #103) is guarded IDENTICALLY to the Tax ID, clause for
+// clause, and that is a deliberate copy rather than an accident of shape. The
+// tampering vector is the same one: anyone can type a known email address into a
+// guest checkout, so without the guard a stranger could silently rewrite a
+// Verified Customer's stored number — and a phone is if anything more likely
+// than a Tax ID to be used later as a support identity check. The three arms
+// that open the write are the same three, for the same reasons: a Customer who
+// has never set a phone may be seeded by any checkout, an unverified record
+// self-corrects until somebody claims it, and a checkout under the person's own
+// Customer Session is that person restating a fact about themselves.
+//
+// It reads $7 — in.TaxID.SelfAsserted — because that flag describes the
+// CHECKOUT, not the Tax ID: it records that the begin-checkout carried this
+// Customer's own full Customer Session. It is the same proof of email ownership
+// whichever value it is protecting, so the phone reuses it rather than
+// duplicating a second flag that could only ever hold the same boolean.
+//
+// A checkout that carried no phone leaves EXCLUDED.phone NULL and writes
+// nothing: like the import channel and the Tax ID, an absent value never blanks
+// one somebody supplied. Clearing a phone is "My info"'s alone (#108).
 func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (string, error) {
 	var taxIDType, taxIDNumber any
 	if in.TaxID.Set() {
 		taxIDType, taxIDNumber = in.TaxID.Type, in.TaxID.Number
 	}
+	// nil, not "": the guard below distinguishes "the buyer gave a phone" from
+	// "they did not" by NULL-ness, and an empty string is a value that would
+	// pass IS NOT NULL and blank a stored number.
+	var phone any
+	if in.Phone != "" {
+		phone = in.Phone
+	}
 
 	var id string
 	err := tx.QueryRowContext(ctx, `
-		INSERT INTO customers (email, first_name, last_name, tax_id_type, tax_id_number, created_at)
-		VALUES ($1, $2, $3, $5, $6, $4)
+		INSERT INTO customers (email, first_name, last_name, tax_id_type, tax_id_number, phone, created_at)
+		VALUES ($1, $2, $3, $5, $6, $8, $4)
 		ON CONFLICT (email) DO UPDATE SET
 			first_name = CASE WHEN customers.verified_at IS NULL OR (customers.first_name = '' AND customers.last_name = '')
 				THEN EXCLUDED.first_name ELSE customers.first_name END,
@@ -95,9 +136,12 @@ func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (st
 				THEN EXCLUDED.tax_id_type ELSE customers.tax_id_type END,
 			tax_id_number = CASE WHEN EXCLUDED.tax_id_number IS NOT NULL
 				AND (customers.tax_id_type IS NULL OR customers.verified_at IS NULL OR $7)
-				THEN EXCLUDED.tax_id_number ELSE customers.tax_id_number END
+				THEN EXCLUDED.tax_id_number ELSE customers.tax_id_number END,
+			phone = CASE WHEN EXCLUDED.phone IS NOT NULL
+				AND (customers.phone IS NULL OR customers.verified_at IS NULL OR $7)
+				THEN EXCLUDED.phone ELSE customers.phone END
 		RETURNING id
-	`, in.Email, in.FirstName, in.LastName, in.Now, taxIDType, taxIDNumber, in.TaxID.SelfAsserted).Scan(&id)
+	`, in.Email, in.FirstName, in.LastName, in.Now, taxIDType, taxIDNumber, in.TaxID.SelfAsserted, phone).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -105,28 +149,53 @@ func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (st
 }
 
 // UpdateProfileInput is a Customer's own edit of what the platform holds about
-// them: their name and their one current Tax ID assertion.
+// them: their name, their one current Tax ID assertion, and their phone number.
 //
 // TaxIDType and TaxIDNumber are null together to clear the Tax ID and set
 // together to assert one; the service never hands this layer one without the
 // other, and the customers_tax_id_pair_ck constraint would refuse it if it did.
 // There is no email here, and deliberately so: the address is the Customer's
 // identity (ADR 0010) and this statement cannot touch it.
+//
+// The phone takes THREE states rather than the Tax ID's two, which is why it
+// needs a flag beside the pointer (#108):
+//
+//	PhoneSet=false            — this edit is not about the phone; leave it be
+//	PhoneSet=true, Phone=nil  — clear it
+//	PhoneSet=true, Phone=&"…" — store this canonical E.164 number
+//
+// The third state exists because the phone joined a contract that already
+// existed. A client written before #108 sends no phone at all, and reading that
+// silence as "remove it" would have a deploy window's worth of stale Storefront
+// pods quietly erasing numbers their buyers had stored. The Tax ID never needed
+// the distinction: it has been on this endpoint since it was written, so absence
+// there can only mean the Customer emptied the field.
 type UpdateProfileInput struct {
 	CustomerID  string
 	FirstName   string
 	LastName    string
 	TaxIDType   *string
 	TaxIDNumber *string
+	PhoneSet    bool
+	Phone       *string
 }
 
 // UpdateProfile writes the Customer's own assertion about themselves and returns
 // the record as it now stands.
 //
-// It is the only statement in the system that may clear a Tax ID, and the only
-// one that writes a name outside a Ticket Sale. Both facts are load-bearing at
-// Upsert above: its guard reads "blank name" as "never named", which stays true
-// only because the service in front of this refuses a blank first or last name.
+// It is the only statement in the system that may clear a Tax ID or a phone
+// number, and the only one that writes a name outside a Ticket Sale. All three
+// facts are load-bearing at Upsert above: its guard reads "blank name" as "never
+// named", which stays true only because the service in front of this refuses a
+// blank first or last name, and its phone arm never blanks a stored number
+// because withdrawing a detail is the person's own decision to make here (#108).
+//
+// The phone's CASE is the three states of UpdateProfileInput read back out: when
+// $6 is false the column is written with its own current value, which is the
+// closest SQL gets to saying nothing about it. It carries none of Upsert's
+// verification guard, and needs none — this statement is reached only through a
+// full Customer Session, so the person editing has already proven ownership of
+// the address, which is exactly what an anonymous checkout could not.
 //
 // Nothing here touches a Ticket Sale. The Customer holds what the person
 // asserts now; each sale holds what was transacted, immutably (ADR 0016).
@@ -134,11 +203,12 @@ func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (
 	var c Customer
 	err := r.db.Pool.QueryRowContext(ctx, `
 		UPDATE customers
-		SET first_name = $2, last_name = $3, tax_id_type = $4, tax_id_number = $5
+		SET first_name = $2, last_name = $3, tax_id_type = $4, tax_id_number = $5,
+			phone = CASE WHEN $6::boolean THEN $7::text ELSE customers.phone END
 		WHERE id = $1
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
-	`, in.CustomerID, in.FirstName, in.LastName, in.TaxIDType, in.TaxIDNumber).
-		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
+	`, in.CustomerID, in.FirstName, in.LastName, in.TaxIDType, in.TaxIDNumber, in.PhoneSet, in.Phone).
+		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -161,9 +231,9 @@ func (r *Repository) UpdateAvatarKey(ctx context.Context, customerID string, key
 		UPDATE customers
 		SET avatar_image_key = $2
 		WHERE id = $1
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, avatar_image_key, verified_at
+		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
 	`, customerID, key).
-		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.AvatarImageKey, &c.VerifiedAt)
+		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
