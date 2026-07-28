@@ -627,11 +627,19 @@ Lifecycle:
 pending ──approved──▶ approved   (Ticket Sale committed in the SAME transaction)
    │ └────declined──▶ failed     (no sale, capacity untouched)
    └──hold lapses───▶ expired    (lazily marked; a late confirm may still commit if capacity remains)
+
+(zero total) ───────▶ approved   (settled in the begin request; no provider, no hold, no confirm leg)
 ```
 
 A Ticket Sale exists **only** for an approved Payment, committed through the channel-agnostic
 sale-commit spine (row locks, `sold_count` increment, Customer upsert) in the same transaction that
-marks the Payment approved, with Payment Method `payphone`. Confirm is **idempotent**, keyed on our
+marks the Payment approved, with Payment Method `payphone` — or `free` where there was nothing to
+collect ([ADR 0017](./adr/0017-zero-total-checkouts-settle-without-a-payment-provider.md)). A cart of
+Free Ticket Types totals zero, so no Payment Provider can be asked to collect it: that Payment is
+created and approved inside the begin-checkout request, never passes through a state a Capacity Hold
+is derived from, and has no confirm leg to arrive later. `approved` therefore means the checkout is
+settled, not that money moved. One paid ticket anywhere in the cart makes the whole checkout an
+ordinary provider checkout. Confirm is **idempotent**, keyed on our
 client transaction id: a refreshed return page replays the recorded outcome and never
 double-commits. If the provider approves but the sale commit fails, the Payment is left
 approved-without-sale as a durable marker and the incident is logged loudly
@@ -646,7 +654,10 @@ Nothing external may call the Go API (ADR 0008), so the provider's return redire
    Session is optional and never required) validates the cart against live capacity and the
    buyer's `customer_tax_id_type` / `customer_tax_id_number`, plus the optional `customer_phone`
    (absent is valid and simply means no phone), records a `pending` Payment, calls
-   `PaymentProvider.Initiate`, and returns the hosted payment URL.
+   `PaymentProvider.Initiate`, and returns `status: "pending"` with the hosted payment URL.
+   A cart totalling zero skips every provider step: it settles on the spot and returns
+   `status: "approved"` with the `confirmation_ref` and no `redirect_url`, ending the flow here
+   (ADR 0017). Steps 2–4 below are the paid path only.
 2. The browser is redirected to the provider's payment page (top-level, never an iframe).
 3. The provider redirects back to `{storefront}/checkout/return`, whose handler relays the return
    params to `POST /api/v1/public/checkout/{clientTransactionId}/confirm`.

@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,10 +32,25 @@ import (
 // address the Go API directly (ADR 0008).
 const checkoutReturnPath = "/checkout/return"
 
-// onlinePaymentMethod is the Payment Method recorded on every Online Sale: the
-// name of the Payment Provider that collects money at launch (the stub stands
-// in for it in development, driving the same legs).
+// onlinePaymentMethod is the Payment Method recorded on an Online Sale that
+// collected money: the name of the Payment Provider that collected it at launch
+// (the stub stands in for it in development, driving the same legs).
 const onlinePaymentMethod = "payphone"
+
+// freePaymentMethod is the Payment Method recorded on an Online Sale of Free
+// Ticket Types, where there was nothing to collect and so no Payment Provider
+// was ever asked (ADR 0017). It is also what the Payment names as its provider,
+// because "which provider handled this" has an honest answer here — none did.
+const freePaymentMethod = "free"
+
+// beginCheckoutStatus values report how the checkout was left. They are the
+// Payment's own status, not a third vocabulary: a checkout with money to collect
+// is left pending on the Payment Provider, and one with nothing to collect is
+// already approved by the time the response is written (ADR 0017).
+const (
+	beginCheckoutPending  = "pending"
+	beginCheckoutApproved = "approved"
+)
 
 // CheckoutLineInput is one requested Ticket Type and quantity in a checkout.
 type CheckoutLineInput struct {
@@ -58,13 +75,25 @@ type BeginCheckoutInput struct {
 	Lines    []CheckoutLineInput
 }
 
-// BeginCheckoutResult is what the Storefront needs to send the Customer to the
-// provider's payment page: our id for the attempt and where to redirect.
+// BeginCheckoutResult is what the Storefront needs to finish the checkout: our
+// id for the attempt, how it was left, and where to send the Customer next.
+//
+// The two settlements are mutually exclusive and the empty field says which
+// happened. A checkout with money to collect is left `pending` and carries the
+// provider's RedirectURL; one with nothing to collect is already `approved` and
+// carries the ConfirmationRef of the Ticket Sale it recorded, with no redirect
+// because there is nowhere to send anybody (ADR 0017).
 type BeginCheckoutResult struct {
 	ClientTransactionID string `json:"client_transaction_id"`
-	RedirectURL         string `json:"redirect_url"`
-	AmountCents         int    `json:"amount_cents"`
-	Currency            string `json:"currency"`
+	// Status is how the checkout was left: "pending" on the Payment Provider, or
+	// "approved" when there was nothing to collect and it settled here.
+	Status      string `json:"status" enums:"pending,approved"`
+	RedirectURL string `json:"redirect_url,omitempty"`
+	// ConfirmationRef is the Sale Confirmation reference, set only on an approved
+	// checkout — the buyer has their tickets already and this is what they quote.
+	ConfirmationRef string `json:"confirmation_ref,omitempty"`
+	AmountCents     int    `json:"amount_cents"`
+	Currency        string `json:"currency"`
 }
 
 // BeginCheckout starts an online checkout: it validates the Event is published
@@ -166,11 +195,23 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		})
 	}
 
+	// Which settlement this checkout gets is decided by the total and nothing
+	// else. A cart of Free Ticket Types totals zero and is settled here, by the
+	// platform itself; one paid ticket anywhere in it makes the whole checkout an
+	// ordinary provider checkout (ADR 0017). The Payment records who handled it
+	// either way, and for a free checkout the honest answer is that no Payment
+	// Provider did.
+	free := amountCents == 0
+	provider := s.provider.Name()
+	if free {
+		provider = freePaymentMethod
+	}
+
 	clientTransactionID := uuid.NewString()
 	if _, err := s.repo.CreatePayment(ctx, repository.CreatePaymentInput{
 		EventID:             event.ID,
 		OrganizationID:      event.OrganizationID,
-		Provider:            s.provider.Name(),
+		Provider:            provider,
 		ClientTransactionID: clientTransactionID,
 		AmountCents:         amountCents,
 		Customer:            customer,
@@ -178,6 +219,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		Now:                 now,
 	}); err != nil {
 		return nil, err
+	}
+
+	if free {
+		return s.settleFreeCheckout(ctx, event, clientTransactionID, now)
 	}
 
 	initiation, err := s.provider.Initiate(ctx, platform.PaymentInitiateInput{
@@ -218,10 +263,101 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 
 	return &BeginCheckoutResult{
 		ClientTransactionID: clientTransactionID,
+		Status:              beginCheckoutPending,
 		RedirectURL:         initiation.RedirectURL,
 		AmountCents:         amountCents,
 		Currency:            event.Currency,
 	}, nil
+}
+
+// settleFreeCheckout finishes a checkout that has nothing to collect: it
+// approves the Payment just created and commits its Ticket Sale in the one
+// place every Online Sale is recorded, so a free claim reaches the Sales list,
+// the Customer Area and the Customer's own record by exactly the path a paid
+// one does (ADR 0017).
+//
+// It runs in the begin-checkout request because there is nothing to wait for.
+// No Payment Provider is asked, no redirect is handed out, and no confirm leg
+// ever arrives — the buyer has their tickets by the time the response is
+// written.
+func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID string, now time.Time) (*BeginCheckoutResult, error) {
+	ref, err := generateConfirmationRef()
+	if err != nil {
+		return nil, err
+	}
+
+	approved, err := s.repo.ApprovePaymentAndCommitSale(ctx, repository.ApprovePaymentInput{
+		ClientTransactionID: clientTransactionID,
+		// No provider transaction id and no instrument: no provider was asked, and
+		// nothing was charged to anything.
+		PaymentMethod:   freePaymentMethod,
+		ConfirmationRef: ref,
+		Now:             now,
+		UpsertCustomer:  s.customers.UpsertForSale,
+	})
+	if err != nil {
+		// Nothing was collected, so there is no incident here — only a checkout
+		// that did not happen, most often because capacity ran out under the
+		// commit's own locks. What must not happen is the Payment lingering
+		// `pending`: under ADR 0013 that would hold the very tickets nobody can
+		// now claim, for a Payment that can never be settled. Marking it is
+		// best-effort — the hold-window cutoff is still the backstop — and the
+		// caller gets the commit's own error, so a capacity failure still reaches
+		// the buyer as CAPACITY_EXCEEDED rather than as something generic.
+		if _, markErr := s.repo.MarkPaymentFailed(ctx, clientTransactionID, "", "", now); markErr != nil {
+			s.logger.Warn("free checkout: could not mark the unsettled Payment failed; its Capacity Hold lapses with the window",
+				"client_transaction_id", clientTransactionID,
+				"commit_error", err,
+				"mark_error", markErr,
+			)
+		}
+		return nil, err
+	}
+	if approved.Sale == nil {
+		// AlreadySettled on a Payment this request created moments ago: nothing
+		// can legitimately have settled it, so there is no recorded outcome worth
+		// reloading and no sale to report. Logged loudly for the same reason
+		// PAYMENT_APPROVED_WITHOUT_SALE is — an impossible state reached anyway is
+		// worth more than the generic 500 the caller gets.
+		s.logger.Error("FREE_CHECKOUT_NOT_SETTLED: a free Payment created in this request reported itself already settled; no Ticket Sale was recorded",
+			"client_transaction_id", clientTransactionID,
+		)
+		return nil, fmt.Errorf("sales: free checkout %s was settled by nobody", clientTransactionID)
+	}
+
+	s.sendSaleConfirmation(ctx, event.OrganizationID, event.ID, approved.Sale)
+
+	return &BeginCheckoutResult{
+		ClientTransactionID: clientTransactionID,
+		Status:              beginCheckoutApproved,
+		ConfirmationRef:     approved.Sale.ConfirmationRef,
+		AmountCents:         approved.Sale.AmountCents,
+		Currency:            event.Currency,
+	}, nil
+}
+
+// sendSaleConfirmation emails the receipt for a Ticket Sale that has just been
+// committed, and is deliberately the only place either settlement does it.
+//
+// It goes out only after the transaction has committed, exactly like the import
+// channel: a Confirmation Link names a Ticket Sale by its database id, and until
+// commit there is no sale to name. A failure to send is swallowed — the sale is
+// recorded and the buyer's tickets do not depend on the email arriving.
+func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, eventID string, sale *repository.RecordedSale) {
+	event, ok, err := s.repo.GetEventImportContext(ctx, organizationID, eventID)
+	if err != nil || !ok {
+		return
+	}
+	_ = s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
+		To:               sale.CustomerEmail,
+		CustomerName:     displayName(sale.CustomerFirstName, sale.CustomerLastName),
+		EventName:        event.Name,
+		Reference:        sale.ConfirmationRef,
+		AmountCents:      sale.AmountCents,
+		Currency:         event.Currency,
+		ConfirmationLink: s.confirmationLink(sale.ID, event.End()),
+		TaxID:            sale.CustomerTaxID,
+	})
 }
 
 // ConfirmCheckoutResult is the settled outcome of a Payment: approved with the
@@ -323,22 +459,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		return s.reloadOutcome(ctx, clientTransactionID)
 	}
 
-	// The Sale Confirmation goes out only after the transaction has committed,
-	// exactly like the import channel: a Confirmation Link names a Ticket Sale by
-	// its database id, and until commit there is no sale to name.
-	event, ok, err := s.repo.GetEventImportContext(ctx, payment.OrganizationID, payment.EventID)
-	if err == nil && ok {
-		_ = s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
-			To:               approved.Sale.CustomerEmail,
-			CustomerName:     displayName(approved.Sale.CustomerFirstName, approved.Sale.CustomerLastName),
-			EventName:        event.Name,
-			Reference:        approved.Sale.ConfirmationRef,
-			AmountCents:      approved.Sale.AmountCents,
-			Currency:         event.Currency,
-			ConfirmationLink: s.confirmationLink(approved.Sale.ID, event.End()),
-			TaxID:            approved.Sale.CustomerTaxID,
-		})
-	}
+	s.sendSaleConfirmation(ctx, payment.OrganizationID, payment.EventID, approved.Sale)
 
 	return &ConfirmCheckoutResult{
 		ClientTransactionID: clientTransactionID,
