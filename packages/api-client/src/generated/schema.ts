@@ -1260,7 +1260,7 @@ export interface paths {
         };
         /**
          * Look up a Ticket Sale by its Sale Confirmation reference
-         * @description Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.
+         * @description Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. operator_reversal carries the money memo an Operator Reversal left — the acting operator, what they said the buyer got back, whether the platform kept its fee, and their note — and is null on every sale reversed any other way; it is operator-facing only and appears on no Organization surface. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.
          */
         get: {
             parameters: {
@@ -1314,6 +1314,98 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/sales/{confirmationRef}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an out-of-band refund and reverse a Ticket Sale
+         * @description Marks the active Online Sale named by a Sale Confirmation reference `reversed`, recording that the Platform Operator already refunded the buyer OFF-PLATFORM — by hand in the Payment Provider's dashboard, or by bank transfer. It is a pure record: the Payment Provider is NEVER called from this endpoint, so recording a refund that already happened can never trigger a second one. The Payment stays `approved` (the checkout genuinely settled; the reversal is a later event on the Sale). On commit the sale carries the third reversal actor `operator` with the acting operator's email (taken from the Staff Session, never from the body) and the moment, capacity returns to the Ticket Types, and the buyer receives the same Sale Voided email every reversal sends. refunded_amount_cents is required, strictly positive and at most what the sale collected, with no pre-fill; platform_fee_kept is required with no default (the Platform Fee and its Fee IVA travel together, so one flag decides both); note is optional and at most 500 characters. There is NO Reversal Window check on this path — a sale inside its window is marked exactly as one past it, which is the point of the operation. Refused for a sale that is not an Online Sale (an imported sale is undone through its Sale Import) and for one already reversed, including when the buyer's own undo committed first. Irreversible: no un-reversal exists. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Sale Confirmation reference (case-insensitive) */
+                    confirmationRef: string;
+                };
+                cookie?: never;
+            };
+            /** @description What the buyer got back, and whether the platform kept its fee */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.reverseSaleBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorSaleReversal"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2852,7 +2944,7 @@ export interface paths {
         };
         /**
          * List an Event's Ticket Sales
-         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale and `staff` when a Sale Import undo did; both null on an active sale and on a sale reversed before either was recorded), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
+         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
          */
         get: {
             parameters: {
@@ -3993,6 +4085,11 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        "handler.reverseSaleBody": {
+            note?: string;
+            platform_fee_kept?: boolean;
+            refunded_amount_cents?: number;
+        };
         "handler.selectOrganizationBody": {
             member_id?: string;
         };
@@ -4205,6 +4302,11 @@ export interface components {
         };
         "openapi.EnvelopeOperatorSaleLookup": {
             data?: components["schemas"]["service.SaleLookup"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorSaleReversal": {
+            data?: components["schemas"]["service.SaleReversal"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -4459,6 +4561,23 @@ export interface components {
             paid_at?: string;
             recorded_by?: string;
         };
+        /**
+         * @description OperatorReversal is the money memo an Operator Reversal left (#125), and
+         *     null on every sale reversed any other way. It is operator-facing only: it
+         *     rides this payload, which nobody but a Platform Operator can reach, and no
+         *     Organization-facing surface carries it.
+         */
+        "service.OperatorReversalMemo": {
+            note?: string;
+            /**
+             * @description Operator is the acting operator's email, as their Staff Session knows it.
+             *     Never taken from a request body: who asserted a money fact must not be
+             *     something a caller can claim.
+             */
+            operator?: string;
+            platform_fee_kept?: boolean;
+            refunded_amount_cents?: number;
+        };
         "service.OperatorSaleCustomer": {
             email?: string;
             first_name?: string;
@@ -4638,6 +4757,7 @@ export interface components {
             fee_iva_cents?: number;
             id?: string;
             net_proceeds_cents?: number;
+            operator_reversal?: components["schemas"]["service.OperatorReversalMemo"];
             /**
              * @description PaymentMethod is who settled the money: the Payment Provider on a paid
              *     Online Sale, 'free' where the platform settled a zero total itself
@@ -4686,6 +4806,19 @@ export interface components {
         "service.SaleLookup": {
             organization?: components["schemas"]["service.Organization"];
             sale?: components["schemas"]["service.Sale"];
+        };
+        "service.SaleReversal": {
+            confirmation_ref?: string;
+            operator_reversal?: components["schemas"]["service.OperatorReversalMemo"];
+            reversed_at?: string;
+            /** @description ReversedBy is always sales.ReversalActorOperator here. */
+            reversed_by?: string;
+            /**
+             * @description Status is always "reversed"; a marking that did not happen is an error,
+             *     never a result carrying some other word.
+             */
+            status?: string;
+            ticket_sale_id?: string;
         };
         "service.SaleReversalResult": {
             confirmation_ref?: string;
