@@ -3,16 +3,41 @@ import Link from "next/link";
 import { Badge } from "@ticket-pos/ui";
 
 import { UndoPurchase } from "@/components/undo-purchase";
+import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import type { TicketSale } from "@/lib/customer-session";
-import { formatEventDateTime, formatPrice, formatReversalDeadline } from "@/lib/format";
+import { formatEventDateTime, formatPrice } from "@/lib/format";
 import { formatTaxId } from "@/lib/tax-id";
+import { undoDeadline } from "@/lib/undo-window";
 
 /**
  * One entry in the Customer Area: a Ticket Sale shown by the thing the Customer
  * actually cares about — the Event — with the Organization behind it, what was
  * bought, and the Sale Confirmation reference they can quote to a promoter.
  */
-export function TicketSaleCard({ sale }: { sale: TicketSale }) {
+export function TicketSaleCard({
+  sale,
+  viaConfirmationLink = false,
+  customerEmail = null,
+}: {
+  sale: TicketSale;
+  /**
+   * True when this card is being drawn for someone who arrived by a Confirmation
+   * Link rather than by signing in.
+   *
+   * That page stays strictly read-only (#121). A link travels by email and gets
+   * forwarded, quoted in support threads and pasted into chats, and reversal is
+   * the one destructive, money-moving action a Customer has — which is precisely
+   * why #119 put it behind a Customer Session and not behind the link. So this
+   * card offers the deadline and the way to sign in, and never the button.
+   *
+   * The API refuses the undo behind a link session anyway; drawing a button that
+   * would come back refused is not a safety measure, it is a worse version of
+   * telling somebody the truth.
+   */
+  viaConfirmationLink?: boolean;
+  /** The address this session belongs to, to prefill sign-in with. */
+  customerEmail?: string | null;
+}) {
   const dateLabel = formatEventDateTime(sale.event.starts_at, sale.event.timezone);
   const reversed = sale.status === "reversed";
   const eventHref = `/${sale.organization.slug}/events/${sale.event.slug}`;
@@ -28,14 +53,10 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
   // nothing at all about undoing it — no greyed-out button, no expired
   // countdown, nothing to explain.
   //
-  // The card trusts that answer rather than recomputing it. Whether a purchase
-  // can be undone depends on the Reversal Window, the Sales Channel and whether
-  // the payment can be reversed at all, and every one of those is re-checked by
-  // the API when the button is actually pressed.
-  const canUndo = sale.reversible && sale.reversal_window_closes_at !== null;
-  const reversalDeadline = canUndo
-    ? formatReversalDeadline(sale.reversal_window_closes_at as string)
-    : null;
+  // The card trusts that answer rather than recomputing it, and reads it through
+  // the same helper the guest surfaces use (#121), so one sale cannot show one
+  // deadline here and another on the page a buyer saw before they signed in.
+  const reversalDeadline = undoDeadline(sale);
 
   return (
     <li className="rounded-lg border bg-card p-5 sm:p-6">
@@ -92,28 +113,27 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
         </div>
       </div>
 
-      {/* The deadline is named in Ecuador time and says so: it is the platform's
-          own wall clock, not the Event's, and a buyer whose show is abroad would
-          otherwise have no way to tell which 8:00 PM was meant.
-          The word is "undo" — "cancel" belongs to an Event being called off, and
-          "refund" is not this system's word for a Sale Reversal. What a paid
-          purchase's undo does to the money is said in the dialog, where the
-          Customer is deciding. */}
-      {canUndo ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t pt-4">
-          <p className="text-sm text-muted-foreground">
-            You can undo this purchase until{" "}
-            <span className="font-medium text-foreground">{reversalDeadline}</span> Ecuador time.
-          </p>
-          <UndoPurchase
-            saleId={sale.id}
-            eventName={sale.event.name}
-            confirmationRef={sale.confirmation_ref}
-            paidLabel={
-              sale.amount_cents > 0 ? formatPrice(sale.amount_cents, sale.currency) : null
-            }
-          />
-        </div>
+      {/* The sentence, its Ecuador-time qualifier and the word "undo" all live in
+          UndoWindowNotice, shared with the guest surfaces. What differs is the
+          action beside it: a signed-in Customer gets the button that undoes, and
+          somebody who arrived by a forwarded Confirmation Link gets the way to
+          prove the address is theirs. What a paid purchase's undo does to the
+          money is said in the dialog, where the Customer is deciding. */}
+      {reversalDeadline ? (
+        <UndoWindowNotice deadline={reversalDeadline}>
+          {viaConfirmationLink ? (
+            <SignInToUndo signedIn={false} email={customerEmail} />
+          ) : (
+            <UndoPurchase
+              saleId={sale.id}
+              eventName={sale.event.name}
+              confirmationRef={sale.confirmation_ref}
+              paidLabel={
+                sale.amount_cents > 0 ? formatPrice(sale.amount_cents, sale.currency) : null
+              }
+            />
+          )}
+        </UndoWindowNotice>
       ) : null}
     </li>
   );

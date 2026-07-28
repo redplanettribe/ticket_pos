@@ -76,7 +76,17 @@ export default async function CustomerAreaPage() {
             <AlertDescription>{area.message}</AlertDescription>
           </Alert>
         ) : (
-          <CustomerArea upcoming={area.data.upcoming} past={area.data.past} />
+          <CustomerArea
+            upcoming={area.data.upcoming}
+            past={area.data.past}
+            // A Confirmation Link arrival reads their purchase and acts on
+            // nothing (#121): the cards state the Reversal Window and offer the
+            // way to sign in, never the undo itself. The email travels with it
+            // so that one click is the whole of the sign-in, and it is the
+            // session's own address rather than anything from the URL.
+            viaConfirmationLink={fromConfirmationLink}
+            customerEmail={session.status === "ok" ? session.data.email : null}
+          />
         )}
 
         {/* "My info" is the Customer Area's only write, and it belongs to the
@@ -149,7 +159,17 @@ function ConfirmationLinkNotice() {
   );
 }
 
-function CustomerArea({ upcoming, past }: { upcoming: TicketSale[]; past: TicketSale[] }) {
+function CustomerArea({
+  upcoming,
+  past,
+  viaConfirmationLink,
+  customerEmail,
+}: {
+  upcoming: TicketSale[];
+  past: TicketSale[];
+  viaConfirmationLink: boolean;
+  customerEmail: string | null;
+}) {
   if (upcoming.length === 0 && past.length === 0) {
     return <NoPurchases />;
   }
@@ -161,7 +181,12 @@ function CustomerArea({ upcoming, past }: { upcoming: TicketSale[]; past: Ticket
         {upcoming.length > 0 ? (
           <ul className="space-y-4">
             {upcoming.map((sale) => (
-              <TicketSaleCard key={sale.id} sale={sale} />
+              <TicketSaleCard
+                key={sale.id}
+                sale={sale}
+                viaConfirmationLink={viaConfirmationLink}
+                customerEmail={customerEmail}
+              />
             ))}
           </ul>
         ) : (
@@ -182,7 +207,12 @@ function CustomerArea({ upcoming, past }: { upcoming: TicketSale[]; past: Ticket
           <h2 className="text-lg font-semibold tracking-tight">Past</h2>
           <ul className="space-y-4">
             {past.map((sale) => (
-              <TicketSaleCard key={sale.id} sale={sale} />
+              <TicketSaleCard
+                key={sale.id}
+                sale={sale}
+                viaConfirmationLink={viaConfirmationLink}
+                customerEmail={customerEmail}
+              />
             ))}
           </ul>
         </section>

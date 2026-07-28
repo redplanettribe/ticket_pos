@@ -5,8 +5,11 @@ import { notFound } from "next/navigation";
 import { Button, Card, CardContent, StorefrontShell } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
+import { getCheckoutReversal } from "@/lib/api";
 import { readCheckoutContext } from "@/lib/checkout-context";
 import { getCustomerSession } from "@/lib/customer-session";
+import { undoDeadline } from "@/lib/undo-window";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +39,27 @@ export default async function CheckoutSuccessPage({ searchParams }: SuccessPageP
   const [context, session] = await Promise.all([readCheckoutContext(), getCustomerSession()]);
   const signedIn = session.status === "ok" && session.data.ticket_sale_id === null;
 
+  // The Reversal Window, if this purchase has one on offer (#121, ADR 0018).
+  //
+  // Checkout is guest-facing — nobody has to sign in to buy — so the buyer most
+  // likely to change their mind is the one least equipped to act on it: undoing
+  // requires a Customer Session. Saying nothing here is what sends them to email
+  // the Organization instead, which is the outcome self-service was meant to
+  // remove. So this page states the deadline and hands them the sign-in in one
+  // click; the undo itself happens in the Customer Area, never here.
+  //
+  // Keyed on the checkout this browser began, out of the httpOnly context
+  // cookie. Lose that cookie — another browser, a cleared jar — and the page
+  // degrades exactly as it already does for the event link: the confirmation is
+  // still a confirmation, it just says nothing about undoing.
+  //
+  // The API decides `reversible`, and it is not merely a clock: a sale settled
+  // by a Payment Provider this deployment cannot ask comes back false inside its
+  // own window, so this page never advertises a deadline for an undo that would
+  // be refused.
+  const reversal = context ? await getCheckoutReversal(context.clientTransactionId) : null;
+  const reversalDeadline = undoDeadline(reversal);
+
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
       <main className="mx-auto w-full max-w-xl px-4 py-12 sm:py-16">
@@ -62,6 +86,16 @@ export default async function CheckoutSuccessPage({ searchParams }: SuccessPageP
             We&apos;ve emailed your Sale Confirmation with a link to your tickets. Quote the
             reference above at the door if you need to.
           </p>
+
+          {/* Changed your mind? Nothing here undoes anything — it names the
+              deadline and offers the sign-in that leads to the Customer Area,
+              where the undo lives. Someone already signed in skips the prompt
+              and goes straight there. */}
+          {reversalDeadline ? (
+            <UndoWindowNotice deadline={reversalDeadline} className="rounded-lg border p-4 sm:p-5">
+              <SignInToUndo signedIn={signedIn} email={context?.customerEmail ?? null} />
+            </UndoWindowNotice>
+          ) : null}
 
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             {signedIn ? (

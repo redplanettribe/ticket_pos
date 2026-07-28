@@ -127,6 +127,23 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// Confirm is keyed by our client transaction id rather than by slugs: the
 	// provider's return redirect carries the id and nothing else reliable.
 	mux.HandleFunc("POST /api/v1/public/checkout/{clientTransactionId}/confirm", sh.ConfirmCheckout)
+	// What the guest who just bought is allowed to know about undoing it (#121,
+	// ADR 0018): whether the sale that checkout produced is on offer to be
+	// reversed, and by when. Keyed by the same client transaction id confirm is,
+	// for the same reason — it is the only thing a buyer with no Customer Session
+	// holds.
+	//
+	// Served by the CUSTOMERS handler although it hangs off a checkout path,
+	// because the rule it reports is the Customer Area's own: one function
+	// answers this route and the Area's cards, so the deadline cannot differ
+	// between the page a buyer sees before signing in and the page they see
+	// after.
+	//
+	// It is public, and read-only, and those two facts belong together. Reversal
+	// stays behind a Customer Session because a Confirmation Link travels by
+	// email and gets forwarded; this route reveals a deadline and never an
+	// action, so nothing here is triggerable by whoever ends up holding the URL.
+	mux.HandleFunc("GET /api/v1/public/checkout/{clientTransactionId}/reversal", app.CustomersHandler.GetCheckoutReversal)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

@@ -35,6 +35,17 @@ const RESEND_REFUSED_ERRORS = new Set(["OTP_RATE_LIMITED", "OTP_GLOBAL_CEILING_R
 type SignInFormProps = {
   /** Where to go once the visitor is signed in; already validated server-side. */
   next: string;
+  /**
+   * The address to start the email field with, empty when this app knows none.
+   *
+   * It arrives from the guest surfaces that offer "Sign in to undo" (#121): a
+   * buyer who has just checked out as a guest, or who opened a Confirmation
+   * Link, should not have to retype the address they bought under to reach the
+   * undo. Already guarded server-side, and a prefill regardless — the passcode
+   * is what proves anything, and the field stays editable so somebody who bought
+   * under a different address can correct it.
+   */
+  initialEmail: string;
   /** True when the visitor arrived here because their Customer Session had run out. */
   expired: boolean;
   /**
@@ -108,6 +119,7 @@ const LINK_FAILURE_MESSAGE: Record<"expired" | "invalid", string> = {
  */
 export function SignInForm({
   next,
+  initialEmail,
   expired,
   linkFailure,
   googleFailed,
@@ -115,7 +127,7 @@ export function SignInForm({
 }: SignInFormProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -6,6 +6,7 @@ import { StorefrontShell } from "@ticket-pos/ui";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
+import { safePrefillEmail } from "@/lib/undo-window";
 
 import { SignInForm } from "./signin-form";
 
@@ -24,7 +25,18 @@ export const metadata: Metadata = {
 };
 
 type SignInPageProps = {
-  searchParams: Promise<{ next?: string; expired?: string; link?: string; google?: string }>;
+  searchParams: Promise<{
+    next?: string;
+    expired?: string;
+    link?: string;
+    google?: string;
+    /**
+     * The address to start the form with, sent by the guest surfaces that offer
+     * "Sign in to undo" (#121). It is a convenience and never an assertion: the
+     * passcode still has to be proved, so a prefilled field grants nothing.
+     */
+    email?: string;
+  }>;
 };
 
 // safeNext now lives in lib/destination.ts, because the Google Sign-In callback
@@ -32,7 +44,7 @@ type SignInPageProps = {
 // cookie. One copy, one behaviour.
 
 export default async function SignInPage({ searchParams }: SignInPageProps) {
-  const { next, expired, link, google } = await searchParams;
+  const { next, expired, link, google, email } = await searchParams;
   const destination = safeNext(next);
 
   // Already signed in: there is nothing to prove, so go where they were headed.
@@ -51,6 +63,11 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
       <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-12 sm:py-16">
         <SignInForm
           next={destination}
+          // Guarded before it reaches an input: anything not plausibly an email
+          // is dropped, because a page anybody can link to must not be able to
+          // put arbitrary text in a field that looks like this app's own
+          // knowledge of the visitor.
+          initialEmail={safePrefillEmail(email)}
           expired={expired === "1"}
           linkFailure={link === "expired" || link === "invalid" ? link : null}
           googleFailed={google === "failed"}

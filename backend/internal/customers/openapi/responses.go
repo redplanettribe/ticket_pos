@@ -75,6 +75,16 @@ type EnvelopeCustomerAvatarUpload struct {
 	RequestID string                    `json:"request_id"`
 }
 
+// EnvelopeCheckoutReversal documents GET
+// /api/v1/public/checkout/{clientTransactionId}/reversal success responses: the
+// Reversal Window a guest is told about on the checkout success page, and
+// nothing about the buyer.
+type EnvelopeCheckoutReversal struct {
+	Data      service.ReversalOffer `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
 // EnvelopeCustomerArea documents GET /api/v1/customer/ticket-sales success responses.
 type EnvelopeCustomerArea struct {
 	Data      service.CustomerAreaView `json:"data"`

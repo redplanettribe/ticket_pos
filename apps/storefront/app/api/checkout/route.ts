@@ -126,10 +126,15 @@ export async function POST(request: Request) {
     // Remembered only once the API accepted the checkout: the slugs were just
     // validated against SLUG_PATTERN, so the path is safe to become an href on
     // the terminal pages.
+    // The buyer's address rides along so the success page can offer sign-in
+    // already filled in (#121). Checkout is guest-facing, so this app's only
+    // record of who bought is the form they just submitted; it is a prefill and
+    // never a credential.
     await rememberCheckoutContext({
       clientTransactionId: result.client_transaction_id,
       eventPath: `/${orgSlug}/events/${eventSlug}`,
       eventName: asTrimmedString(body.event_name).slice(0, 200),
+      customerEmail: asTrimmedString(body.customer_email),
     });
 
     return NextResponse.json({ data: result, error: null, request_id: crypto.randomUUID() });

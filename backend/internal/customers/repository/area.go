@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -63,6 +64,85 @@ type TicketSaleRow struct {
 	// a later purchase leaves what an old sale shows untouched.
 	TaxIDType   sql.NullString
 	TaxIDNumber sql.NullString
+}
+
+// SaleReversalFacts is everything about a Ticket Sale that decides whether the
+// Customer may undo it, and nothing else.
+//
+// It exists so that the guest surfaces — the checkout success page and the
+// Confirmation Link page (#121) — and the Customer Area itself can be answered
+// by one function over one type. The Customer Area's rows carry these five
+// fields among twenty others; a guest checkout read carries only these five,
+// because a guest is told a deadline and never a purchase history.
+//
+// Notice what is not here: the amount, the Organization, the buyer. None of them
+// enters the rule (ADR 0018), and a struct that cannot carry them cannot leak
+// them onto an unauthenticated response.
+type SaleReversalFacts struct {
+	// Channel is the Sales Channel: only 'online' can have a Reversal Window.
+	Channel string
+	// Status is the sale's own state; a reversed sale cannot be reversed again.
+	Status string
+	// SoldAt is the Payment approval instant, which opens the window and fixes
+	// the Ecuadorian calendar date whose 20:00 closes it.
+	SoldAt time.Time
+	// PaymentMethod is who settled the money, and therefore who would have to
+	// give it back. Null on the channels that carry none.
+	PaymentMethod sql.NullString
+	// EventStartsAt closes the window early when the doors open first.
+	EventStartsAt sql.NullTime
+}
+
+// ReversalFacts narrows a Customer Area row to the reversal rule's inputs, so the
+// Area and the guest surfaces feed the same function rather than two copies of
+// one paragraph of ADR 0018.
+func (s TicketSaleRow) ReversalFacts() SaleReversalFacts {
+	return SaleReversalFacts{
+		Channel:       s.Channel,
+		Status:        s.Status,
+		SoldAt:        s.SoldAt,
+		PaymentMethod: s.PaymentMethod,
+		EventStartsAt: s.EventStartsAt,
+	}
+}
+
+// ReversalFactsForCheckout returns the reversal facts of the Ticket Sale one
+// online checkout produced, or nil when that checkout produced none.
+//
+// The key is our own client transaction id: the identifier begin-checkout
+// generated, the Storefront kept in an httpOnly cookie for the length of the
+// round trip, and the Payment Provider's return leg carried back. It is the only
+// thing a guest who has just paid actually holds — they have no Customer Session,
+// which is the whole problem #121 exists to solve — and it names one checkout
+// rather than a person, so it can widen to nothing.
+//
+// Nil is the ordinary answer for a pending, failed or expired Payment, for a
+// checkout that never existed, and for the loudly-logged incident where an
+// approved Payment has no sale. The caller reports "no undo on offer" for all of
+// them alike; distinguishing them would say more to an anonymous caller than the
+// deadline they came for.
+func (r *Repository) ReversalFactsForCheckout(ctx context.Context, clientTransactionID string) (*SaleReversalFacts, error) {
+	var facts SaleReversalFacts
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT ts.channel, ts.status, ts.sold_at, ts.payment_method, e.starts_at
+		FROM payments p
+		JOIN ticket_sales ts ON ts.id = p.ticket_sale_id
+		JOIN events e ON e.id = ts.event_id
+		WHERE p.client_transaction_id = $1
+	`, clientTransactionID).Scan(
+		&facts.Channel,
+		&facts.Status,
+		&facts.SoldAt,
+		&facts.PaymentMethod,
+		&facts.EventStartsAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &facts, nil
 }
 
 // ListTicketSalesForCustomer returns every Ticket Sale belonging to one

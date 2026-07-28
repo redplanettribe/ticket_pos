@@ -207,7 +207,7 @@ const activeStatus = "active"
 // settled by the platform, with no Payment Provider anywhere in it, reaches
 // platform.NewReversalWindow on exactly the terms a PayPhone sale does. The
 // window is a platform rule, not a provider one (ADR 0018).
-func reversalWindow(sale repository.TicketSaleRow) *platform.ReversalWindow {
+func reversalWindow(sale repository.SaleReversalFacts) *platform.ReversalWindow {
 	if sale.Channel != onlineChannel || sale.Status != activeStatus || !sale.EventStartsAt.Valid {
 		return nil
 	}
@@ -215,6 +215,46 @@ func reversalWindow(sale repository.TicketSaleRow) *platform.ReversalWindow {
 	// committed in the same transaction that approves the Payment.
 	window := platform.NewReversalWindow(sale.SoldAt, sale.EventStartsAt.Time)
 	return &window
+}
+
+// ReversalOffer is what any surface may say about undoing one Ticket Sale: that
+// it can be undone right now, and by when.
+//
+// The two fields answer together. ClosesAt is nil whenever Reversible is false,
+// deliberately: a closing time on a sale nobody may reverse is a deadline that
+// means nothing, and a surface that cannot draw one cannot mislead somebody
+// with it.
+type ReversalOffer struct {
+	Reversible bool `json:"reversible"`
+	// ClosesAt is the instant the Reversal Window shuts, RFC3339 in UTC.
+	ClosesAt *string `json:"reversal_window_closes_at"`
+}
+
+// reversalOffer decides whether a Ticket Sale is on offer to be undone, and is
+// the single place in this module that decides it.
+//
+// Every surface that mentions undo goes through here — the Customer Area's cards,
+// the checkout success page a guest lands on seconds after paying, and the
+// Confirmation Link page they come back to (#121) — so the deadline the three
+// print is not merely computed the same way, it is computed by the same call on
+// the same facts. Forking it is what would let a buyer read 8:00 PM on one page
+// and something else on another for one sale.
+//
+// The offer is made only while it is genuinely an offer: the window open AND the
+// Payment actually undoable. A closed or never-opened window says nothing at all
+// rather than publishing a deadline that has already gone, and neither does a
+// window whose sale nobody could reverse anyway — a countdown to an action the
+// API would refuse is worse than silence.
+//
+// It is an answer about this instant and nothing more. It is not a promise: a
+// true read a minute ago may be a refusal a minute from now, and the reversal
+// endpoint re-asks the question for itself.
+func reversalOffer(sale repository.SaleReversalFacts, now time.Time, reversal platform.PaymentReversal) ReversalOffer {
+	window := reversalWindow(sale)
+	if window == nil || !window.IsOpenAt(now) || !reversal.Supports(sale.PaymentMethod.String) {
+		return ReversalOffer{}
+	}
+	return ReversalOffer{Reversible: true, ClosesAt: timePtr(true, window.ClosesAt)}
 }
 
 // isUpcoming reports whether a Ticket Sale's Event is still ahead of the
@@ -233,19 +273,11 @@ func isUpcoming(sale repository.TicketSaleRow, now time.Time) bool {
 }
 
 func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platform.PaymentReversal) TicketSaleView {
-	// The Reversal Window is reported only while the sale is genuinely on offer:
-	// the window open AND the Payment actually undoable. A closed or never-opened
-	// window says nothing at all rather than publishing a deadline that has
-	// already gone, and neither does a window whose sale nobody could reverse
-	// anyway — a countdown to an action the API would refuse is worse than
-	// silence.
-	var reversible bool
-	var closesAt *string
-	if window := reversalWindow(sale); window != nil && window.IsOpenAt(now) &&
-		reversal.Supports(sale.PaymentMethod.String) {
-		reversible = true
-		closesAt = timePtr(true, window.ClosesAt)
-	}
+	// Whether this card may offer an undo, and until when, is not decided here:
+	// it is the same call the guest surfaces make (#121), so the Customer Area
+	// and the pages a guest sees before they ever sign in cannot disagree about
+	// one sale.
+	offer := reversalOffer(sale.ReversalFacts(), now, reversal)
 
 	lines := make([]TicketSaleLineView, 0, len(sale.Lines))
 	for _, l := range sale.Lines {
@@ -280,8 +312,8 @@ func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platf
 		},
 		TaxIDType:              stringPtr(sale.TaxIDType.Valid, sale.TaxIDType.String),
 		TaxIDNumber:            stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
-		Reversible:             reversible,
-		ReversalWindowClosesAt: closesAt,
+		Reversible:             offer.Reversible,
+		ReversalWindowClosesAt: offer.ClosesAt,
 	}
 }
 

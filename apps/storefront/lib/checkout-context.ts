@@ -15,6 +15,7 @@
 import { cookies } from "next/headers";
 
 import { safeEventPath } from "./checkout";
+import { safePrefillEmail } from "./undo-window";
 
 /** Name of the httpOnly cookie holding the in-flight checkout's context. */
 export const CHECKOUT_CONTEXT_COOKIE = "ticket_pos_checkout_context";
@@ -27,12 +28,33 @@ export const CHECKOUT_CONTEXT_COOKIE = "ticket_pos_checkout_context";
 const CHECKOUT_CONTEXT_MAX_AGE_SECONDS = 30 * 60;
 
 export type CheckoutContext = {
-  /** Our id for the Payment attempt this context belongs to. */
+  /**
+   * Our id for the Payment attempt this context belongs to.
+   *
+   * Since #121 it is also the key the success page reads the Reversal Window
+   * with. A guest who has just bought holds no Customer Session — checkout never
+   * required one — so this id is the only thing that names their purchase, and
+   * keeping it httpOnly means it stays with the browser that did the buying.
+   */
   clientTransactionId: string;
   /** The event page the checkout began on, e.g. "/demo-venue/events/x". */
   eventPath: string;
   /** The Event's name, for copy on the terminal pages. */
   eventName: string;
+  /**
+   * The address the checkout was made under, so the success page can offer
+   * sign-in already filled in (#121).
+   *
+   * It is a prefill and nothing else: the passcode still has to be proved, so
+   * carrying it grants nobody anything. It matters because a purchase made under
+   * one address and a session held under another belong to different Customers
+   * (ADR 0011) — a buyer sent to sign in with their everyday email would land in
+   * a Customer Area their new tickets are not in.
+   *
+   * Empty when the cookie predates this field or the buyer typed nothing usable;
+   * the sign-in link then simply arrives blank.
+   */
+  customerEmail: string;
 };
 
 /**
@@ -81,6 +103,12 @@ export async function readCheckoutContext(): Promise<CheckoutContext | null> {
     typeof candidate.eventPath === "string" ? candidate.eventPath : null,
   );
   const eventName = typeof candidate.eventName === "string" ? candidate.eventName : "";
+  // The address is guarded on the way out like everything else here: it becomes
+  // a query parameter on a sign-in link, and a cookie is caller-controlled
+  // storage however httpOnly it is.
+  const customerEmail = safePrefillEmail(
+    typeof candidate.customerEmail === "string" ? candidate.customerEmail : null,
+  );
   if (!clientTransactionId || !eventPath) return null;
-  return { clientTransactionId, eventPath, eventName };
+  return { clientTransactionId, eventPath, eventName, customerEmail };
 }

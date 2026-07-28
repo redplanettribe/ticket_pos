@@ -1,3 +1,5 @@
+import type { ReversalOffer } from "./undo-window";
+
 export type APIEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string; details?: unknown } | null;
@@ -431,4 +433,29 @@ export async function confirmCheckout(
     );
   }
   return envelope.data;
+}
+
+/**
+ * getCheckoutReversal asks whether the Ticket Sale one online checkout produced
+ * can still be undone, and by when (#121, ADR 0018).
+ *
+ * It is how the checkout success page — a guest surface, reached by someone who
+ * never had to sign in to buy — can state the Reversal Window at all. The key is
+ * our own client transaction id, kept in the httpOnly checkout-context cookie
+ * for the length of the round trip; no Customer Session exists here to scope the
+ * read, and the response carries nothing about the buyer to protect.
+ *
+ * A read, and only a read: the reversal itself lives behind a Customer Session,
+ * and this app offers the door to one rather than the action.
+ *
+ * fetchData's degradation is exactly right here. An API that is down leaves the
+ * success page saying nothing about undoing, which is what it said before this
+ * existed — a confirmation is still a confirmation.
+ */
+export async function getCheckoutReversal(
+  clientTransactionId: string,
+): Promise<ReversalOffer | null> {
+  return fetchData<ReversalOffer>(
+    `/api/v1/public/checkout/${encodeURIComponent(clientTransactionId)}/reversal`,
+  );
 }

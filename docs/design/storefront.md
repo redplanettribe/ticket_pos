@@ -137,6 +137,16 @@ A **Customer** record is created or reused by the **Ticket Sale** itself, and th
 
 On `CAPACITY_EXCEEDED` during checkout: blocking Dialog; offer to return to ticket selection.
 
+### The undo offer on the success page
+
+Where the **Reversal Window** is open, the success page states it: "You can undo this purchase until {deadline} Ecuador time", with **"Sign in to undo"** beside it. The word is *undo* — "cancel" is an Event being called off, and "refund" is wrong for a free Online Sale.
+
+Checkout is guest-facing and reversal needs a **Customer Session**, so the buyer most likely to change their mind is the one least equipped to act. The offer turns that requirement into one click: sign-in arrives prefilled with the address the purchase was made under, bound for the Customer Area, which is where the undo actually happens. A visitor who already holds a full session skips the prompt — "Undo it in your tickets" goes straight there.
+
+Nothing on this page reverses anything. It states a deadline and offers a door.
+
+The API answers whether there is an offer at all, keyed on the checkout this browser began. When it says no — the window closed, the sale was never eligible, the **Payment Provider** cannot reverse it — the page says nothing about undoing: no greyed-out button, no expired countdown. Same when the checkout context has been lost (another browser, a cleared jar): the confirmation is still a confirmation.
+
 ## Customer sign-in
 
 **Anonymous browsing is unchanged and requires no sign-in.**
@@ -208,8 +218,11 @@ A **Confirmation Link** from a **Sale Confirmation** email has no UI of its own 
 | Shows | Every Ticket Sale the Customer owns | Exactly the one linked sale |
 | Notice | None | "You're viewing one purchase", with "Sign in with a passcode" as the way to widen |
 | Reversed sale | **Reversed** badge on the card | Badge, plus a destructive Alert at the top of the page (banner tier) |
+| Undo offer | The deadline and **"Undo this purchase"** | The same deadline and **"Sign in to undo"** — never the button |
 
 A reversed sale gets that extra Alert because someone opening a confirmation email at the gate must not have to infer cancellation from a small label.
+
+The link arrival is **read-only**, and the undo row is where that matters most. A **Confirmation Link** travels by email and gets forwarded, so it must never carry the one destructive, money-moving action a Customer has — which is exactly why reversal sits behind a **Customer Session**. The page therefore reveals the deadline and the route to sign in, prefilled with the address the purchase was made under, and offers no action a forwarded email could trigger. The deadline shown is the same instant the Customer Area shows for the same sale.
 
 A link that is expired or invalid sends the visitor to the sign-in page with copy for whichever it was — an expired link means this person really did buy a ticket.
 
