@@ -911,7 +911,7 @@ export interface paths {
         };
         /**
          * List the Customer's Ticket Sales
-         * @description Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request. Each sale reports whether it is inside its Reversal Window right now (`reversible`) and, when it is, the instant that window closes (`reversal_window_closes_at`, RFC3339 UTC) — the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018). Only an active Online Sale can be reversible; the answer does not depend on the Payment Provider, so a free claim reports exactly like a paid purchase. The closing time is null whenever `reversible` is false. This endpoint reports the window and nothing more: there is no reversal action here.
+         * @description Returns the signed-in Customer's Ticket Sales, upcoming and past, across all Organizations. Always scoped by the Customer Session, never by any identifier in the request. Each sale reports whether it is inside its Reversal Window right now (`reversible`) and, when it is, the instant that window closes (`reversal_window_closes_at`, RFC3339 UTC) — the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018). Only an active Online Sale can be reversible, and its Payment must be one this deployment can actually undo: a free claim always is, since nothing was collected, and a paid one is when the Payment Provider that collected it supports reversal (ADR 0012). A sale settled by some other provider therefore reports false inside its window rather than offering an undo that would fail. The closing time is null whenever `reversible` is false. This endpoint reports the window and nothing more: there is no reversal action here.
          */
         get: {
             parameters: {
@@ -944,6 +944,93 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a Ticket Sale
+         * @description Reverses one of the signed-in Customer's own Ticket Sales within its Reversal Window (ADR 0018). The Ticket Sale becomes reversed, every line's quantity returns to its Ticket Type's capacity, and the void notice is emailed to the Customer once the reversal has committed. The sale is not deleted: it keeps its Sale Confirmation reference and stays visible in the Customer Area with a reversed status. Authorization is the Customer Session and nothing else — a Customer may only reverse a Ticket Sale they own, and a Confirmation Link session is not a credential for this. The Reversal Window is enforced here on the server whatever the client believed. The Payment Provider is asked to reverse the payment BEFORE anything local is written, and only its agreement commits the reversal (ADR 0018); a free claim has no provider to ask. Refused, with nothing changed, when the sale is already reversed (SALE_ALREADY_REVERSED), is not an Online Sale or was settled by a Payment Provider this deployment cannot ask (SALE_NOT_REVERSIBLE), or its window has closed (REVERSAL_WINDOW_CLOSED). Refused with 502 SALE_REVERSAL_FAILED, again with nothing changed, when the provider was asked and would not reverse it: the response carries the Sale Confirmation reference and makes no claim about the cause, because the provider publishes no code meaning the deadline passed, and the provider's own error code goes to the log only. Pressing twice reverses once: the second request is refused as already reversed and capacity is never restored twice.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeSaleReversal"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Bad Gateway */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1289,6 +1376,57 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/checkout/{clientTransactionId}/reversal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reversal Window for a checkout
+         * @description Reports whether the Ticket Sale produced by one online checkout can be undone right now (`reversible`) and, when it can, the instant its Reversal Window closes (`reversal_window_closes_at`, RFC3339 UTC) — the earlier of 20:00 Ecuador time on the day of purchase or the Event's start (ADR 0018). Keyed by our own client transaction id, so a guest who has just checked out and holds no Customer Session can still be told the deadline; the response carries nothing about the buyer. The same rule the Customer Area applies is applied here, so both surfaces report the same instant for the same sale: an active Online Sale, inside its window, whose Payment this deployment could actually undo. Anything else — a checkout that does not exist, a Payment not approved, a sale already reversed, a closed window, a Payment Provider that cannot reverse — reports `reversible: false` with a null closing time. Read-only: no reversal can be performed here, which requires a Customer Session.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Our client transaction id for the checkout */
+                    clientTransactionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCheckoutReversal"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2645,7 +2783,7 @@ export interface paths {
         };
         /**
          * List an Event's Ticket Sales
-         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale and `staff` when a Sale Import undo did; both null on an active sale and on a sale reversed before either was recorded), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. Visible to any Member of the Event.
+         * @description Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale and `staff` when a Sale Import undo did; both null on an active sale and on a sale reversed before either was recorded), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
          */
         get: {
             parameters: {
@@ -3896,6 +4034,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCheckoutReversal": {
+            data?: components["schemas"]["service.ReversalOffer"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeConfirmCheckout": {
             data?: components["schemas"]["service.ConfirmCheckoutResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -4013,6 +4156,11 @@ export interface components {
         };
         "openapi.EnvelopePublicOrganizationEvents": {
             data?: components["schemas"]["service.PublicOrganizationEvents"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeSaleReversal": {
+            data?: components["schemas"]["service.SaleReversalResult"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -4362,6 +4510,21 @@ export interface components {
             remaining?: number;
             sold_out?: boolean;
         };
+        "service.ReversalOffer": {
+            /** @description ClosesAt is the instant the Reversal Window shuts, RFC3339 in UTC. */
+            reversal_window_closes_at?: string;
+            reversible?: boolean;
+        };
+        "service.SaleReversalResult": {
+            confirmation_ref?: string;
+            reversed_at?: string;
+            /**
+             * @description Status is always "reversed"; a reversal that did not happen is an error,
+             *     never a result carrying some other word.
+             */
+            status?: string;
+            ticket_sale_id?: string;
+        };
         "service.SalesSummary": {
             currency?: string;
             net_proceeds_cents?: number;
@@ -4407,17 +4570,22 @@ export interface components {
              */
             reversal_window_closes_at?: string;
             /**
-             * @description Reversible reports whether this Ticket Sale is inside its Reversal Window
-             *     right now (ADR 0018) — whether the Customer could undo it themselves.
+             * @description Reversible reports whether the Customer could undo this Ticket Sale right
+             *     now (ADR 0018) — and it is the exact question the reversal endpoint asks
+             *     itself, so a true here is an offer the API will honour if taken promptly.
              *
              *     It is an answer about this instant and nothing more. It is not a promise:
-             *     the window is offered, not guaranteed, and a true here read a minute ago
-             *     may be a refusal a minute from now. Nothing acts on it yet; this release
-             *     only reports it.
+             *     the window is offered, not guaranteed, and a true read a minute ago may be
+             *     a refusal a minute from now.
              *
-             *     It is false for everything that is not an Online Sale — an In-Person Sale
-             *     or an imported one was never collected by the platform, so the platform has
-             *     nothing to give back — and false for a Ticket Sale already reversed.
+             *     Three things must all hold. The sale is an active Online Sale — an
+             *     In-Person Sale or an imported one was never collected by the platform, so
+             *     the platform has nothing to give back, and a sale already reversed cannot
+             *     be reversed again. Its Reversal Window is open. And its Payment can in fact
+             *     be undone: a free claim always can, since there is nothing to return, while
+             *     a paid one can only when the Payment Provider that collected it supports
+             *     reversal. That last clause is why a paid purchase inside its window can
+             *     report false — the alternative is an Undo button that fails when pressed.
              */
             reversible?: boolean;
             sold_at?: string;
