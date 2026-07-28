@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // TicketSaleLineRow is one Ticket Type and the quantity bought within a Ticket
@@ -66,38 +68,12 @@ type TicketSaleRow struct {
 	TaxIDNumber sql.NullString
 }
 
-// SaleReversalFacts is everything about a Ticket Sale that decides whether the
-// Customer may undo it, and nothing else.
-//
-// It exists so that the guest surfaces — the checkout success page and the
-// Confirmation Link page (#121) — and the Customer Area itself can be answered
-// by one function over one type. The Customer Area's rows carry these five
-// fields among twenty others; a guest checkout read carries only these five,
-// because a guest is told a deadline and never a purchase history.
-//
-// Notice what is not here: the amount, the Organization, the buyer. None of them
-// enters the rule (ADR 0018), and a struct that cannot carry them cannot leak
-// them onto an unauthenticated response.
-type SaleReversalFacts struct {
-	// Channel is the Sales Channel: only 'online' can have a Reversal Window.
-	Channel string
-	// Status is the sale's own state; a reversed sale cannot be reversed again.
-	Status string
-	// SoldAt is the Payment approval instant, which opens the window and fixes
-	// the Ecuadorian calendar date whose 20:00 closes it.
-	SoldAt time.Time
-	// PaymentMethod is who settled the money, and therefore who would have to
-	// give it back. Null on the channels that carry none.
-	PaymentMethod sql.NullString
-	// EventStartsAt closes the window early when the doors open first.
-	EventStartsAt sql.NullTime
-}
-
 // ReversalFacts narrows a Customer Area row to the reversal rule's inputs, so the
-// Area and the guest surfaces feed the same function rather than two copies of
-// one paragraph of ADR 0018.
-func (s TicketSaleRow) ReversalFacts() SaleReversalFacts {
-	return SaleReversalFacts{
+// Area, the guest surfaces and the reversal endpoint in the sales module all feed
+// the same function — platform.PaymentReversal.EligibilityAt — rather than
+// carrying copies of one paragraph of ADR 0018.
+func (s TicketSaleRow) ReversalFacts() platform.SaleReversalFacts {
+	return platform.SaleReversalFacts{
 		Channel:       s.Channel,
 		Status:        s.Status,
 		SoldAt:        s.SoldAt,
@@ -121,8 +97,8 @@ func (s TicketSaleRow) ReversalFacts() SaleReversalFacts {
 // approved Payment has no sale. The caller reports "no undo on offer" for all of
 // them alike; distinguishing them would say more to an anonymous caller than the
 // deadline they came for.
-func (r *Repository) ReversalFactsForCheckout(ctx context.Context, clientTransactionID string) (*SaleReversalFacts, error) {
-	var facts SaleReversalFacts
+func (r *Repository) ReversalFactsForCheckout(ctx context.Context, clientTransactionID string) (*platform.SaleReversalFacts, error) {
+	var facts platform.SaleReversalFacts
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT ts.channel, ts.status, ts.sold_at, ts.payment_method, e.starts_at
 		FROM payments p

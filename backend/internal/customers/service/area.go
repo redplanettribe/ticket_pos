@@ -186,37 +186,6 @@ func ticketSaleViews(sales []repository.TicketSaleRow, now time.Time, reversal p
 	return views
 }
 
-// onlineChannel is the Sales Channel a Reversal Window can exist on. The other
-// two — in_person and import — record money the platform never touched.
-const onlineChannel = "online"
-
-// activeStatus is the Ticket Sale that still stands. A reversed one has already
-// been undone and cannot be undone again.
-const activeStatus = "active"
-
-// reversalWindow is the Reversal Window of one Ticket Sale, and nil when the sale
-// can have none at all.
-//
-// Three things disqualify a sale outright, before any clock is consulted: a
-// Sales Channel other than online, a sale already reversed, and an Event with no
-// recorded start. The last cannot happen for an Online Sale — publishing requires
-// a start and a valid timezone, and only a published Event is sellable — but the
-// row type admits a null, and inventing a start for one would invent a deadline.
-//
-// Notice what is absent: the amount and the Payment Method. A free Online Sale
-// settled by the platform, with no Payment Provider anywhere in it, reaches
-// platform.NewReversalWindow on exactly the terms a PayPhone sale does. The
-// window is a platform rule, not a provider one (ADR 0018).
-func reversalWindow(sale repository.SaleReversalFacts) *platform.ReversalWindow {
-	if sale.Channel != onlineChannel || sale.Status != activeStatus || !sale.EventStartsAt.Valid {
-		return nil
-	}
-	// SoldAt is the Payment approval instant on an Online Sale: the sale is
-	// committed in the same transaction that approves the Payment.
-	window := platform.NewReversalWindow(sale.SoldAt, sale.EventStartsAt.Time)
-	return &window
-}
-
 // ReversalOffer is what any surface may say about undoing one Ticket Sale: that
 // it can be undone right now, and by when.
 //
@@ -230,8 +199,9 @@ type ReversalOffer struct {
 	ClosesAt *string `json:"reversal_window_closes_at"`
 }
 
-// reversalOffer decides whether a Ticket Sale is on offer to be undone, and is
-// the single place in this module that decides it.
+// reversalOffer turns the platform's reversal decision into what this module's
+// surfaces publish, and is the single place in this module that mentions the
+// decision at all.
 //
 // Every surface that mentions undo goes through here — the Customer Area's cards,
 // the checkout success page a guest lands on seconds after paying, and the
@@ -240,18 +210,23 @@ type ReversalOffer struct {
 // the same facts. Forking it is what would let a buyer read 8:00 PM on one page
 // and something else on another for one sale.
 //
-// The offer is made only while it is genuinely an offer: the window open AND the
-// Payment actually undoable. A closed or never-opened window says nothing at all
-// rather than publishing a deadline that has already gone, and neither does a
-// window whose sale nobody could reverse anyway — a countdown to an action the
-// API would refuse is worse than silence.
+// The decision itself is NOT here. It is platform.PaymentReversal.EligibilityAt,
+// shared with the sales module's reversal endpoint, which enforces the same four
+// checks in order to perform the undo this function merely offers. That sharing
+// is the point: an offer computed by a different rule than the one the endpoint
+// enforces is a button that appears on a sale the API then refuses.
+//
+// What stays here is the output. Every refusal collapses to the same silence —
+// this module has no interest in which of the four it was, and a surface that
+// cannot draw a deadline cannot mislead somebody with one — while the sales
+// module maps each refusal to its own typed error and status.
 //
 // It is an answer about this instant and nothing more. It is not a promise: a
 // true read a minute ago may be a refusal a minute from now, and the reversal
 // endpoint re-asks the question for itself.
-func reversalOffer(sale repository.SaleReversalFacts, now time.Time, reversal platform.PaymentReversal) ReversalOffer {
-	window := reversalWindow(sale)
-	if window == nil || !window.IsOpenAt(now) || !reversal.Supports(sale.PaymentMethod.String) {
+func reversalOffer(sale platform.SaleReversalFacts, now time.Time, reversal platform.PaymentReversal) ReversalOffer {
+	window, refusal := reversal.EligibilityAt(sale, now)
+	if refusal != platform.ReversalAllowed {
 		return ReversalOffer{}
 	}
 	return ReversalOffer{Reversible: true, ClosesAt: timePtr(true, window.ClosesAt)}

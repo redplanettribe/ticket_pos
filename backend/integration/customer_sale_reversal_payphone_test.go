@@ -217,6 +217,90 @@ func TestPayPhoneRefusalLeavesEverythingUntouched(t *testing.T) {
 	}
 }
 
+// TestConcurrentUndoAsksPayPhoneOnce is the money half of the double-press
+// promise, and the free path could never make it: with no Payment Provider in
+// the loop, a second reversal costs nothing, so the row lock inside the
+// repository primitive was enough. On a PAID sale it is not. That lock is taken
+// AFTER the provider has been asked, so two attempts that both read an active
+// sale both POST /api/Reverse/Client and only then serialise on the local write —
+// one buyer, one 200, one restored seat, and their money returned twice.
+//
+// The race is staged rather than hoped for: PayPhone holds the first reversal
+// open, the second attempt is made while it hangs there, and only then is the
+// first let go. That is the exact interval a real double-press falls into, held
+// wide enough to aim at.
+//
+// The assertion that matters is the count. Exactly one reversal reaches PayPhone
+// — a reversal is never retried and never doubled, because it may return the
+// money twice (ADR 0018) — with the ordinary outcome around it: one 200, one
+// refusal, one void notice, and the capacity back exactly once.
+func TestConcurrentUndoAsksPayPhoneOnce(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishEventStarting(t, env, sessionID, "Double Press Fest", "double-press-fest",
+		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
+
+	ref, _ := buyOnlineThroughPayPhone(t, "double-press-fest", gaID, "ana@example.com", 4)
+	token := customerSignIn(t, payphoneEnv, "ana@example.com")
+	saleID := saleByRef(t, readCustomerArea(t, payphoneEnv, token, ""), ref).ID
+
+	env.email.Reset()
+	payphoneStub.reset()
+	t.Cleanup(payphoneStub.reset)
+	entered, release := payphoneStub.reverseBlocksFirst()
+	defer release()
+
+	// The first press, parked inside PayPhone.
+	type attempt struct {
+		status int
+		code   string
+	}
+	first := make(chan attempt, 1)
+	go func() {
+		resp, body := reverseSaleRequest(t, payphoneEnv, token, saleID)
+		var code string
+		if body.Error != nil {
+			code = body.Error.Code
+		}
+		first <- attempt{resp.StatusCode, code}
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("PayPhone was never asked to reverse the first press")
+	}
+
+	// The second press, made while the first is mid-reversal at the provider. It
+	// must not reach PayPhone at all: the reversal already in flight is the one
+	// that is happening, and this buyer has no second one to make.
+	resp, body := reverseSaleRequest(t, payphoneEnv, token, saleID)
+	assertRefused(t, resp, body, http.StatusConflict, "SALE_ALREADY_REVERSED")
+
+	release()
+	won := <-first
+	if won.status != http.StatusOK {
+		t.Fatalf("the first press returned %d %s, want 200", won.status, won.code)
+	}
+
+	// One call to PayPhone. This is the assertion the whole guard exists for:
+	// every figure below would look identical if the buyer had been refunded
+	// twice.
+	if got := payphoneStub.reverseCount(); got != 1 {
+		t.Fatalf("PayPhone was asked to reverse %d times for one sale pressed twice, want exactly 1 — a second reversal returns the buyer's money again", got)
+	}
+
+	if status, _, reversedBy := saleProvenance(t, env, ref); status != "reversed" || reversedBy.String != "customer" {
+		t.Fatalf("provenance = %s/%+v after a double press, want reversed by 'customer'", status, reversedBy)
+	}
+	if got := remaining(t, env, "double-press-fest", "GA"); got != 10 {
+		t.Fatalf("remaining = %d after a double press, want all 10 back — capacity is restored once, not twice", got)
+	}
+	if voided := env.email.Voided(); len(voided) != 1 {
+		t.Fatalf("captured %d void notices from a double press, want exactly 1", len(voided))
+	}
+}
+
 // TestPayPhoneIsNeverAskedToReverseWhatTheWindowAlreadyRefuses: the Reversal
 // Window is the platform's own rule and is enforced before the provider is
 // involved at all. A sale past its cutoff is refused without a single request to

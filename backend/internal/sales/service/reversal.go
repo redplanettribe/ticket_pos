@@ -9,15 +9,6 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
 
-// onlineChannel is the one Sales Channel a Customer can reverse on their own.
-// An In-Person Sale or an imported one records money the platform never
-// touched, so there is nothing here to give back and nobody here to ask.
-const onlineChannel = "online"
-
-// activeSaleStatus is the Ticket Sale that still stands. A reversed one has
-// already been undone and cannot be undone twice.
-const activeSaleStatus = "active"
-
 // SaleReversalResult is what the Customer is told after undoing a purchase: the
 // sale they undid, still identified by the Sale Confirmation reference on their
 // receipt, and when it happened.
@@ -51,7 +42,15 @@ type SaleReversalResult struct {
 // agreement is anything written. The email goes last of all, after the reversal
 // has committed, because a buyer must never be told their tickets are gone while
 // the transaction that removes them can still roll back.
+//
+// The whole attempt is serialised per Ticket Sale, and the serialisation spans
+// the provider call rather than merely the local write. See the lock below: a
+// double-press that gets past this point twice returns somebody's money twice.
 func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID string) (*SaleReversalResult, error) {
+	// The ownership read comes FIRST, before the lock. The lock is keyed on a
+	// Ticket Sale id, and a caller who does not own that sale must not be able to
+	// take it: contending for a stranger's lock would let anyone make a sale they
+	// cannot see report itself already reversed to the buyer who can.
 	sale, err := s.repo.GetCustomerTicketSale(ctx, customerID, ticketSaleID)
 	if err != nil {
 		return nil, err
@@ -59,36 +58,63 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 	if sale == nil {
 		return nil, sales.ErrTicketSaleNotFound()
 	}
-	if sale.Status != activeSaleStatus {
+
+	// One reversal attempt at a time per Ticket Sale, across every server process,
+	// held from here until this function returns — the provider call included.
+	//
+	// Without it, two presses of one button both read an active sale, both pass
+	// every check below, and both POST the reversal to the Payment Provider; only
+	// afterwards does one lose the row lock on the local write. Capacity would
+	// still be correct and the buyer would still see one 200 — and the money would
+	// have been returned twice. This is the one provider call the system never
+	// retries, for exactly that reason (ADR 0018), so a concurrent second call is
+	// no more acceptable than a retried one.
+	//
+	// A contended lock is not an error to report as one. It means another attempt
+	// on this very sale is in flight, so the honest answer is the one a request
+	// arriving a moment later gets: this purchase has already been undone. That
+	// answer is occasionally premature — the attempt in flight may yet be refused
+	// by the provider — and it is still the right one to give, because a buyer who
+	// pressed twice has one reversal happening and no second one to make. Inventing
+	// a "try again" code would invite exactly the retry that must not happen.
+	release, locked, err := s.repo.LockTicketSaleForReversal(ctx, sale.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !locked {
 		return nil, sales.ErrSaleAlreadyReversed()
 	}
-	if sale.Channel != onlineChannel {
-		return nil, sales.ErrSaleNotReversible()
+	defer func() {
+		if err := release(); err != nil {
+			s.logger.Error("could not release the Sale Reversal lock; further reversals of this Ticket Sale may be refused until the connection is recycled",
+				"ticket_sale_id", sale.ID,
+				"error", err,
+			)
+		}
+	}()
+
+	// Re-read under the lock. The row that decided anything must be the row as it
+	// stands now that nobody else can be acting on it: the read above may have
+	// happened while another attempt was mid-reversal, and a stale 'active' is
+	// precisely how a second reversal reaches the provider. The loser of the race
+	// re-reads a reversed sale here and answers correctly.
+	sale, err = s.repo.GetCustomerTicketSale(ctx, customerID, ticketSaleID)
+	if err != nil {
+		return nil, err
+	}
+	if sale == nil {
+		return nil, sales.ErrTicketSaleNotFound()
 	}
 
-	// Can this sale's Payment actually be undone? A free claim always can —
-	// nothing was collected, so voiding the sale is the whole reversal (ADR 0017)
-	// — while a paid one can only when the Payment Provider that collected it
-	// supports reversal. This is the same question, answered by the same rule,
-	// that decided whether the Customer Area offered the button at all.
-	reversal := platform.NewPaymentReversal(s.provider)
-	if !reversal.Supports(sale.PaymentMethod.String) {
-		return nil, sales.ErrSaleNotReversible()
-	}
-
-	// The window, enforced here and not merely drawn in a client. An Online Sale
-	// always has an Event start — publishing requires one and only a published
-	// Event is sellable — so a missing start is a sale with no window rather than
-	// a sale with an unbounded one. Inventing a deadline in that case would be
-	// inventing permission.
-	if !sale.EventStartsAt.Valid {
-		return nil, sales.ErrReversalWindowClosed()
-	}
+	// The four checks, asked of the same shared rule the Customer Area asked
+	// before it offered the button (platform.PaymentReversal.EligibilityAt). The
+	// enforcing side maps each refusal to its own error; the deciding is not
+	// re-implemented here, because an endpoint that refuses what the offer
+	// promised is the bug that separating them would produce.
 	now := s.now()
-	// SoldAt is the Payment approval instant on an Online Sale: the sale commits
-	// in the transaction that approves the Payment.
-	if !platform.NewReversalWindow(sale.SoldAt, sale.EventStartsAt.Time).IsOpenAt(now) {
-		return nil, sales.ErrReversalWindowClosed()
+	_, refusal := platform.NewPaymentReversal(s.provider).EligibilityAt(sale.ReversalFacts(), now)
+	if err := reversalRefusalError(refusal); err != nil {
+		return nil, err
 	}
 
 	// The provider is called BEFORE anything local is written (ADR 0018): a
@@ -119,11 +145,13 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 	// locks a Sale Import undo takes. Capacity restoration is defined once, in
 	// that primitive, and never re-implemented per caller.
 	//
-	// It skips a sale that is no longer active, which is what makes a double
-	// submit safe: two concurrent requests serialize on the row lock, one
-	// reverses and the other finds nothing to do and comes back empty. Capacity
-	// is therefore restored exactly once however many times the button is
-	// pressed.
+	// It skips a sale that is no longer active, and takes a row lock while doing
+	// so, which is the second of this function's two guards against a double
+	// submit: a request that somehow reached here on an already-reversed sale
+	// finds nothing to do and comes back empty. Capacity is therefore restored
+	// exactly once however many times the button is pressed — but note that this
+	// guard alone never protected the money, since by the time it runs the
+	// provider has already been called. The advisory lock above is what does.
 	reversedSales, err := s.repo.ReverseSales(ctx, repository.ReverseSalesInput{
 		EventID:        sale.EventID,
 		OrganizationID: sale.OrganizationID,
@@ -179,4 +207,31 @@ func (s *Service) ReverseOwnSale(ctx context.Context, customerID, ticketSaleID s
 		Status:          "reversed",
 		ReversedAt:      now.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+// reversalRefusalError is how this module answers the shared reversal decision:
+// one typed, buyer-facing error per refusal, and nil when there is none.
+//
+// The mapping is the whole of what this module adds to the decision it shares
+// with the Customer Area (platform.PaymentReversal.EligibilityAt). The Area
+// collapses every refusal into silence — no offer, no deadline — because a
+// surface has nothing useful to say about which; an endpoint being pressed does,
+// since the buyer is owed the difference between "this was never yours to undo
+// here" and "you are too late".
+//
+// Two refusals share one code deliberately. A sale that is not an Online Sale
+// and one whose Payment Provider cannot give the money back are the same fact to
+// the person reading it — this is not yours to undo, and waiting will not change
+// that — and the second is temporary in a way no message should promise.
+func reversalRefusalError(refusal platform.ReversalRefusal) error {
+	switch refusal {
+	case platform.ReversalAllowed:
+		return nil
+	case platform.ReversalAlreadyReversed:
+		return sales.ErrSaleAlreadyReversed()
+	case platform.ReversalWindowClosed:
+		return sales.ErrReversalWindowClosed()
+	default:
+		return sales.ErrSaleNotReversible()
+	}
 }

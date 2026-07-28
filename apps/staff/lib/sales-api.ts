@@ -31,7 +31,7 @@ export type SaleListRow = {
   // without one (legacy rows and imports that never collected it, ADR 0016).
   tax_id_type: string | null;
   tax_id_number: string | null;
-  // The Sale Reversal's provenance: when the sale was voided and which side
+  // The Sale Reversal's provenance: when the sale was reversed and which side
   // caused it ("customer" or "staff"). Both null on an active sale, and on a
   // sale reversed before either was recorded (#117, ADR 0018).
   reversed_at: string | null;

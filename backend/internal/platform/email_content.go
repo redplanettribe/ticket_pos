@@ -49,13 +49,22 @@ func (c SaleConfirmation) Text() string {
 
 // Subject is the void notice's subject line.
 func (v SaleVoided) Subject() string {
-	return fmt.Sprintf("Your %s purchase has been cancelled", v.EventName)
+	return fmt.Sprintf("Your %s purchase has been reversed", v.EventName)
 }
 
 // Text is the void notice's body. It quotes the original Sale Confirmation
 // reference so the Customer can reconcile it against the receipt they were given.
+//
+// The wording has to be true for both actors, because one notice serves both
+// Sale Reversal paths: the Customer who pressed Undo themselves, and the Sale
+// Import undo they had no part in. "Reversed" is the glossary's word — the
+// avoid list rules out cancelled, voided and refunded, and "cancelled" would
+// also read as the Event having been called off, which is a different thing
+// entirely. For the same reason the closing line asks whether they expected
+// this rather than whether it was a mistake: a buyer who just pressed Undo did
+// not make one.
 func (v SaleVoided) Text() string {
-	return fmt.Sprintf("Hi %s,\n\nYour purchase for %s (reference %s) has been cancelled.\nIf you believe this is a mistake, contact the organizer.",
+	return fmt.Sprintf("Hi %s,\n\nYour purchase for %s (reference %s) has been reversed, and those tickets are no longer valid.\nIf you did not expect this, contact the organizer.",
 		v.CustomerName, v.EventName, v.Reference)
 }
 

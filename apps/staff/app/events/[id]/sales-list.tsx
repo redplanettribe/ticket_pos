@@ -276,8 +276,11 @@ function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesN
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
       <span>
-        <span className="font-medium">{label}</span> on this Event — voided by a buyer or by a Sale
-        Import undo, no longer counted in the totals.
+        {/* "Reversed", never "voided", "cancelled" or "refunded": a Sale
+            Reversal is the platform's own word for this, and a Cancelled Event
+            is a different thing entirely (CONTEXT.md). */}
+        <span className="font-medium">{label}</span> on this Event — reversed by a buyer or by a
+        Sale Import undo, no longer counted in the totals.
       </span>
       {viewingReversed ? (
         <Button

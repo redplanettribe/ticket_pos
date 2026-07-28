@@ -207,6 +207,42 @@ func (s *payPhoneServerStub) reverseHangsUp() {
 	}
 }
 
+// reverseBlocksFirst holds the FIRST reversal inside PayPhone until it is
+// released, then answers the documented success. Every later reversal is
+// answered immediately.
+//
+// It exists to make the double-press race observable rather than a matter of
+// timing. The interval in which two attempts can both be past their checks and
+// both about to return somebody's money is exactly the interval a provider call
+// occupies, and against a fake that answers instantly that interval is too short
+// to hit on purpose. Holding the first attempt inside PayPhone opens it as wide
+// as a test needs: entered fires once PayPhone has been reached, release lets it
+// answer.
+//
+// Only the first is held, deliberately. A second attempt that should never have
+// reached PayPhone must be RECORDED and answered rather than blocked, so the
+// failure that matters shows up as "PayPhone was asked twice" and never as a
+// test that hangs.
+//
+// The responder runs after the stub's own mutex is dropped, so blocking here
+// blocks one reversal and not the fake server.
+func (s *payPhoneServerStub) reverseBlocksFirst() (entered <-chan struct{}, release func()) {
+	arrived := make(chan struct{}, 1)
+	releaseCh := make(chan struct{})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reverse = func(w http.ResponseWriter) {
+		// The request is recorded before any responder runs, so a recorded count of
+		// 1 names the first reversal.
+		if s.reverseCount() == 1 {
+			arrived <- struct{}{}
+			<-releaseCh
+		}
+		payPhoneReverseSucceeds(w)
+	}
+	return arrived, sync.OnceFunc(func() { close(releaseCh) })
+}
+
 // reverseCount is how many reversals PayPhone has been asked for since the last
 // reset. One per attempt and never more: a reversal is never retried.
 func (s *payPhoneServerStub) reverseCount() int {

@@ -74,6 +74,12 @@ export function UndoWindowNotice({
  * This is a link and nothing more. It performs no reversal, and it is not a
  * component that could grow one — the page it points at is where the action
  * lives, behind the session that authorises it.
+ *
+ * It is a full-height (h-11) target rather than a small one because one of the
+ * two places it appears is the checkout success page, where every sibling CTA is
+ * h-11 and the checkout flow's 44×44px minimum applies. The same size is drawn on
+ * the Confirmation Link card: a buyer reaching for the only way back to their
+ * money on a phone is the last person to give a 32px target.
  */
 export function SignInToUndo({
   signedIn,
@@ -86,13 +92,13 @@ export function SignInToUndo({
 }) {
   if (signedIn) {
     return (
-      <Button asChild variant="outline" size="sm">
+      <Button asChild variant="outline" className="h-11">
         <Link href="/tickets">Undo it in your tickets</Link>
       </Button>
     );
   }
   return (
-    <Button asChild variant="outline" size="sm">
+    <Button asChild variant="outline" className="h-11">
       <Link href={signInToUndoHref(email)}>Sign in to undo</Link>
     </Button>
   );

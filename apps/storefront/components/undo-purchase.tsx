@@ -151,7 +151,7 @@ export function UndoPurchase({
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
               Keep my tickets
             </Button>
-            <Button variant="destructive" onClick={handleUndo} disabled={busy}>
+            <Button variant="destructive" onClick={handleUndo} disabled={busy} aria-busy={busy}>
               {busy ? "Undoing…" : "Undo this purchase"}
             </Button>
           </DialogFooter>
