@@ -1251,6 +1251,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/sales/{confirmationRef}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Look up a Ticket Sale by its Sale Confirmation reference
+         * @description Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Sale Confirmation reference (case-insensitive) */
+                    confirmationRef: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorSaleLookup"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/summary": {
         parameters: {
             query?: never;
@@ -4134,6 +4203,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOperatorSaleLookup": {
+            data?: components["schemas"]["service.SaleLookup"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePayoutsSummary": {
             data?: components["schemas"]["service.PayoutsSummary"];
             error?: components["schemas"]["platform.APIError"];
@@ -4385,6 +4459,28 @@ export interface components {
             paid_at?: string;
             recorded_by?: string;
         };
+        "service.OperatorSaleCustomer": {
+            email?: string;
+            first_name?: string;
+            last_name?: string;
+        };
+        "service.OperatorSaleEvent": {
+            id?: string;
+            name?: string;
+            slug?: string;
+            /**
+             * @description StartsAt is null on an Event with no schedule. An Online Sale always has
+             *     one — publishing requires it — but this lookup reaches every Sales Channel,
+             *     and an imported sale can belong to a draft Event.
+             */
+            starts_at?: string;
+            /**
+             * @description Timezone is the EVENT's own zone, which interprets its schedule. It is not
+             *     the platform's Ecuadorian clock, which is what the Reversal Window's cutoff
+             *     is stated in; the two are never the same thing.
+             */
+            timezone?: string;
+        };
         "service.Organization": {
             created_at?: string;
             currency?: string;
@@ -4530,6 +4626,66 @@ export interface components {
              *     is not on offer is a link to nothing.
              */
             ticket_sale_id?: string;
+        };
+        "service.Sale": {
+            amount_cents?: number;
+            /** @description Channel is the Sales Channel: 'online', 'in_person' or 'import'. */
+            channel?: string;
+            confirmation_ref?: string;
+            currency?: string;
+            customer?: components["schemas"]["service.OperatorSaleCustomer"];
+            event?: components["schemas"]["service.OperatorSaleEvent"];
+            fee_iva_cents?: number;
+            id?: string;
+            net_proceeds_cents?: number;
+            /**
+             * @description PaymentMethod is who settled the money: the Payment Provider on a paid
+             *     Online Sale, 'free' where the platform settled a zero total itself
+             *     (ADR 0017), cash or transfer on a Direct Sale, null where the channel
+             *     carries none.
+             */
+            payment_method?: string;
+            platform_fee_cents?: number;
+            recorded_at?: string;
+            /**
+             * @description ReversalWindowClosesAt is when the Reversal Window shuts for this sale:
+             *     the earlier of 20:00 Ecuador time on the day of purchase and the Event's
+             *     start. Null on a sale that never had a window at all — anything but an
+             *     Online Sale, or an Event with no recorded start.
+             */
+            reversal_window_closes_at?: string;
+            /**
+             * @description ReversalWindowPassed is the question the operator came to ask: is the
+             *     buyer's own undo out of reach? True once the window has shut, and true as
+             *     well on a sale that never had one, because either way no in-window path
+             *     remains. It says nothing about whether the sale may be reversed — the
+             *     window is deliberately irrelevant to an Operator Reversal (#123).
+             */
+            reversal_window_passed?: boolean;
+            /**
+             * @description ReversedAt/ReversedBy are the Sale Reversal's provenance, both null on an
+             *     active sale and both null on a sale reversed before either was recorded —
+             *     history is shown as it is, never backfilled (ADR 0018).
+             */
+            reversed_at?: string;
+            reversed_by?: string;
+            sold_at?: string;
+            source?: string;
+            /**
+             * @description Status is 'active' or 'reversed'. A reversed sale is never deleted and
+             *     keeps its reference, so it is found here exactly as an active one is.
+             */
+            status?: string;
+            ticket_count?: number;
+            ticket_types?: components["schemas"]["service.SaleLine"][];
+        };
+        "service.SaleLine": {
+            quantity?: number;
+            ticket_type_name?: string;
+        };
+        "service.SaleLookup": {
+            organization?: components["schemas"]["service.Organization"];
+            sale?: components["schemas"]["service.Sale"];
         };
         "service.SaleReversalResult": {
             confirmation_ref?: string;

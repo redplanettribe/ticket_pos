@@ -780,6 +780,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOperatorSaleLookup": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.SaleLookup"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePayoutsSummary": {
                 "properties": {
                     "data": {
@@ -1363,6 +1377,42 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.OperatorSaleCustomer": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "first_name": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorSaleEvent": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "starts_at": {
+                        "description": "StartsAt is null on an Event with no schedule. An Online Sale always has\none — publishing requires it — but this lookup reaches every Sales Channel,\nand an imported sale can belong to a draft Event.",
+                        "type": "string"
+                    },
+                    "timezone": {
+                        "description": "Timezone is the EVENT's own zone, which interprets its schedule. It is not\nthe platform's Ecuadorian clock, which is what the Reversal Window's cutoff\nis stated in; the two are never the same thing.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.Organization": {
                 "properties": {
                     "created_at": {
@@ -1707,6 +1757,106 @@ const docTemplate = `{
                     "ticket_sale_id": {
                         "description": "TicketSaleID names the sale this offer is about, so a guest surface can\nsend somebody to their own purchase in the Customer Area rather than to the\nwhole list (#121).\n\nIt is an identifier and not a credential: reaching that sale still requires\na Customer Session, which this endpoint cannot mint and does not check. It\nis null exactly when the offer is, because a destination for an undo that\nis not on offer is a link to nothing.",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.Sale": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "channel": {
+                        "description": "Channel is the Sales Channel: 'online', 'in_person' or 'import'.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string"
+                    },
+                    "customer": {
+                        "$ref": "#/components/schemas/service.OperatorSaleCustomer"
+                    },
+                    "event": {
+                        "$ref": "#/components/schemas/service.OperatorSaleEvent"
+                    },
+                    "fee_iva_cents": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "net_proceeds_cents": {
+                        "type": "integer"
+                    },
+                    "payment_method": {
+                        "description": "PaymentMethod is who settled the money: the Payment Provider on a paid\nOnline Sale, 'free' where the platform settled a zero total itself\n(ADR 0017), cash or transfer on a Direct Sale, null where the channel\ncarries none.",
+                        "type": "string"
+                    },
+                    "platform_fee_cents": {
+                        "type": "integer"
+                    },
+                    "recorded_at": {
+                        "type": "string"
+                    },
+                    "reversal_window_closes_at": {
+                        "description": "ReversalWindowClosesAt is when the Reversal Window shuts for this sale:\nthe earlier of 20:00 Ecuador time on the day of purchase and the Event's\nstart. Null on a sale that never had a window at all — anything but an\nOnline Sale, or an Event with no recorded start.",
+                        "type": "string"
+                    },
+                    "reversal_window_passed": {
+                        "description": "ReversalWindowPassed is the question the operator came to ask: is the\nbuyer's own undo out of reach? True once the window has shut, and true as\nwell on a sale that never had one, because either way no in-window path\nremains. It says nothing about whether the sale may be reversed — the\nwindow is deliberately irrelevant to an Operator Reversal (#123).",
+                        "type": "boolean"
+                    },
+                    "reversed_at": {
+                        "description": "ReversedAt/ReversedBy are the Sale Reversal's provenance, both null on an\nactive sale and both null on a sale reversed before either was recorded —\nhistory is shown as it is, never backfilled (ADR 0018).",
+                        "type": "string"
+                    },
+                    "reversed_by": {
+                        "type": "string"
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is 'active' or 'reversed'. A reversed sale is never deleted and\nkeeps its reference, so it is found here exactly as an active one is.",
+                        "type": "string"
+                    },
+                    "ticket_count": {
+                        "type": "integer"
+                    },
+                    "ticket_types": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.SaleLine"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.SaleLine": {
+                "properties": {
+                    "quantity": {
+                        "type": "integer"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.SaleLookup": {
+                "properties": {
+                    "organization": {
+                        "$ref": "#/components/schemas/service.Organization"
+                    },
+                    "sale": {
+                        "$ref": "#/components/schemas/service.Sale"
                     }
                 },
                 "type": "object"
@@ -3122,6 +3272,73 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Record a Payout for an Organization",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/sales/{confirmationRef}": {
+            "get": {
+                "description": "Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Sale Confirmation reference (case-insensitive)",
+                        "in": "path",
+                        "name": "confirmationRef",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorSaleLookup"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Look up a Ticket Sale by its Sale Confirmation reference",
                 "tags": [
                     "operator"
                 ]
