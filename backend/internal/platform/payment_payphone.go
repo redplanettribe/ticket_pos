@@ -382,12 +382,26 @@ type payPhoneReverseRequest struct {
 // "past the cutoff" (20 is transaction-not-found, 40 not-a-reversal, 42 an
 // issuing-bank refusal), so any explanation offered would be a guess about
 // somebody's money.
+//
+// One 4xx is not a refusal: errorCode 24, "La transacción ya se encuentra
+// cancelada" — the transaction is already cancelled at PayPhone. That answer is
+// a receipt, not a no: the money has already left, most often because an
+// earlier Reverse timed out on our side after PayPhone had acted (the
+// 2026-07-28 incident). Reading it as a refusal strands the system in the one
+// state it can never leave — money returned, Ticket Sale forever active — so it
+// is the single provider answer that reports success without a `true`.
 func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID string) error {
 	// json.RawMessage rather than a bool: it accepts whatever PayPhone sent, so
 	// the refusal body — the one place its errorCode appears — reaches the log
 	// instead of being lost to a decode error against the wrong shape.
 	var body json.RawMessage
 	if err := p.post(ctx, payPhoneReversePath, payPhoneReverseRequest{ClientID: clientTransactionID}, &body); err != nil {
+		if payPhoneAlreadyCancelled(err) {
+			p.logger.Warn("payphone reports the transaction already cancelled; treating the reversal as complete",
+				"client_transaction_id", clientTransactionID,
+			)
+			return nil
+		}
 		p.logger.Error("payphone reverse failed",
 			"client_transaction_id", clientTransactionID,
 			"error", err,
@@ -402,6 +416,33 @@ func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID stri
 		return fmt.Errorf("payphone reverse: refused with %s", payPhoneBodySnippet(body))
 	}
 	return nil
+}
+
+// payPhoneErrAlreadyCancelled is PayPhone's errorCode for "La transacción ya se
+// encuentra cancelada": the reversal being requested has already happened.
+const payPhoneErrAlreadyCancelled = 24
+
+// payPhoneAlreadyCancelled reports whether a Reverse failure is PayPhone saying
+// the transaction is already cancelled — a 4xx whose body carries errorCode 24.
+// Only that exact shape qualifies: a 5xx never (PayPhone unwell says nothing
+// about the money), and a 4xx with any other code, or a body that does not
+// parse, stays the refusal it claims to be.
+func payPhoneAlreadyCancelled(err error) bool {
+	status, ok := payPhoneClientErrorStatus(err)
+	if !ok || status < 400 || status >= 500 {
+		return false
+	}
+	var statusErr *payPhoneStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	var refusal struct {
+		ErrorCode int `json:"errorCode"`
+	}
+	if json.Unmarshal([]byte(statusErr.body), &refusal) != nil {
+		return false
+	}
+	return refusal.ErrorCode == payPhoneErrAlreadyCancelled
 }
 
 // payPhoneReversed reports whether a 2xx body is PayPhone's literal `true`.

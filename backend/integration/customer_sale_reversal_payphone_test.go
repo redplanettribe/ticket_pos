@@ -217,6 +217,67 @@ func TestPayPhoneRefusalLeavesEverythingUntouched(t *testing.T) {
 	}
 }
 
+// TestTimedOutReversalConvergesOnRetry is the production incident of 2026-07-28,
+// staged: the reversal POST times out, so the buyer is told it failed and the
+// Ticket Sale stays active — but PayPhone had in fact processed the reversal and
+// the money is already on its way back. The buyer presses undo again, and
+// PayPhone answers 400 errorCode 24, "La transacción ya se encuentra cancelada":
+// not a refusal but a receipt, proof the money already left. That answer must
+// complete the local reversal, because the alternative is a sale the system can
+// never reconcile — the Organization's dashboard showing revenue that no longer
+// exists, forever.
+//
+// Only errorCode 24 gets this reading. Every other refusal shape stays a
+// refusal (TestPayPhoneRefusalLeavesEverythingUntouched), because every other
+// shape says the money did NOT move.
+func TestTimedOutReversalConvergesOnRetry(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishEventStarting(t, env, sessionID, "Timed Out Undo Fest", "timed-out-undo-fest",
+		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
+
+	ref, _ := buyOnlineThroughPayPhone(t, "timed-out-undo-fest", gaID, "ana@example.com", 2)
+	token := customerSignIn(t, payphoneEnv, "ana@example.com")
+	saleID := saleByRef(t, readCustomerArea(t, payphoneEnv, token, ""), ref).ID
+	env.email.Reset()
+	payphoneStub.reset()
+	t.Cleanup(payphoneStub.reset)
+
+	// The first press: the connection dies before an answer arrives. Unknown
+	// outcome, so nothing local may move — this half is already proven in the
+	// refusal table and re-asserted here only to stage the incident faithfully.
+	payphoneStub.reverseHangsUp()
+	resp, body := reverseSaleRequest(t, payphoneEnv, token, saleID)
+	assertRefused(t, resp, body, http.StatusBadGateway, "SALE_REVERSAL_FAILED")
+	assertNothingChanged(t, env, ref, "timed-out-undo-fest", "GA", 8)
+
+	// The second press: PayPhone, which did act on the first request, now says
+	// the transaction is already cancelled. The money is with the buyer; the
+	// sale must follow it.
+	payphoneStub.reverseRefuses(http.StatusBadRequest, "La transacción ya se encuentra cancelada", 24)
+	result := reverseSaleOK(t, payphoneEnv, token, saleID)
+	if result.Status != "reversed" || result.ConfirmationRef != ref {
+		t.Fatalf("retry after the timed-out reversal = %+v, want the sale reversed under %q", result, ref)
+	}
+
+	// The ordinary aftermath of a reversal, in full: provenance, capacity, the
+	// void notice, and no further offer to undo.
+	status, reversedAt, reversedBy := saleProvenance(t, env, ref)
+	if status != "reversed" || !reversedAt.Valid || reversedBy.String != "customer" {
+		t.Fatalf("provenance = %s/%+v/%+v, want reversed by 'customer'", status, reversedAt, reversedBy)
+	}
+	if got := remaining(t, env, "timed-out-undo-fest", "GA"); got != 10 {
+		t.Fatalf("remaining = %d after the reconciled undo, want all 10 back on sale", got)
+	}
+	if voided := env.email.Voided(); len(voided) != 1 || voided[0].Reference != ref {
+		t.Fatalf("void notices = %+v, want exactly one quoting %q", voided, ref)
+	}
+	area := saleByRef(t, readCustomerArea(t, payphoneEnv, token, ""), ref)
+	if area.Status != "reversed" || area.Reversible {
+		t.Fatalf("Customer Area sale after the reconciled undo = %+v, want reversed with no offer", area)
+	}
+}
+
 // TestConcurrentUndoAsksPayPhoneOnce is the money half of the double-press
 // promise, and the free path could never make it: with no Payment Provider in
 // the loop, a second reversal costs nothing, so the row lock inside the

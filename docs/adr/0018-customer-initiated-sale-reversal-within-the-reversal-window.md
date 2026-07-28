@@ -80,6 +80,16 @@ and a pointer to the Organization; the error code goes to the log, not to the bu
 
 ## Consequences
 
+**Amendment (2026-07-28): errorCode 24 is a receipt, not a refusal.** In production, a Reverse
+call timed out on our side after PayPhone had already processed it; the retry was answered
+`400 {"errorCode":24,"message":"La transacción ya se encuentra cancelada"}` — the transaction is
+already cancelled. Under the original rule that answer was a refusal, which stranded the system
+in the one state it can never leave: money returned, Ticket Sale forever active, the
+Organization's dashboard showing revenue that does not exist. errorCode 24 on a 4xx is therefore
+the single provider answer that completes a reversal without a literal `true` — it is proof the
+money already left, so the sale follows it. Every other refusal shape, and every 5xx, still
+reverses nothing.
+
 **A successful reversal followed by a failed local commit is a real, silent failure mode.** The
 buyer has their money and their tickets, and the Organization's dashboard shows revenue that no
 longer exists. It is loudly logged and nothing else — the same treatment, and the same accepted
