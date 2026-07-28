@@ -56,12 +56,12 @@ export function StaffShell({
             onClick={handleOrganizationClick}
             className="mt-1 flex w-full items-center gap-2 text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
           >
-            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
             <span className="truncate">{organizationName}</span>
           </button>
         ) : (
           <p className="mt-1 flex items-center gap-2 font-semibold">
-            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
             <span className="truncate">{organizationName}</span>
           </p>
         )}
@@ -71,7 +71,7 @@ export function StaffShell({
 
   const mobileHeader = (
     <p className="flex min-w-0 items-center gap-2 font-semibold">
-      <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+      <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
       <span className="truncate">{organizationName}</span>
     </p>
   );
