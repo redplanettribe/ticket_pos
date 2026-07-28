@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Badge } from "@ticket-pos/ui";
 
+import { UndoPurchase } from "@/components/undo-purchase";
 import type { TicketSale } from "@/lib/customer-session";
 import { formatEventDateTime, formatPrice, formatReversalDeadline } from "@/lib/format";
 import { formatTaxId } from "@/lib/tax-id";
@@ -21,16 +22,20 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
   // feature — and imported ones that never carried an ID — show a plain "—";
   // history is never backfilled, so an honest blank is the whole rendering.
   const taxId = formatTaxId(sale.tax_id_type, sale.tax_id_number);
-  // The Reversal Window, when this sale is inside one (#118). The API answers
-  // `reversible` and the closing instant together and sends null for the second
-  // whenever the first is false, so a sale that cannot be undone has no deadline
-  // to draw and this card says nothing at all about reversing. There is no undo
-  // button yet — the Customer is told how long they have, and that is the whole
-  // of this release.
-  const reversalDeadline =
-    sale.reversible && sale.reversal_window_closes_at
-      ? formatReversalDeadline(sale.reversal_window_closes_at)
-      : null;
+  // The undo offer (#119). The API answers `reversible` and the closing instant
+  // together and sends null for the second whenever the first is false, so a
+  // sale that cannot be undone has no deadline to draw and this card says
+  // nothing at all about undoing it — no greyed-out button, no expired
+  // countdown, nothing to explain.
+  //
+  // The card trusts that answer rather than recomputing it. Whether a purchase
+  // can be undone depends on the Reversal Window, the Sales Channel and whether
+  // the payment can be reversed at all, and every one of those is re-checked by
+  // the API when the button is actually pressed.
+  const canUndo = sale.reversible && sale.reversal_window_closes_at !== null;
+  const reversalDeadline = canUndo
+    ? formatReversalDeadline(sale.reversal_window_closes_at as string)
+    : null;
 
   return (
     <li className="rounded-lg border bg-card p-5 sm:p-6">
@@ -89,12 +94,21 @@ export function TicketSaleCard({ sale }: { sale: TicketSale }) {
 
       {/* The deadline is named in Ecuador time and says so: it is the platform's
           own wall clock, not the Event's, and a buyer whose show is abroad would
-          otherwise have no way to tell which 8:00 PM was meant. */}
-      {reversalDeadline ? (
-        <p className="mt-4 border-t pt-4 text-sm text-muted-foreground">
-          You can cancel this purchase until{" "}
-          <span className="font-medium text-foreground">{reversalDeadline}</span> Ecuador time.
-        </p>
+          otherwise have no way to tell which 8:00 PM was meant.
+          The word is "undo" — "cancel" belongs to an Event being called off, and
+          "refund" would be wrong on a claim that cost nothing. */}
+      {canUndo ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t pt-4">
+          <p className="text-sm text-muted-foreground">
+            You can undo this purchase until{" "}
+            <span className="font-medium text-foreground">{reversalDeadline}</span> Ecuador time.
+          </p>
+          <UndoPurchase
+            saleId={sale.id}
+            eventName={sale.event.name}
+            confirmationRef={sale.confirmation_ref}
+          />
+        </div>
       ) : null}
     </li>
   );

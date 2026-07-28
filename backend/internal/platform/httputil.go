@@ -119,8 +119,20 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
-	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND":
+	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND":
 		return http.StatusNotFound
+	// The Customer-initiated Sale Reversal refusals (ADR 0018). All three are
+	// 409: the request was well formed and the caller was entitled to make it,
+	// but the Ticket Sale is not in a state that admits an undo — already
+	// reversed, never reversible, or past its Reversal Window. Retrying changes
+	// nothing, which is what separates them from a 400 the caller could fix.
+	case "SALE_ALREADY_REVERSED", "SALE_NOT_REVERSIBLE", "REVERSAL_WINDOW_CLOSED":
+		return http.StatusConflict
+	// The provider was asked and refused. Nothing was changed, and the cause is
+	// on the far side of a boundary the buyer cannot act on — a 502 rather than a
+	// 409, because this is not a fact about their purchase.
+	case "SALE_REVERSAL_FAILED":
+		return http.StatusBadGateway
 	// The provider took the money but the Ticket Sale could not be recorded: a
 	// platform-side failure the caller cannot fix, logged loudly server-side for
 	// the operator to resolve by hand.

@@ -78,6 +78,18 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// The Customer Area read. There is deliberately no Customer, email, or
 	// Organization in this path: the session is the only scope.
 	mux.Handle("GET /api/v1/customer/ticket-sales", signedIn(http.HandlerFunc(h.ListTicketSales)))
+	// Undoing one of those sales (ADR 0018). It is served by the SALES handler
+	// under this namespace: the credential is a Customer Session, which is this
+	// namespace's business, but the operation is on a Ticket Sale — the reversal
+	// primitive that restores capacity, the void notice and the Payment Provider
+	// all live in the sales module, exactly as the Organization's payout surface
+	// does above.
+	//
+	// It sits behind the same gate as the read, and behind one more the middleware
+	// cannot express: the handler refuses a Confirmation Link session, because a
+	// forwarded email is not authority to undo somebody's purchase.
+	mux.Handle("POST /api/v1/customer/ticket-sales/{ticketSaleId}/reverse",
+		signedIn(http.HandlerFunc(app.SalesHandler.ReverseTicketSale)))
 	// The Customer Area's one write: "My info" (#102). Scoped by the session
 	// like every route above it, and narrowed once more inside the service — a
 	// Confirmation Link session may read its one sale but may not rewrite the

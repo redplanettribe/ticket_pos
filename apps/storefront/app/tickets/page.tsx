@@ -105,15 +105,20 @@ function linkedSaleReversed(area: CustomerAreaData): boolean {
 /**
  * A reversed purchase says so at the top of the page, not only as a badge on the
  * card. Someone opening a confirmation email at the gate must not be left to
- * infer from a small label that the tickets they think they hold were cancelled.
+ * infer from a small label that the tickets they think they hold are gone.
+ *
+ * It names no actor. Since #119 a reversal can come from either side — the
+ * Customer undoing their own purchase, or the organizer undoing a batch — and
+ * this notice is read by someone who may have done it themselves an hour ago.
+ * Asserting the wrong one would be worse than asserting neither.
  */
 function ReversedSaleNotice() {
   return (
     <Alert variant="destructive">
-      <AlertTitle>This purchase was cancelled</AlertTitle>
+      <AlertTitle>This purchase was reversed</AlertTitle>
       <AlertDescription>
-        These tickets were reversed by the organizer and are no longer valid for entry. Contact the
-        organizer if you believe that is a mistake.
+        These tickets were released and are no longer valid for entry. Contact the organizer if you
+        believe that is a mistake.
       </AlertDescription>
     </Alert>
   );

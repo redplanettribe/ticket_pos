@@ -8,10 +8,19 @@ import (
 
 // The Reversal Window as the Customer Area reports it (issue #118, ADR 0018).
 //
-// This slice is deliberately read-only: there is no reversal action anywhere in
-// it. What is proved here is that the listing tells a Customer, per sale, whether
+// What is proved here is that the listing tells a Customer, per sale, whether
 // they could undo it right now and by when — and, just as importantly, that it
-// says nothing at all on the sales they could never undo.
+// says nothing at all on the sales they could never undo. The undo itself is
+// exercised in customer_sale_reversal_test.go; this file is about the clock.
+//
+// The sales below are free Online Sales because `reversible` is an OFFER, and
+// since #119 an offer is only made where the API would honour it: the window
+// must be open AND the sale's Payment must actually be undoable. A free claim
+// settles with no Payment Provider at all (ADR 0017), so it is the sale whose
+// offer depends on the clock alone — exactly what these tests are measuring. A
+// paid purchase is withheld for a reason that has nothing to do with time, and
+// TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse below is what pins that
+// difference down.
 //
 // Every expectation is anchored to the harness clock, 2026-07-07T12:00:00Z, which
 // is 07:00 in Ecuador — a morning purchase, comfortably before the 20:00 cutoff.
@@ -92,16 +101,16 @@ func assertNotReversible(t *testing.T, sale customerAreaSale, why string) {
 	}
 }
 
-// TestOnlineSaleReportsItsReversalWindow is the tracer bullet: a paid Online
-// Sale bought this morning, for a show three days out, is reversible now and
-// says so — with the closing instant being that day's 20:00 in Ecuador.
+// TestOnlineSaleReportsItsReversalWindow is the tracer bullet: an Online Sale
+// made this morning, for a show three days out, is reversible now and says so —
+// with the closing instant being that day's 20:00 in Ecuador.
 func TestOnlineSaleReportsItsReversalWindow(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, ticketTypeID := publishEventStarting(t, env, sessionID, "Window Fest", "window-fest",
-		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", 2500, 10)
+		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", 0, 10)
 
-	buyOnline(t, env, "window-fest", ticketTypeID, "ana@example.com")
+	claimFree(t, env, "window-fest", ticketTypeID, "ana@example.com", 1)
 
 	token := customerSignIn(t, env, "ana@example.com")
 	sale := onlySale(t, readCustomerArea(t, env, token, ""))
@@ -118,11 +127,22 @@ func TestOnlineSaleReportsItsReversalWindow(t *testing.T) {
 	}
 }
 
-// TestFreeOnlineSaleReportsTheSameReversalWindowAsAPaidOne: the window is a
-// platform rule, not a provider one. A free claim settled by the platform itself,
-// with no Payment Provider anywhere in it and no money to give back, gets
-// byte-for-byte the answer the paid purchase above gets.
-func TestFreeOnlineSaleReportsTheSameReversalWindowAsAPaidOne(t *testing.T) {
+// TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse separates the two
+// halves of `reversible`, which is the distinction #119 introduced.
+//
+// A paid purchase and a free claim are made in the same minute, for two Events
+// starting at the same instant in the same timezone. Their Reversal Windows are
+// therefore identical to the second: the window is a platform rule and knows
+// nothing about money (ADR 0018). What differs is whether the platform could
+// actually honour an undo — the free claim has no Payment Provider to ask, while
+// the paid one was collected by a provider that cannot reverse anything today
+// (ADR 0012). So only the free claim is offered, and the paid one carries no
+// deadline at all rather than a countdown to a refusal.
+//
+// When the launch provider's reversal API is integrated, this test is the one
+// that changes: both sales become reversible, on the same deadline they always
+// shared.
+func TestOnlyTheFreeSaleIsOfferedWhileNoProviderCanReverse(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	startsAt := env.fixedClock.Add(72 * time.Hour)
@@ -132,9 +152,8 @@ func TestFreeOnlineSaleReportsTheSameReversalWindowAsAPaidOne(t *testing.T) {
 	_, freeID := publishEventStarting(t, env, sessionID, "Free Fest", "free-fest",
 		startsAt, "America/Guayaquil", 0, 10)
 
-	buyOnline(t, env, "paid-fest", paidID, "ana@example.com")
-	approvedRef(t, beginCheckoutSettled(t, env, testOrgSlug, "free-fest", "",
-		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(freeID, 1))))
+	paidRef := buyOnline(t, env, "paid-fest", paidID, "ana@example.com")
+	freeRef := claimFree(t, env, "free-fest", freeID, "ana@example.com", 1)
 
 	token := customerSignIn(t, env, "ana@example.com")
 	area := readCustomerArea(t, env, token, "")
@@ -142,16 +161,16 @@ func TestFreeOnlineSaleReportsTheSameReversalWindowAsAPaidOne(t *testing.T) {
 		t.Fatalf("upcoming = %d sales, want the paid purchase and the free claim", len(area.Upcoming))
 	}
 
-	for _, sale := range area.Upcoming {
-		if !sale.Reversible {
-			t.Fatalf("sale %s is not reversible; a free Online Sale is reversible on the same terms as a paid one",
-				sale.ConfirmationRef)
-		}
-		if sale.ReversalWindowClosesAt == nil || *sale.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
-			t.Fatalf("sale %s closes at %v, want %q for both",
-				sale.ConfirmationRef, sale.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
-		}
+	free := saleByRef(t, area, freeRef)
+	if !free.Reversible {
+		t.Fatal("the free claim is not offered; nothing about it stands in the way of an undo")
 	}
+	if free.ReversalWindowClosesAt == nil || *free.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
+		t.Fatalf("free claim closes at %v, want %q", free.ReversalWindowClosesAt, ecuadorCutoffAfterFixedClock)
+	}
+
+	assertNotReversible(t, saleByRef(t, area, paidRef),
+		"a paid purchase whose Payment Provider cannot reverse it")
 }
 
 // TestReversalWindowEndsAtEventStartOnASameDayShow: a matinee starting at 17:00
@@ -165,9 +184,9 @@ func TestReversalWindowEndsAtEventStartOnASameDayShow(t *testing.T) {
 	// hours before the cutoff, so the doors close the window first.
 	startsAt := time.Date(2026, 7, 7, 22, 0, 0, 0, time.UTC)
 	_, ticketTypeID := publishEventStarting(t, env, sessionID, "Matinee", "matinee",
-		startsAt, "America/Guayaquil", 2500, 10)
+		startsAt, "America/Guayaquil", 0, 10)
 
-	buyOnline(t, env, "matinee", ticketTypeID, "ana@example.com")
+	claimFree(t, env, "matinee", ticketTypeID, "ana@example.com", 1)
 
 	token := customerSignIn(t, env, "ana@example.com")
 	sale := onlySale(t, readCustomerArea(t, env, token, ""))
@@ -202,15 +221,15 @@ func TestReversalWindowIsEcuadorianForAnEventFarFromEcuador(t *testing.T) {
 	// cutoff, in a zone that has nothing to do with it.
 	startsAt := time.Date(2026, 7, 20, 20, 0, 0, 0, tokyo)
 	_, ticketTypeID := publishEventStarting(t, env, sessionID, "Tokyo Fest", "tokyo-fest",
-		startsAt, "Asia/Tokyo", 2500, 10)
+		startsAt, "Asia/Tokyo", 0, 10)
 
-	buyOnline(t, env, "tokyo-fest", ticketTypeID, "ana@example.com")
+	claimFree(t, env, "tokyo-fest", ticketTypeID, "ana@example.com", 1)
 
 	token := customerSignIn(t, env, "ana@example.com")
 	sale := onlySale(t, readCustomerArea(t, env, token, ""))
 
 	if !sale.Reversible {
-		t.Fatal("a morning purchase for a Tokyo show is not reversible; where the Event is changes nothing")
+		t.Fatal("a morning claim for a Tokyo show is not reversible; where the Event is changes nothing")
 	}
 	if sale.ReversalWindowClosesAt == nil || *sale.ReversalWindowClosesAt != ecuadorCutoffAfterFixedClock {
 		t.Fatalf("reversal_window_closes_at = %v, want the Ecuadorian cutoff %q; the Event's timezone must not touch it",
@@ -235,9 +254,9 @@ func TestReversalWindowNeverOpensForAPurchaseAfterTheEcuadorCutoff(t *testing.T)
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, ticketTypeID := publishEventStarting(t, env, sessionID, "Late Fest", "late-fest",
-		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", 2500, 10)
+		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", 0, 10)
 
-	ref := buyOnline(t, env, "late-fest", ticketTypeID, "ana@example.com")
+	ref := claimFree(t, env, "late-fest", ticketTypeID, "ana@example.com", 1)
 
 	// 2026-07-07T01:30:00Z is 20:30 on 6 July in Ecuador: half an hour past that
 	// day's cutoff, and still in the past relative to the harness clock.
@@ -272,15 +291,16 @@ func TestAnImportedSaleIsNeverReversible(t *testing.T) {
 // undone cannot be undone again, however far from 20:00 it is. It stays visible —
 // a reversed sale is never deleted — but it is not on offer.
 //
-// The reversal is applied with SQL because the reversal action itself does not
-// exist yet: this ticket is the read-only half, and #119 builds the write.
+// The reversal is applied with SQL rather than through the endpoint so that this
+// asserts the LISTING's rule directly: a sale already reversed is not on offer,
+// however it came to be reversed — by its buyer, or by a Sale Import undo.
 func TestAnAlreadyReversedOnlineSaleIsNeverReversible(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, ticketTypeID := publishEventStarting(t, env, sessionID, "Undone Fest", "undone-fest",
-		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", 2500, 10)
+		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", 0, 10)
 
-	ref := buyOnline(t, env, "undone-fest", ticketTypeID, "ana@example.com")
+	ref := claimFree(t, env, "undone-fest", ticketTypeID, "ana@example.com", 1)
 	if _, err := env.db.Exec(
 		`UPDATE ticket_sales SET status = 'reversed' WHERE confirmation_ref = $1`, ref,
 	); err != nil {

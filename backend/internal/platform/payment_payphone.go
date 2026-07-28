@@ -343,6 +343,12 @@ func (p *PayPhoneProvider) Reverse(_ context.Context, _ string) error {
 	return ErrPaymentReverseNotSupported
 }
 
+// SupportsReverse is false while Reverse above refuses. PayPhone does expose a
+// reversal API (ADR 0018) and this pair is what will light up together when it
+// is integrated: nothing else in the system needs to change for a paid Online
+// Sale to become undoable, and nothing may offer it before then.
+func (p *PayPhoneProvider) SupportsReverse() bool { return false }
+
 // payPhoneStatusError is a non-2xx answer from PayPhone, carrying the status
 // alongside the bounded slice of the body that goes into the log. It exists so
 // callers can tell "PayPhone refused what we sent" (4xx) from "PayPhone is

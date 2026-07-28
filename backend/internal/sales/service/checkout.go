@@ -41,7 +41,11 @@ const onlinePaymentMethod = "payphone"
 // Ticket Types, where there was nothing to collect and so no Payment Provider
 // was ever asked (ADR 0017). It is also what the Payment names as its provider,
 // because "which provider handled this" has an honest answer here — none did.
-const freePaymentMethod = "free"
+//
+// The value itself belongs beside the Payment Provider boundary, because the
+// question "can this sale's Payment be reversed?" is answered from the same
+// vocabulary (ADR 0018) and must not be answered from a second spelling of it.
+const freePaymentMethod = platform.FreePaymentMethod
 
 // beginCheckoutStatus values report how the checkout was left. They are the
 // Payment's own status, not a third vocabulary: a checkout with money to collect

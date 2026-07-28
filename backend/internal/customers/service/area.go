@@ -59,17 +59,22 @@ type TicketSaleView struct {
 	// client draws "—" rather than a value nobody supplied.
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
-	// Reversible reports whether this Ticket Sale is inside its Reversal Window
-	// right now (ADR 0018) — whether the Customer could undo it themselves.
+	// Reversible reports whether the Customer could undo this Ticket Sale right
+	// now (ADR 0018) — and it is the exact question the reversal endpoint asks
+	// itself, so a true here is an offer the API will honour if taken promptly.
 	//
 	// It is an answer about this instant and nothing more. It is not a promise:
-	// the window is offered, not guaranteed, and a true here read a minute ago
-	// may be a refusal a minute from now. Nothing acts on it yet; this release
-	// only reports it.
+	// the window is offered, not guaranteed, and a true read a minute ago may be
+	// a refusal a minute from now.
 	//
-	// It is false for everything that is not an Online Sale — an In-Person Sale
-	// or an imported one was never collected by the platform, so the platform has
-	// nothing to give back — and false for a Ticket Sale already reversed.
+	// Three things must all hold. The sale is an active Online Sale — an
+	// In-Person Sale or an imported one was never collected by the platform, so
+	// the platform has nothing to give back, and a sale already reversed cannot
+	// be reversed again. Its Reversal Window is open. And its Payment can in fact
+	// be undone: a free claim always can, since there is nothing to return, while
+	// a paid one can only when the Payment Provider that collected it supports
+	// reversal. That last clause is why a paid purchase inside its window can
+	// report false — the alternative is an Undo button that fails when pressed.
 	Reversible bool `json:"reversible"`
 	// ReversalWindowClosesAt is the instant the Reversal Window shuts, RFC3339 in
 	// UTC, so the Customer can be told how long they have.
@@ -130,8 +135,8 @@ func (s *Service) GetCustomerArea(ctx context.Context, token string) (*CustomerA
 	sortByEventDate(past, false)
 
 	area := &CustomerAreaView{
-		Upcoming: ticketSaleViews(upcoming, now),
-		Past:     ticketSaleViews(past, now),
+		Upcoming: ticketSaleViews(upcoming, now, s.reversal),
+		Past:     ticketSaleViews(past, now, s.reversal),
 	}
 	return area, nil
 }
@@ -173,10 +178,10 @@ func eventMoment(sale repository.TicketSaleRow) (time.Time, bool) {
 	}
 }
 
-func ticketSaleViews(sales []repository.TicketSaleRow, now time.Time) []TicketSaleView {
+func ticketSaleViews(sales []repository.TicketSaleRow, now time.Time, reversal platform.PaymentReversal) []TicketSaleView {
 	views := make([]TicketSaleView, 0, len(sales))
 	for _, sale := range sales {
-		views = append(views, ticketSaleView(sale, now))
+		views = append(views, ticketSaleView(sale, now, reversal))
 	}
 	return views
 }
@@ -227,13 +232,17 @@ func isUpcoming(sale repository.TicketSaleRow, now time.Time) bool {
 	}
 }
 
-func ticketSaleView(sale repository.TicketSaleRow, now time.Time) TicketSaleView {
-	// The Reversal Window is reported only while it is actually open. A closed or
-	// never-opened window says nothing at all rather than publishing a deadline
-	// that has already gone.
+func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platform.PaymentReversal) TicketSaleView {
+	// The Reversal Window is reported only while the sale is genuinely on offer:
+	// the window open AND the Payment actually undoable. A closed or never-opened
+	// window says nothing at all rather than publishing a deadline that has
+	// already gone, and neither does a window whose sale nobody could reverse
+	// anyway — a countdown to an action the API would refuse is worse than
+	// silence.
 	var reversible bool
 	var closesAt *string
-	if window := reversalWindow(sale); window != nil && window.IsOpenAt(now) {
+	if window := reversalWindow(sale); window != nil && window.IsOpenAt(now) &&
+		reversal.Supports(sale.PaymentMethod.String) {
 		reversible = true
 		closesAt = timePtr(true, window.ClosesAt)
 	}

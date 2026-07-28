@@ -22,6 +22,13 @@ type EnvelopeConfirmCheckout struct {
 	RequestID string                        `json:"request_id"`
 }
 
+// EnvelopeSaleReversal documents POST /customer/ticket-sales/{ticketSaleId}/reverse success responses.
+type EnvelopeSaleReversal struct {
+	Data      service.SaleReversalResult `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}
+
 // EnvelopeSalesSummary documents GET /staff/events/{id}/sales/summary success responses.
 type EnvelopeSalesSummary struct {
 	Data      service.SalesSummary `json:"data"`

@@ -31,7 +31,18 @@ type TicketSaleRow struct {
 	// is committed in the SAME transaction that flips the Payment to approved, so
 	// there is no second instant to carry. That equality is what lets the
 	// Reversal Window be computed from this row without reading `payments`.
-	SoldAt           time.Time
+	SoldAt time.Time
+	// PaymentMethod is how the sale was settled — 'free' when a zero-total
+	// checkout was settled by the platform itself (ADR 0017), otherwise the name
+	// of the Payment Provider that collected the money. Null on the channels that
+	// carry none.
+	//
+	// The Customer Area reads it for one reason: whether a Sale Reversal is on
+	// offer depends on whether that Payment can actually be undone, and that is a
+	// property of whoever settled it (ADR 0018). Nothing about the window is
+	// decided here — an open window on a Payment nobody can reverse is still an
+	// open window, it is simply not an offer.
+	PaymentMethod    sql.NullString
 	Status           string
 	AmountCents      int
 	Currency         string
@@ -77,6 +88,7 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			ts.confirmation_ref,
 			ts.channel,
 			ts.sold_at,
+			ts.payment_method,
 			ts.status,
 			lines.amount_cents,
 			lines.ticket_types,
@@ -123,6 +135,7 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			&s.ConfirmationRef,
 			&s.Channel,
 			&s.SoldAt,
+			&s.PaymentMethod,
 			&s.Status,
 			&s.AmountCents,
 			&linesJSON,

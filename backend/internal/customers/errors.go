@@ -37,6 +37,23 @@ func ErrCustomerSessionScopeInsufficient() apperror.DomainError {
 	)
 }
 
+// ErrReversalRequiresFullSession is the same refusal for the one action that
+// moves money: a Confirmation Link session asking to undo a Ticket Sale.
+//
+// It shares the code above because it is the same fact — this credential is too
+// narrow, and a wider one is what would help — and carries its own message
+// because "change your details" is not what this caller was trying to do. The
+// stakes are higher here than on the profile edit: a Confirmation Link arrives
+// in an inbox and gets forwarded, and reversal is the first mutating,
+// money-moving action a Customer can take (ADR 0018).
+func ErrReversalRequiresFullSession() apperror.DomainError {
+	return apperror.New(
+		"CUSTOMER_SESSION_SCOPE_INSUFFICIENT",
+		"Sign in with a passcode to undo this purchase.",
+		nil,
+	)
+}
+
 // ErrAvatarUploadUnavailable is returned when the service holds no object
 // storage. A deployment fault, not a caller error, mirroring
 // ErrConfirmationLinkUnavailable's posture: refuse plainly rather than degrade.

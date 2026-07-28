@@ -158,20 +158,43 @@ export type TicketSale = {
   tax_id_type: string | null;
   tax_id_number: string | null;
   /**
-   * Whether this Ticket Sale is inside its Reversal Window right now (#118), and
-   * the instant that window closes — the earlier of 20:00 Ecuador time on the day
-   * of purchase or the Event's start.
+   * Whether the Customer can undo this purchase right now (#119), and the instant
+   * the offer expires — the earlier of 20:00 Ecuador time on the day of purchase
+   * or the Event's start.
    *
-   * The API answers both together: `reversal_window_closes_at` is null whenever
+   * `reversible` is the API's own answer to the question the undo endpoint asks
+   * itself, so this app never has to reason about who may undo what: it draws the
+   * action where the API says yes and nowhere else. Three things go into it — an
+   * active Online Sale, an open Reversal Window, and a payment that can actually
+   * be undone. The last is why a paid purchase inside its window can come back
+   * false while a free claim comes back true.
+   *
+   * The two fields answer together: `reversal_window_closes_at` is null whenever
    * `reversible` is false, so there is no closed deadline for this app to draw by
-   * mistake. Only an active Online Sale is ever reversible, and a free claim is
-   * reported exactly like a paid purchase.
+   * mistake.
    *
-   * Nothing acts on this yet. The Customer Area only tells the Customer how long
-   * they have; the undo itself is a later ticket.
+   * It is a reading of one instant, not a promise. The API re-checks everything
+   * on the request, so a stale true here becomes a refusal with a message rather
+   * than a reversal that should not have happened.
    */
   reversible: boolean;
   reversal_window_closes_at: string | null;
+};
+
+/**
+ * What the API returns when a purchase has been undone: the sale, still carrying
+ * the Sale Confirmation reference from the buyer's receipt, and when it went.
+ *
+ * The reference survives because the sale does. A reversed Ticket Sale is never
+ * deleted — it keeps its reference and stays in the Customer Area with a
+ * Reversed badge — so the thing someone would quote to an organizer reads the
+ * same before and after.
+ */
+export type TicketSaleReversal = {
+  ticket_sale_id: string;
+  confirmation_ref: string;
+  status: string;
+  reversed_at: string;
 };
 
 /** The Customer Area read: purchases split into what is still to come and what has happened. */

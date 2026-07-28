@@ -44,6 +44,76 @@ func ErrPaymentSaleCommitFailed() apperror.DomainError {
 	return apperror.New("PAYMENT_SALE_COMMIT_FAILED", "Your payment was approved but your tickets could not be recorded. Please contact support.", nil)
 }
 
+// The Customer-initiated Sale Reversal refusals (ADR 0018). Every one of them
+// leaves the Ticket Sale exactly as it was: nothing here is a partial outcome.
+//
+// The buyer-facing word throughout is "undo". Not "cancel", which belongs to an
+// Event's lifecycle status and would read as the show being called off, and not
+// "refund", which is wrong for a free claim where no money ever moved.
+
+// ErrTicketSaleNotFound is returned when the Customer Session presented owns no
+// Ticket Sale with that id.
+//
+// One code covers both "no such sale" and "that sale is somebody else's", and
+// the message is the same for both. Distinguishing them would turn the endpoint
+// into an oracle for whether a given id exists, which is exactly what somebody
+// probing other people's purchases wants to know.
+func ErrTicketSaleNotFound() apperror.DomainError {
+	return apperror.New("TICKET_SALE_NOT_FOUND", "We couldn't find that purchase.", nil)
+}
+
+// ErrSaleAlreadyReversed is returned when the Ticket Sale has already been
+// undone — by the Customer moments ago on a double submit, or by staff undoing
+// a Sale Import.
+//
+// It is not an error the buyer needs to act on and it is not a failure of their
+// request: the world is already how they wanted it. It says so rather than
+// pretending to have done the work a second time, because a silent success on
+// an already-reversed sale would make a double-press indistinguishable from a
+// second reversal that never happened.
+func ErrSaleAlreadyReversed() apperror.DomainError {
+	return apperror.New("SALE_ALREADY_REVERSED", "This purchase has already been undone.", nil)
+}
+
+// ErrSaleNotReversible is returned when the Ticket Sale could never be undone by
+// its buyer: it is not an Online Sale, or its Payment cannot be reversed by the
+// Payment Provider that collected it.
+//
+// The two share a code because they share everything that matters to the person
+// reading it — this is not yours to undo, and waiting will not change that — and
+// because the second is temporary in a way no message should promise. When the
+// launch provider's reversal API is integrated, paid sales start reporting
+// `reversible` and this refusal simply stops happening to them.
+func ErrSaleNotReversible() apperror.DomainError {
+	return apperror.New("SALE_NOT_REVERSIBLE", "This purchase can't be undone here. Contact the organizer for help.", nil)
+}
+
+// ErrReversalWindowClosed is returned when the Reversal Window has shut: it is
+// past 20:00 Ecuador time on the day of purchase, or the Event has started.
+//
+// This is the refusal the server owes regardless of what any client believed.
+// A Storefront hiding its Undo button is a courtesy; this is the enforcement,
+// and it is checked against the server's own clock on every request.
+func ErrReversalWindowClosed() apperror.DomainError {
+	return apperror.New("REVERSAL_WINDOW_CLOSED", "The time to undo this purchase has passed. Contact the organizer for help.", nil)
+}
+
+// ErrSaleReversalFailed is returned when the Payment Provider refused to reverse
+// a Payment it could normally reverse.
+//
+// The provider's own code goes to the log and never to the buyer (ADR 0018):
+// PayPhone's catalogue has no "too late" code, so any explanation this endpoint
+// offered would be a guess, and guessing wrong about somebody's money is worse
+// than saying less. What the buyer gets instead is the truth that nothing
+// changed, their Sale Confirmation reference, and a person to ask.
+func ErrSaleReversalFailed(confirmationRef string) apperror.DomainError {
+	return apperror.New(
+		"SALE_REVERSAL_FAILED",
+		"We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
+		map[string]any{"confirmation_ref": confirmationRef},
+	)
+}
+
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
 // parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
 // contents). The reason is a human-readable sentence produced by the importfile

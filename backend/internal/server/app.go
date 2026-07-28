@@ -203,6 +203,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 
 	salesRepo := salesrepo.New(db)
 	paymentProvider := newPaymentProvider(cfg, platformLogger)
+	// Whether a Ticket Sale's Payment can actually be undone is a property of
+	// whoever settled it, and both sides of Customer-initiated Sale Reversal must
+	// read it from the same place: the Customer Area to decide whether to offer
+	// Undo, the reversal endpoint to decide whether to go ahead (ADR 0018). One
+	// value, handed to both, is what keeps the offer honest.
+	customersService = customersService.WithPaymentReversal(platform.NewPaymentReversal(paymentProvider))
 	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, platformLogger)
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)

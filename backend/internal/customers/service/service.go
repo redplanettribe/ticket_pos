@@ -38,6 +38,16 @@ type Service struct {
 	// avatarHTTP fetches a Google Sign-In picture for re-hosting. Overridable in
 	// tests; defaults to a client with a bounded timeout.
 	avatarHTTP *http.Client
+	// reversal answers whether a given Ticket Sale's Payment can actually be
+	// undone, which is half of what makes a sale `reversible` in the Customer
+	// Area (ADR 0018). The other half — the Reversal Window — is this module's
+	// own arithmetic; this half belongs to whoever settled the money, so it
+	// arrives from the Payment Provider boundary rather than being decided here.
+	//
+	// Its zero value refuses everything a Payment Provider would have to handle
+	// and still allows a free claim, so a deployment that never wired one in
+	// under-offers rather than over-promises.
+	reversal platform.PaymentReversal
 }
 
 // New returns a customers service.
@@ -66,6 +76,19 @@ func New(repo *repository.Repository, otpService *otp.Service, logger platform.L
 // chaining shape as WithClock; a service without it refuses Avatar writes.
 func (s *Service) WithObjectStorage(store storage.ObjectStorage) *Service {
 	s.storage = store
+	return s
+}
+
+// WithPaymentReversal attaches the rule that says whether a settled Payment can
+// be undone. Same chaining shape as WithObjectStorage.
+//
+// It is wiring rather than a constructor argument because this module does not
+// depend on payments for anything else: a Customer signs in, reads their Area
+// and edits their profile without one. What it buys is that the Customer Area's
+// offer and the reversal endpoint's own check are computed from one rule, so the
+// button and the API can never disagree about a given sale.
+func (s *Service) WithPaymentReversal(reversal platform.PaymentReversal) *Service {
+	s.reversal = reversal
 	return s
 }
 

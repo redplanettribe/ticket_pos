@@ -126,6 +126,71 @@ type PaymentProvider interface {
 	// supports it (refunds are manual via the provider dashboard, ADR 0012);
 	// implementations without support return ErrPaymentReverseNotSupported.
 	Reverse(ctx context.Context, clientTransactionID string) error
+	// SupportsReverse reports whether Reverse does anything but refuse.
+	//
+	// It exists because Customer-initiated Sale Reversal has to be OFFERED
+	// before it is attempted (ADR 0018): the Customer Area shows an Undo action
+	// only on a sale it can actually undo, and finding out by calling Reverse
+	// and reading the error would mean attempting a refund to answer a question
+	// about a button. The answer is the provider's own — the same knowledge that
+	// makes Reverse work or refuse — so it is declared here beside it rather
+	// than guessed from a provider name anywhere else in the system.
+	//
+	// A provider whose Reverse returns ErrPaymentReverseNotSupported MUST return
+	// false here. Returning true and then refusing would put an Undo button in
+	// front of a buyer that cannot work.
+	SupportsReverse() bool
+}
+
+// FreePaymentMethod is the Payment Method recorded on an Online Sale that had
+// nothing to collect: a cart of Free Ticket Types is settled by the platform
+// itself, with no Payment Provider involved at all (ADR 0017).
+//
+// It sits beside the Payment Provider boundary and not inside it precisely
+// because it names the absence of one. A provider's Name() can never be this
+// value, so nothing here can collide with a real integration.
+const FreePaymentMethod = "free"
+
+// PaymentReversal answers one question, and it is the question the whole
+// Customer-initiated Sale Reversal flow turns on: can THIS Ticket Sale's Payment
+// actually be undone?
+//
+// The answer is a property of how the sale was settled, derived from the
+// Payment Provider that settled it, and it is deliberately computed in one place
+// for two very different callers. The Customer Area reads it to decide whether
+// to report a sale `reversible`, and the reversal endpoint reads it to decide
+// whether to go ahead. Two copies of this rule would eventually disagree, and
+// the shape of that disagreement is an Undo button that fails when pressed.
+//
+// The zero value is usable and refuses everything a provider would have to
+// handle, which is the safe default for a deployment that never wired one in.
+type PaymentReversal struct {
+	provider PaymentProvider
+}
+
+// NewPaymentReversal binds the rule to the Payment Provider this deployment
+// actually sells through.
+func NewPaymentReversal(provider PaymentProvider) PaymentReversal {
+	return PaymentReversal{provider: provider}
+}
+
+// Supports reports whether a Payment settled under paymentMethod can be
+// reversed.
+//
+// A free Online Sale is always reversible: there is no money to return and
+// nobody to ask, so voiding the Ticket Sale is the entire reversal (ADR 0017).
+// Every other Payment Method names a Payment Provider, and only the provider
+// this deployment is wired to can be asked to reverse anything — a sale settled
+// through some other provider (a historical one, or another deployment's) is
+// refused rather than handed to a provider that never saw it.
+func (r PaymentReversal) Supports(paymentMethod string) bool {
+	if paymentMethod == FreePaymentMethod {
+		return true
+	}
+	if r.provider == nil || r.provider.Name() != paymentMethod {
+		return false
+	}
+	return r.provider.SupportsReverse()
 }
 
 // Stub payment page contract, honoured by the Storefront's dev-only
@@ -208,3 +273,8 @@ func (p *StubPaymentProvider) Confirm(_ context.Context, in PaymentConfirmInput)
 func (p *StubPaymentProvider) Reverse(_ context.Context, _ string) error {
 	return ErrPaymentReverseNotSupported
 }
+
+// SupportsReverse is false while Reverse above refuses, which is what keeps the
+// Customer Area from offering Undo on a stub-settled sale it could not honour.
+// The two move together or the offer becomes a lie.
+func (p *StubPaymentProvider) SupportsReverse() bool { return false }
