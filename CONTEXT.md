@@ -166,6 +166,18 @@ _Avoid_: Reservation, cart lock, inventory block
 A per-Ticket-Sale receipt carrying a human-readable reference code (e.g. `TP-3F9K2`), emailed to the Customer whenever a Ticket Sale is recorded. Not a per-attendee admission ticket; the model leaves room to attach individual tickets later.
 _Avoid_: Ticket, receipt, order confirmation
 
+**Sale Reversal**:
+The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
+Reachable by the Customer on their own Online Sale within the Reversal Window, and by staff through a Sale Import undo. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
+A reversed Ticket Sale is never deleted: it keeps its Sale Confirmation reference and stays visible to both the Customer and the Organization, and it stops counting toward Net Proceeds, the Withdrawable Balance, and platform revenue.
+_Avoid_: Refund, cancellation, void, chargeback
+
+**Reversal Window**:
+The period during which a Customer may reverse their own Online Sale: from the moment its Payment is approved until the earlier of 20:00 Ecuador time on the day of purchase, or the Event's start.
+A platform rule rather than a provider one — it applies equally to a free Online Sale, where there is no money to return. That the launch Payment Provider happens to accept reversals over the same period is a fact about that provider, not the definition.
+Ends early at the Event's start because the platform has no record of attendance and cannot otherwise tell a change of mind from a completed visit.
+_Avoid_: Refund period, cooling-off period, grace period, cancellation policy
+
 **Platform Fee**:
 The platform's commission on a Ticket Sale — a percentage (10% at launch) of the ticket price the Organization set. Always charged to the Organization by withholding from its proceeds, never to the Customer; Fee Handling only decides whether the buyer price is raised to cover it. The tickets themselves are the Organization's sale, and their taxation stays outside the system.
 _Avoid_: Commission, service charge, take rate
