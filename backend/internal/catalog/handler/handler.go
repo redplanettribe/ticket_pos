@@ -41,6 +41,9 @@ type updateEventBody struct {
 	VenueAddress  *string `json:"venue_address"`
 	Description   *string `json:"description"`
 	CoverImageKey *string `json:"cover_image_key"`
+	// CoverVideoKey attaches or clears the Cover Video. Absent leaves it alone,
+	// an empty string clears it, mirroring cover_image_key.
+	CoverVideoKey *string `json:"cover_video_key"`
 	// FeeHandling is the Event's Fee Handling mode. Absent means "leave it
 	// alone": a form that does not know about the switch must not reset it.
 	FeeHandling *string `json:"fee_handling"`
@@ -49,6 +52,14 @@ type updateEventBody struct {
 type coverUploadURLBody struct {
 	ContentType string  `json:"content_type"`
 	FileName    *string `json:"file_name"`
+}
+
+type videoUploadURLBody struct {
+	ContentType string `json:"content_type"`
+	// FileName is accepted for symmetry with the cover upload request and to let
+	// clients send what the user picked, but it never shapes the key: a Cover
+	// Video is always an MP4, so the extension is fixed.
+	FileName *string `json:"file_name"`
 }
 
 func actorFromRequest(r *http.Request) service.ActorContext {
@@ -424,6 +435,64 @@ func (h *Handler) CreateCoverUploadURL(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
+// CreateVideoUploadURL returns a presigned URL for uploading an event Cover Video.
+//
+// @Summary      Create cover video upload URL
+// @Description  Returns a presigned PUT URL for uploading an event cover video (MP4 only).
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string              true  "Event ID"
+// @Param        body  body      videoUploadURLBody  true  "Upload details"
+// @Success      200   {object}  openapi.EnvelopeCoverUploadURL
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/video-upload-url [post]
+func (h *Handler) CreateVideoUploadURL(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "id", Message: "is required"},
+		})
+		return
+	}
+
+	var body videoUploadURLBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
+	if contentType == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Message: "is required"},
+		})
+		return
+	}
+	if !storage.VideoContentTypeAllowed(contentType) {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "content_type", Message: "must be video/mp4"},
+		})
+		return
+	}
+
+	actor := actorFromRequest(r)
+
+	result, err := h.svc.CreateVideoUploadURL(r.Context(), actor, eventID, service.CreateVideoUploadURLInput{
+		ContentType: contentType,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
 type createTicketTypeBody struct {
 	Name        string  `json:"name"`
 	Description *string `json:"description"`
@@ -728,6 +797,7 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		VenueAddress:  body.VenueAddress,
 		Description:   body.Description,
 		CoverImageKey: body.CoverImageKey,
+		CoverVideoKey: body.CoverVideoKey,
 		FeeHandling:   feeHandling,
 	}, nil
 }

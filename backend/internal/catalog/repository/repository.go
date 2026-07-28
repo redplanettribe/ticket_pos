@@ -33,6 +33,7 @@ type Event struct {
 	VenueAddress   sql.NullString
 	Description    sql.NullString
 	CoverImageKey  sql.NullString
+	CoverVideoKey  sql.NullString
 	Discoverable   bool
 	// FeeHandling is the Event's Fee Handling mode ('pass_on' or 'absorb'),
 	// constrained by the column's CHECK (migration 021).
@@ -51,6 +52,7 @@ type UpdateEventParams struct {
 	VenueAddress  sql.NullString
 	Description   sql.NullString
 	CoverImageKey sql.NullString
+	CoverVideoKey sql.NullString
 	Discoverable  bool
 	FeeHandling   string
 }
@@ -68,7 +70,7 @@ func New(db *platform.DB) *Repository {
 const eventColumns = `
 	id, organization_id, name, slug, status,
 	starts_at, ends_at, timezone, venue_name, venue_address,
-	description, cover_image_key, discoverable, fee_handling, created_at
+	description, cover_image_key, cover_video_key, discoverable, fee_handling, created_at
 `
 
 func scanEvent(row interface {
@@ -79,7 +81,7 @@ func scanEvent(row interface {
 	if err := row.Scan(
 		&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 		&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-		&e.Description, &e.CoverImageKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
+		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -110,7 +112,7 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 		if err := rows.Scan(
 			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-			&e.Description, &e.CoverImageKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
+			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -177,8 +179,9 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 			venue_address = $9,
 			description = $10,
 			cover_image_key = $11,
-			discoverable = $12,
-			fee_handling = $13
+			cover_video_key = $12,
+			discoverable = $13,
+			fee_handling = $14
 		WHERE id = $1 AND organization_id = $2
 		RETURNING `+eventColumns+`
 	`, eventID, orgID,
@@ -186,7 +189,8 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 		nullTime(params.StartsAt), nullTime(params.EndsAt),
 		nullString(params.Timezone), nullString(params.VenueName),
 		nullString(params.VenueAddress), nullString(params.Description),
-		nullString(params.CoverImageKey), params.Discoverable, params.FeeHandling,
+		nullString(params.CoverImageKey), nullString(params.CoverVideoKey),
+		params.Discoverable, params.FeeHandling,
 	)
 	return scanEvent(row)
 }

@@ -1,10 +1,10 @@
-# Organization Logos and Event cover images.
+# Organization Logos, Event cover images and Event cover videos.
 #
 # READ THIS BEFORE PUTTING ANYTHING IN THIS BUCKET: every object is readable by
 # anyone on the internet holding the URL, forever. The `allUsers` grant below is
 # bucket-wide and cannot be narrowed per object under uniform access. Only the
-# `covers/`, `logos/`, and `avatars/` prefixes belong here. Anything that must
-# not be public needs a different bucket and signed downloads.
+# `covers/`, `videos/`, `logos/`, and `avatars/` prefixes belong here. Anything
+# that must not be public needs a different bucket and signed downloads.
 resource "google_storage_bucket" "media" {
   project  = var.project_id
   name     = local.storage_bucket_name
@@ -24,8 +24,10 @@ resource "google_storage_bucket" "media" {
   force_destroy = false
 
   # The application uploads through presigned PUT URLs, which means the *browser*
-  # makes the request, cross-origin — from Staff for covers and logos, from the
-  # Storefront for Customer Avatars. A cross-origin PUT is preflighted, and an
+  # makes the request, cross-origin — from Staff for covers, videos and logos,
+  # from the Storefront for Customer Avatars. Nothing here is prefix-specific:
+  # one policy covers every upload path, so the videos prefix needs no rule of
+  # its own. A cross-origin PUT is preflighted, and an
   # origin the bucket does not list gets a preflight failure the browser reports
   # only as an opaque network error. MinIO is permissive by default, so an upload
   # path that works locally breaks here.

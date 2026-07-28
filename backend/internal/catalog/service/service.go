@@ -54,7 +54,12 @@ type EventDetail struct {
 	Description   *string    `json:"description"`
 	CoverImageKey *string    `json:"cover_image_key"`
 	CoverImageURL *string    `json:"cover_image_url"`
-	Discoverable  bool       `json:"discoverable"`
+	// CoverVideoKey and CoverVideoURL are the Event's optional Cover Video: the
+	// stored object key and the public URL derived from it at read time, never
+	// stored (ADR 0020).
+	CoverVideoKey *string `json:"cover_video_key"`
+	CoverVideoURL *string `json:"cover_video_url"`
+	Discoverable  bool    `json:"discoverable"`
 	// FeeHandling is the Event's Fee Handling mode, and the two rates are the
 	// Platform Fee schedule it is read with. The rates travel with the Event so
 	// the staff forms can show an organizer what a price means for the buyer and
@@ -105,6 +110,10 @@ type UpdateEventInput struct {
 	VenueAddress  *string
 	Description   *string
 	CoverImageKey *string
+	// CoverVideoKey attaches or clears the Cover Video: an empty string clears
+	// it, nil leaves it alone, anything else must be a key under this Event's
+	// videos prefix.
+	CoverVideoKey *string
 	// FeeHandling is the submitted Fee Handling mode, or nil when the form said
 	// nothing about it — an update that omits it leaves the Event's mode alone.
 	FeeHandling *sales.FeeHandling
@@ -114,6 +123,11 @@ type UpdateEventInput struct {
 type CreateCoverUploadURLInput struct {
 	ContentType string
 	FileName    string
+}
+
+// CreateVideoUploadURLInput requests a presigned Cover Video upload URL.
+type CreateVideoUploadURLInput struct {
+	ContentType string
 }
 
 // Service implements catalog business rules.
@@ -236,6 +250,18 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 		}
 	} else {
 		params.CoverImageKey = event.CoverImageKey
+	}
+	if input.CoverVideoKey != nil {
+		key := strings.TrimSpace(*input.CoverVideoKey)
+		if key == "" {
+			params.CoverVideoKey = sql.NullString{}
+		} else if !storage.VideoKeyBelongsToEvent(key, actor.OrganizationID, eventID) {
+			return nil, catalog.ErrInvalidCoverVideoKey()
+		} else {
+			params.CoverVideoKey = sql.NullString{String: key, Valid: true}
+		}
+	} else {
+		params.CoverVideoKey = event.CoverVideoKey
 	}
 
 	params.Discoverable = event.Discoverable
@@ -404,6 +430,44 @@ func (s *Service) CreateCoverUploadURL(ctx context.Context, actor ActorContext, 
 	}
 
 	key, err := storage.BuildCoverObjectKey(actor.OrganizationID, eventID, contentType, input.FileName)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadURL, err := s.storage.PresignPut(ctx, key, contentType, 15*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage.CoverUploadResult{
+		UploadURL: uploadURL,
+		ObjectKey: key,
+		PublicURL: s.storage.PublicURL(key),
+	}, nil
+}
+
+// CreateVideoUploadURL returns a presigned PUT URL for an event Cover Video.
+// The object is stored verbatim under the Event's videos prefix — no transcoding,
+// no processing state: the video is live the moment the PUT returns (ADR 0020).
+func (s *Service) CreateVideoUploadURL(ctx context.Context, actor ActorContext, eventID string, input CreateVideoUploadURLInput) (*storage.CoverUploadResult, error) {
+	if s.storage == nil {
+		return nil, catalog.ErrVideoUploadUnavailable()
+	}
+
+	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, catalog.ErrEventNotFound()
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(input.ContentType))
+	if !storage.VideoContentTypeAllowed(contentType) {
+		return nil, catalog.ErrInvalidCoverVideoKey()
+	}
+
+	key, err := storage.BuildVideoObjectKey(actor.OrganizationID, eventID, contentType)
 	if err != nil {
 		return nil, err
 	}
@@ -657,6 +721,14 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		if s.storage != nil {
 			url := s.storage.PublicURL(key)
 			detail.CoverImageURL = &url
+		}
+	}
+	if e.CoverVideoKey.Valid {
+		key := e.CoverVideoKey.String
+		detail.CoverVideoKey = &key
+		if s.storage != nil {
+			url := s.storage.PublicURL(key)
+			detail.CoverVideoURL = &url
 		}
 	}
 	return detail

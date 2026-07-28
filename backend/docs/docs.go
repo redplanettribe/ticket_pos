@@ -265,6 +265,10 @@ const docTemplate = `{
                     "cover_image_key": {
                         "type": "string"
                     },
+                    "cover_video_key": {
+                        "description": "CoverVideoKey attaches or clears the Cover Video. Absent leaves it alone,\nan empty string clears it, mirroring cover_image_key.",
+                        "type": "string"
+                    },
                     "description": {
                         "type": "string"
                     },
@@ -333,6 +337,18 @@ const docTemplate = `{
                     },
                     "sort_order": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.videoUploadURLBody": {
+                "properties": {
+                    "content_type": {
+                        "type": "string"
+                    },
+                    "file_name": {
+                        "description": "FileName is accepted for symmetry with the cover upload request and to let\nclients send what the user picked, but it never shapes the key: a Cover\nVideo is always an MP4, so the extension is fixed.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1247,6 +1263,13 @@ const docTemplate = `{
                     "cover_image_url": {
                         "type": "string"
                     },
+                    "cover_video_key": {
+                        "description": "CoverVideoKey and CoverVideoURL are the Event's optional Cover Video: the\nstored object key and the public URL derived from it at read time, never\nstored (ADR 0020).",
+                        "type": "string"
+                    },
+                    "cover_video_url": {
+                        "type": "string"
+                    },
                     "created_at": {
                         "type": "string"
                     },
@@ -1666,6 +1689,10 @@ const docTemplate = `{
             "service.PublicEventDetail": {
                 "properties": {
                     "cover_image_url": {
+                        "type": "string"
+                    },
+                    "cover_video_url": {
+                        "description": "CoverVideoURL is the Event's optional Cover Video, played in the hero over\nthe Cover Image poster. Only the key's derived URL is public; listings and\nlink previews stay on the Cover Image (ADR 0020).",
                         "type": "string"
                     },
                     "currency": {
@@ -5974,6 +6001,103 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Update ticket type",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/video-upload-url": {
+            "post": {
+                "description": "Returns a presigned PUT URL for uploading an event cover video (MP4 only).",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.videoUploadURLBody",
+                                        "summary": "body",
+                                        "description": "Upload details"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Upload details",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCoverUploadURL"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create cover video upload URL",
                 "tags": [
                     "staff"
                 ]
