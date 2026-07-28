@@ -18,12 +18,32 @@ import {
   type EventDetail,
   type EventPatchBody,
 } from "@/lib/events-api";
+import { validateCoverVideo, type CoverVideoFile } from "@/lib/cover-video";
 
-// The 50 MB ceiling is the ADR 0020 cap. Aspect, minimum width and duration are
-// checked from the file's video metadata in a follow-up; this section enforces
-// only what the Cover Image section already does — type and size.
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
-const ACCEPTED_TYPE = "video/mp4";
+/**
+ * The chosen file's dimensions and duration, read the only way a browser
+ * offers them: load its metadata into an off-DOM video element. Resolves with
+ * zeroed measurements when the file has no readable video track, which the
+ * validation rejects on its own terms.
+ */
+function readVideoMetadata(file: File): Promise<Pick<CoverVideoFile, "width" | "height" | "duration">> {
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file);
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+
+    const finish = (measurements: Pick<CoverVideoFile, "width" | "height" | "duration">) => {
+      URL.revokeObjectURL(objectUrl);
+      probe.removeAttribute("src");
+      resolve(measurements);
+    };
+
+    probe.onloadedmetadata = () =>
+      finish({ width: probe.videoWidth, height: probe.videoHeight, duration: probe.duration });
+    probe.onerror = () => finish({ width: 0, height: 0, duration: 0 });
+    probe.src = objectUrl;
+  });
+}
 
 type EventCoverVideoProps = {
   eventId: string;
@@ -62,12 +82,14 @@ export function EventCoverVideo({
       return;
     }
 
-    if (file.type !== ACCEPTED_TYPE) {
-      toast.error("Cover video must be an MP4.");
-      return;
-    }
-    if (file.size > MAX_VIDEO_BYTES) {
-      toast.error("Cover video must be 50 MB or smaller.");
+    // Every constraint is checked here, before a single byte is uploaded:
+    // ADR 0020 stores the file verbatim, so the browser is the only enforcer.
+    const measurements = file.type === "video/mp4"
+      ? await readVideoMetadata(file)
+      : { width: 0, height: 0, duration: 0 };
+    const validation = validateCoverVideo({ ...measurements, size: file.size, type: file.type });
+    if (!validation.ok) {
+      toast.error(validation.message);
       return;
     }
 
@@ -123,7 +145,8 @@ export function EventCoverVideo({
       <CardHeader>
         <CardTitle>Cover video</CardTitle>
         <CardDescription>
-          MP4 up to 50 MB. Plays muted and looping in the event page hero, over the cover image.
+          MP4, landscape 16:9, at least 1280 pixels wide, up to 30 seconds and 50 MB. Plays muted and looping in
+          the event page hero, over the cover image.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
