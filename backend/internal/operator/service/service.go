@@ -47,6 +47,12 @@ type Money interface {
 	// SaleByConfirmationRef returns TICKET_SALE_NOT_FOUND when no Ticket Sale on
 	// the platform carries the reference, which the handler maps to 404.
 	SaleByConfirmationRef(ctx context.Context, confirmationRef string) (*salessvc.OperatorSale, error)
+	// ReverseSaleAsOperator records that the operator refunded the buyer
+	// off-platform and marks the Ticket Sale reversed (#125). It never calls a
+	// Payment Provider. It refuses a sale that is not an Online Sale
+	// (SALE_NOT_REVERSIBLE), one already reversed (SALE_ALREADY_REVERSED), and a
+	// refund larger than the sale collected (REFUNDED_AMOUNT_EXCEEDS_COLLECTED).
+	ReverseSaleAsOperator(ctx context.Context, confirmationRef string, input salessvc.OperatorReversalInput) (*salessvc.OperatorReversalResult, error)
 }
 
 // Service implements the Operator Dashboard's operations.

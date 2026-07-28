@@ -52,6 +52,10 @@ type operatorSale struct {
 	RecordedAt      string  `json:"recorded_at"`
 	ReversedAt      *string `json:"reversed_at"`
 	ReversedBy      *string `json:"reversed_by"`
+	// OperatorReversal is the money memo an Operator Reversal leaves (#125),
+	// null on every sale reversed any other way. Its type lives in
+	// operator_sale_reversal_test.go, which is the feature it belongs to.
+	OperatorReversal *operatorReversalMemo `json:"operator_reversal"`
 
 	Customer    operatorSaleCustomer `json:"customer"`
 	TicketTypes []operatorSaleLine   `json:"ticket_types"`

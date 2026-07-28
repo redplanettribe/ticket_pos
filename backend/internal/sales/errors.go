@@ -105,6 +105,43 @@ func ErrSaleNotReversible() apperror.DomainError {
 	return apperror.New("SALE_NOT_REVERSIBLE", "This purchase can't be undone here. Contact the organizer for help.", nil)
 }
 
+// ErrOperatorReversalNotAnOnlineSale is returned when a Platform Operator tries
+// to record an out-of-band refund against a Ticket Sale that is not an Online
+// Sale (#125).
+//
+// It shares SALE_NOT_REVERSIBLE with the buyer-facing refusal above because it
+// is the same fact — this sale is not one this route can void — and it says so
+// in the words its own reader needs. No money for an imported or In-Person Sale
+// ever passed through the platform, so there is nothing here for an operator to
+// assert about; an imported sale's undo is the batch-level Sale Import undo,
+// which is where the refusal points.
+func ErrOperatorReversalNotAnOnlineSale(channel string) apperror.DomainError {
+	return apperror.New(
+		"SALE_NOT_REVERSIBLE",
+		"Only an Online Sale can be reversed here — no money for this sale passed through the platform. An imported sale is undone through its Sale Import.",
+		map[string]any{"channel": channel},
+	)
+}
+
+// ErrRefundedAmountExceedsCollected is returned when a Platform Operator states
+// they refunded a buyer more than the buyer ever paid.
+//
+// The ceiling is the sale's own collected amount, and it is checked here rather
+// than in the handler because it is a fact about the sale rather than about the
+// request. The figures both travel in details: the operator is most likely a
+// digit out, and the number they were measured against is what tells them so.
+func ErrRefundedAmountExceedsCollected(refundedCents, collectedCents int, currency string) apperror.DomainError {
+	return apperror.New(
+		"REFUNDED_AMOUNT_EXCEEDS_COLLECTED",
+		"The refunded amount is more than this Ticket Sale collected.",
+		map[string]any{
+			"refunded_amount_cents": refundedCents,
+			"amount_cents":          collectedCents,
+			"currency":              currency,
+		},
+	)
+}
+
 // ErrReversalWindowClosed is returned when the Reversal Window has shut: it is
 // past 20:00 Ecuador time on the day of purchase, or the Event has started.
 //

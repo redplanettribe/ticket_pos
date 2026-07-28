@@ -229,6 +229,15 @@ type OperatorSaleRow struct {
 	ReversedAt      sql.NullTime
 	ReversedBy      sql.NullString
 
+	// The Operator Reversal's money memo (#125), all null unless ReversedBy is
+	// 'operator': the acting operator, what they said the buyer got back, whether
+	// the platform kept its fee, and their note. Operator-facing only — nothing
+	// an Organization reads carries these.
+	ReversedByOperator  sql.NullString
+	ReversalNote        sql.NullString
+	RefundedAmountCents sql.NullInt64
+	PlatformFeeKept     sql.NullBool
+
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
@@ -277,6 +286,10 @@ func (r *Repository) GetSaleByConfirmationRef(ctx context.Context, confirmationR
 			ts.created_at,
 			ts.reversed_at,
 			ts.reversed_by,
+			ts.reversed_by_operator,
+			ts.reversal_note,
+			ts.refunded_amount_cents,
+			ts.platform_fee_kept,
 			ts.customer_email,
 			ts.customer_first_name,
 			ts.customer_last_name,
@@ -326,6 +339,10 @@ func (r *Repository) GetSaleByConfirmationRef(ctx context.Context, confirmationR
 		&out.RecordedAt,
 		&out.ReversedAt,
 		&out.ReversedBy,
+		&out.ReversedByOperator,
+		&out.ReversalNote,
+		&out.RefundedAmountCents,
+		&out.PlatformFeeKept,
 		&out.CustomerEmail,
 		&out.CustomerFirstName,
 		&out.CustomerLastName,

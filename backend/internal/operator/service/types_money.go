@@ -32,3 +32,7 @@ type Payout = service.OperatorPayout
 // Sale is one Ticket Sale as the operator's lookup by Sale Confirmation
 // reference returns it (sales owns it).
 type Sale = service.OperatorSale
+
+// SaleReversal is one recorded Operator Reversal — the marked sale and the
+// money memo the operator asserted (sales owns it).
+type SaleReversal = service.OperatorReversalResult

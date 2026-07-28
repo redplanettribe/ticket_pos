@@ -46,8 +46,12 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// nested under an Organization — the reference is all the operator has, and
 	// which Organization's sale it is is one of the answers (#124).
 	mux.Handle("GET /api/v1/operator/sales/{confirmationRef}", operator(http.HandlerFunc(h.LookUpSale)))
-	// The operator surface's only write: recording a Payout, which used to mean
-	// an INSERT typed by hand into the production database (ADR 0015).
+	// The Operator Reversal: recording that the operator refunded a buyer
+	// off-platform, keyed on the same reference the lookup takes because the
+	// action hangs off that lookup and the operator has nothing else (#125).
+	mux.Handle("POST /api/v1/operator/sales/{confirmationRef}/reverse", operator(http.HandlerFunc(h.ReverseSale)))
+	// Recording a Payout, which used to mean an INSERT typed by hand into the
+	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
 }
 

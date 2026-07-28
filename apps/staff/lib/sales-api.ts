@@ -281,11 +281,15 @@ export function paymentMethodLabel(paymentMethod: string | null): string {
 }
 
 // Who caused a Sale Reversal, as an organizer reads it: the buyer undoing their
-// own Online Sale inside the Reversal Window, or their own staff undoing a Sale
-// Import. The two answers a reversed row has to give are when and which side.
+// own Online Sale inside the Reversal Window, their own staff undoing a Sale
+// Import, or the platform recording a refund it made off-platform at the
+// organization's request. The two answers a reversed row has to give are when
+// and which side — and nothing of the platform's own money memo, which is
+// operator-facing only (#125).
 const REVERSAL_ACTOR_LABELS: Record<string, string> = {
   customer: "Customer",
   staff: "Staff",
+  operator: "The platform",
 };
 
 // reversalLabel renders a reversed sale's provenance as "Jul 7, 2026, 12:00 by

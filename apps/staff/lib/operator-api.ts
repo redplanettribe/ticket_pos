@@ -127,6 +127,22 @@ export async function recordOperatorPayout(
   });
 }
 
+/**
+ * What a Platform Operator asserted when they recorded an out-of-band refund:
+ * who they are, what the buyer actually got back, whether the platform kept its
+ * platform fee and fee IVA, and their note.
+ *
+ * The money fields are nullable because absent and zero are different answers —
+ * they are absent on a free online sale, which had nothing to refund.
+ */
+export type OperatorReversalMemo = {
+  /** The acting operator's email, taken by the API from their staff session. */
+  operator: string;
+  refunded_amount_cents: number | null;
+  platform_fee_kept: boolean | null;
+  note: string | null;
+};
+
 /** One Ticket Type and how many of it a Ticket Sale is for. */
 export type OperatorSaleLine = {
   ticket_type_name: string;
@@ -171,6 +187,11 @@ export type OperatorSaleDetail = {
   /** The Sale Reversal's provenance; both null on an active sale. */
   reversed_at: string | null;
   reversed_by: string | null;
+  /**
+   * The money memo an Operator Reversal left, null on every sale reversed any
+   * other way. Operator-facing only: no organization surface carries it.
+   */
+  operator_reversal: OperatorReversalMemo | null;
 
   customer: OperatorSaleCustomer;
   ticket_types: OperatorSaleLine[];
@@ -204,5 +225,45 @@ export type OperatorSaleLookup = {
 export async function fetchOperatorSale(confirmationRef: string): Promise<OperatorSaleLookup> {
   return fetchEventsJSON<OperatorSaleLookup>(
     `/api/operator/sales/${encodeURIComponent(confirmationRef)}`,
+  );
+}
+
+/**
+ * An Operator Reversal as the operator states it: what the buyer actually got
+ * back and whether the platform kept its fee, both required with no default,
+ * plus an optional note. Who performed it is never sent — the API takes that
+ * from the session.
+ */
+export type OperatorReversalBody = {
+  refunded_amount_cents: number;
+  platform_fee_kept: boolean;
+  note?: string;
+};
+
+/** The marking's result: the reversed sale and the memo as recorded. */
+export type OperatorSaleReversal = {
+  ticket_sale_id: string;
+  confirmation_ref: string;
+  status: string;
+  reversed_at: string;
+  /** Always "operator" here — the third reversal actor. */
+  reversed_by: string;
+  operator_reversal: OperatorReversalMemo;
+};
+
+/**
+ * Records an out-of-band refund against a Ticket Sale, marking it reversed.
+ *
+ * The payment provider is never called: the refund already happened elsewhere,
+ * and this is the platform learning it did. Irreversible — there is no
+ * un-reversal — so the caller confirms the consequences first.
+ */
+export async function reverseOperatorSale(
+  confirmationRef: string,
+  body: OperatorReversalBody,
+): Promise<OperatorSaleReversal> {
+  return fetchEventsJSON<OperatorSaleReversal>(
+    `/api/operator/sales/${encodeURIComponent(confirmationRef)}/reverse`,
+    { method: "POST", body: JSON.stringify(body) },
   );
 }

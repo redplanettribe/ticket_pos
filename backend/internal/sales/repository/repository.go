@@ -614,14 +614,36 @@ func (e *BatchAlreadyReversedError) Error() string {
 // ReverseSalesInput is a set of Ticket Sales to void together. SaleIDs is the
 // candidate set: sales already reversed are skipped, so the operation is
 // idempotent and safe to retry. Actor is which side caused the Sale Reversal —
-// sales.ReversalActorCustomer or sales.ReversalActorStaff — and Now the moment
-// it happened; both are stamped on every sale actually reversed.
+// one of the sales.ReversalActor* values — and Now the moment it happened; both
+// are stamped on every sale actually reversed.
 type ReverseSalesInput struct {
 	EventID        string
 	OrganizationID string
 	SaleIDs        []string
 	Actor          string
 	Now            time.Time
+	// Operator is the money memo an Operator Reversal carries, and is nil on
+	// every other route. It rides the same input rather than a second write
+	// because it must land in the transaction that flips the status: a sale
+	// recorded as reversed-by-an-operator without the assertion that justified it
+	// would be a money claim with nobody's name on it.
+	Operator *OperatorReversalMemo
+}
+
+// OperatorReversalMemo is what a Platform Operator asserted when they recorded
+// an out-of-band refund (#125): who they are, what the buyer actually got back,
+// whether the platform kept its Platform Fee and Fee IVA, and any note.
+//
+// The money pair is a pair of pointers rather than plain values because absent
+// and zero are different answers. A free Online Sale refunds nothing and keeps
+// no fee, and says so with nulls; zero cents refunded on a paid sale is not a
+// thing this system records.
+type OperatorReversalMemo struct {
+	// Operator is the acting operator's email, taken from their Staff Session.
+	Operator            string
+	Note                *string
+	RefundedAmountCents *int
+	PlatformFeeKept     *bool
 }
 
 // ReverseSales voids an arbitrary set of Ticket Sales in one transaction. It is
@@ -748,12 +770,32 @@ func reverseSalesTx(ctx context.Context, tx *sql.Tx, in ReverseSalesInput) ([]Re
 	}
 
 	// The status flip carries its own provenance: a reversed sale says when it
-	// went and which side asked (#117, ADR 0018).
+	// went and which side asked (#117, ADR 0018), and on an Operator Reversal it
+	// also carries the memo of what the operator asserted (#125). The memo is
+	// written by the same statement, so a sale can never be found reversed by an
+	// operator with the assertion missing.
+	var operator, note *string
+	var refundedAmountCents *int
+	var platformFeeKept *bool
+	if in.Operator != nil {
+		operator = &in.Operator.Operator
+		note = in.Operator.Note
+		refundedAmountCents = in.Operator.RefundedAmountCents
+		platformFeeKept = in.Operator.PlatformFeeKept
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE ticket_sales
-		SET status = 'reversed', reversed_at = $2, reversed_by = $3
+		SET status = 'reversed',
+		    reversed_at = $2,
+		    reversed_by = $3,
+		    reversed_by_operator = $4,
+		    reversal_note = $5,
+		    refunded_amount_cents = $6,
+		    platform_fee_kept = $7
 		WHERE id = ANY($1)
-	`, activeIDs, in.Now, in.Actor); err != nil {
+	`, activeIDs, in.Now, in.Actor,
+		operator, note, refundedAmountCents, platformFeeKept,
+	); err != nil {
 		return nil, err
 	}
 

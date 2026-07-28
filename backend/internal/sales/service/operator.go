@@ -186,6 +186,11 @@ type OperatorSale struct {
 	// history is shown as it is, never backfilled (ADR 0018).
 	ReversedAt *time.Time `json:"reversed_at"`
 	ReversedBy *string    `json:"reversed_by"`
+	// OperatorReversal is the money memo an Operator Reversal left (#125), and
+	// null on every sale reversed any other way. It is operator-facing only: it
+	// rides this payload, which nobody but a Platform Operator can reach, and no
+	// Organization-facing surface carries it.
+	OperatorReversal *OperatorReversalMemo `json:"operator_reversal"`
 
 	Customer    OperatorSaleCustomer `json:"customer"`
 	TicketTypes []SaleLine           `json:"ticket_types"`
@@ -236,17 +241,18 @@ func (s *Service) SaleByConfirmationRef(ctx context.Context, confirmationRef str
 	closesAt, passed := reversalWindowState(row, s.now())
 
 	return &OperatorSale{
-		ID:              row.ID,
-		OrganizationID:  row.OrganizationID,
-		ConfirmationRef: row.ConfirmationRef,
-		Status:          row.Status,
-		Channel:         row.Channel,
-		Source:          nullableString(row.Source),
-		PaymentMethod:   nullableString(row.PaymentMethod),
-		SoldAt:          row.SoldAt,
-		RecordedAt:      row.RecordedAt,
-		ReversedAt:      nullableTime(row.ReversedAt),
-		ReversedBy:      nullableString(row.ReversedBy),
+		ID:               row.ID,
+		OrganizationID:   row.OrganizationID,
+		ConfirmationRef:  row.ConfirmationRef,
+		Status:           row.Status,
+		Channel:          row.Channel,
+		Source:           nullableString(row.Source),
+		PaymentMethod:    nullableString(row.PaymentMethod),
+		SoldAt:           row.SoldAt,
+		RecordedAt:       row.RecordedAt,
+		ReversedAt:       nullableTime(row.ReversedAt),
+		ReversedBy:       nullableString(row.ReversedBy),
+		OperatorReversal: operatorReversalMemo(row),
 		Customer: OperatorSaleCustomer{
 			Email:     row.CustomerEmail,
 			FirstName: row.CustomerFirstName,
@@ -306,4 +312,178 @@ func nullableTime(v sql.NullTime) *time.Time {
 		return nil
 	}
 	return &v.Time
+}
+
+// OperatorReversalMemo is what a Platform Operator asserted when they recorded
+// an out-of-band refund (#125): who they are, what the buyer actually got back,
+// whether the platform kept its Platform Fee and Fee IVA, and their note.
+//
+// The two money fields are pointers because absent and zero are different
+// answers. They are absent on a free Online Sale — there was nothing to refund
+// and no fee to keep — and "zero refunded" is not something this system records
+// on a paid one.
+type OperatorReversalMemo struct {
+	// Operator is the acting operator's email, as their Staff Session knows it.
+	// Never taken from a request body: who asserted a money fact must not be
+	// something a caller can claim.
+	Operator            string  `json:"operator"`
+	RefundedAmountCents *int    `json:"refunded_amount_cents"`
+	PlatformFeeKept     *bool   `json:"platform_fee_kept"`
+	Note                *string `json:"note"`
+}
+
+// OperatorReversalInput is one Operator Reversal as the operator states it. The
+// shape is already validated by the handler; what this layer still has to judge
+// is the refunded amount against what the sale actually collected, which is a
+// fact about the sale rather than about the request.
+type OperatorReversalInput struct {
+	Operator            string
+	RefundedAmountCents *int
+	PlatformFeeKept     *bool
+	Note                *string
+}
+
+// OperatorReversalResult is what the operator is told after the marking: the
+// sale, still under the Sale Confirmation reference the support thread quoted,
+// its new provenance, and the memo as recorded.
+type OperatorReversalResult struct {
+	TicketSaleID    string `json:"ticket_sale_id"`
+	ConfirmationRef string `json:"confirmation_ref"`
+	// Status is always "reversed"; a marking that did not happen is an error,
+	// never a result carrying some other word.
+	Status     string `json:"status"`
+	ReversedAt string `json:"reversed_at"`
+	// ReversedBy is always sales.ReversalActorOperator here.
+	ReversedBy       string               `json:"reversed_by"`
+	OperatorReversal OperatorReversalMemo `json:"operator_reversal"`
+}
+
+// ReverseSaleAsOperator records that a Platform Operator refunded a buyer
+// off-platform, marking their Ticket Sale reversed (#125, #123).
+//
+// The Payment Provider is not called and must never be. The money left our
+// account before this request was made — by hand in the provider's dashboard,
+// or by bank transfer that no provider ever saw — so calling anybody here could
+// only refund a second time. That absence is also why none of the customer
+// path's advisory-lock ceremony appears below: the lock exists to stop two
+// presses reaching a provider twice, and with no provider in the flow the
+// reversal primitive's own row lock is the whole of the serialisation needed.
+//
+// The Reversal Window is not consulted, in either direction. Being past it is
+// the reason this operation exists, and being inside it is no reason to refuse
+// an operator whose buyer is unreachable or whose provider path is down.
+//
+// The Payment stays `approved`: the checkout genuinely settled, and a reversal
+// is a later event on the Sale rather than a retroactive edit to the checkout's
+// outcome (ADR 0018).
+func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef string, in OperatorReversalInput) (*OperatorReversalResult, error) {
+	row, err := s.repo.GetSaleByConfirmationRef(ctx, confirmationRef)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, sales.ErrTicketSaleRefNotFound(confirmationRef)
+	}
+
+	// Everything that can refuse without touching anything runs first, so a
+	// refusal is always a no-op: the sale, its capacity and the buyer's inbox are
+	// all exactly as they were.
+	//
+	// An imported sale is refused because no money for it ever passed through the
+	// platform, so there is nothing here for anybody to assert about; its undo is
+	// the batch-level Sale Import undo and stays so. An In-Person Sale is refused
+	// for the same reason.
+	if row.Channel != platform.OnlineSalesChannel {
+		return nil, sales.ErrOperatorReversalNotAnOnlineSale(row.Channel)
+	}
+	if row.Status != platform.ActiveSaleStatus {
+		return nil, sales.ErrSaleAlreadyReversed()
+	}
+	// What the buyer got back cannot exceed what they paid. The ceiling is this
+	// sale's own collected amount, so a free Online Sale — which collected
+	// nothing — refuses every amount, and is reversed with no money fields at all
+	// through its own path (#126).
+	if in.RefundedAmountCents != nil && *in.RefundedAmountCents > row.AmountCents {
+		return nil, sales.ErrRefundedAmountExceedsCollected(*in.RefundedAmountCents, row.AmountCents, row.Currency)
+	}
+
+	now := s.now()
+	// The shared reversal primitive, the same one the Customer's own undo and the
+	// Sale Import undo go through: it voids the sale and returns every line's
+	// quantity to its Ticket Type's sold_count in one transaction. Capacity
+	// restoration is defined once and never reimplemented per caller — and its
+	// row lock is what makes a double submit, or a race against the buyer's own
+	// undo, restore capacity exactly once.
+	reversedSales, err := s.repo.ReverseSales(ctx, repository.ReverseSalesInput{
+		EventID:        row.EventID,
+		OrganizationID: row.OrganizationID,
+		SaleIDs:        []string{row.ID},
+		Actor:          sales.ReversalActorOperator,
+		Now:            now,
+		Operator: &repository.OperatorReversalMemo{
+			Operator:            in.Operator,
+			Note:                in.Note,
+			RefundedAmountCents: in.RefundedAmountCents,
+			PlatformFeeKept:     in.PlatformFeeKept,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(reversedSales) == 0 {
+		// Somebody got there first — a second press of the operator's own button,
+		// the buyer's undo landing in between, or a Sale Import undo. Nothing was
+		// written, including the memo, so the first reversal's account of what
+		// happened stands.
+		return nil, sales.ErrSaleAlreadyReversed()
+	}
+
+	// Only now, with the reversal committed, is the buyer told — and told by the
+	// existing Sale Voided email, the same one every other reversal sends. A
+	// failure to send is swallowed exactly as every other notice in this module
+	// is: the tickets are gone whether or not the email lands.
+	reversed := reversedSales[0]
+	_ = s.email.SendSaleVoided(ctx, platform.SaleVoided{
+		To:           reversed.CustomerEmail,
+		CustomerName: displayName(reversed.CustomerFirstName, reversed.CustomerLastName),
+		EventName:    row.EventName,
+		Reference:    reversed.ConfirmationRef,
+	})
+
+	return &OperatorReversalResult{
+		TicketSaleID:    row.ID,
+		ConfirmationRef: reversed.ConfirmationRef,
+		Status:          "reversed",
+		ReversedAt:      now.UTC().Format(time.RFC3339),
+		ReversedBy:      sales.ReversalActorOperator,
+		OperatorReversal: OperatorReversalMemo{
+			Operator:            in.Operator,
+			RefundedAmountCents: in.RefundedAmountCents,
+			PlatformFeeKept:     in.PlatformFeeKept,
+			Note:                in.Note,
+		},
+	}, nil
+}
+
+// operatorReversalMemo lifts the Operator Reversal's memo off a looked-up sale,
+// and returns nil for every sale that was not reversed by an operator. The
+// columns are null together (the schema enforces it), so the operator's own
+// identity is what decides whether there is a memo at all.
+func operatorReversalMemo(row *repository.OperatorSaleRow) *OperatorReversalMemo {
+	if !row.ReversedByOperator.Valid {
+		return nil
+	}
+	memo := OperatorReversalMemo{
+		Operator: row.ReversedByOperator.String,
+		Note:     nullableString(row.ReversalNote),
+	}
+	if row.RefundedAmountCents.Valid {
+		refunded := int(row.RefundedAmountCents.Int64)
+		memo.RefundedAmountCents = &refunded
+	}
+	if row.PlatformFeeKept.Valid {
+		feeKept := row.PlatformFeeKept.Bool
+		memo.PlatformFeeKept = &feeKept
+	}
+	return &memo
 }

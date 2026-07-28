@@ -227,7 +227,7 @@ func pageSizeParam(raw string) int {
 // LookUpSale returns one Ticket Sale by its Sale Confirmation reference.
 //
 // @Summary      Look up a Ticket Sale by its Sale Confirmation reference
-// @Description  Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.
+// @Description  Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. operator_reversal carries the money memo an Operator Reversal left — the acting operator, what they said the buyer got back, whether the platform kept its fee, and their note — and is null on every sale reversed any other way; it is operator-facing only and appears on no Organization surface. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.
 // @Tags         operator
 // @Produce      json
 // @Security     BearerAuth
@@ -246,4 +246,115 @@ func (h *Handler) LookUpSale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, found)
+}
+
+// reversalNoteMaxLength bounds the free-text note an Operator Reversal carries.
+// A note is a sentence — "refunded via PayPhone dashboard", "bank transfer,
+// waived fee as goodwill" — and the bound is the schema's, stated here so the
+// caller is told which field is wrong rather than shown a constraint violation.
+const reversalNoteMaxLength = 500
+
+// reverseSaleBody is an Operator Reversal as the operator states it.
+//
+// The money fields are pointers because required-with-no-default is exactly
+// what they are: an absent refunded amount must be refused rather than read as
+// zero, and an absent fee decision must be refused rather than read as false.
+// A default on either would put a claim about somebody's money in the schema's
+// mouth instead of the operator's.
+type reverseSaleBody struct {
+	RefundedAmountCents *int    `json:"refunded_amount_cents"`
+	PlatformFeeKept     *bool   `json:"platform_fee_kept"`
+	Note                *string `json:"note"`
+}
+
+// ReverseSale records an Operator Reversal against one Ticket Sale.
+//
+// @Summary      Record an out-of-band refund and reverse a Ticket Sale
+// @Description  Marks the active Online Sale named by a Sale Confirmation reference `reversed`, recording that the Platform Operator already refunded the buyer OFF-PLATFORM — by hand in the Payment Provider's dashboard, or by bank transfer. It is a pure record: the Payment Provider is NEVER called from this endpoint, so recording a refund that already happened can never trigger a second one. The Payment stays `approved` (the checkout genuinely settled; the reversal is a later event on the Sale). On commit the sale carries the third reversal actor `operator` with the acting operator's email (taken from the Staff Session, never from the body) and the moment, capacity returns to the Ticket Types, and the buyer receives the same Sale Voided email every reversal sends. refunded_amount_cents is required, strictly positive and at most what the sale collected, with no pre-fill; platform_fee_kept is required with no default (the Platform Fee and its Fee IVA travel together, so one flag decides both); note is optional and at most 500 characters. There is NO Reversal Window check on this path — a sale inside its window is marked exactly as one past it, which is the point of the operation. Refused for a sale that is not an Online Sale (an imported sale is undone through its Sale Import) and for one already reversed, including when the buyer's own undo committed first. Irreversible: no un-reversal exists. Platform Operator only.
+// @Tags         operator
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        confirmationRef  path  string           true  "Sale Confirmation reference (case-insensitive)"
+// @Param        body             body  reverseSaleBody  true  "What the buyer got back, and whether the platform kept its fee"
+// @Success      200  {object}  openapi.EnvelopeOperatorSaleReversal
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/sales/{confirmationRef}/reverse [post]
+func (h *Handler) ReverseSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body reverseSaleBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	input, fields := validateReverseSale(body)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	// Who asserted this comes from the session and nowhere else. A money
+	// assertion made on human say-so is never anonymous, and never signed by
+	// somebody the caller named.
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+	input.Operator = session.Email
+
+	result, err := h.svc.ReverseSale(r.Context(), strings.TrimSpace(r.PathValue("confirmationRef")), input)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// validateReverseSale checks the marking's shape: both money facts stated, the
+// refund positive, the note within bounds.
+//
+// What it deliberately does NOT check is the refund against what the sale
+// collected. That ceiling is a fact about the Ticket Sale rather than about this
+// request, so it is judged where the sale is loaded — the same split the record
+// payout body makes against the Withdrawable Balance.
+func validateReverseSale(body reverseSaleBody) (service.OperatorReversalInput, []platform.FieldError) {
+	var fields []platform.FieldError
+
+	// Absent is refused rather than defaulted, in both directions: a pre-filled
+	// amount invites rubber-stamping, and a defaulted fee decision would record a
+	// revenue choice nobody made.
+	switch {
+	case body.RefundedAmountCents == nil:
+		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Message: "is required"})
+	case *body.RefundedAmountCents <= 0:
+		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Message: "must be greater than zero"})
+	}
+	if body.PlatformFeeKept == nil {
+		fields = append(fields, platform.FieldError{Field: "platform_fee_kept", Message: "is required"})
+	}
+
+	var note *string
+	if body.Note != nil {
+		if trimmed := strings.TrimSpace(*body.Note); trimmed != "" {
+			if len([]rune(trimmed)) > reversalNoteMaxLength {
+				fields = append(fields, platform.FieldError{
+					Field:   "note",
+					Message: "must be at most " + strconv.Itoa(reversalNoteMaxLength) + " characters",
+				})
+			}
+			note = &trimmed
+		}
+	}
+
+	return service.OperatorReversalInput{
+		RefundedAmountCents: body.RefundedAmountCents,
+		PlatformFeeKept:     body.PlatformFeeKept,
+		Note:                note,
+	}, fields
 }

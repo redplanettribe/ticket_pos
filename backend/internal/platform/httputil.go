@@ -128,6 +128,13 @@ func domainHTTPStatus(code string) int {
 	// nothing, which is what separates them from a 400 the caller could fix.
 	case "SALE_ALREADY_REVERSED", "SALE_NOT_REVERSIBLE", "REVERSAL_WINDOW_CLOSED":
 		return http.StatusConflict
+	// An Operator Reversal stating a refund larger than the Ticket Sale ever
+	// collected (#125). It is 400 and not 409 because the operator can fix it by
+	// typing the right number — the sale is perfectly reversible, the assertion
+	// about it is not. Stated rather than left to the default so the choice is
+	// visible beside the reversal refusals above.
+	case "REFUNDED_AMOUNT_EXCEEDS_COLLECTED":
+		return http.StatusBadRequest
 	// The provider was asked and refused. Nothing was changed, and the cause is
 	// on the far side of a boundary the buyer cannot act on — a 502 rather than a
 	// 409, because this is not a fact about their purchase.

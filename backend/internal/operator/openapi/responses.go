@@ -38,3 +38,11 @@ type EnvelopeOperatorSaleLookup struct {
 	Error     *platform.APIError `json:"error"`
 	RequestID string             `json:"request_id"`
 }
+
+// EnvelopeOperatorSaleReversal documents POST
+// /operator/sales/{confirmationRef}/reverse success responses.
+type EnvelopeOperatorSaleReversal struct {
+	Data      service.SaleReversal `json:"data"`
+	Error     *platform.APIError   `json:"error"`
+	RequestID string               `json:"request_id"`
+}
