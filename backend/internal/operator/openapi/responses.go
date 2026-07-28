@@ -30,3 +30,11 @@ type EnvelopeOperatorOrganizationDetail struct {
 	Error     *platform.APIError         `json:"error"`
 	RequestID string                     `json:"request_id"`
 }
+
+// EnvelopeOperatorSaleLookup documents GET /operator/sales/{confirmationRef}
+// success responses.
+type EnvelopeOperatorSaleLookup struct {
+	Data      service.SaleLookup `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}

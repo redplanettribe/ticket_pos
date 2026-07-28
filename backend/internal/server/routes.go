@@ -41,6 +41,11 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/operator/summary", operator(http.HandlerFunc(h.GetSummary)))
 	mux.Handle("GET /api/v1/operator/organizations", operator(http.HandlerFunc(h.ListOrganizations)))
 	mux.Handle("GET /api/v1/operator/organizations/{orgID}", operator(http.HandlerFunc(h.GetOrganization)))
+	// The lookup a support thread starts: one Ticket Sale by its Sale
+	// Confirmation reference, across every Organization. It is deliberately not
+	// nested under an Organization — the reference is all the operator has, and
+	// which Organization's sale it is is one of the answers (#124).
+	mux.Handle("GET /api/v1/operator/sales/{confirmationRef}", operator(http.HandlerFunc(h.LookUpSale)))
 	// The operator surface's only write: recording a Payout, which used to mean
 	// an INSERT typed by hand into the production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))

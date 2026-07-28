@@ -223,3 +223,27 @@ func pageSizeParam(raw string) int {
 	}
 	return n
 }
+
+// LookUpSale returns one Ticket Sale by its Sale Confirmation reference.
+//
+// @Summary      Look up a Ticket Sale by its Sale Confirmation reference
+// @Description  Returns one Ticket Sale named by its Sale Confirmation reference (e.g. TP-3F9K2), across EVERY Organization on the platform — the operator is a Member of none, and the flow always starts from a support thread that carries a reference and nothing else. The payload identifies the sale before anybody acts on it: the Event and the Organization it belongs to, the buyer as the sale snapshotted them, the rolled-up Ticket Types and ticket count, the amount collected split into Platform Fee, Fee IVA and Net Proceeds (the snapshots frozen at sale time, so a later rate change moves none of them), the Sales Channel, the Payment Method, the status, and the Sale Reversal provenance on a reversed row. reversal_window_closes_at is when this sale's Reversal Window shuts — the earlier of 20:00 Ecuador time on the day of purchase and the Event's start — and is null on a sale that never had one (anything but an Online Sale, or an Event with no recorded start); reversal_window_passed is true once it has shut, and true as well when there was never a window. Matching ignores the reference's case, since a quoted reference loses it. A reversed sale is found exactly as an active one is: it keeps its reference and is never deleted. Read-only. Platform Operator only.
+// @Tags         operator
+// @Produce      json
+// @Security     BearerAuth
+// @Param        confirmationRef  path  string  true  "Sale Confirmation reference (case-insensitive)"
+// @Success      200  {object}  openapi.EnvelopeOperatorSaleLookup
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/operator/sales/{confirmationRef} [get]
+func (h *Handler) LookUpSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	found, err := h.svc.LookUpSale(r.Context(), strings.TrimSpace(r.PathValue("confirmationRef")))
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, found)
+}

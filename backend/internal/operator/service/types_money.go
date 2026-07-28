@@ -28,3 +28,7 @@ type PageInfo = service.Pagination
 
 // Payout is one recorded Payout with its audit trail.
 type Payout = service.OperatorPayout
+
+// Sale is one Ticket Sale as the operator's lookup by Sale Confirmation
+// reference returns it (sales owns it).
+type Sale = service.OperatorSale

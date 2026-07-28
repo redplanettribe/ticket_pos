@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -196,4 +198,158 @@ func scanOperatorPayout(row rowScanner) (OperatorPayoutRow, error) {
 		p.RecordedBy = &recordedBy.String
 	}
 	return p, nil
+}
+
+// OperatorSaleRow is one Ticket Sale as the Platform Operator's lookup by Sale
+// Confirmation reference sees it (#124): the sale, its money broken into the
+// three figures the platform recorded, the buyer as it snapshotted them, and
+// the Event that places it in time.
+//
+// It is scoped by nothing. Every other read of a Ticket Sale in this module is
+// narrowed by an Organization or by the owning Customer, because that scope IS
+// the authorization; here the authorization is the operator allowlist on the
+// namespace, and the point of the read is that it spans every Organization
+// (ADR 0015).
+//
+// It is not the Sales list's row. That one exists to be listed and filtered by
+// an Organization's own staff; this one exists to identify a sale a support
+// thread named, so it carries the Event and the Organization the reference
+// alone does not reveal, and the fee split the operator needs to see where the
+// money went.
+type OperatorSaleRow struct {
+	ID              string
+	OrganizationID  string
+	ConfirmationRef string
+	Status          string
+	Channel         string
+	Source          sql.NullString
+	PaymentMethod   sql.NullString
+	SoldAt          time.Time
+	RecordedAt      time.Time
+	ReversedAt      sql.NullTime
+	ReversedBy      sql.NullString
+
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
+
+	// TicketTypes is the same roll-up the Sales list carries, built by the same
+	// aggregate, so both surfaces name a sale's contents identically.
+	TicketTypes []SaleLineRollup
+	// TicketCount is how many tickets the sale is for — the quantity a reversal
+	// would hand back to the Ticket Types.
+	TicketCount int
+
+	Currency         string
+	AmountCents      int
+	PlatformFeeCents int
+	FeeIVACents      int
+	NetProceedsCents int
+
+	EventID       string
+	EventName     string
+	EventSlug     string
+	EventStartsAt sql.NullTime
+	EventTimezone sql.NullString
+}
+
+// GetSaleByConfirmationRef returns the one Ticket Sale carrying a Sale
+// Confirmation reference, or nil when none does.
+//
+// The match is case-insensitive because the reference reaches an operator by
+// being quoted — pasted out of an email, retyped in a support thread — and case
+// is the first thing quoting loses. It cannot become ambiguous: references are
+// generated from an uppercase alphabet and are unique, so folding case can find
+// at most the one sale it would have found exactly.
+func (r *Repository) GetSaleByConfirmationRef(ctx context.Context, confirmationRef string) (*OperatorSaleRow, error) {
+	var out OperatorSaleRow
+	var typesJSON []byte
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT
+			ts.id,
+			ts.organization_id,
+			ts.confirmation_ref,
+			ts.status,
+			ts.channel,
+			ts.source,
+			ts.payment_method,
+			ts.sold_at,
+			ts.created_at,
+			ts.reversed_at,
+			ts.reversed_by,
+			ts.customer_email,
+			ts.customer_first_name,
+			ts.customer_last_name,
+			lines.ticket_types,
+			lines.ticket_count,
+			org.currency,
+			lines.amount_cents,
+			lines.fee_cents,
+			lines.fee_iva_cents,
+			lines.net_proceeds_cents,
+			e.id,
+			e.name,
+			e.slug,
+			e.starts_at,
+			e.timezone
+		FROM ticket_sales ts
+		JOIN organizations org ON org.id = ts.organization_id
+		JOIN events e ON e.id = ts.event_id
+		JOIN LATERAL (
+			SELECT
+				COALESCE(SUM(tsl.quantity * tsl.unit_price_cents), 0) AS amount_cents,
+				COALESCE(SUM(tsl.quantity * tsl.fee_cents), 0) AS fee_cents,
+				COALESCE(SUM(tsl.quantity * tsl.fee_iva_cents), 0) AS fee_iva_cents,
+				COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
+				COALESCE(SUM(tsl.quantity), 0) AS ticket_count,
+				COALESCE(
+					json_agg(
+						json_build_object('ticket_type_name', tt.name, 'quantity', tsl.quantity)
+						ORDER BY tt.sort_order, tt.name
+					),
+					'[]'::json
+				) AS ticket_types
+			FROM ticket_sale_lines tsl
+			JOIN ticket_types tt ON tt.id = tsl.ticket_type_id
+			WHERE tsl.ticket_sale_id = ts.id
+		) lines ON TRUE
+		WHERE UPPER(ts.confirmation_ref) = UPPER($1)
+	`, confirmationRef).Scan(
+		&out.ID,
+		&out.OrganizationID,
+		&out.ConfirmationRef,
+		&out.Status,
+		&out.Channel,
+		&out.Source,
+		&out.PaymentMethod,
+		&out.SoldAt,
+		&out.RecordedAt,
+		&out.ReversedAt,
+		&out.ReversedBy,
+		&out.CustomerEmail,
+		&out.CustomerFirstName,
+		&out.CustomerLastName,
+		&typesJSON,
+		&out.TicketCount,
+		&out.Currency,
+		&out.AmountCents,
+		&out.PlatformFeeCents,
+		&out.FeeIVACents,
+		&out.NetProceedsCents,
+		&out.EventID,
+		&out.EventName,
+		&out.EventSlug,
+		&out.EventStartsAt,
+		&out.EventTimezone,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(typesJSON, &out.TicketTypes); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

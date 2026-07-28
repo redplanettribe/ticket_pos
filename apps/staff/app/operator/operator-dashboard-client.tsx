@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -13,6 +14,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  FormField,
+  Input,
   PageHeader,
   cn,
 } from "@ticket-pos/ui";
@@ -67,6 +70,56 @@ function TotalsCard({ totals }: { totals: OperatorCurrencyTotals }) {
             {formatPriceCents(totals.total_owed_cents, totals.currency)}
           </p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The door a support thread opens: paste a Sale Confirmation reference and land
+ * on that sale, whichever Organization it belongs to (#124).
+ *
+ * There is no sales browser here and none is planned — the flow always starts
+ * from a reference somebody was given. The field validates nothing beyond being
+ * non-empty: whether a reference names a sale is the API's answer, and the
+ * lookup ignores case, so a reference quoted in lowercase resolves too.
+ */
+function SaleLookupCard() {
+  const router = useRouter();
+  const [reference, setReference] = useState("");
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmed = reference.trim();
+    if (!trimmed) {
+      return;
+    }
+    router.push(`/operator/sales/${encodeURIComponent(trimmed)}`);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Find a sale</CardTitle>
+        <CardDescription>
+          Look a ticket sale up by its sale confirmation reference, across every organization.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="grid gap-4 sm:grid-cols-[2fr_auto] sm:items-end" onSubmit={handleSubmit}>
+          <FormField id="operator-sale-reference" label="Sale confirmation reference">
+            <Input
+              value={reference}
+              onChange={(event) => setReference(event.target.value)}
+              placeholder="TP-J7K2QX9M"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </FormField>
+          <Button type="submit" disabled={!reference.trim()}>
+            Find sale
+          </Button>
+        </form>
       </CardContent>
     </Card>
   );
@@ -137,6 +190,8 @@ export function OperatorDashboardClient() {
         title="Operator"
         description="Platform revenue, every organization on the platform, and what each is owed."
       />
+
+      <SaleLookupCard />
 
       {totals.length === 0 ? (
         <Card>

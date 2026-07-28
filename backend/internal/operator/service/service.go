@@ -34,13 +34,19 @@ type Events interface {
 }
 
 // Money is what the operator surface needs from sales: the Withdrawable
-// Balances, the platform's own revenue, and the payout history it appends to.
+// Balances, the platform's own revenue, the payout history it appends to, and
+// the one Ticket Sale a support thread names by its Sale Confirmation
+// reference — which is a money question too, since what an operator does with
+// it next is decide what happened to somebody's payment.
 type Money interface {
 	WithdrawableBalance(ctx context.Context, orgID string) (int, error)
 	WithdrawableBalances(ctx context.Context, orgIDs []string) (map[string]int, error)
 	PlatformTotals(ctx context.Context) ([]salessvc.CurrencyTotals, error)
 	OperatorPayoutHistory(ctx context.Context, orgID string) ([]salessvc.OperatorPayout, error)
 	RecordPayout(ctx context.Context, orgID string, input salessvc.RecordPayoutInput) (*salessvc.OperatorPayout, error)
+	// SaleByConfirmationRef returns TICKET_SALE_NOT_FOUND when no Ticket Sale on
+	// the platform carries the reference, which the handler maps to 404.
+	SaleByConfirmationRef(ctx context.Context, confirmationRef string) (*salessvc.OperatorSale, error)
 }
 
 // Service implements the Operator Dashboard's operations.

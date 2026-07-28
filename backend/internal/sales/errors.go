@@ -62,6 +62,23 @@ func ErrTicketSaleNotFound() apperror.DomainError {
 	return apperror.New("TICKET_SALE_NOT_FOUND", "We couldn't find that purchase.", nil)
 }
 
+// ErrTicketSaleRefNotFound is returned when no Ticket Sale on the platform
+// carries the given Sale Confirmation reference.
+//
+// It shares TICKET_SALE_NOT_FOUND with the buyer-facing absence above, because
+// it is the same absence, and it says so in the words its own reader needs: the
+// only caller is a Platform Operator who pasted a reference out of a support
+// thread, and what they must be told apart from "no such sale" is nothing. The
+// reference is echoed back in details precisely because a mistyped one is the
+// likeliest cause, and this surface is operator-only (ADR 0015).
+func ErrTicketSaleRefNotFound(confirmationRef string) apperror.DomainError {
+	return apperror.New(
+		"TICKET_SALE_NOT_FOUND",
+		"No Ticket Sale carries that Sale Confirmation reference.",
+		map[string]any{"confirmation_ref": confirmationRef},
+	)
+}
+
 // ErrSaleAlreadyReversed is returned when the Ticket Sale has already been
 // undone — by the Customer moments ago on a double submit, or by staff undoing
 // a Sale Import.
