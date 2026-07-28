@@ -295,6 +295,11 @@ type SaleLine struct {
 // snapshot the unified search matches, so an organizer can confirm a match at a
 // glance and copy the number for a declaration. Both are null together on sales
 // recorded without one; history is never backfilled (ADR 0016).
+//
+// ReversedAt/ReversedBy are the Sale Reversal's provenance: when the sale was
+// voided and which side caused it ("customer" or "staff"). Both are null on an
+// active sale, and both stay null on a sale reversed before either was recorded
+// — the same never-backfilled treatment, for the same reason (#117, ADR 0018).
 type SaleListItem struct {
 	ID                string     `json:"id"`
 	CustomerFirstName string     `json:"customer_first_name"`
@@ -312,6 +317,8 @@ type SaleListItem struct {
 	PaymentMethod     *string    `json:"payment_method"`
 	TaxIDType         *string    `json:"tax_id_type"`
 	TaxIDNumber       *string    `json:"tax_id_number"`
+	ReversedAt        *time.Time `json:"reversed_at"`
+	ReversedBy        *string    `json:"reversed_by"`
 }
 
 // Pagination is the ADR-0006 nested pagination object: the current page and
@@ -421,6 +428,8 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 			PaymentMethod:     row.PaymentMethod,
 			TaxIDType:         row.CustomerTaxIDType,
 			TaxIDNumber:       row.CustomerTaxIDNumber,
+			ReversedAt:        row.ReversedAt,
+			ReversedBy:        row.ReversedBy,
 		})
 	}
 
@@ -489,8 +498,9 @@ type UndoResult struct {
 }
 
 // UndoImport reverses the latest committed Sale Import batch on an Event: its
-// Ticket Sales are marked reversed, each affected Ticket Type's sold_count is
-// restored, and the batch is marked reversed. When notifyBuyers is true, each
+// Ticket Sales are marked reversed — each stamped with the undo time and the
+// `staff` reversal actor — each affected Ticket Type's sold_count is restored,
+// and the batch is marked reversed. When notifyBuyers is true, each
 // affected Customer is emailed a void/cancellation notice referencing their Sale
 // Confirmation — sent only after the reversal transaction commits. When false,
 // nothing is sent. Only the most recent batch is reversible.

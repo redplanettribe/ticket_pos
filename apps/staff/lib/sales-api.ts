@@ -31,6 +31,11 @@ export type SaleListRow = {
   // without one (legacy rows and imports that never collected it, ADR 0016).
   tax_id_type: string | null;
   tax_id_number: string | null;
+  // The Sale Reversal's provenance: when the sale was voided and which side
+  // caused it ("customer" or "staff"). Both null on an active sale, and on a
+  // sale reversed before either was recorded (#117, ADR 0018).
+  reversed_at: string | null;
+  reversed_by: string | null;
 };
 
 export type SalesPagination = {
@@ -266,6 +271,32 @@ export function paymentMethodLabel(paymentMethod: string | null): string {
     return "—";
   }
   return PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod;
+}
+
+// Who caused a Sale Reversal, as an organizer reads it: the buyer undoing their
+// own Online Sale inside the Reversal Window, or their own staff undoing a Sale
+// Import. The two answers a reversed row has to give are when and which side.
+const REVERSAL_ACTOR_LABELS: Record<string, string> = {
+  customer: "Customer",
+  staff: "Staff",
+};
+
+// reversalLabel renders a reversed sale's provenance as "Jul 7, 2026, 12:00 by
+// Customer". A sale reversed before the platform recorded either half has none,
+// and says so plainly rather than guessing a time — history is never backfilled.
+export function reversalLabel(
+  reversedAt: string | null,
+  reversedBy: string | null,
+  timezone: string | null,
+): string {
+  if (!reversedAt) {
+    return "Not recorded";
+  }
+  const when = formatSaleTimestamp(reversedAt, timezone);
+  if (!reversedBy) {
+    return when;
+  }
+  return `${when} by ${REVERSAL_ACTOR_LABELS[reversedBy] ?? reversedBy}`;
 }
 
 // formatSaleTimestamp renders an ISO timestamp in the Event timezone (falling

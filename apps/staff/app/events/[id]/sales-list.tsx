@@ -26,6 +26,7 @@ import {
   hasActiveSalesFilters,
   PAYMENT_METHODS,
   paymentMethodLabel,
+  reversalLabel,
   rollupTicketTypes,
   salesListQuery,
   taxIdLabel,
@@ -467,10 +468,15 @@ function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
         <td className="py-3 pr-4">
           <div className="font-medium">{name}</div>
           <div className="text-muted-foreground">{sale.customer_email}</div>
+          {/* A reversed sale says when it went and which side asked; an active
+              one shows nothing extra (#117). */}
           {reversed ? (
-            <Badge variant="destructive" className="mt-1">
-              Reversed
-            </Badge>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge variant="destructive">Reversed</Badge>
+              <span className="text-xs text-muted-foreground">
+                {reversalLabel(sale.reversed_at, sale.reversed_by, timezone)}
+              </span>
+            </div>
           ) : null}
         </td>
         <td className="py-3 pr-4 whitespace-nowrap">{taxIdLabel(sale.tax_id_type, sale.tax_id_number)}</td>

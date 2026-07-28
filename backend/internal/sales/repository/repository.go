@@ -611,10 +611,159 @@ func (e *BatchAlreadyReversedError) Error() string {
 	return "sale import batch already reversed: " + e.BatchID
 }
 
+// ReverseSalesInput is a set of Ticket Sales to void together. SaleIDs is the
+// candidate set: sales already reversed are skipped, so the operation is
+// idempotent and safe to retry. Actor is which side caused the Sale Reversal —
+// sales.ReversalActorCustomer or sales.ReversalActorStaff — and Now the moment
+// it happened; both are stamped on every sale actually reversed.
+type ReverseSalesInput struct {
+	EventID        string
+	OrganizationID string
+	SaleIDs        []string
+	Actor          string
+	Now            time.Time
+}
+
+// ReverseSales voids an arbitrary set of Ticket Sales in one transaction. It is
+// the single definition of what reversing a sale does, shared by every reversal
+// path (Sale Import undo today, Customer-initiated Sale Reversal next) so
+// capacity restoration is never reimplemented.
+//
+// It returns the sales actually reversed, so the caller can send void notices
+// after the transaction commits.
+func (r *Repository) ReverseSales(ctx context.Context, in ReverseSalesInput) ([]ReversedSale, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	reversed, err := reverseSalesTx(ctx, tx, in)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return reversed, nil
+}
+
+// reverseSalesTx is the reversal primitive itself, run inside a caller's
+// transaction so a reversal can be composed with the rest of a larger unit of
+// work (the Sale Import undo also flips its batch row, in the same transaction
+// or not at all).
+//
+// It locks the candidate sales' rows FOR UPDATE in id order so a concurrent
+// reversal of the same sale serializes and finds nothing left to do, restores
+// each affected Ticket Type's sold_count by the reversed quantities (locking
+// ticket_types FOR UPDATE in a stable order, symmetric to CommitSales), and
+// marks each sale 'reversed' with the reversal time and actor.
+func reverseSalesTx(ctx context.Context, tx *sql.Tx, in ReverseSalesInput) ([]ReversedSale, error) {
+	if len(in.SaleIDs) == 0 {
+		return nil, nil
+	}
+
+	// Lock and read the sales that are still active. Everything below works off
+	// this set, so a sale reversed by a racing transaction is simply not in it.
+	// The ordered lock keeps concurrent reversals of overlapping sets deadlock-free.
+	saleRows, err := tx.QueryContext(ctx, `
+		SELECT id, customer_email, customer_first_name, customer_last_name, confirmation_ref
+		FROM ticket_sales
+		WHERE id = ANY($1) AND event_id = $2 AND organization_id = $3 AND status = 'active'
+		ORDER BY id
+		FOR UPDATE
+	`, in.SaleIDs, in.EventID, in.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	var reversed []ReversedSale
+	var activeIDs []string
+	for saleRows.Next() {
+		var id string
+		var s ReversedSale
+		if err := saleRows.Scan(&id, &s.CustomerEmail, &s.CustomerFirstName, &s.CustomerLastName, &s.ConfirmationRef); err != nil {
+			saleRows.Close()
+			return nil, err
+		}
+		activeIDs = append(activeIDs, id)
+		reversed = append(reversed, s)
+	}
+	if err := saleRows.Err(); err != nil {
+		saleRows.Close()
+		return nil, err
+	}
+	saleRows.Close()
+	if len(activeIDs) == 0 {
+		return nil, nil
+	}
+
+	// Aggregate the quantities to restore per Ticket Type from those sales' lines.
+	quantityRows, err := tx.QueryContext(ctx, `
+		SELECT tsl.ticket_type_id, SUM(tsl.quantity)
+		FROM ticket_sale_lines tsl
+		WHERE tsl.ticket_sale_id = ANY($1)
+		GROUP BY tsl.ticket_type_id
+	`, activeIDs)
+	if err != nil {
+		return nil, err
+	}
+	restore := map[string]int{}
+	var typeIDs []string
+	for quantityRows.Next() {
+		var id string
+		var qty int
+		if err := quantityRows.Scan(&id, &qty); err != nil {
+			quantityRows.Close()
+			return nil, err
+		}
+		restore[id] = qty
+		typeIDs = append(typeIDs, id)
+	}
+	if err := quantityRows.Err(); err != nil {
+		quantityRows.Close()
+		return nil, err
+	}
+	quantityRows.Close()
+	sort.Strings(typeIDs)
+
+	// Lock the affected Ticket Types in a stable order (symmetric to CommitSales)
+	// then restore capacity.
+	for _, id := range typeIDs {
+		var dummy int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT sold_count FROM ticket_types
+			WHERE id = $1 AND event_id = $2 AND organization_id = $3
+			FOR UPDATE
+		`, id, in.EventID, in.OrganizationID).Scan(&dummy); err != nil {
+			return nil, err
+		}
+	}
+	for _, id := range typeIDs {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE ticket_types SET sold_count = sold_count - $1, updated_at = $2
+			WHERE id = $3
+		`, restore[id], in.Now, id); err != nil {
+			return nil, err
+		}
+	}
+
+	// The status flip carries its own provenance: a reversed sale says when it
+	// went and which side asked (#117, ADR 0018).
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ticket_sales
+		SET status = 'reversed', reversed_at = $2, reversed_by = $3
+		WHERE id = ANY($1)
+	`, activeIDs, in.Now, in.Actor); err != nil {
+		return nil, err
+	}
+
+	return reversed, nil
+}
+
 // ReverseBatch reverses a committed Sale Import batch in a single transaction:
-// it marks the batch's active Ticket Sales 'reversed', restores each affected
-// Ticket Type's sold_count by the reversed quantities (locking ticket_types FOR
-// UPDATE, symmetric to CommitSales), and marks the batch 'reversed'.
+// it reverses the batch's active Ticket Sales through the shared reversal
+// primitive — voiding them and restoring each affected Ticket Type's sold_count,
+// stamped with the staff actor — and marks the batch 'reversed'.
 //
 // Only the most recent batch on the Event is reversible: if the target is not
 // the newest batch it returns *BatchNotLatestError; an already-reversed batch
@@ -662,85 +811,37 @@ func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*Revers
 		return nil, &BatchAlreadyReversedError{BatchID: in.BatchID}
 	}
 
-	// Aggregate the quantities to restore per Ticket Type from the batch's active
-	// sales, and collect the sales for the void notices.
-	quantityRows, err := tx.QueryContext(ctx, `
-		SELECT tsl.ticket_type_id, SUM(tsl.quantity)
-		FROM ticket_sale_lines tsl
-		JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
-		WHERE ts.import_batch_id = $1 AND ts.status = 'active'
-		GROUP BY tsl.ticket_type_id
+	// The batch's sales are the set to reverse; the primitive does the voiding
+	// and the capacity restoration, inside this same transaction.
+	idRows, err := tx.QueryContext(ctx, `
+		SELECT id FROM ticket_sales WHERE import_batch_id = $1 AND status = 'active'
 	`, in.BatchID)
 	if err != nil {
 		return nil, err
 	}
-	restore := map[string]int{}
-	var typeIDs []string
-	for quantityRows.Next() {
+	var saleIDs []string
+	for idRows.Next() {
 		var id string
-		var qty int
-		if err := quantityRows.Scan(&id, &qty); err != nil {
-			quantityRows.Close()
+		if err := idRows.Scan(&id); err != nil {
+			idRows.Close()
 			return nil, err
 		}
-		restore[id] = qty
-		typeIDs = append(typeIDs, id)
+		saleIDs = append(saleIDs, id)
 	}
-	if err := quantityRows.Err(); err != nil {
-		quantityRows.Close()
+	if err := idRows.Err(); err != nil {
+		idRows.Close()
 		return nil, err
 	}
-	quantityRows.Close()
-	sort.Strings(typeIDs)
+	idRows.Close()
 
-	saleRows, err := tx.QueryContext(ctx, `
-		SELECT customer_email, customer_first_name, customer_last_name, confirmation_ref
-		FROM ticket_sales
-		WHERE import_batch_id = $1 AND status = 'active'
-	`, in.BatchID)
+	reversed, err := reverseSalesTx(ctx, tx, ReverseSalesInput{
+		EventID:        in.EventID,
+		OrganizationID: in.OrganizationID,
+		SaleIDs:        saleIDs,
+		Actor:          sales.ReversalActorStaff,
+		Now:            in.Now,
+	})
 	if err != nil {
-		return nil, err
-	}
-	var reversed []ReversedSale
-	for saleRows.Next() {
-		var s ReversedSale
-		if err := saleRows.Scan(&s.CustomerEmail, &s.CustomerFirstName, &s.CustomerLastName, &s.ConfirmationRef); err != nil {
-			saleRows.Close()
-			return nil, err
-		}
-		reversed = append(reversed, s)
-	}
-	if err := saleRows.Err(); err != nil {
-		saleRows.Close()
-		return nil, err
-	}
-	saleRows.Close()
-
-	// Lock the affected Ticket Types in a stable order (symmetric to CommitSales)
-	// then restore capacity.
-	for _, id := range typeIDs {
-		var dummy int
-		if err := tx.QueryRowContext(ctx, `
-			SELECT sold_count FROM ticket_types
-			WHERE id = $1 AND event_id = $2 AND organization_id = $3
-			FOR UPDATE
-		`, id, in.EventID, in.OrganizationID).Scan(&dummy); err != nil {
-			return nil, err
-		}
-	}
-	for _, id := range typeIDs {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE ticket_types SET sold_count = sold_count - $1, updated_at = $2
-			WHERE id = $3
-		`, restore[id], in.Now, id); err != nil {
-			return nil, err
-		}
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE ticket_sales SET status = 'reversed'
-		WHERE import_batch_id = $1 AND status = 'active'
-	`, in.BatchID); err != nil {
 		return nil, err
 	}
 
@@ -836,6 +937,11 @@ type SaleRow struct {
 	// imports that never collected it — ADR 0016).
 	CustomerTaxIDType   *string
 	CustomerTaxIDNumber *string
+	// ReversedAt/ReversedBy are the Sale Reversal's provenance: when the sale was
+	// voided and which side caused it. Null together on an active sale, and on a
+	// sale reversed before either was recorded (#117).
+	ReversedAt *time.Time
+	ReversedBy *string
 }
 
 // ListSalesQuery selects a page of an Event's Ticket Sales for the Sales list.
@@ -1010,6 +1116,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.payment_method,
 			ts.customer_tax_id_type,
 			ts.customer_tax_id_number,
+			ts.reversed_at,
+			ts.reversed_by,
 			COUNT(*) OVER() AS total
 		FROM ticket_sales ts
 		JOIN organizations org ON org.id = ts.organization_id
@@ -1043,7 +1151,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	for rows.Next() {
 		var s SaleRow
 		var typesJSON []byte
-		var source, paymentMethod, taxIDType, taxIDNumber sql.NullString
+		var source, paymentMethod, taxIDType, taxIDNumber, reversedBy sql.NullString
+		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
 			&s.CustomerFirstName,
@@ -1061,6 +1170,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&paymentMethod,
 			&taxIDType,
 			&taxIDNumber,
+			&reversedAt,
+			&reversedBy,
 			&total,
 		); err != nil {
 			return nil, 0, err
@@ -1081,6 +1192,14 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		}
 		if taxIDNumber.Valid {
 			s.CustomerTaxIDNumber = &taxIDNumber.String
+		}
+		// Also a pair kept together by a database CHECK (migration 031); a sale
+		// reversed before #117 has neither half, and is reported as it is.
+		if reversedAt.Valid {
+			s.ReversedAt = &reversedAt.Time
+		}
+		if reversedBy.Valid {
+			s.ReversedBy = &reversedBy.String
 		}
 		out = append(out, s)
 	}

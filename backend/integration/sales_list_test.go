@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // setEventTimezone stamps the Event's timezone directly (createDraftEvent leaves
@@ -64,6 +65,10 @@ type saleListRow struct {
 	// sales recorded without one.
 	TaxIDType   *string `json:"tax_id_type"`
 	TaxIDNumber *string `json:"tax_id_number"`
+	// When the Ticket Sale was reversed and which side caused it (#117): both
+	// null on an active sale, and on a sale reversed before this was recorded.
+	ReversedAt *string `json:"reversed_at"`
+	ReversedBy *string `json:"reversed_by"`
 }
 
 type salesListEnvelope struct {
@@ -454,6 +459,87 @@ func TestSalesListStatusFilter(t *testing.T) {
 	}
 	if rev.Data[0].Status != "reversed" {
 		t.Fatalf("reversed row status = %q, want reversed", rev.Data[0].Status)
+	}
+}
+
+// TestSalesListReversedRowCarriesReversalProvenance proves a reversed row tells
+// staff when the Sale Reversal happened and which side caused it — a Sale Import
+// undo is 'staff' — while an active row carries neither (#117, ADR 0018).
+func TestSalesListReversedRowCarriesReversalProvenance(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Provenance Fest", "provenance-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "kept-batch", []map[string]any{
+		{"customer_email": "keep@example.com", "customer_first_name": "Keep", "customer_last_name": "Active", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	undone := commitBatch(t, env, sessionID, eventID, "undone-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-03T10:00:00Z"},
+	})
+	undoBatch(t, env, sessionID, eventID, undone)
+
+	// An active row shows nothing extra.
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales", authHeader(sessionID))
+	active := salesList(t, body)
+	if len(active.Data) != 1 {
+		t.Fatalf("active rows = %d, want 1", len(active.Data))
+	}
+	if active.Data[0].ReversedAt != nil || active.Data[0].ReversedBy != nil {
+		t.Fatalf("active row carries reversal provenance: at=%v by=%v",
+			active.Data[0].ReversedAt, active.Data[0].ReversedBy)
+	}
+
+	// Every sale in the undone batch records when and by whom.
+	_, body = env.get(t, "/api/v1/staff/events/"+eventID+"/sales?status=reversed", authHeader(sessionID))
+	reversed := salesList(t, body)
+	if len(reversed.Data) != 2 {
+		t.Fatalf("reversed rows = %d, want 2", len(reversed.Data))
+	}
+	for _, row := range reversed.Data {
+		if row.ReversedBy == nil || *row.ReversedBy != "staff" {
+			t.Fatalf("row %s reversed_by = %v, want staff", row.CustomerEmail, row.ReversedBy)
+		}
+		if row.ReversedAt == nil {
+			t.Fatalf("row %s reversed_at is null, want the undo time", row.CustomerEmail)
+		}
+		at, err := time.Parse(time.RFC3339, *row.ReversedAt)
+		if err != nil {
+			t.Fatalf("row %s reversed_at = %q: %v", row.CustomerEmail, *row.ReversedAt, err)
+		}
+		if !at.Equal(env.fixedClock) {
+			t.Fatalf("row %s reversed_at = %s, want the undo time %s", row.CustomerEmail, at, env.fixedClock)
+		}
+	}
+}
+
+// TestSalesListReversedBeforeProvenanceWasRecordedStaysNull proves a Ticket Sale
+// already reversed before #117 shipped keeps a null reversal time and actor: the
+// migration invents no timestamp, and the list reports the absence honestly.
+func TestSalesListReversedBeforeProvenanceWasRecordedStaysNull(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Legacy Fest", "legacy-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "legacy-batch", []map[string]any{
+		{"customer_email": "old@example.com", "customer_first_name": "Old", "customer_last_name": "Row", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	// Direct SQL: no API can produce a pre-migration reversed row, which is
+	// exactly the shape under test — status flipped with no provenance beside it.
+	if _, err := env.db.Exec(`UPDATE ticket_sales SET status = 'reversed' WHERE event_id = $1`, eventID); err != nil {
+		t.Fatalf("seed legacy reversed sale: %v", err)
+	}
+
+	_, body := env.get(t, "/api/v1/staff/events/"+eventID+"/sales?status=reversed", authHeader(sessionID))
+	list := salesList(t, body)
+	if len(list.Data) != 1 {
+		t.Fatalf("reversed rows = %d, want 1", len(list.Data))
+	}
+	if list.Data[0].ReversedAt != nil || list.Data[0].ReversedBy != nil {
+		t.Fatalf("legacy reversed row = at:%v by:%v, want both null",
+			list.Data[0].ReversedAt, list.Data[0].ReversedBy)
 	}
 }
 
