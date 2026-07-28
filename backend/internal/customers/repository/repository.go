@@ -21,30 +21,16 @@ func New(db *platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
-// UpsertInput is a Customer to create or reuse. Email must already be normalised
-// (lowercase, trimmed) by the service — this layer holds no business rules.
+// UpsertInput is a Customer to create or reuse: the buyer exactly as the Ticket
+// Sale that triggered this call collected them, plus the moment it happened.
+//
+// Customer.Email must already be normalised (lowercase, trimmed) by the service
+// — this layer holds no business rules. Everything else arrives verbatim,
+// including Customer.SelfAsserted, which is the whole of this statement's
+// authority to overwrite a Verified Customer's stored values; see Upsert.
 type UpsertInput struct {
-	Email     string
-	FirstName string
-	LastName  string
-	// TaxID is the Tax ID this sale was transacted under, unset on a sale that
-	// carries none (the `import` channel). Its SelfAsserted flag decides whether
-	// a Verified Customer's stored Tax ID may be overwritten; see Upsert.
-	//
-	// That flag describes the *checkout*, not the Tax ID: it reports that the
-	// begin-checkout ran under this Customer's own full Customer Session. Phone
-	// below is guarded by the same flag for that reason (#107).
-	TaxID platform.SaleTaxID
-	// Phone is the buyer's phone number in canonical E.164 form as typed at
-	// checkout, empty when they gave none or when the channel never collects one
-	// (import, and the staff-recorded sale). It is written back onto the Customer
-	// under the same guard as the Tax ID; see Upsert.
-	//
-	// Unlike the Tax ID it is NOT recorded on the Ticket Sale — a phone number is
-	// no fiscal fact of a sale (#103, #107) — so this is the only column any of
-	// it reaches.
-	Phone string
-	Now   time.Time
+	Customer platform.SaleCustomer
+	Now      time.Time
 }
 
 // Upsert creates the Customer for the normalised email, or reuses the existing
@@ -79,7 +65,7 @@ type UpsertInput struct {
 // (ADR 0016). Like the name it may fill a blank on any channel and refresh
 // freely while the Customer is unverified. Unlike the name it has an override:
 // when the sale was transacted under this Customer's own Customer Session
-// (in.TaxID.SelfAsserted), the value is the person's own assertion about
+// (in.Customer.SelfAsserted), the value is the person's own assertion about
 // themselves and replaces the stored one even on a Verified Customer. The name
 // has no such escape because nothing proves a name; ownership of the email is
 // exactly what the session proves, and the Tax ID is the thing the person is
@@ -100,26 +86,28 @@ type UpsertInput struct {
 // self-corrects until somebody claims it, and a checkout under the person's own
 // Customer Session is that person restating a fact about themselves.
 //
-// It reads $7 — in.TaxID.SelfAsserted — because that flag describes the
-// CHECKOUT, not the Tax ID: it records that the begin-checkout carried this
-// Customer's own full Customer Session. It is the same proof of email ownership
-// whichever value it is protecting, so the phone reuses it rather than
-// duplicating a second flag that could only ever hold the same boolean.
+// Both CASE clauses read the same $7 — in.Customer.SelfAsserted — and that is
+// the point of where the flag lives (#111). It is a fact about the buyer's
+// CHECKOUT, not about either value it protects: the begin-checkout carried this
+// Customer's own full Customer Session, and that one proof of email ownership is
+// what authorises every write here. A second boolean per guarded column could
+// only ever hold the same answer, and a future guarded field reads this same
+// bind rather than reaching through whichever neighbour happened to carry it.
 //
 // A checkout that carried no phone leaves EXCLUDED.phone NULL and writes
 // nothing: like the import channel and the Tax ID, an absent value never blanks
 // one somebody supplied. Clearing a phone is "My info"'s alone (#108).
 func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (string, error) {
 	var taxIDType, taxIDNumber any
-	if in.TaxID.Set() {
-		taxIDType, taxIDNumber = in.TaxID.Type, in.TaxID.Number
+	if in.Customer.TaxID.Set() {
+		taxIDType, taxIDNumber = in.Customer.TaxID.Type, in.Customer.TaxID.Number
 	}
 	// nil, not "": the guard below distinguishes "the buyer gave a phone" from
 	// "they did not" by NULL-ness, and an empty string is a value that would
 	// pass IS NOT NULL and blank a stored number.
 	var phone any
-	if in.Phone != "" {
-		phone = in.Phone
+	if in.Customer.Phone != "" {
+		phone = in.Customer.Phone
 	}
 
 	var id string
@@ -141,7 +129,8 @@ func (r *Repository) Upsert(ctx context.Context, tx *sql.Tx, in UpsertInput) (st
 				AND (customers.phone IS NULL OR customers.verified_at IS NULL OR $7)
 				THEN EXCLUDED.phone ELSE customers.phone END
 		RETURNING id
-	`, in.Email, in.FirstName, in.LastName, in.Now, taxIDType, taxIDNumber, in.TaxID.SelfAsserted, phone).Scan(&id)
+	`, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
+		taxIDType, taxIDNumber, in.Customer.SelfAsserted, phone).Scan(&id)
 	if err != nil {
 		return "", err
 	}

@@ -41,31 +41,25 @@ type CommitLine struct {
 	Fee *sales.FeeSnapshot
 }
 
-// CommitSale is one Ticket Sale to record on any Sales Channel: the customer
-// identity as transacted, the optional Payment Method, and the Ticket Sale
-// Lines with their unit-price snapshots.
+// CommitSale is one Ticket Sale to record on any Sales Channel: the buyer as
+// transacted, the optional Payment Method, and the Ticket Sale Lines with their
+// unit-price snapshots.
 type CommitSale struct {
-	CustomerEmail     string
-	CustomerFirstName string
-	CustomerLastName  string
-	// CustomerTaxID is the Tax ID this sale is transacted under. It is written
-	// onto the sale exactly once, here, and no later sale or profile edit ever
-	// touches it (ADR 0016). Unset on a sale that carries none — the `import`
-	// channel, and every sale recorded before the Tax ID existed.
-	CustomerTaxID platform.SaleTaxID
-	// CustomerPhone is the buyer's phone number in canonical E.164 form as typed
-	// at checkout, empty on every channel that collects none — the `import` file,
-	// the staff-recorded sale, and an online buyer who skipped the optional field.
+	// Customer is the buyer this sale was transacted with, whole (#111). Not all
+	// of it is written onto the Ticket Sale, and the split is deliberate:
 	//
-	// It is the one field here that is NOT written onto the Ticket Sale. It rides
-	// this struct only to reach UpsertCustomer below, which may write it onto the
-	// Customer profile so it prefills their next purchase (#107). The Tax ID is
-	// snapshotted beside it because ADR 0016 makes it a fiscal fact of the sale,
-	// frozen against later profile edits; a phone number carries no such
-	// requirement, and snapshotting it would cascade into the staff sales list,
-	// receipts, the Sale Import format and the public contract for a value none of
-	// them read (#103).
-	CustomerPhone   string
+	//   - Email and the two name halves are snapshotted onto the sale verbatim,
+	//     as transacted, and no later profile edit rewrites them.
+	//   - The Tax ID is snapshotted too, exactly once and never again, because
+	//     ADR 0016 makes it a fiscal fact of the sale.
+	//   - The phone and the self-asserted flag are NOT. They ride this struct
+	//     only to reach UpsertCustomer below: the phone's destination is the
+	//     Customer profile, so it prefills the buyer's next purchase (#107), and
+	//     the flag is what tells that upsert whether this buyer had proven the
+	//     email is theirs. Giving the phone a column here would cascade into the
+	//     staff sales list, receipts, the Sale Import format and the public
+	//     contract for a value none of them read (#103).
+	Customer        platform.SaleCustomer
 	PaymentMethod   string
 	SoldAt          time.Time
 	ConfirmationRef string
@@ -77,11 +71,12 @@ type CommitSale struct {
 // bound to the customers service, so the cross-module call goes through that
 // module's service rather than its repository.
 //
-// phone is the buyer's canonical E.164 number, empty on the channels that
-// collect none. It is passed here rather than written by this package because
-// nothing in sales stores it beyond the Payment: the profile is its destination
-// (#107).
-type UpsertCustomer func(ctx context.Context, tx *sql.Tx, email, firstName, lastName string, taxID platform.SaleTaxID, phone string, now time.Time) (string, error)
+// It takes the buyer whole rather than a growing row of positional facts (#111).
+// The bundle carries values this package never stores — the phone, whose
+// destination is the profile (#107), and the flag saying the buyer proved the
+// email is theirs — because what may be written back is the customers module's
+// rule, and it needs the whole person to apply it.
+type UpsertCustomer func(ctx context.Context, tx *sql.Tx, customer platform.SaleCustomer, now time.Time) (string, error)
 
 // CommitSalesInput is a set of prepared Ticket Sales to record on one Sales
 // Channel — the channel-agnostic sale-commit spine's input. Source qualifies
@@ -329,7 +324,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	// entry points validate this against the user; the spine asserts it so a
 	// future channel cannot skip the rule by never having heard of it.
 	for _, s := range in.Sales {
-		if err := sales.RequireTaxID(in.Channel, s.CustomerTaxID); err != nil {
+		if err := sales.RequireTaxID(in.Channel, s.Customer.TaxID); err != nil {
 			return nil, err
 		}
 	}
@@ -400,9 +395,11 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		// the Customer it references are never recorded apart. The sale keeps its own
 		// copy of the recorded name and email verbatim; the upsert never rewrites it.
 		//
-		// The phone goes through here and stops: the INSERT below has no column
-		// for it, deliberately (see CommitSale.CustomerPhone).
-		customerID, err := in.UpsertCustomer(ctx, tx, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.CustomerTaxID, s.CustomerPhone, in.Now)
+		// The buyer goes across whole, and the parts of them the sale does not
+		// record — the phone, and the flag saying they proved the email is theirs
+		// — go through here and stop: the INSERT below has no column for either,
+		// deliberately (see CommitSale.Customer).
+		customerID, err := in.UpsertCustomer(ctx, tx, s.Customer, in.Now)
 		if err != nil {
 			return nil, err
 		}
@@ -419,8 +416,8 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
-			customerID, s.CustomerEmail, s.CustomerFirstName, s.CustomerLastName, s.SoldAt, s.ConfirmationRef, in.Now,
-			nullString(s.CustomerTaxID.Type), nullString(s.CustomerTaxID.Number)).Scan(&saleID)
+			customerID, s.Customer.Email, s.Customer.FirstName, s.Customer.LastName, s.SoldAt, s.ConfirmationRef, in.Now,
+			nullString(s.Customer.TaxID.Type), nullString(s.Customer.TaxID.Number)).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}
@@ -455,11 +452,11 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		recorded = append(recorded, RecordedSale{
 			ID:                saleID,
 			ConfirmationRef:   s.ConfirmationRef,
-			CustomerEmail:     s.CustomerEmail,
-			CustomerFirstName: s.CustomerFirstName,
-			CustomerLastName:  s.CustomerLastName,
+			CustomerEmail:     s.Customer.Email,
+			CustomerFirstName: s.Customer.FirstName,
+			CustomerLastName:  s.Customer.LastName,
 			AmountCents:       amountCents,
-			CustomerTaxID:     s.CustomerTaxID,
+			CustomerTaxID:     s.Customer.TaxID,
 		})
 	}
 

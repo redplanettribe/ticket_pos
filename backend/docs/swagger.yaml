@@ -2201,8 +2201,9 @@ paths:
         E.164 form and offered to the Payment Provider so its hosted payment page
         arrives prefilled; omitted, the checkout proceeds identically and nothing
         is sent in its place. A Customer Session presented in Authorization is optional
-        and changes nothing about the sale — it only marks the Tax ID as the buyer''s
-        own assertion, which lets it replace their stored one.'
+        and changes nothing about the sale — it marks the buyer''s details as their
+        own assertion, which is what lets them replace the Tax ID and phone already
+        stored on that Customer.'
       parameters:
       - description: Organization slug
         in: path

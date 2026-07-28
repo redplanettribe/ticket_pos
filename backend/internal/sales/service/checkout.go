@@ -42,28 +42,20 @@ type CheckoutLineInput struct {
 }
 
 // BeginCheckoutInput is a guest's request to start paying for tickets: the
-// Event named by public slugs, the requested lines, and the checkout identity.
+// Event named by public slugs, the requested lines, and who is buying.
 type BeginCheckoutInput struct {
-	OrganizationSlug  string
-	EventSlug         string
-	CustomerEmail     string
-	CustomerFirstName string
-	CustomerLastName  string
-	// CustomerTaxID is the Tax ID this purchase is to be declared under,
-	// required on this native Sales Channel and already validated and normalised
-	// by the handler (ADR 0016). Its SelfAsserted flag says the begin request
-	// ran under this buyer's own Customer Session; it is snapshotted onto the
-	// Payment because confirm, arriving on the provider's redirect, can no
-	// longer establish it.
-	CustomerTaxID platform.SaleTaxID
-	// CustomerPhone is the buyer's phone number in canonical E.164 form, already
-	// validated and normalised by the handler, or empty when they gave none —
-	// the field is optional and is never given a value the buyer did not type
-	// (#106). It is snapshotted onto the Payment for the same reason the Tax ID
-	// is: confirm arrives on the provider's redirect and carries nothing of the
-	// checkout form.
-	CustomerPhone string
-	Lines         []CheckoutLineInput
+	OrganizationSlug string
+	EventSlug        string
+	// Customer is the buyer as the checkout form and the request itself describe
+	// them, already validated and normalised by the handler: a Tax ID required on
+	// this native Sales Channel (ADR 0016), a phone only when they typed one
+	// (#106), and SelfAsserted set from the Customer Session the request carried.
+	//
+	// The whole of it is snapshotted onto the Payment, because confirm arrives on
+	// the provider's return redirect and carries nothing of this form back — and
+	// in the case of the session, can no longer establish it at all.
+	Customer platform.SaleCustomer
+	Lines    []CheckoutLineInput
 }
 
 // BeginCheckoutResult is what the Storefront needs to send the Customer to the
@@ -83,11 +75,20 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	// The handler has already rejected a missing or invalid Tax ID with
 	// field-level errors; this is the online channel's service-layer statement
 	// of the ADR 0016 requirement, so no caller can begin a checkout without one.
-	if err := sales.RequireTaxID("online", in.CustomerTaxID); err != nil {
+	if err := sales.RequireTaxID("online", in.Customer.TaxID); err != nil {
 		return nil, err
 	}
 	orgSlug := strings.ToLower(strings.TrimSpace(in.OrganizationSlug))
 	eventSlug := strings.ToLower(strings.TrimSpace(in.EventSlug))
+
+	// Trimmed once, on a copy, and used for both the Payment snapshot and the
+	// provider prefill below — so the two can never disagree about who is buying,
+	// and a buyer fact added to SaleCustomer later reaches both without being
+	// listed again here.
+	customer := in.Customer
+	customer.Email = strings.TrimSpace(customer.Email)
+	customer.FirstName = strings.TrimSpace(customer.FirstName)
+	customer.LastName = strings.TrimSpace(customer.LastName)
 
 	event, err := s.repo.GetCheckoutEvent(ctx, orgSlug, eventSlug)
 	if err != nil {
@@ -172,11 +173,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		Provider:            s.provider.Name(),
 		ClientTransactionID: clientTransactionID,
 		AmountCents:         amountCents,
-		CustomerEmail:       strings.TrimSpace(in.CustomerEmail),
-		CustomerFirstName:   strings.TrimSpace(in.CustomerFirstName),
-		CustomerLastName:    strings.TrimSpace(in.CustomerLastName),
-		CustomerTaxID:       in.CustomerTaxID,
-		CustomerPhone:       in.CustomerPhone,
+		Customer:            customer,
 		Lines:               paymentLines,
 		Now:                 now,
 	}); err != nil {
@@ -199,10 +196,14 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		// substitutes a default for a blank: the field is optional, and a provider
 		// asked to prefill a value nobody entered is exactly the fabricated
 		// cardholder data PayPhone's rules prohibit (#103, #106).
+		//
+		// This is a narrowing of the buyer, not a copy of them: the prefill is
+		// only what a hosted payment page could ask for, so the name and the
+		// provenance of the buyer's own assertions stay on our side (#111).
 		Customer: platform.PaymentCustomer{
-			Email: strings.TrimSpace(in.CustomerEmail),
-			Phone: in.CustomerPhone,
-			TaxID: in.CustomerTaxID,
+			Email: customer.Email,
+			Phone: customer.Phone,
+			TaxID: customer.TaxID,
 		},
 	})
 	if err != nil {

@@ -43,36 +43,21 @@ var (
 )
 
 // SaleTaxID is the Tax ID one Ticket Sale was transacted under, as it travels
-// from the checkout form to the Customer upsert. Both halves are empty when the
-// sale carries no Tax ID at all, which only the `import` channel may do
-// (ADR 0016).
+// from the checkout form to the Customer upsert (inside a SaleCustomer) and on
+// to the Sale Confirmation. Both halves are empty when the sale carries no Tax
+// ID at all, which only the `import` channel may do (ADR 0016).
 //
 // It is defined here, beside the validator, because it crosses a module
 // boundary: sales hands it to customers through the upsert seam, and neither
 // module may import the other's packages for a data type.
+//
+// It holds the Tax ID and nothing but the Tax ID. Whether the person supplying
+// it had proven they own the email address is a fact about the checkout rather
+// than about this pair, and lives on SaleCustomer.SelfAsserted (#111).
 type SaleTaxID struct {
 	// Type is a Tax ID Type; Number is already normalised by ValidateTaxID.
 	Type   string
 	Number string
-	// SelfAsserted reports that the person supplying this Tax ID had proven they
-	// own the email it is recorded against — the checkout ran under that
-	// Customer's own full Customer Session.
-	//
-	// It is the single fact that lets a sale overwrite a *Verified* Customer's
-	// stored Tax ID (ADR 0016). Someone editing their own prefilled value is
-	// correcting themselves and their override becomes the new stored
-	// assertion; an anonymous visitor typing a known email is not, and the
-	// stored value stands however the sale is recorded. It says nothing about
-	// the name, whose rule is unchanged and unaffected.
-	//
-	// Despite living on this struct it is a fact about the CHECKOUT, not about
-	// the Tax ID — proof that whoever filled the form owns the email address the
-	// sale is recorded against. The buyer's phone number is guarded by this same
-	// flag for that reason (#107): it is the same proof protecting a second value
-	// against the same attack, and a duplicate boolean could only ever hold the
-	// same answer. Anything else the checkout collects on the buyer's own behalf
-	// belongs under it too.
-	SelfAsserted bool
 }
 
 // Set reports whether a Tax ID was supplied at all.
