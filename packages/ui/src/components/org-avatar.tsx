@@ -6,24 +6,46 @@ type OrgAvatarProps = {
   logoUrl?: string | null;
   name?: string;
   className?: string;
+  /**
+   * "tile": a fixed 40px square cell, for list/row/card contexts where the
+   * neighbouring content already assumes a square footprint.
+   * "inline": a fixed-height, variable-width mark capped at 160px, for
+   * header/banner contexts where a wide wordmark shouldn't be letterboxed
+   * into a square. Defaults to "tile".
+   */
+  shape?: "tile" | "inline";
 };
 
-export function OrgAvatar({ logoUrl, name, className }: OrgAvatarProps) {
+export function OrgAvatar({ logoUrl, name, className, shape = "tile" }: OrgAvatarProps) {
+  const alt = name ? `${name} logo` : "Organization logo";
+
   if (logoUrl) {
+    if (shape === "inline") {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={logoUrl}
+          alt={alt}
+          className={cn("h-8 w-auto max-w-40 shrink-0 rounded-md object-contain", className)}
+        />
+      );
+    }
+
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={logoUrl}
-        alt={name ? `${name} logo` : "Organization logo"}
-        className={cn("h-8 w-8 shrink-0 rounded-md object-contain", className)}
-      />
+      <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted p-1", className)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logoUrl} alt={alt} className="max-h-full max-w-full object-contain" />
+      </span>
     );
   }
+
+  const fallbackSize = shape === "inline" ? "h-8 w-8" : "h-10 w-10";
 
   return (
     <span
       className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground",
+        "flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground",
+        fallbackSize,
         className,
       )}
       aria-hidden="true"
