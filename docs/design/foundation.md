@@ -77,7 +77,22 @@ Target **WCAG 2.1 AA**.
 ## Feedback patterns
 
 Four tiers.
-One rule: **display `error.message` as returned by the API.**
+One rule: **the API decides which failure occurred, and the UI renders that verdict without
+re-reaching it.**
+
+How that reads on each surface:
+
+- **Staff** displays `error.message` as returned by the API, verbatim.
+- **Storefront** displays its own copy for the failure, chosen by the API's `error.code` and
+  falling back to `error.message` whenever the code is one its catalog does not know
+  ([ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md)). It serves two
+  languages and the API answers in English only, so re-rendering the API's verdict in the
+  visitor's language is the only way to keep the two agreeing about *which* failure it was.
+
+Neither surface may infer a failure from a status code, a heuristic, or the absence of data.
+Substituting local copy for a *specific* code is a deliberate, documented choice — the Payment
+Provider return leg, the Confirmation Link, Google Sign-In — not something a surface does by
+default.
 
 | Tier | When | Pattern |
 |------|------|---------|
@@ -124,6 +139,9 @@ Never show a bare "No results."
 
 - Use domain terms from [CONTEXT.md](../../CONTEXT.md): Event, Ticket Type, Organization.
 - Prefer verbs over jargon: "Create event", "Get tickets".
-- Error copy comes from the API; do not paraphrase unless mapping to a field.
+- Which failure occurred comes from the API and is never re-decided in the UI. On Staff the
+  words come from the API too; on the Storefront the words come from its own catalog, keyed on
+  the API's code (see **Feedback patterns** above and
+  [ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md)).
 
 Surface-specific tone lives in [staff.md](./staff.md) and [storefront.md](./storefront.md).

@@ -28,6 +28,36 @@ Two levels are the limit — `checkout.success.title`, not
 `checkout.terminals.success.heading.text`. A namespace that wants a third level
 is really two surfaces.
 
+## `errors` is the one namespace keyed by machines
+
+Every other key names meaning in English. `errors` names the API's own codes,
+because the API decides which failure occurred and this app only chooses the
+words for it (ADR 0022). Four groups, and lookup order matters:
+
+| Group           | Keyed by                    | Holds                                                        |
+| --------------- | --------------------------- | ------------------------------------------------------------ |
+| `errors.envelope` | `error.code`              | Failures of a whole request                                   |
+| `errors.field`    | a `FieldError`'s `code`   | Fragments that render under one input ("is required")         |
+| `errors.undo`     | `error.code`              | Codes the undo dialog words differently                       |
+| `errors.myInfo`   | `error.code`              | Codes "My info" words differently                             |
+
+A surface group is consulted first, then `errors.envelope`, then the API's own
+`message`. That last step is the point of the whole arrangement: a backend that
+ships a code this catalog has never heard of degrades to the English sentence
+the API sent, never to a blank.
+
+Two rules that do not apply anywhere else in these files:
+
+- **Add a code only when a Storefront surface can actually receive it.** Copy
+  nothing renders is copy a translator maintains for nothing. Codes already
+  intercepted elsewhere (the Payment Provider return leg, Confirmation Links,
+  Google Sign-In) own their copy on their own surfaces and are deliberately
+  absent here.
+- **A code with two meanings gets no `envelope` entry.**
+  `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` is worded by the operation refused, so
+  it lives in the surface groups alone: a third surface that starts receiving it
+  falls through to the API's message rather than to another surface's sentence.
+
 ## Rules
 
 - **Keys name meaning, not English.** `customerArea.undo.confirmTitle`, not
@@ -49,6 +79,10 @@ is really two surfaces.
 the key to `en.json` first and the call site typechecks; add it to `es.json` in
 the same commit and `pnpm test` stays green.
 
-`es.json` currently holds the English values verbatim. That is deliberate and
-temporary — the keys are what the app depends on, and the Spanish is written in
-one pass later. The parity test therefore never asserts that the two differ.
+`es.json` holds Ecuadorian Spanish: **usted** throughout, because this is a
+product where someone is entering a Tax ID or being told a payment failed, and
+**entradas** for the thing being bought — never _boletos_, and never both.
+
+The parity test does not assert that the two catalogs differ, and cannot: a
+message that is only placeholders and punctuation (`"{count} × {ticketType}"`,
+`"{event} · {organization}"`) is correctly identical in both, and so is `Total`.

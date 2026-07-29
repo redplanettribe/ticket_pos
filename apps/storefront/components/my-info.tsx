@@ -1,16 +1,18 @@
 "use client";
 
 import { Alert, AlertDescription, Button, FormField, Input, toast } from "@ticket-pos/ui";
-import { useLocale, useTranslations } from "next-intl";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { CustomerAvatar } from "@/components/customer-avatar";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { intlLocale, toAppLocale } from "@/lib/locale";
 import { countries } from "@/lib/phone";
 import {
   profileDraftPhone,
   profileFieldErrorsFromDetails,
+  profileFieldMessages,
   profileUpdateBody,
   validateProfileDraft,
   type CustomerProfile,
@@ -90,6 +92,17 @@ function fullName(profile: CustomerProfile): string {
 export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   const router = useRouter();
   const t = useTranslations("myInfo");
+  /**
+   * The error catalog as plain data, and "myInfo" as the surface every call
+   * below passes.
+   *
+   * The surface earns its keep on one code: all four writes here —
+   * the profile PATCH and the three Avatar hops — are refused to a Confirmation
+   * Link session with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, which the undo dialog
+   * also receives and which means something different there. The code alone
+   * cannot tell them apart; the surface can (ADR 0022).
+   */
+  const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
   // The saved profile is held here as well as on the server so the panel shows
   // the new values the instant the API confirms them, without waiting for the
@@ -155,7 +168,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
         object_key: string;
       }>;
       if (!ticketResponse.ok || ticket.error || !ticket.data) {
-        setPhotoError(ticket.error?.message ?? "Your photo could not be uploaded. Try again.");
+        setPhotoError(
+          apiErrorMessage(errorCopy, ticket.error, "myInfo") ?? t("photoUploadFailed"),
+        );
         return;
       }
 
@@ -165,7 +180,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
         body: file,
       });
       if (!upload.ok) {
-        setPhotoError("Your photo could not be uploaded. Try again.");
+        // Object storage refused the PUT. No envelope came back from it — this
+        // hop never touches the API — so there is nothing to key copy on.
+        setPhotoError(t("photoUploadFailed"));
         return;
       }
 
@@ -176,7 +193,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       });
       const attached = (await attachResponse.json()) as Envelope<CustomerProfile>;
       if (!attachResponse.ok || attached.error || !attached.data) {
-        setPhotoError(attached.error?.message ?? "Your photo could not be saved. Try again.");
+        setPhotoError(apiErrorMessage(errorCopy, attached.error, "myInfo") ?? t("photoSaveFailed"));
         return;
       }
 
@@ -186,7 +203,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       // keeps it in step with the photo this panel now shows.
       router.refresh();
     } catch {
-      setPhotoError("Your photo could not be uploaded. Check your connection and try again.");
+      setPhotoError(t("photoUploadNetworkFailed"));
     } finally {
       setPhotoBusy(false);
     }
@@ -199,14 +216,16 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       const response = await fetch("/api/customer/profile/avatar", { method: "DELETE" });
       const envelope = (await response.json()) as Envelope<CustomerProfile>;
       if (!response.ok || envelope.error || !envelope.data) {
-        setPhotoError(envelope.error?.message ?? "Your photo could not be removed. Try again.");
+        setPhotoError(
+          apiErrorMessage(errorCopy, envelope.error, "myInfo") ?? t("photoRemoveFailed"),
+        );
         return;
       }
       setProfile(envelope.data);
       toast.success(t("photoRemoved"));
       router.refresh();
     } catch {
-      setPhotoError("Your photo could not be removed. Check your connection and try again.");
+      setPhotoError(t("photoRemoveNetworkFailed"));
     } finally {
       setPhotoBusy(false);
     }
@@ -243,10 +262,15 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
     // The mirror check: a blank name or a mistyped cédula is caught here so the
     // Customer is told before a round trip. The API applies the same rules and
     // its verdict is the one that decides whether the edit lands.
+    //
+    // It answers with codes, and they are resolved through the same catalog
+    // entries the API's own field errors resolve through, so a Customer who
+    // mistypes their cédula reads one sentence rather than an English one now
+    // and a Spanish one after the round trip (ADR 0022).
     const problems = validateProfileDraft(draft);
     if (Object.keys(problems).length > 0) {
       setError(null);
-      setFieldErrors(problems);
+      setFieldErrors(profileFieldMessages(errorCopy, problems));
       return;
     }
 
@@ -262,8 +286,8 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       });
       const envelope = (await response.json()) as Envelope<CustomerProfile>;
       if (!response.ok || envelope.error || !envelope.data) {
-        setFieldErrors(profileFieldErrorsFromDetails(envelope.error?.details));
-        setError(envelope.error?.message ?? "Your details could not be saved. Please try again.");
+        setFieldErrors(profileFieldErrorsFromDetails(errorCopy, envelope.error?.details));
+        setError(apiErrorMessage(errorCopy, envelope.error, "myInfo") ?? t("saveFailed"));
         setSaving(false);
         return;
       }
@@ -278,7 +302,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       // from; refreshing keeps the two from drifting apart on a soft navigation.
       router.refresh();
     } catch {
-      setError("Your details could not be saved. Please check your connection and try again.");
+      setError(t("saveNetworkFailed"));
       setSaving(false);
     }
   }

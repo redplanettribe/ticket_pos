@@ -14,10 +14,11 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
-import { useTranslations } from "next-intl";
+import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useRouter } from "@/i18n/navigation";
+import { apiErrorMessage } from "@/lib/api-errors";
 
 type Step = "email" | "code";
 
@@ -33,6 +34,22 @@ type Envelope<T> = {
  * so a visitor is never told their code is dead without being shown the way out.
  */
 const RESEND_REFUSED_ERRORS = new Set(["OTP_RATE_LIMITED", "OTP_GLOBAL_CEILING_REACHED"]);
+
+/**
+ * Why a step did not go through, as a fact rather than as a sentence.
+ *
+ * `code` is doing two jobs, and they are the same job: it decides whether
+ * "Send a new passcode" stays on screen, and it decides which sentence is shown
+ * (ADR 0022). Both are readings of the API's verdict, never a second opinion
+ * about it. `message` is the API's own words, kept for a code the catalog has
+ * never heard of; `fallback` is this app's sentence for the request that never
+ * arrived.
+ */
+type SignInError = {
+  code: string | null;
+  message: string | null;
+  fallback: "sendFailed" | "sendNetworkFailed" | "verifyFailed" | "verifyNetworkFailed";
+};
 
 type SignInFormProps = {
   /** Where to go once the visitor is signed in; already validated server-side. */
@@ -114,12 +131,17 @@ export function SignInForm({
 }: SignInFormProps) {
   const router = useRouter();
   const t = useTranslations("signin");
+  // Keyed by API codes rather than by message keys, so it is read as plain data
+  // rather than through `t`.
+  const errorCopy = useMessages().errors;
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  // Whether a passcode has just gone out — a fact, not a sentence. The words are
+  // this app's and are looked up at render, so state cannot strand copy in the
+  // language it was set in.
+  const [passcodeSent, setPasscodeSent] = useState(false);
+  const [error, setError] = useState<SignInError | null>(null);
   const [loading, setLoading] = useState(false);
   const clearedStaleSession = useRef(false);
 
@@ -131,15 +153,10 @@ export function SignInForm({
     void fetch("/api/customer/auth/sign-out", { method: "POST" }).catch(() => {});
   }, [expired]);
 
-  function resetErrors() {
-    setError(null);
-    setErrorCode(null);
-  }
-
   async function requestPasscode(address: string) {
     setLoading(true);
-    resetErrors();
-    setNotice(null);
+    setError(null);
+    setPasscodeSent(false);
 
     try {
       const response = await fetch("/api/customer/auth/request-passcode", {
@@ -147,17 +164,26 @@ export function SignInForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: address }),
       });
-      const envelope = (await response.json()) as Envelope<{ message: string }>;
+      // The success payload carries a `message`, and it is deliberately not read.
+      // It is one constant sentence for every address, known or not
+      // (backend/internal/customers/service/auth.go), so it says nothing this
+      // app does not already know — and rendering it would put an English
+      // sentence on a Spanish page. What IS in it, the refusal to confirm
+      // whether the address is known, the catalog copy below keeps.
+      const envelope = (await response.json()) as Envelope<unknown>;
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? "Could not send a passcode. Please try again.");
-        setErrorCode(envelope.error?.code ?? null);
+        setError({
+          code: envelope.error?.code ?? null,
+          message: envelope.error?.message ?? null,
+          fallback: "sendFailed",
+        });
         return;
       }
       setCode("");
-      setNotice(envelope.data?.message ?? "Passcode sent.");
+      setPasscodeSent(true);
       setStep("code");
     } catch {
-      setError("Could not send a passcode. Please check your connection and try again.");
+      setError({ code: null, message: null, fallback: "sendNetworkFailed" });
     } finally {
       setLoading(false);
     }
@@ -171,7 +197,7 @@ export function SignInForm({
   async function handleVerifyPasscode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
-    resetErrors();
+    setError(null);
 
     try {
       const response = await fetch("/api/customer/auth/verify-passcode", {
@@ -181,20 +207,24 @@ export function SignInForm({
       });
       const envelope = (await response.json()) as Envelope<unknown>;
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? "That passcode was not accepted.");
-        setErrorCode(envelope.error?.code ?? null);
+        setError({
+          code: envelope.error?.code ?? null,
+          message: envelope.error?.message ?? null,
+          fallback: "verifyFailed",
+        });
         return;
       }
       router.push(next);
       router.refresh();
     } catch {
-      setError("Could not check that passcode. Please check your connection and try again.");
+      setError({ code: null, message: null, fallback: "verifyNetworkFailed" });
     } finally {
       setLoading(false);
     }
   }
 
-  const showResend = step === "code" && !(errorCode !== null && RESEND_REFUSED_ERRORS.has(errorCode));
+  const showResend =
+    step === "code" && !(error?.code != null && RESEND_REFUSED_ERRORS.has(error.code));
 
   return (
     <Card>
@@ -234,13 +264,18 @@ export function SignInForm({
 
         {error ? (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            {/* The API said which passcode failure this is; the catalog says it
+                in the language this page is being read in, and hands back the
+                API's own message for a code it has never heard of. */}
+            <AlertDescription>
+              {apiErrorMessage(errorCopy, error) ?? t(error.fallback)}
+            </AlertDescription>
           </Alert>
         ) : null}
 
-        {notice && !error ? (
+        {passcodeSent && !error ? (
           <p role="status" className="rounded-lg border bg-muted/50 px-4 py-3 text-sm">
-            {notice}
+            {t("passcodeSent")}
           </p>
         ) : null}
 
@@ -328,8 +363,8 @@ export function SignInForm({
               onClick={() => {
                 setStep("email");
                 setCode("");
-                setNotice(null);
-                resetErrors();
+                setPasscodeSent(false);
+                setError(null);
               }}
             >
               {t("differentEmail")}

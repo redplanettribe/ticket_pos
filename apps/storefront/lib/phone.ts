@@ -28,6 +28,7 @@
 // The ".ts" is written out because the unit tests run this module directly
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically.
+import type { FieldErrorCode } from "./api-errors.ts";
 import { DEFAULT_LOCALE, type Locale } from "./format.ts";
 
 /**
@@ -390,14 +391,6 @@ export function countries(locale: Locale = DEFAULT_LOCALE): readonly Country[] {
 }
 
 /**
- * The two field messages, one per tier, worded exactly as the API words them so
- * the field does not visibly change its mind when the server answers.
- * Mirrors PhoneEcuadorMessage and PhoneGenericMessage in phone.go.
- */
-export const PHONE_ECUADOR_MESSAGE = "must be an Ecuadorian mobile: 9 digits starting with 9";
-export const PHONE_GENERIC_MESSAGE = "must be 4–15 digits in international format, like +12025550123";
-
-/**
  * The punctuation people write phone numbers with — "+593 (0)98-765.4321" — all
  * of which is dropped. Anything else that is not a digit is a typo, and is
  * rejected rather than silently reinterpreted into a different number.
@@ -455,8 +448,12 @@ export function normalizePhone(phone: string): string | null {
 }
 
 /**
- * validatePhone returns the message to show under the field, or null when there
- * is nothing to complain about.
+ * validatePhone names the tier the number failed, or null when there is nothing
+ * to complain about. It answers with the API's own field code rather than a
+ * sentence, so the caller resolves it through the same catalog entry the API's
+ * field error resolves through — the field cannot complain in English before the
+ * round trip and in Spanish after it (ADR 0022). The rule below is untouched;
+ * only the wording of its verdict moved out of this module.
  *
  * A blank field is *not* an error: the phone is optional (#103), and a buyer who
  * skips it completes their purchase exactly as they do today. The caller simply
@@ -469,23 +466,23 @@ export function normalizePhone(phone: string): string | null {
  * from what parsed, mirroring PhoneNumberMessage in phone.go, so someone
  * mistyping an Ecuadorian mobile is told about Ecuadorian mobiles.
  */
-export function validatePhone(phone: string): string | null {
+export function validatePhone(phone: string): FieldErrorCode | null {
   if (phone.trim() === "") return null;
   if (normalizePhone(phone) !== null) return null;
-  return phoneMessage(phone);
+  return phoneCode(phone);
 }
 
 /**
- * phoneMessage picks the tier a rejected number was aiming at, from the digits
+ * phoneCode picks the tier a rejected number was aiming at, from the digits
  * the buyer typed rather than from what parsed — the mirror of PhoneNumberMessage
  * in phone.go, factored out here for the same reason it is a named function
  * there: the tier choice is a rule, and a rule stated inline in one runtime and
  * named in the other is a rule that drifts.
  */
-function phoneMessage(phone: string): string {
+function phoneCode(phone: string): FieldErrorCode {
   return phone.replace(/[^0-9]/g, "").startsWith(ECUADOR_DIGITS)
-    ? PHONE_ECUADOR_MESSAGE
-    : PHONE_GENERIC_MESSAGE;
+    ? "INVALID_PHONE_EC"
+    : "INVALID_PHONE";
 }
 
 /**

@@ -17,11 +17,17 @@ import {
   FormField,
   Input,
 } from "@ticket-pos/ui";
-import { useLocale, useTranslations } from "next-intl";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
 import type { BeginCheckoutResult, PublicTicketType } from "@/lib/api";
+import {
+  apiErrorMessage,
+  fieldCodeMessage,
+  fieldErrorMessages,
+  type ErrorCatalog,
+} from "@/lib/api-errors";
 import {
   checkoutDestination,
   clampQuantity,
@@ -116,15 +122,17 @@ function isFormField(field: string): field is (typeof FORM_FIELDS)[number] {
   return (FORM_FIELDS as readonly string[]).includes(field);
 }
 
-function fieldErrorsFromDetails(details: unknown): FieldErrors {
+/**
+ * The API's field errors narrowed to the inputs this dialog actually drew.
+ *
+ * The copy is chosen by fieldErrorMessages on each FieldError's stable `code`,
+ * falling back to its message (ADR 0022); the only thing added here is the
+ * filter. `lines[0].quantity` has no control on this form to sit under, so it is
+ * dropped rather than shown somewhere it means nothing.
+ */
+function fieldErrorsFromDetails(catalog: ErrorCatalog, details: unknown): FieldErrors {
   const errors: FieldErrors = {};
-  if (typeof details !== "object" || details === null) return errors;
-  const fields = (details as { fields?: unknown }).fields;
-  if (!Array.isArray(fields)) return errors;
-  for (const entry of fields) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const { field, message } = entry as { field?: unknown; message?: unknown };
-    if (typeof field !== "string" || typeof message !== "string") continue;
+  for (const [field, message] of Object.entries(fieldErrorMessages(catalog, details))) {
     if (isFormField(field)) {
       errors[field] = message;
     }
@@ -135,11 +143,12 @@ function fieldErrorsFromDetails(details: unknown): FieldErrors {
 /**
  * What went wrong, as a fact rather than as a sentence.
  *
- * `message` is the API's own words, relayed verbatim — the one thing on this
- * surface the catalog does not own, because the API's message is the API's to
- * word. `fallback` names which of this app's own two failures to say instead
- * when the API said nothing; the sentence is looked up at render, so nothing in
- * state holds copy that a language switch would strand.
+ * `code` is the API's verdict about WHICH failure this is, and it is what the
+ * sentence gets chosen by; `message` is the API's own words, kept as the
+ * fallback for a code the catalog has never heard of (ADR 0022). `fallback`
+ * names which of this app's own two failures to say instead when the API said
+ * nothing at all. Nothing here is a sentence: the words are looked up at render,
+ * so state never holds copy that a language switch would strand.
  */
 type CheckoutError = {
   code: string | null;
@@ -164,6 +173,9 @@ export function TicketSelection({
   const router = useRouter();
   const locale = toAppLocale(useLocale());
   const t = useTranslations("checkout");
+  // The error catalog as plain data rather than through `t`: its keys are API
+  // codes, which arrive as strings at runtime and cannot be typed message keys.
+  const errorCopy = useMessages().errors;
   // A Ticket Type's own statements about itself — sold out, how many are left,
   // whether the fee is inside the price — are the Event page's words, and the
   // read-only list on an ended Event says them from the same keys. Two lists of
@@ -285,10 +297,15 @@ export function TicketSelection({
     // The mirror check: a mistyped cédula is caught here so the buyer is told
     // before a round trip. The API validates the same rules and its verdict is
     // the one that decides whether the sale happens (ADR 0016).
+    //
+    // The mirror names the rule that broke and the catalog says it in the
+    // language this page is being read in — the same entry the API's own field
+    // error would have resolved through, so the field says one thing rather than
+    // the same thing twice in two languages (ADR 0022).
     const taxIdProblem = validateTaxId(taxIdType, taxIdNumber);
     if (taxIdProblem) {
       setError(null);
-      setFieldErrors({ customer_tax_id_number: taxIdProblem });
+      setFieldErrors({ customer_tax_id_number: fieldCodeMessage(errorCopy, taxIdProblem) });
       return;
     }
 
@@ -301,7 +318,7 @@ export function TicketSelection({
     const phoneProblem = validatePhone(phone);
     if (phoneProblem) {
       setError(null);
-      setFieldErrors({ customer_phone: phoneProblem });
+      setFieldErrors({ customer_phone: fieldCodeMessage(errorCopy, phoneProblem) });
       return;
     }
     // Non-null exactly when the buyer gave a number that passed, which is the
@@ -344,7 +361,7 @@ export function TicketSelection({
       const envelope = (await response.json()) as Envelope<BeginCheckoutResult>;
       if (!response.ok || envelope.error || !envelope.data) {
         const apiError = envelope.error;
-        setFieldErrors(fieldErrorsFromDetails(apiError?.details));
+        setFieldErrors(fieldErrorsFromDetails(errorCopy, apiError?.details));
         setError({
           code: apiError?.code ?? null,
           message: apiError?.message ?? null,
@@ -518,10 +535,13 @@ export function TicketSelection({
           {error ? (
             <Alert variant="destructive">
               {capacityExceeded ? <AlertTitle>{t("capacityTitle")}</AlertTitle> : null}
-              {/* The API's own message when it sent one — its wording is its
-                  own — and this app's words for the failures the API never got
-                  to report. */}
-              <AlertDescription>{error.message ?? t(error.fallback)}</AlertDescription>
+              {/* The API decided which failure this is; the catalog decides how
+                  to say it, in this page's language, falling back to the API's
+                  own message for a code it does not know. This app's own two
+                  sentences are for the failures the API never got to report. */}
+              <AlertDescription>
+                {apiErrorMessage(errorCopy, error) ?? t(error.fallback)}
+              </AlertDescription>
             </Alert>
           ) : null}
 

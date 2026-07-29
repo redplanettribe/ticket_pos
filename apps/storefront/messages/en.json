@@ -132,7 +132,12 @@
     "signingIn": "Signing in…",
     "submit": "Sign in",
     "resend": "Send a new passcode",
-    "differentEmail": "Use a different email"
+    "differentEmail": "Use a different email",
+    "passcodeSent": "If this email can be signed in to, a passcode has been sent.",
+    "sendFailed": "Could not send a passcode. Please try again.",
+    "sendNetworkFailed": "Could not send a passcode. Please check your connection and try again.",
+    "verifyFailed": "That passcode was not accepted.",
+    "verifyNetworkFailed": "Could not check that passcode. Please check your connection and try again."
   },
   "customerArea": {
     "metaTitle": "Your tickets · {brand}",
@@ -141,6 +146,7 @@
     "linkedTitle": "Your purchase",
     "linkedDescription": "This is the purchase your confirmation email links to.",
     "loadFailedTitle": "We couldn't load your tickets",
+    "loadNetworkFailed": "We couldn't reach the ticket service. Please check your connection and try again.",
     "reversedTitle": "This purchase was reversed",
     "reversedDescription": "These tickets were released and are no longer valid for entry. Contact the organizer if you believe that is a mistake.",
     "linkNoticeTitle": "You're viewing one purchase",
@@ -170,7 +176,9 @@
     "undoBodyPaid": "Your tickets for {event} will be released and this purchase will be marked reversed. Your {amount} payment will be returned. You can't take this back — if the tickets sell out, you won't be able to get them again.",
     "undoKeep": "Keep my tickets",
     "undoing": "Undoing…",
-    "undoneToast": "Your purchase is undone."
+    "undoneToast": "Your purchase is undone.",
+    "undoFailed": "This purchase could not be undone. Try again.",
+    "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again."
   },
   "myInfo": {
     "heading": "My info",
@@ -203,6 +211,55 @@
     "save": "Save changes",
     "saving": "Saving…",
     "cancel": "Cancel",
-    "saved": "Your details are saved."
+    "saved": "Your details are saved.",
+    "saveFailed": "Your details could not be saved. Please try again.",
+    "saveNetworkFailed": "Your details could not be saved. Please check your connection and try again.",
+    "photoUploadFailed": "Your photo could not be uploaded. Try again.",
+    "photoUploadNetworkFailed": "Your photo could not be uploaded. Check your connection and try again.",
+    "photoSaveFailed": "Your photo could not be saved. Try again.",
+    "photoRemoveFailed": "Your photo could not be removed. Try again.",
+    "photoRemoveNetworkFailed": "Your photo could not be removed. Check your connection and try again."
+  },
+  "errors": {
+    "envelope": {
+      "INTERNAL_ERROR": "Something went wrong on our side. Please try again.",
+      "INVALID_JSON": "We couldn't read what your browser sent. Please try again.",
+      "VALIDATION_FAILED": "Please check the details above and try again.",
+      "UNAUTHORIZED": "Sign in to continue.",
+      "CUSTOMER_SESSION_NOT_FOUND": "You're not signed in. Sign in to continue.",
+      "CUSTOMER_SESSION_EXPIRED": "Your session has ended. Sign in again to continue.",
+      "AVATAR_UPLOAD_UNAVAILABLE": "Photo uploads are not available.",
+      "AVATAR_IMAGE_INVALID": "That image can't be used as your photo.",
+      "OTP_RATE_LIMITED": "Too many passcode requests. Please try again later.",
+      "OTP_GLOBAL_CEILING_REACHED": "Passcode sending is temporarily unavailable. Please try again later.",
+      "OTP_INVALID": "That passcode isn't correct.",
+      "OTP_EXPIRED": "That passcode has expired. Request a new one.",
+      "OTP_ATTEMPTS_EXCEEDED": "Too many incorrect attempts. Request a new passcode.",
+      "EVENT_NOT_FOUND": "This event is no longer available.",
+      "TICKET_TYPE_NOT_FOUND": "One of the ticket types you chose is no longer available.",
+      "CAPACITY_EXCEEDED": "Not enough tickets remaining.",
+      "TICKET_SALE_NOT_FOUND": "We couldn't find that purchase.",
+      "SALE_ALREADY_REVERSED": "This purchase has already been undone.",
+      "SALE_NOT_REVERSIBLE": "This purchase can't be undone here. Contact the organizer for help.",
+      "REVERSAL_WINDOW_CLOSED": "The time to undo this purchase has passed. Contact the organizer for help.",
+      "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference."
+    },
+    "field": {
+      "REQUIRED": "is required",
+      "INVALID_EMAIL": "must be a valid email address",
+      "INVALID_TAX_ID_TYPE": "must be cédula, RUC, or passport",
+      "INVALID_CEDULA": "must be a valid 10-digit cédula",
+      "INVALID_RUC": "must be a valid 13-digit RUC",
+      "INVALID_PASSPORT": "must be 6–20 letters or digits",
+      "INVALID_TAX_ID_NUMBER": "is not valid",
+      "INVALID_PHONE_EC": "must be an Ecuadorian mobile: 9 digits starting with 9",
+      "INVALID_PHONE": "must be 4–15 digits in international format, like +12025550123"
+    },
+    "undo": {
+      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to undo this purchase."
+    },
+    "myInfo": {
+      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to change your details."
+    }
   }
 }

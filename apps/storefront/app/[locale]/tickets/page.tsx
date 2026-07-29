@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getTranslations, setRequestLocale } from "next-intl/server";
+import { getMessages, getTranslations, setRequestLocale } from "next-intl/server";
 
 import { Alert, AlertDescription, AlertTitle, Button, PageHeader } from "@ticket-pos/ui";
 
@@ -9,6 +9,7 @@ import { SignInOtherAddressButton } from "@/components/sign-in-other-address-but
 import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSaleCard } from "@/components/ticket-sale-card";
 import { Link, redirect } from "@/i18n/navigation";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
 import {
   customerSessionToken,
@@ -81,6 +82,14 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
   }
 
   const t = await getTranslations("customerArea");
+  // What the read failed with, in this page's language: chosen by the API's own
+  // error code, falling back to the API's message when the code is one this
+  // catalog has never heard of (ADR 0022), and to this page's own sentence when
+  // the API was never reached and so said nothing at all.
+  const loadFailure =
+    area.status === "error"
+      ? (apiErrorMessage((await getMessages()).errors, area) ?? t("loadNetworkFailed"))
+      : null;
 
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
@@ -99,9 +108,11 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
         {area.status === "error" ? (
           <Alert variant="destructive">
             <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
-            {/* The API's own words, relayed verbatim: what went wrong is the
-                API's to say, and this page does not paraphrase it. */}
-            <AlertDescription>{area.message}</AlertDescription>
+            {/* Which failure it was stays the API's to say; only the words are
+                this page's. There is always a sentence: a failure that named
+                nothing at all is still a failure the reader is owed an
+                explanation for. */}
+            <AlertDescription>{loadFailure}</AlertDescription>
           </Alert>
         ) : (
           <CustomerArea

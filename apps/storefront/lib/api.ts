@@ -123,7 +123,9 @@ async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
 /**
  * APIError carries a failed envelope from the Go API so a route handler can
  * relay the API's own `error.code` and `error.message` to the browser instead of
- * inventing copy (docs/design/README.md: show API messages faithfully).
+ * inventing a verdict of its own (docs/design/README.md). The code is the half
+ * the rendering surface keys its copy on, and the message is the half it falls
+ * back to when it does not know the code (ADR 0022) — both have to survive.
  */
 export class APIError extends Error {
   code: string;

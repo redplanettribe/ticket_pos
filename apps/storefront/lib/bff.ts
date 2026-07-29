@@ -3,8 +3,13 @@
  *
  * Every one of those handlers is a BFF hop: the browser calls it, it calls the
  * Go API, and it returns what the API said (ADR 0008). Keeping the relay in one
- * place is what makes "show `error.message` as returned by the API"
- * (docs/design/README.md) true by construction rather than per route.
+ * place is what makes the API's verdict reach the browser intact by construction
+ * rather than per route.
+ *
+ * `code` travels beside `message` for a reason that is not cosmetic: the surface
+ * that renders this picks its own words from the code and keeps the message only
+ * as the fallback for a code it does not know (ADR 0022). A relay that dropped
+ * the code would leave every Storefront failure stuck in English.
  */
 
 import { NextResponse } from "next/server";

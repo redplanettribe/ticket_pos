@@ -133,7 +133,7 @@ A **Customer** record is created or reused by the **Ticket Sale** itself, and th
 | Payment | Provider UI or stub; event name stays visible |
 | Processing | Blocking overlay; no duplicate submission |
 | Success | Confirmation with event name, ticket summary, and order reference |
-| Failure | Banner or blocking Dialog with `error.message`; sold-out mid-checkout uses blocking tier |
+| Failure | Banner or blocking Dialog with the copy for the API's `error.code`; sold-out mid-checkout uses blocking tier |
 
 On `CAPACITY_EXCEEDED` during checkout: blocking Dialog; offer to return to ticket selection.
 
@@ -166,7 +166,7 @@ Two steps on one page, matching the Staff sign-in: email, then the 6-digit passc
 | Email | Email field, "Send passcode" |
 | Passcode | Numeric passcode field (`one-time-code` autofill), "Sign in", plus "Send a new passcode" and "Use a different email" |
 
-- Passcode failures show the API's `error.message` per [foundation.md](./foundation.md) — the page adds no wording of its own for them.
+- Passcode failures show this Storefront's copy for the API's `error.code`, per [foundation.md](./foundation.md) and [ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md) — the page never decides for itself which failure it was, and a code with no copy falls back to the API's `error.message`.
 - "Send a new passcode" stays on screen for every recoverable failure (mistyped, expired, attempts exhausted). It is withheld only when asking again is the thing being refused: rate limiting and the global send ceiling.
 - Alerts above the form explain two arrivals: a **Customer Session** that ran out, and a **Confirmation Link** that was expired or invalid.
 - No sign-in state in the header here.
@@ -179,10 +179,10 @@ they can change about themselves.
 
 - **Upcoming** first, then **Past**; each a list of **Ticket Sale** cards.
 - Each card carries the event name (linked to its event page), date and venue, "Presented by {Organization}" (linked to the Organization page), the **Ticket Sale Lines** as quantity × Ticket Type with line totals, the **Sale Confirmation** reference in a monospaced face, and the ticket count with the sale total. A reversed sale carries a **Reversed** badge.
-- A card the API reports as reversible ends in the **Sale Reversal** offer: the deadline in Ecuador time, and **"Undo this purchase"**. The word is *undo* — "cancel" is an Event being called off, and "refund" is not this system's word for a **Sale Reversal**. The button opens a confirmation dialog naming the Event and the Sale Confirmation reference, with a destructive confirm and "Keep my tickets"; the action cannot be taken back and the dialog says so. A purchase that cost something adds one sentence there — the amount will be returned — and no claim about how or when it arrives; a free claim says nothing about money at all. Nothing about undoing appears on a card the API does not offer — no disabled button and no expired deadline. Every refusal shows the API's own `error.message`: the **Reversal Window** is enforced server-side, so a card rendered before the deadline and pressed after it is refused rather than honoured.
+- A card the API reports as reversible ends in the **Sale Reversal** offer: the deadline in Ecuador time, and **"Undo this purchase"**. The word is *undo* — "cancel" is an Event being called off, and "refund" is not this system's word for a **Sale Reversal**. The button opens a confirmation dialog naming the Event and the Sale Confirmation reference, with a destructive confirm and "Keep my tickets"; the action cannot be taken back and the dialog says so. A purchase that cost something adds one sentence there — the amount will be returned — and no claim about how or when it arrives; a free claim says nothing about money at all. Nothing about undoing appears on a card the API does not offer — no disabled button and no expired deadline. Every refusal shows the copy for the API's `error.code`: the **Reversal Window** is enforced server-side, so a card rendered before the deadline and pressed after it is refused rather than honoured, and which refusal it is stays the API's to say.
 - `noindex, nofollow`: the Customer Area is private and must stay out of search results.
 - A missing or expired session redirects to the sign-in page rather than showing an error. When a session existed, the redirect says so, so sign-in can explain what happened instead of looking like a random demand.
-- A read that fails for any other reason keeps the page and shows the API's `error.message` in a banner-tier Alert.
+- A read that fails for any other reason keeps the page and shows the copy for the API's `error.code` in a banner-tier Alert.
 
 #### My info
 
@@ -196,8 +196,9 @@ or "—" when they have none. An **Edit** button opens an inline form over the s
 - The Tax ID type and number sit on one row, as at checkout. **Emptying the number clears the stored
   Tax ID**, which the field's description states outright; nothing prefills at the next checkout
   until one is supplied again.
-- Field errors render under their inputs and the API's own `error.message` in a destructive Alert,
-  exactly as the checkout dialog does.
+- Field errors render under their inputs — the copy for each `FieldError`'s own `code`, falling
+  back to its message — and the form-level failure in a destructive Alert, exactly as the
+  checkout dialog does.
 - Absent for a **Confirmation Link** arrival. That session shows one purchase and may edit nothing;
   the API refuses the write behind it.
 

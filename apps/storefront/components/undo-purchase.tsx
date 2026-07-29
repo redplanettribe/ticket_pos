@@ -13,8 +13,10 @@ import {
   toast,
 } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useMessages, useTranslations } from "next-intl";
 import { useState } from "react";
+
+import { apiErrorMessage } from "@/lib/api-errors";
 
 /**
  * "Undo this purchase" on a Ticket Sale card in the Customer Area (#119,
@@ -31,8 +33,9 @@ import { useState } from "react";
  *
  * It is drawn only where the API said `reversible`, and pressing it is still a
  * question the API answers fresh: the window is enforced server-side, so a card
- * rendered before the deadline and pressed after it comes back refused with a
- * message rather than quietly succeeding. That refusal is shown verbatim.
+ * rendered before the deadline and pressed after it comes back refused rather
+ * than quietly succeeding. Which refusal it is stays the API's to decide; the
+ * sentence is this app's, chosen by the API's code (ADR 0022).
  *
  * The confirmation step is deliberate rather than ceremonial. This is the one
  * destructive action a Customer has, it cannot be taken back — capacity returns
@@ -59,6 +62,19 @@ type Envelope = {
   error: { code: string; message: string } | null;
 };
 
+/**
+ * Why the undo did not happen, as a fact rather than as a sentence — the same
+ * shape the checkout dialog holds, and for the same reasons. `code` is what the
+ * copy is chosen by, `message` is the API's own words for a code the catalog
+ * does not know, and `fallback` is this app's sentence for the failure the API
+ * never got to report.
+ */
+type UndoError = {
+  code: string | null;
+  message: string | null;
+  fallback: "undoFailed" | "undoNetworkFailed";
+};
+
 export function UndoPurchase({
   saleId,
   eventName,
@@ -70,9 +86,12 @@ export function UndoPurchase({
   // The close affordance belongs to the chrome the shell owns, so it reads from
   // the same namespace every other dismiss control does.
   const shell = useTranslations("shell");
+  // Keys of API codes rather than message keys, so the catalog is read as plain
+  // data rather than through `t`.
+  const errorCopy = useMessages().errors;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UndoError | null>(null);
 
   async function handleUndo() {
     setBusy(true);
@@ -85,10 +104,14 @@ export function UndoPurchase({
       const envelope = (await response.json()) as Envelope;
       if (!response.ok || envelope.error) {
         // The API owns every reason this can fail — the window has closed, the
-        // sale is already undone, the payment cannot be reversed — and it says
-        // so in one sentence. Repeating that judgement here would only let the
-        // two disagree.
-        setError(envelope.error?.message ?? "This purchase could not be undone. Try again.");
+        // sale is already undone, the payment cannot be reversed — and its code
+        // is which of them happened. Deciding that again here would only let the
+        // two disagree; choosing the words for it does not (ADR 0022).
+        setError({
+          code: envelope.error?.code ?? null,
+          message: envelope.error?.message ?? null,
+          fallback: "undoFailed",
+        });
         return;
       }
       setOpen(false);
@@ -98,7 +121,7 @@ export function UndoPurchase({
       // than being patched locally into a state the API never confirmed.
       router.refresh();
     } catch {
-      setError("This purchase could not be undone. Check your connection and try again.");
+      setError({ code: null, message: null, fallback: "undoNetworkFailed" });
     } finally {
       setBusy(false);
     }
@@ -155,7 +178,12 @@ export function UndoPurchase({
 
           {error ? (
             <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
+              {/* "undo" as the surface: CUSTOMER_SESSION_SCOPE_INSUFFICIENT means
+                  a different thing here than it does on "My info", and the API
+                  says so with two messages under the one code. */}
+              <AlertDescription>
+                {apiErrorMessage(errorCopy, error, "undo") ?? t(error.fallback)}
+              </AlertDescription>
             </Alert>
           ) : null}
 

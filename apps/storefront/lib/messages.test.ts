@@ -20,10 +20,10 @@ import { LOCALES } from "./locale.ts";
  * offending paths rather than a boolean, because "es.json does not match" is
  * not something anyone can act on at 6pm.
  *
- * It deliberately does NOT assert that the Spanish differs from the English.
- * es.json holds the English strings until the translation pass lands, and a
- * test that forbade that would have to be disabled for exactly as long as it
- * was needed.
+ * It deliberately does NOT assert that the Spanish differs from the English. A
+ * message that is only placeholders and punctuation — "{count} × {ticketType}",
+ * "{event} · {organization}" — is correctly identical in both catalogs, so an
+ * assertion like that would fail on the translations that are right.
  */
 
 type Catalog = { [key: string]: string | Catalog };

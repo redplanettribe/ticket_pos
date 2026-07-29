@@ -17,9 +17,12 @@ API error shapes live in the [api-errors skill](../../.cursor/skills/api-errors/
    Ticket Types belong to Events, not Organizations.
    Group tickets by event everywhere — especially on the Storefront.
 
-3. **Show API messages faithfully.**
-   Display `error.message` from the standard response envelope.
-   Do not rewrite domain errors in the UI unless mapping `details` to a specific field.
+3. **The API decides which failure it is; never the UI.**
+   Staff shows `error.message` from the standard response envelope verbatim.
+   The Storefront shows its own copy for that failure, selected by `error.code` and falling back
+   to `error.message` for a code it does not know — because it serves two languages and the API
+   answers in one ([ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md)).
+   Either way the UI never re-decides *what* went wrong: it renders the API's verdict.
 
 4. **Accessible by default.**
    Target WCAG 2.1 AA.

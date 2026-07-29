@@ -4,8 +4,6 @@ import test from "node:test";
 import {
   ECUADOR_DIALLING_CODE,
   ECUADOR_REGION_CODE,
-  PHONE_ECUADOR_MESSAGE,
-  PHONE_GENERIC_MESSAGE,
   countries,
   countryName,
   normalizePhone,
@@ -111,15 +109,19 @@ test("a blank field is not an error, because the phone is optional", () => {
 });
 
 test("a rejected number is explained in the terms of its own tier", () => {
-  assert.equal(validatePhone("+59322345678"), PHONE_ECUADOR_MESSAGE);
-  assert.equal(validatePhone("+59398765"), PHONE_ECUADOR_MESSAGE);
-  assert.equal(validatePhone("+593 987 65432a"), PHONE_ECUADOR_MESSAGE);
-  assert.equal(validatePhone("+123"), PHONE_GENERIC_MESSAGE);
-  assert.equal(validatePhone("+1234567890123456"), PHONE_GENERIC_MESSAGE);
-  assert.equal(validatePhone("0987654321"), PHONE_GENERIC_MESSAGE);
+  // The tier is named by the API's own field code (validation_codes.go), not by
+  // a sentence: the catalog turns it into words in the language the page is
+  // being read in, so the pre-flight complaint and the API's are one complaint
+  // (ADR 0022).
+  assert.equal(validatePhone("+59322345678"), "INVALID_PHONE_EC");
+  assert.equal(validatePhone("+59398765"), "INVALID_PHONE_EC");
+  assert.equal(validatePhone("+593 987 65432a"), "INVALID_PHONE_EC");
+  assert.equal(validatePhone("+123"), "INVALID_PHONE");
+  assert.equal(validatePhone("+1234567890123456"), "INVALID_PHONE");
+  assert.equal(validatePhone("0987654321"), "INVALID_PHONE");
 });
 
-test("an accepted number has no message at all", () => {
+test("an accepted number has nothing to answer at all", () => {
   assert.equal(validatePhone("+593 (0)98 765 4321"), null);
   assert.equal(validatePhone("+12025550123"), null);
 });
