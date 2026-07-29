@@ -105,13 +105,28 @@ A public surface that lists Discoverable Events: the Organization page (`/{orgSl
 _Avoid_: Catalog, index, feed, directory
 
 **Ticket Type**:
-A purchasable ticket category belonging to an Event, with a name, description, price, capacity, and display order.
+A purchasable ticket category belonging to an Event, with a name, description, List Price, capacity, and display order.
 _Avoid_: Ticket tier, ticket class, fare, SKU
 
 **Free Ticket Type**:
 A Ticket Type an Organization prices at zero.
 Listed, selected, and counted against capacity exactly like any other, but a checkout that totals nothing never reaches a Payment Provider.
 _Avoid_: Free tier, complimentary ticket, comp, RSVP, giveaway
+
+**List Price**:
+The standing price an Organization sets on a Ticket Type — what it costs whenever no Promotion is live.
+The base the Platform Fee and Fee Handling arithmetic start from, and the struck-through figure shown beside a Promotional Price.
+_Avoid_: Price (unqualified), regular price, base price, original price, full price
+
+**Promotion**:
+A time-boxed price override on a single Ticket Type: a Promotional Price that applies from an optional start until a required end, read in the Event's timezone, after which the List Price silently resumes.
+At most one per Ticket Type at a time; editable and removable while live, and holding across every Sales Channel that prices from the catalog. It promotes a Ticket Type's price, not an Organization — unrelated to a promoter.
+_Avoid_: Discount, coupon, voucher, offer, deal, flash sale, early bird, sale
+
+**Promotional Price**:
+The price a Promotion charges while it is live — an absolute amount, not a percentage, always strictly below the List Price and allowed to be zero.
+Takes the List Price's place in all fee arithmetic, so the Platform Fee is a share of what the Customer actually paid; any "X% off" shown is derived for display.
+_Avoid_: Discounted price, sale price, special price, offer price
 
 **Tag**:
 A discovery facet an Event can wear, describing what kind of Event it is (e.g. "Music", "Workshop", "Techno"). An Event may carry several Tags, and Tags live in one system-wide shared pool reused across all Organizations. Aids Storefront discovery. Distinct from Ticket Type, which is a purchasable category within a single Event.

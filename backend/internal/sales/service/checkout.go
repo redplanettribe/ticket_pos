@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
@@ -149,7 +150,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		s.logger.Warn("capacity holds: lazy expiry failed; holds are still bounded by the cutoff query", "event_id", event.ID, "error", err)
 	}
 
-	types, err := s.repo.ListTicketTypesForImport(ctx, event.OrganizationID, event.ID)
+	types, err := s.repo.ListEventTicketTypes(ctx, event.OrganizationID, event.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +158,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	if err != nil {
 		return nil, err
 	}
-	byID := make(map[string]repository.ImportTicketType, len(types))
+	byID := make(map[string]repository.EventTicketType, len(types))
 	for _, tt := range types {
 		byID[tt.ID] = tt
 	}
@@ -193,9 +194,20 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		if requested[id] > available {
 			return nil, sales.ErrCapacityExceeded(id, requested[id], available)
 		}
+		// What this Ticket Type costs right now: the Promotional Price while its
+		// Promotion is live, the List Price otherwise (ADR 0021). The clock is
+		// read once for the whole checkout, so a window closing mid-loop cannot
+		// price two lines of one cart on different sides of it.
+		//
+		// This is the only place a Promotion is consulted in the whole sales
+		// domain. From here on there is a base price and nothing else: the fee
+		// arithmetic, the Payment's lines, the sale copied from them at confirm,
+		// Net Proceeds and any later reversal all work off the snapshot below and
+		// have no idea a Promotion was ever involved.
+		baseCents := catalog.EffectiveBasePriceCents(tt.PriceCents, tt.Promotion, now)
 		// Per unit, then multiplied: the Customer's total is exactly the price
 		// they were quoted times the quantity, never a percentage of a total.
-		fee := s.fees.SnapshotUnit(handling, tt.PriceCents)
+		fee := s.fees.SnapshotUnit(handling, baseCents)
 		amountCents += requested[id] * fee.BuyerUnitPriceCents
 		paymentLines = append(paymentLines, repository.PaymentLine{
 			TicketTypeID: id,

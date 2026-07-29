@@ -49,13 +49,33 @@ type PublicEventCard struct {
 // Handling. The Storefront never computes fees: it quotes this number, so the
 // price a Customer sees can never jump at checkout (ADR 0014).
 type PublicTicketType struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
-	PriceCents  int     `json:"price_cents"`
-	Currency    string  `json:"currency"`
-	Remaining   int     `json:"remaining"`
-	SoldOut     bool    `json:"sold_out"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Description *string          `json:"description"`
+	PriceCents  int              `json:"price_cents"`
+	Currency    string           `json:"currency"`
+	Remaining   int              `json:"remaining"`
+	SoldOut     bool             `json:"sold_out"`
+	Promotion   *PublicPromotion `json:"promotion"`
+}
+
+// PublicPromotion is a live Promotion as the Storefront shows it (ADR 0021):
+// what the ticket costs now, what it costs without the Promotion (the number
+// the page strikes through), and when the Promotion ends.
+// It is present only while the Promotion is live at the moment the page was
+// rendered; null covers no Promotion, one not yet started, and one already
+// ended alike, so the Storefront never evaluates a window itself and a page
+// cached past an expiry cannot advertise a price checkout would not honor.
+// Both amounts are buyer prices, carrying the Platform Fee and Fee IVA under
+// 'pass_on' Fee Handling exactly as price_cents does, so the saving a Customer
+// reads off the page is the saving they get at checkout. PromotionalPriceCents
+// is deliberately the same number as the Ticket Type's price_cents while the
+// Promotion is live — the Storefront should never have to know that the quoted
+// price and the promotional price are the same thing.
+type PublicPromotion struct {
+	PromotionalPriceCents int       `json:"promotional_price_cents"`
+	ListPriceCents        int       `json:"list_price_cents"`
+	EndsAt                time.Time `json:"ends_at"`
 }
 
 // PublicEventDetail is the full Storefront event page payload.
@@ -241,6 +261,11 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		return nil, err
 	}
 
+	promotions, err := s.repo.ListPromotionsByEventID(ctx, row.OrganizationID, row.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	handling := sales.FeeHandlingOrDefault(row.FeeHandling)
 	detail := &PublicEventDetail{
 		Slug:             row.Slug,
@@ -272,17 +297,53 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		if remaining < 0 {
 			remaining = 0
 		}
+		// The quoted price is the effective price at `now` — the same question
+		// begin-checkout asks — so the price shown is the price charged.
+		promotion := promotionFor(promotions, tt.ID)
+		baseCents := catalog.EffectiveBasePriceCents(tt.PriceCents, promotion, now)
 		detail.TicketTypes = append(detail.TicketTypes, PublicTicketType{
 			ID:          tt.ID,
 			Name:        tt.Name,
 			Description: nullStringPtr(tt.Description),
-			PriceCents:  s.fees.BuyerUnitPriceCents(handling, tt.PriceCents),
+			PriceCents:  s.fees.BuyerUnitPriceCents(handling, baseCents),
 			Currency:    row.OrgCurrency,
 			Remaining:   remaining,
 			SoldOut:     remaining == 0,
+			Promotion:   s.toPublicPromotion(handling, tt.PriceCents, promotion, now),
 		})
 	}
 	return detail, nil
+}
+
+// promotionFor pulls a Ticket Type's Promotion out of an Event's batch-loaded
+// set as the domain shape the effective-price rule is expressed over, or nil
+// when the slot is empty.
+func promotionFor(promotions map[string]repository.TicketTypePromotion, ticketTypeID string) *catalog.Promotion {
+	p, ok := promotions[ticketTypeID]
+	if !ok {
+		return nil
+	}
+	return toPromotion(&p)
+}
+
+// toPublicPromotion renders a Promotion for the Storefront, but only while it
+// is live: outside its window there is nothing for a Customer to know about it,
+// and a Promotion the page could see but not use would invite the Storefront to
+// decide for itself when it applies.
+func (s *Service) toPublicPromotion(
+	handling sales.FeeHandling,
+	listPriceCents int,
+	promotion *catalog.Promotion,
+	now time.Time,
+) *PublicPromotion {
+	if !promotion.LiveAt(now) {
+		return nil
+	}
+	return &PublicPromotion{
+		PromotionalPriceCents: s.fees.BuyerUnitPriceCents(handling, promotion.PromotionalPriceCents),
+		ListPriceCents:        s.fees.BuyerUnitPriceCents(handling, listPriceCents),
+		EndsAt:                promotion.EndsAt,
+	}
 }
 
 func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagView) PublicEventCard {

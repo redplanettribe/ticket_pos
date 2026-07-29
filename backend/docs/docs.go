@@ -188,6 +188,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.promotionBody": {
+                "properties": {
+                    "ends_at": {
+                        "type": "string"
+                    },
+                    "promotional_price_cents": {
+                        "type": "integer"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.recordPayoutBody": {
                 "properties": {
                     "amount_cents": {
@@ -1641,6 +1655,21 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.PromotionView": {
+                "description": "Promotion is the Ticket Type's one Promotion slot, or null when it is\nempty. It travels with the Ticket Type so the editor can render the\nPromotion's state without a second request; PriceCents above stays the\nList Price whether or not a Promotion is live (ADR 0021).",
+                "properties": {
+                    "ends_at": {
+                        "type": "string"
+                    },
+                    "promotional_price_cents": {
+                        "type": "integer"
+                    },
+                    "starts_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.PublicEventCard": {
                 "properties": {
                     "cover_image_url": {
@@ -1800,6 +1829,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.PublicPromotion": {
+                "properties": {
+                    "ends_at": {
+                        "type": "string"
+                    },
+                    "list_price_cents": {
+                        "type": "integer"
+                    },
+                    "promotional_price_cents": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.PublicTicketType": {
                 "properties": {
                     "currency": {
@@ -1816,6 +1859,9 @@ const docTemplate = `{
                     },
                     "price_cents": {
                         "type": "integer"
+                    },
+                    "promotion": {
+                        "$ref": "#/components/schemas/service.PublicPromotion"
                     },
                     "remaining": {
                         "type": "integer"
@@ -2125,6 +2171,9 @@ const docTemplate = `{
                     },
                     "price_cents": {
                         "type": "integer"
+                    },
+                    "promotion": {
+                        "$ref": "#/components/schemas/service.PromotionView"
                     },
                     "sold_count": {
                         "type": "integer"
@@ -6001,6 +6050,310 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Update ticket type",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/promotion": {
+            "delete": {
+                "description": "Removes a ticket type's promotion, returning it to its list price. The freed slot may be filled again.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket type ID",
+                        "in": "path",
+                        "name": "ticketTypeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketTypeDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Remove ticket type promotion",
+                "tags": [
+                    "staff"
+                ]
+            },
+            "patch": {
+                "description": "Replaces the promotional price and window of a ticket type's existing promotion.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket type ID",
+                        "in": "path",
+                        "name": "ticketTypeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.promotionBody",
+                                        "summary": "body",
+                                        "description": "Promotional price and window"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Promotional price and window",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketTypeDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update ticket type promotion",
+                "tags": [
+                    "staff"
+                ]
+            },
+            "post": {
+                "description": "Sets the promotion on a ticket type. A ticket type holds at most one promotion; setting one where a promotion already exists is rejected.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket type ID",
+                        "in": "path",
+                        "name": "ticketTypeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.promotionBody",
+                                        "summary": "body",
+                                        "description": "Promotional price and window"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Promotional price and window",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketTypeDetail"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Set ticket type promotion",
                 "tags": [
                     "staff"
                 ]

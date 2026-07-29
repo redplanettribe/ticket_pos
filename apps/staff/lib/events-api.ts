@@ -1,4 +1,5 @@
 import type { FeeHandling } from "./fees";
+import type { Promotion } from "./promotions";
 
 export type APIEnvelope<T> = {
   data: T | null;
@@ -77,11 +78,14 @@ export type TicketType = {
   event_id: string;
   name: string;
   description: string | null;
+  /** The List Price. It stays put whether or not a Promotion is live (ADR 0021). */
   price_cents: number;
   currency: string;
   capacity: number;
   sold_count: number;
   sort_order: number;
+  /** The one Promotion slot, or null when it is empty. */
+  promotion: Promotion | null;
   created_at: string;
   updated_at: string;
 };
