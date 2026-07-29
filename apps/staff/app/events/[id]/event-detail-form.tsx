@@ -31,6 +31,7 @@ import {
 } from "@/lib/events-api";
 
 import { EventCoverImage } from "./event-cover-image";
+import { EventCoverVideo } from "./event-cover-video";
 
 type EventDetailFormProps = {
   eventId: string;
@@ -52,6 +53,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
   const [venueAddress, setVenueAddress] = useState("");
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
+  const [coverVideoUrl, setCoverVideoUrl] = useState<string | null>(null);
   const [feeHandling, setFeeHandling] = useState<FeeHandling>("pass_on");
 
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
@@ -68,6 +70,7 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
     setVenueAddress(event.venue_address ?? "");
     setDescription(event.description ?? "");
     setCoverImageUrl(event.cover_image_url);
+    setCoverVideoUrl(event.cover_video_url);
     setFeeHandling(event.fee_handling);
   }, []);
 
@@ -226,6 +229,18 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
 
       <EventCoverImage
         eventId={eventId}
+        coverImageUrl={coverImageUrl}
+        coverVideoUrl={coverVideoUrl}
+        patchBody={patchBody}
+        onUpdated={(event) => {
+          applyEvent(event);
+          router.refresh();
+        }}
+      />
+
+      <EventCoverVideo
+        eventId={eventId}
+        coverVideoUrl={coverVideoUrl}
         coverImageUrl={coverImageUrl}
         patchBody={patchBody}
         onUpdated={(event) => {

@@ -3764,6 +3764,89 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/video-upload-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create cover video upload URL
+         * @description Returns a presigned PUT URL for uploading an event cover video (MP4 only).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Upload details */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.videoUploadURLBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCoverUploadURL"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/me": {
         parameters: {
             query?: never;
@@ -4339,6 +4422,11 @@ export interface components {
         };
         "handler.updateEventBody": {
             cover_image_key?: string;
+            /**
+             * @description CoverVideoKey attaches or clears the Cover Video. Absent leaves it alone,
+             *     an empty string clears it, mirroring cover_image_key.
+             */
+            cover_video_key?: string;
             description?: string;
             ends_at?: string;
             /**
@@ -4370,6 +4458,15 @@ export interface components {
             name?: string;
             price_cents?: number;
             sort_order?: number;
+        };
+        "handler.videoUploadURLBody": {
+            content_type?: string;
+            /**
+             * @description FileName is accepted for symmetry with the cover upload request and to let
+             *     clients send what the user picked, but it never shapes the key: a Cover
+             *     Video is always an MP4, so the extension is fixed.
+             */
+            file_name?: string;
         };
         "internal_catalog_openapi.MessageData": {
             message?: string;
@@ -4733,6 +4830,13 @@ export interface components {
         "service.EventDetail": {
             cover_image_key?: string;
             cover_image_url?: string;
+            /**
+             * @description CoverVideoKey and CoverVideoURL are the Event's optional Cover Video: the
+             *     stored object key and the public URL derived from it at read time, never
+             *     stored (ADR 0020).
+             */
+            cover_video_key?: string;
+            cover_video_url?: string;
             created_at?: string;
             description?: string;
             discoverable?: boolean;
@@ -4932,6 +5036,12 @@ export interface components {
         };
         "service.PublicEventDetail": {
             cover_image_url?: string;
+            /**
+             * @description CoverVideoURL is the Event's optional Cover Video, played in the hero over
+             *     the Cover Image poster. Only the key's derived URL is public; listings and
+             *     link previews stay on the Cover Image (ADR 0020).
+             */
+            cover_video_url?: string;
             currency?: string;
             description?: string;
             ends_at?: string;

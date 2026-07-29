@@ -9,6 +9,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/storage"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 )
@@ -59,7 +60,12 @@ type EventDetail struct {
 	Description   *string    `json:"description"`
 	CoverImageKey *string    `json:"cover_image_key"`
 	CoverImageURL *string    `json:"cover_image_url"`
-	Discoverable  bool       `json:"discoverable"`
+	// CoverVideoKey and CoverVideoURL are the Event's optional Cover Video: the
+	// stored object key and the public URL derived from it at read time, never
+	// stored (ADR 0020).
+	CoverVideoKey *string `json:"cover_video_key"`
+	CoverVideoURL *string `json:"cover_video_url"`
+	Discoverable  bool    `json:"discoverable"`
 	// FeeHandling is the Event's Fee Handling mode, and the two rates are the
 	// Platform Fee schedule it is read with. The rates travel with the Event so
 	// the staff forms can show an organizer what a price means for the buyer and
@@ -110,6 +116,10 @@ type UpdateEventInput struct {
 	VenueAddress  *string
 	Description   *string
 	CoverImageKey *string
+	// CoverVideoKey attaches or clears the Cover Video: an empty string clears
+	// it, nil leaves it alone, anything else must be a key under this Event's
+	// videos prefix.
+	CoverVideoKey *string
 	// FeeHandling is the submitted Fee Handling mode, or nil when the form said
 	// nothing about it — an update that omits it leaves the Event's mode alone.
 	FeeHandling *sales.FeeHandling
@@ -121,23 +131,33 @@ type CreateCoverUploadURLInput struct {
 	FileName    string
 }
 
+// CreateVideoUploadURLInput requests a presigned Cover Video upload URL.
+type CreateVideoUploadURLInput struct {
+	ContentType string
+}
+
 // Service implements catalog business rules.
 type Service struct {
 	repo    *repository.Repository
 	storage storage.ObjectStorage
 	fees    sales.FeeRates
 	now     func() time.Time
+	// logger is where a failed media cleanup goes to be seen. The organizer
+	// never hears about it (ADR 0020), so the log line is the only record that
+	// an object outlived the Event that referenced it.
+	logger platform.Logger
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
 // Platform Fee schedule, surfaced on Event payloads so the staff forms derive
 // buyer and take-home figures with the checkout arithmetic (ADR 0014).
-func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates) *Service {
+func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates, logger platform.Logger) *Service {
 	return &Service{
 		repo:    repo,
 		storage: objectStorage,
 		fees:    fees,
 		now:     time.Now,
+		logger:  logger,
 	}
 }
 
@@ -242,6 +262,27 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	} else {
 		params.CoverImageKey = event.CoverImageKey
 	}
+	if input.CoverVideoKey != nil {
+		key := strings.TrimSpace(*input.CoverVideoKey)
+		if key == "" {
+			params.CoverVideoKey = sql.NullString{}
+		} else if !storage.VideoKeyBelongsToEvent(key, actor.OrganizationID, eventID) {
+			return nil, catalog.ErrInvalidCoverVideoKey()
+		} else {
+			params.CoverVideoKey = sql.NullString{String: key, Valid: true}
+		}
+	} else {
+		params.CoverVideoKey = event.CoverVideoKey
+	}
+
+	// The poster invariant: a Cover Video requires a Cover Image. It binds on the
+	// final state the update would leave behind, not on the fields the request
+	// happens to carry — so setting both at once is fine, clearing both is fine,
+	// and replacing the image under a video is fine, while attaching a video to an
+	// imageless Event or clearing the image out from under a video is not.
+	if params.CoverVideoKey.Valid && !params.CoverImageKey.Valid {
+		return nil, catalog.ErrCoverVideoRequiresCoverImage()
+	}
 
 	params.Discoverable = event.Discoverable
 
@@ -256,8 +297,34 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 	if err != nil {
 		return nil, err
 	}
+
+	// The row is committed, so the old objects are unreachable from here on:
+	// whatever happens next cannot make this request wrong (ADR 0020).
+	s.deleteReplacedObject(ctx, event.CoverImageKey, params.CoverImageKey, "cover image", eventID)
+	s.deleteReplacedObject(ctx, event.CoverVideoKey, params.CoverVideoKey, "cover video", eventID)
+
 	detail := s.toEventDetail(updated)
 	return &detail, nil
+}
+
+// deleteReplacedObject removes the object an Event has stopped pointing at, when
+// the update replaced its key with a different one or cleared it. Preserved and
+// unchanged keys are still in use and are left alone.
+//
+// Best-effort by design: the database has already committed, and the worst a
+// failure can do is leave an orphan — the status quo before delete-on-replace
+// existed. So it is logged and never returned (ADR 0020).
+func (s *Service) deleteReplacedObject(ctx context.Context, before, after sql.NullString, kind, eventID string) {
+	if s.storage == nil || !before.Valid || before.String == "" {
+		return
+	}
+	if after.Valid && after.String == before.String {
+		return
+	}
+	if err := s.storage.Delete(ctx, before.String); err != nil && s.logger != nil {
+		s.logger.Error("media cleanup: the replaced object could not be deleted and is now an orphan",
+			"kind", kind, "event_id", eventID, "object_key", before.String, "error", err)
+	}
 }
 
 // SetEventDiscoverable sets whether a published Event is listed in public discovery
@@ -409,6 +476,44 @@ func (s *Service) CreateCoverUploadURL(ctx context.Context, actor ActorContext, 
 	}
 
 	key, err := storage.BuildCoverObjectKey(actor.OrganizationID, eventID, contentType, input.FileName)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadURL, err := s.storage.PresignPut(ctx, key, contentType, 15*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage.CoverUploadResult{
+		UploadURL: uploadURL,
+		ObjectKey: key,
+		PublicURL: s.storage.PublicURL(key),
+	}, nil
+}
+
+// CreateVideoUploadURL returns a presigned PUT URL for an event Cover Video.
+// The object is stored verbatim under the Event's videos prefix — no transcoding,
+// no processing state: the video is live the moment the PUT returns (ADR 0020).
+func (s *Service) CreateVideoUploadURL(ctx context.Context, actor ActorContext, eventID string, input CreateVideoUploadURLInput) (*storage.CoverUploadResult, error) {
+	if s.storage == nil {
+		return nil, catalog.ErrVideoUploadUnavailable()
+	}
+
+	event, err := s.repo.GetEventByID(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, catalog.ErrEventNotFound()
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(input.ContentType))
+	if !storage.VideoContentTypeAllowed(contentType) {
+		return nil, catalog.ErrInvalidCoverVideoKey()
+	}
+
+	key, err := storage.BuildVideoObjectKey(actor.OrganizationID, eventID, contentType)
 	if err != nil {
 		return nil, err
 	}
@@ -686,6 +791,14 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		if s.storage != nil {
 			url := s.storage.PublicURL(key)
 			detail.CoverImageURL = &url
+		}
+	}
+	if e.CoverVideoKey.Valid {
+		key := e.CoverVideoKey.String
+		detail.CoverVideoKey = &key
+		if s.storage != nil {
+			url := s.storage.PublicURL(key)
+			detail.CoverVideoURL = &url
 		}
 	}
 	return detail

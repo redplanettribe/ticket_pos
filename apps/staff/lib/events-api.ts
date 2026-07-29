@@ -42,6 +42,10 @@ export type EventDetail = {
   description: string | null;
   cover_image_key: string | null;
   cover_image_url: string | null;
+  /** The Event's optional Cover Video: the stored key and the URL derived from
+   * it at read time. Plays in the Storefront hero over the cover image. */
+  cover_video_key: string | null;
+  cover_video_url: string | null;
   discoverable: boolean;
   /** How this Event handles the Platform Fee and its Fee IVA (ADR 0014). */
   fee_handling: FeeHandling;

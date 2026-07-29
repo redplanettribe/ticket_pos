@@ -28,7 +28,7 @@ export function StorefrontShell({
         <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-2">
           {organizationName ? (
             <>
-              <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} />
+              <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
               <p className="text-sm font-medium text-muted-foreground">{organizationName}</p>
             </>
           ) : (

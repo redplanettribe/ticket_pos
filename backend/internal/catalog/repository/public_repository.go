@@ -48,7 +48,7 @@ type PublicEventFilter struct {
 const publicEventColumns = `
 	e.id, e.organization_id, e.name, e.slug, e.status,
 	e.starts_at, e.ends_at, e.timezone, e.venue_name, e.venue_address,
-	e.description, e.cover_image_key, e.discoverable, e.fee_handling, e.created_at,
+	e.description, e.cover_image_key, e.cover_video_key, e.discoverable, e.fee_handling, e.created_at,
 	o.name, o.slug, o.logo_image_key, o.currency,
 	tt.min_price, tt.all_sold_out, tt.ticket_count
 `
@@ -100,7 +100,7 @@ func scanPublicEventRow(rows interface {
 	if err := rows.Scan(
 		&row.ID, &row.OrganizationID, &row.Name, &row.Slug, &status,
 		&row.StartsAt, &row.EndsAt, &row.Timezone, &row.VenueName, &row.VenueAddress,
-		&row.Description, &row.CoverImageKey, &row.Discoverable, &row.FeeHandling, &row.CreatedAt,
+		&row.Description, &row.CoverImageKey, &row.CoverVideoKey, &row.Discoverable, &row.FeeHandling, &row.CreatedAt,
 		&row.OrgName, &row.OrgSlug, &row.OrgLogoKey, &row.OrgCurrency,
 		&row.MinPriceCents, &row.AllSoldOut, &row.TicketCount,
 	); err != nil {

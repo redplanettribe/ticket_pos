@@ -254,6 +254,9 @@ export type PublicEventDetail = {
   venue_name: string | null;
   venue_address: string | null;
   cover_image_url: string | null;
+  // The Event's optional Cover Video, played in the hero over the cover image
+  // poster. Listings and link previews stay on the cover image.
+  cover_video_url: string | null;
   has_ended: boolean;
   organization: PublicOrganizationSummary;
   currency: string;

@@ -1,0 +1,14 @@
+-- Cover Video: an Event's optional short looping MP4, shown in the Storefront
+-- hero in place of the still Cover Image once it has loaded.
+--
+-- One nullable object key, sibling to cover_image_key (migration 004) and
+-- shaped exactly like it: the platform stores where the video lives, never the
+-- video, and the public URL is computed at read time rather than stored. Keys
+-- live under the `videos/` bucket prefix, deliberately disjoint from `covers/`
+-- so a key minted for one slot can never validate for the other (ADR 0020).
+--
+-- Nullable forever. Most Events never set one and the Cover Image renders in
+-- its place; removal is the Org Admin clearing the key back to NULL. There is
+-- no processing state to record because the MP4 is stored verbatim: the moment
+-- the presigned PUT returns, the video is live.
+ALTER TABLE events ADD COLUMN cover_video_key TEXT;

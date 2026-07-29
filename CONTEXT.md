@@ -97,6 +97,7 @@ _Avoid_: State, visibility flag, active/inactive
 A per-Event flag controlling whether a `published` Event appears in public listings — the Organization page and the global explorer — or is reachable by direct link only.
 Only a `published` Event can be Discoverable; `draft` and `cancelled` Events are never listed. A non-Discoverable published Event is still fully sellable to anyone who has its link.
 Any Member of the Organization may set an Event's Discoverable flag; every other event edit remains an Org Admin action.
+In UI copy only, staff surfaces render the flag as "Listed" / "Not listed", naming the Storefront listing the Event does or does not appear in; code and prose keep the term Discoverable.
 _Avoid_: Public/private, hidden, unlisted, featured
 
 **Storefront listing**:

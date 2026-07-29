@@ -14,6 +14,24 @@ import {
 
 const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MIN_LOGO_DIMENSION = 64;
+
+/** Resolves the image's pixel dimensions by loading it off-DOM. */
+function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not read image dimensions"));
+    };
+    image.src = objectUrl;
+  });
+}
 
 type LogoUploadURL = {
   upload_url: string;
@@ -76,6 +94,17 @@ export function OrgLogoImage({ organizationName, logoUrl, onUpdated }: OrgLogoIm
       return;
     }
 
+    try {
+      const { width, height } = await readImageDimensions(file);
+      if (Math.min(width, height) < MIN_LOGO_DIMENSION) {
+        toast.error("Logo must be at least 64px on its shorter side.");
+        return;
+      }
+    } catch {
+      toast.error("Could not read the selected image.");
+      return;
+    }
+
     setUploading(true);
     try {
       const presign = await fetchJSON<LogoUploadURL>("/api/settings/organization/logo-upload-url", {
@@ -122,14 +151,27 @@ export function OrgLogoImage({ organizationName, logoUrl, onUpdated }: OrgLogoIm
       <CardHeader>
         <CardTitle>Logo</CardTitle>
         <CardDescription>
-          JPEG, PNG, or WebP up to 5 MB. Shown in Staff and on the Storefront.
+          JPEG, PNG, or WebP up to 5 MB, at least 64px on the shorter side. Shown in Staff and on
+          the Storefront.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {logoUrl ? (
-          <div className="overflow-hidden rounded-md border bg-muted/30">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={logoUrl} alt="Organization logo preview" className="max-h-32 max-w-xs object-contain" />
+          <div className="flex flex-wrap gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Light</p>
+              <div className="flex h-24 w-40 items-center justify-center rounded-md border bg-background p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={logoUrl} alt="Organization logo preview on a light background" className="max-h-full max-w-full object-contain" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Dark</p>
+              <div className="flex h-24 w-40 items-center justify-center rounded-md border bg-zinc-900 p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={logoUrl} alt="Organization logo preview on a dark background" className="max-h-full max-w-full object-contain" />
+              </div>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No logo yet.</p>

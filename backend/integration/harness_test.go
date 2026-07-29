@@ -42,7 +42,10 @@ var (
 	sharedApp   *server.App
 	pgContainer testcontainers.Container
 	sharedEmail *platform.CaptureEmailSender
-	fixedClock  = time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	// sharedStorage is the bucket the shared app writes to. Package-level so
+	// tests can read its delete recorder; reset per test like sharedEmail.
+	sharedStorage = &mockObjectStorage{}
+	fixedClock    = time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 )
 
 func TestMain(m *testing.M) {
@@ -111,7 +114,7 @@ func TestMain(m *testing.M) {
 	app, err := server.NewApp(ctx, cfg,
 		server.WithEmailSender(email),
 		server.WithClock(func() time.Time { return fixedClock }),
-		server.WithObjectStorage(&mockObjectStorage{}),
+		server.WithObjectStorage(sharedStorage),
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "new app: %v\n", err)
@@ -158,6 +161,7 @@ func setupTest(t *testing.T) *testEnv {
 		t.Fatalf("reset database: %v", err)
 	}
 	sharedEmail.Reset()
+	sharedStorage.reset()
 	sharedApp.IdentityService.WithClock(func() time.Time { return fixedClock })
 	// Customer identity has its own clock: Customer Session lifetime is measured
 	// in months, so its tests move time far further than any staff test does.

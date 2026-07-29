@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
 
+import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
@@ -75,8 +76,14 @@ export default async function EventPage({ params }: EventPageProps) {
         <div className="overflow-hidden rounded-xl border bg-muted">
           <div className="relative aspect-[16/9] w-full">
             {event.cover_image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={event.cover_image_url} alt="" className="h-full w-full object-cover" />
+              // The Cover Image is the hero and renders from the server every
+              // time; the Cover Video, when there is one and the visitor has not
+              // declined motion or data, fades in over it from the client
+              // (ADR 0020).
+              <EventHeroMedia
+                coverImageUrl={event.cover_image_url}
+                coverVideoUrl={event.cover_video_url}
+              />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/25">
                 <span className="text-4xl font-semibold text-primary/70">

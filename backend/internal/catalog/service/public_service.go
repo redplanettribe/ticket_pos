@@ -80,15 +80,19 @@ type PublicPromotion struct {
 
 // PublicEventDetail is the full Storefront event page payload.
 type PublicEventDetail struct {
-	Slug          string                    `json:"slug"`
-	Name          string                    `json:"name"`
-	Description   *string                   `json:"description"`
-	StartsAt      *time.Time                `json:"starts_at"`
-	EndsAt        *time.Time                `json:"ends_at"`
-	Timezone      *string                   `json:"timezone"`
-	VenueName     *string                   `json:"venue_name"`
-	VenueAddress  *string                   `json:"venue_address"`
-	CoverImageURL *string                   `json:"cover_image_url"`
+	Slug          string     `json:"slug"`
+	Name          string     `json:"name"`
+	Description   *string    `json:"description"`
+	StartsAt      *time.Time `json:"starts_at"`
+	EndsAt        *time.Time `json:"ends_at"`
+	Timezone      *string    `json:"timezone"`
+	VenueName     *string    `json:"venue_name"`
+	VenueAddress  *string    `json:"venue_address"`
+	CoverImageURL *string    `json:"cover_image_url"`
+	// CoverVideoURL is the Event's optional Cover Video, played in the hero over
+	// the Cover Image poster. Only the key's derived URL is public; listings and
+	// link previews stay on the Cover Image (ADR 0020).
+	CoverVideoURL *string                   `json:"cover_video_url"`
 	HasEnded      bool                      `json:"has_ended"`
 	Organization  PublicOrganizationSummary `json:"organization"`
 	Currency      string                    `json:"currency"`
@@ -268,6 +272,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		Name:             row.Name,
 		Description:      nullStringPtr(row.Description),
 		CoverImageURL:    s.coverURL(row.CoverImageKey),
+		CoverVideoURL:    s.coverURL(row.CoverVideoKey),
 		HasEnded:         eventEnded(row, now),
 		Organization:     s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
 		Currency:         row.OrgCurrency,

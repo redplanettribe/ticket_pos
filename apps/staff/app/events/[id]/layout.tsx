@@ -91,6 +91,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
           startsAt={event.starts_at}
           timezone={event.timezone}
           ticketTypeCount={ticketTypeCount}
+          discoverable={event.discoverable}
         />
         {children}
       </div>
