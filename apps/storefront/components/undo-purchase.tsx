@@ -35,7 +35,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
  * question the API answers fresh: the window is enforced server-side, so a card
  * rendered before the deadline and pressed after it comes back refused rather
  * than quietly succeeding. Which refusal it is stays the API's to decide; the
- * sentence is this app's, chosen by the API's code (ADR 0022).
+ * sentence is this app's, chosen by the API's code (ADR 0023).
  *
  * The confirmation step is deliberate rather than ceremonial. This is the one
  * destructive action a Customer has, it cannot be taken back — capacity returns
@@ -106,7 +106,7 @@ export function UndoPurchase({
         // The API owns every reason this can fail — the window has closed, the
         // sale is already undone, the payment cannot be reversed — and its code
         // is which of them happened. Deciding that again here would only let the
-        // two disagree; choosing the words for it does not (ADR 0022).
+        // two disagree; choosing the words for it does not (ADR 0023).
         setError({
           code: envelope.error?.code ?? null,
           message: envelope.error?.message ?? null,

@@ -125,7 +125,7 @@ async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
  * relay the API's own `error.code` and `error.message` to the browser instead of
  * inventing a verdict of its own (docs/design/README.md). The code is the half
  * the rendering surface keys its copy on, and the message is the half it falls
- * back to when it does not know the code (ADR 0022) — both have to survive.
+ * back to when it does not know the code (ADR 0023) — both have to survive.
  */
 export class APIError extends Error {
   code: string;
@@ -430,6 +430,15 @@ export type BeginCheckoutRequest = {
    * PayPhone's rules prohibit. Never an empty string, never a placeholder.
    */
   customer_phone?: string;
+  /**
+   * The Affiliate Link codes this buyer's recent clicks on this Event left
+   * behind, newest first, read out of the attribution cookie by the
+   * begin-checkout route (ADR 0022). Omitted entirely when nothing is
+   * remembered, and never validated here: the API credits the first code that
+   * still names a live link and records the sale unattributed when none does —
+   * which is why the order, not just the newest code, is what travels.
+   */
+  affiliate_codes?: string[];
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

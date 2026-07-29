@@ -218,7 +218,7 @@ export type SessionOutcome<T> =
    * `code` is the API's own code when the failure came back as an envelope, and
    * null when nothing was reached at all. It travels beside the message so the
    * page rendering this can choose its copy on the code and fall back to the
-   * message (ADR 0022) — the same pair every other failed call hands its
+   * message (ADR 0023) — the same pair every other failed call hands its
    * surface.
    *
    * Both are null when the API was never reached. The fallback is only ever the

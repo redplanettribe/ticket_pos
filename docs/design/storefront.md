@@ -198,7 +198,7 @@ Two steps on one page, matching the Staff sign-in: email, then the 6-digit passc
 | Email | Email field, "Send passcode" |
 | Passcode | Numeric passcode field (`one-time-code` autofill), "Sign in", plus "Send a new passcode" and "Use a different email" |
 
-- Passcode failures show this Storefront's copy for the API's `error.code`, per [foundation.md](./foundation.md) and [ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md) — the page never decides for itself which failure it was, and a code with no copy falls back to the API's `error.message`.
+- Passcode failures show this Storefront's copy for the API's `error.code`, per [foundation.md](./foundation.md) and [ADR 0023](../adr/0023-storefront-error-copy-keyed-on-api-error-code.md) — the page never decides for itself which failure it was, and a code with no copy falls back to the API's `error.message`.
 - "Send a new passcode" stays on screen for every recoverable failure (mistyped, expired, attempts exhausted). It is withheld only when asking again is the thing being refused: rate limiting and the global send ceiling.
 - Alerts above the form explain two arrivals: a **Customer Session** that ran out, and a **Confirmation Link** that was expired or invalid.
 - No sign-in state in the header here.

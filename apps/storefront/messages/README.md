@@ -32,7 +32,7 @@ is really two surfaces.
 
 Every other key names meaning in English. `errors` names the API's own codes,
 because the API decides which failure occurred and this app only chooses the
-words for it (ADR 0022). Four groups, and lookup order matters:
+words for it (ADR 0023). Four groups, and lookup order matters:
 
 | Group           | Keyed by                    | Holds                                                        |
 | --------------- | --------------------------- | ------------------------------------------------------------ |

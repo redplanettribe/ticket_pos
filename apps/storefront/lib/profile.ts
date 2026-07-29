@@ -123,7 +123,7 @@ function isProfileField(field: string): field is ProfileField {
  *
  * Codes, not sentences: the same codes the API's own field errors carry, so a
  * verdict reached here and the identical verdict reached by the API resolve to
- * one sentence in whichever language the page is being read in (ADR 0022). The
+ * one sentence in whichever language the page is being read in (ADR 0023). The
  * rules are exactly the ones this function has always applied.
  */
 export function validateProfileDraft(draft: ProfileDraft): ProfileFieldCodes {
@@ -229,7 +229,7 @@ export function profileFieldMessages(
  * VALIDATION_FAILED envelope, ignoring any field this form has no input for.
  *
  * The copy itself is chosen by fieldErrorMessages, on the FieldError's stable
- * `code`, falling back to its message (ADR 0022). All this adds is the filter,
+ * `code`, falling back to its message (ADR 0023). All this adds is the filter,
  * which is the one part that belongs to the form: a field with no input to sit
  * under has nowhere to render.
  */

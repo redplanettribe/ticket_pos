@@ -127,7 +127,7 @@ function isFormField(field: string): field is (typeof FORM_FIELDS)[number] {
  * The API's field errors narrowed to the inputs this dialog actually drew.
  *
  * The copy is chosen by fieldErrorMessages on each FieldError's stable `code`,
- * falling back to its message (ADR 0022); the only thing added here is the
+ * falling back to its message (ADR 0023); the only thing added here is the
  * filter. `lines[0].quantity` has no control on this form to sit under, so it is
  * dropped rather than shown somewhere it means nothing.
  */
@@ -146,7 +146,7 @@ function fieldErrorsFromDetails(catalog: ErrorCatalog, details: unknown): FieldE
  *
  * `code` is the API's verdict about WHICH failure this is, and it is what the
  * sentence gets chosen by; `message` is the API's own words, kept as the
- * fallback for a code the catalog has never heard of (ADR 0022). `fallback`
+ * fallback for a code the catalog has never heard of (ADR 0023). `fallback`
  * names which of this app's own two failures to say instead when the API said
  * nothing at all. Nothing here is a sentence: the words are looked up at render,
  * so state never holds copy that a language switch would strand.
@@ -302,7 +302,7 @@ export function TicketSelection({
     // The mirror names the rule that broke and the catalog says it in the
     // language this page is being read in — the same entry the API's own field
     // error would have resolved through, so the field says one thing rather than
-    // the same thing twice in two languages (ADR 0022).
+    // the same thing twice in two languages (ADR 0023).
     const taxIdProblem = validateTaxId(taxIdType, taxIdNumber);
     if (taxIdProblem) {
       setError(null);

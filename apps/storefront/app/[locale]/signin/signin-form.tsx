@@ -40,7 +40,7 @@ const RESEND_REFUSED_ERRORS = new Set(["OTP_RATE_LIMITED", "OTP_GLOBAL_CEILING_R
  *
  * `code` is doing two jobs, and they are the same job: it decides whether
  * "Send a new passcode" stays on screen, and it decides which sentence is shown
- * (ADR 0022). Both are readings of the API's verdict, never a second opinion
+ * (ADR 0023). Both are readings of the API's verdict, never a second opinion
  * about it. `message` is the API's own words, kept for a code the catalog has
  * never heard of; `fallback` is this app's sentence for the request that never
  * arrived.

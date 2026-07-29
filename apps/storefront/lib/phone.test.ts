@@ -112,7 +112,7 @@ test("a rejected number is explained in the terms of its own tier", () => {
   // The tier is named by the API's own field code (validation_codes.go), not by
   // a sentence: the catalog turns it into words in the language the page is
   // being read in, so the pre-flight complaint and the API's are one complaint
-  // (ADR 0022).
+  // (ADR 0023).
   assert.equal(validatePhone("+59322345678"), "INVALID_PHONE_EC");
   assert.equal(validatePhone("+59398765"), "INVALID_PHONE_EC");
   assert.equal(validatePhone("+593 987 65432a"), "INVALID_PHONE_EC");

@@ -153,6 +153,13 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// email and gets forwarded; this route reveals a deadline and never an
 	// action, so nothing here is triggerable by whoever ends up holding the URL.
 	mux.HandleFunc("GET /api/v1/public/checkout/{clientTransactionId}/reversal", app.CustomersHandler.GetCheckoutReversal)
+	// The Affiliate Link click counter, reported by the Storefront while it
+	// renders an Event page carrying a ref. Public and unauthenticated because
+	// the caller is a page load by whoever followed the link, and shaped like the
+	// checkout route above because it identifies the same thing: an Event by its
+	// two Storefront slugs. It answers 202 to everything — see the handler.
+	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click",
+		app.AffiliatesHandler.RecordAffiliateLinkClick)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {
@@ -268,6 +275,20 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// The Event's money, though, is not for hired door staff: the Net Proceeds
 	// strip above that list is Org Admin and Event Owner only.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales/summary", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesSummary)))
+
+	// Affiliate Links: the Event's promotion surface. Full-access only — an
+	// Event Staff hired for the door has no business minting links that credit
+	// somebody with the Event's sales, so they are refused both the read and the
+	// write and see no nav entry (#145).
+	ah := app.AffiliatesHandler
+	mux.Handle("GET /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.ListAffiliateLinks)))
+	mux.Handle("POST /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.CreateAffiliateLink)))
+	// The lifecycle: rename and the activate/deactivate toggle share one PATCH,
+	// and DELETE removes a link that never did anything (#148). Same gate as the
+	// two above — deciding whose link stops attributing is the same authority as
+	// deciding there is a link at all.
+	mux.Handle("PATCH /api/v1/staff/events/{id}/affiliate-links/{linkId}", eventOwnerOrAdmin(http.HandlerFunc(ah.UpdateAffiliateLink)))
+	mux.Handle("DELETE /api/v1/staff/events/{id}/affiliate-links/{linkId}", eventOwnerOrAdmin(http.HandlerFunc(ah.DeleteAffiliateLink)))
 
 	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
 	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))

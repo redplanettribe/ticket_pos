@@ -85,7 +85,7 @@ How that reads on each surface:
 - **Staff** displays `error.message` as returned by the API, verbatim.
 - **Storefront** displays its own copy for the failure, chosen by the API's `error.code` and
   falling back to `error.message` whenever the code is one its catalog does not know
-  ([ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md)). It serves two
+  ([ADR 0023](../adr/0023-storefront-error-copy-keyed-on-api-error-code.md)). It serves two
   languages and the API answers in English only, so re-rendering the API's verdict in the
   visitor's language is the only way to keep the two agreeing about *which* failure it was.
 
@@ -162,6 +162,6 @@ language it is written in changes. A Locale may never reach the time zone argume
 - Which failure occurred comes from the API and is never re-decided in the UI. On Staff the
   words come from the API too; on the Storefront the words come from its own catalog, keyed on
   the API's code (see **Feedback patterns** above and
-  [ADR 0022](../adr/0022-storefront-error-copy-keyed-on-api-error-code.md)).
+  [ADR 0023](../adr/0023-storefront-error-copy-keyed-on-api-error-code.md)).
 
 Surface-specific tone lives in [staff.md](./staff.md) and [storefront.md](./storefront.md).

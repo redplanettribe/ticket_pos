@@ -64,6 +64,12 @@ type CommitSale struct {
 	PaymentMethod   string
 	SoldAt          time.Time
 	ConfirmationRef string
+	// AffiliateLinkID credits this sale to the Affiliate Link the buyer reached
+	// the Event page through, copied from the Payment that settled it. Empty on
+	// every unattributed sale, and empty by construction on the in-person and
+	// import channels — neither travels through a link, and neither has anywhere
+	// to have carried a code from (#146).
+	AffiliateLinkID string
 	Lines           []CommitLine
 }
 
@@ -444,13 +450,14 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 				customer_id, customer_email, customer_first_name, customer_last_name,
 				customer_tax_id_type, customer_tax_id_number,
 				sold_at, confirmation_ref, status,
-				created_at
+				affiliate_link_id, created_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $15, $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
 			customerID, s.Customer.Email, s.Customer.FirstName, s.Customer.LastName, s.SoldAt, s.ConfirmationRef, in.Now,
-			nullString(s.Customer.TaxID.Type), nullString(s.Customer.TaxID.Number)).Scan(&saleID)
+			nullString(s.Customer.TaxID.Type), nullString(s.Customer.TaxID.Number),
+			nullString(s.AffiliateLinkID)).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}
@@ -1284,12 +1291,14 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	return out, total, nil
 }
 
-// lineNetProceedsSQL is the Net Proceeds of one Ticket Sale Line (aliased tsl),
-// read off the snapshot it froze at sale time: quantity × (what the Customer
-// paid − the Platform Fee − the Fee IVA withheld). The single definition serves
-// both the Event's sales summary and the Organization's Withdrawable Balance,
-// so the arithmetic cannot drift between the two surfaces (ADR 0014).
-const lineNetProceedsSQL = `tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents)`
+// lineNetProceedsSQL is this package's name for the one Net Proceeds definition
+// (sales.LineNetProceedsSQL): quantity × (what the Customer paid − the Platform
+// Fee − the Fee IVA withheld), read off the snapshot the line froze at sale
+// time. It serves the Event's sales summary and the Organization's Withdrawable
+// Balance here; the affiliates module sums the same expression for an Affiliate
+// Link's attributed figures, so the arithmetic cannot drift between the
+// surfaces that show it (ADR 0014).
+const lineNetProceedsSQL = sales.LineNetProceedsSQL
 
 // SalesSummaryRow is the Sales tab's stat strip, read straight off the Event's
 // recorded sales: what the Event has left the Organization, and how many active

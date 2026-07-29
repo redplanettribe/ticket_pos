@@ -84,7 +84,7 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
   const t = await getTranslations("customerArea");
   // What the read failed with, in this page's language: chosen by the API's own
   // error code, falling back to the API's message when the code is one this
-  // catalog has never heard of (ADR 0022), and to this page's own sentence when
+  // catalog has never heard of (ADR 0023), and to this page's own sentence when
   // the API was never reached and so said nothing at all.
   const loadFailure =
     area.status === "error"

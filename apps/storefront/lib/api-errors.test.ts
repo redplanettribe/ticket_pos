@@ -19,7 +19,7 @@ import {
 import { validateTaxId } from "./tax-id.ts";
 
 /**
- * Error copy selected by the API's code (ADR 0022).
+ * Error copy selected by the API's code (ADR 0023).
  *
  * The catalog under test is the real en.json rather than a fixture, because the
  * assertion that matters is that a code the API actually sends finds copy — a

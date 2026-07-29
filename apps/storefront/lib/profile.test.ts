@@ -36,7 +36,7 @@ test("accepts a complete draft", () => {
 test("rejects a blank first or last name", () => {
   // The API rejects these too, and must: its customer-upsert guard reads a
   // blank name as "never named". REQUIRED is the API's own code for it, so the
-  // form says the same thing whichever side answered first (ADR 0022).
+  // form says the same thing whichever side answered first (ADR 0023).
   assert.equal(validateProfileDraft(draft({ firstName: "" })).first_name, "REQUIRED");
   assert.equal(validateProfileDraft(draft({ firstName: "   " })).first_name, "REQUIRED");
   assert.equal(validateProfileDraft(draft({ lastName: "" })).last_name, "REQUIRED");

@@ -10,7 +10,7 @@ import { formatTaxId, isTaxIdType, normalizeTaxIdNumber, validateTaxId } from ".
 // integration suite uses, for exactly that reason.
 //
 // The verdicts are asserted as the CODES the API sends for the same failures
-// (validation_codes.go), which is what the mirror answers with since ADR 0022 —
+// (validation_codes.go), which is what the mirror answers with since ADR 0023 —
 // the sentence is chosen from the code by the catalog, in the language the page
 // is read in, and api-errors.test.ts is where the two paths are held to one
 // sentence.

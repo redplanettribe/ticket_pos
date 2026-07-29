@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { AFFILIATE_REF_COOKIE, readAffiliateCodes } from "@/lib/affiliate-ref";
 import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
@@ -15,9 +17,9 @@ export const dynamic = "force-dynamic";
  * identity here, this handler asks the Go API to begin the checkout
  * (server-side, per ADR 0008 — no browser may address the API), notes the
  * event page and the language it was being read in in the checkout-context
- * cookie for the return leg, and hands back the Payment Provider's redirect URL. The browser then performs a
- * full-page navigation to it: the payment page must be top-level, never an
- * iframe.
+ * cookie for the return leg, and hands back the Payment Provider's redirect
+ * URL. The browser then performs a full-page navigation to it: the payment page
+ * must be top-level, never an iframe.
  *
  * Validation here is shape-only — is this parseable as a checkout at all? The
  * API owns the real rules (event published, capacity, email validity) and its
@@ -126,6 +128,21 @@ export async function POST(request: Request) {
   // that counts.
   const phone = asTrimmedString(body.customer_phone);
 
+  // Affiliate Attribution's second half (ADR 0022): the codes this browser's
+  // recent clicks on THIS Event left behind, newest first, within the
+  // Attribution Window. They come from the cookie rather than from the request
+  // body, so a page script cannot claim credit for a link nobody clicked, and
+  // the key is dropped when nothing is remembered — the ordinary, unattributed
+  // checkout. Which of them still names a live Affiliate Link is the API's
+  // verdict — it takes the first that does — and either way the buyer's
+  // checkout proceeds identically.
+  const affiliateCodes = readAffiliateCodes(
+    (await cookies()).get(AFFILIATE_REF_COOKIE)?.value ?? null,
+    orgSlug,
+    eventSlug,
+    Date.now(),
+  );
+
   try {
     // The Customer Session token, when the visitor has one, rides along in
     // Authorization. It is never required — guest checkout is the baseline — and
@@ -143,6 +160,7 @@ export async function POST(request: Request) {
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
         ...(phone ? { customer_phone: phone } : {}),
+        ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
         lines,
       },
       await customerSessionToken(),

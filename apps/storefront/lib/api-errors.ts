@@ -1,5 +1,5 @@
 /**
- * API error copy, chosen by the API's own error code (ADR 0022).
+ * API error copy, chosen by the API's own error code (ADR 0023).
  *
  * The Go API answers in English and knows nothing about Locale. What it does
  * carry is `error.code` — its stable statement of WHICH failure occurred — and
@@ -89,7 +89,7 @@ export type FieldErrorCode = (typeof MIRROR_FIELD_CODES)[number];
  * The two must agree, and they agree by construction: one code, one lookup, one
  * sentence. A cédula rejected here reads exactly as a cédula rejected by the API
  * reads, which is the whole reason the mirrors stopped carrying English
- * sentences of their own (ADR 0022).
+ * sentences of their own (ADR 0023).
  *
  * The last resort is the code itself, not null and not a fallback message. There
  * is no API message to fall back to — nothing was sent — and a caller handed

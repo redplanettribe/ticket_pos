@@ -114,7 +114,7 @@ function isValidPassport(number: string): boolean {
  * caller resolves it through the same catalog entry the API's field error
  * resolves through and the field cannot say one thing before the round trip and
  * another after it — in English before and in Spanish after, which is what a
- * sentence written here meant once the Storefront had two languages (ADR 0022).
+ * sentence written here meant once the Storefront had two languages (ADR 0023).
  *
  * The verdicts are unchanged; only their wording moved. This module stays pure —
  * no next-intl, no translator argument — because the rules are what is worth

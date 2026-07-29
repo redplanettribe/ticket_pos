@@ -100,7 +100,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
    * the profile PATCH and the three Avatar hops — are refused to a Confirmation
    * Link session with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, which the undo dialog
    * also receives and which means something different there. The code alone
-   * cannot tell them apart; the surface can (ADR 0022).
+   * cannot tell them apart; the surface can (ADR 0023).
    */
   const errorCopy = useMessages().errors;
   const formatLocale = useFormatLocale();
@@ -266,7 +266,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
     // It answers with codes, and they are resolved through the same catalog
     // entries the API's own field errors resolve through, so a Customer who
     // mistypes their cédula reads one sentence rather than an English one now
-    // and a Spanish one after the round trip (ADR 0022).
+    // and a Spanish one after the round trip (ADR 0023).
     const problems = validateProfileDraft(draft);
     if (Object.keys(problems).length > 0) {
       setError(null);

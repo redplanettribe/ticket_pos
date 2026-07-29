@@ -8,7 +8,7 @@
  *
  * `code` travels beside `message` for a reason that is not cosmetic: the surface
  * that renders this picks its own words from the code and keeps the message only
- * as the fallback for a code it does not know (ADR 0022). A relay that dropped
+ * as the fallback for a code it does not know (ADR 0023). A relay that dropped
  * the code would leave every Storefront failure stuck in English.
  */
 

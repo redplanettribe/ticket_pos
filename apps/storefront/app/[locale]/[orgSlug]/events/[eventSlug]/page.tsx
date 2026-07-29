@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 
 import { Badge, Breadcrumb } from "@ticket-pos/ui";
 
@@ -11,6 +12,7 @@ import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
+import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
@@ -21,6 +23,8 @@ export const dynamic = "force-dynamic";
 
 type EventPageProps = {
   params: Promise<{ locale: string; orgSlug: string; eventSlug: string }>;
+  /** `?ref=CODE` — the Affiliate Link this page was reached through, if any. */
+  searchParams: Promise<{ ref?: string | string[] }>;
 };
 
 export async function generateMetadata({ params }: EventPageProps): Promise<Metadata> {
@@ -98,7 +102,7 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
   };
 }
 
-export default async function EventPage({ params }: EventPageProps) {
+export default async function EventPage({ params, searchParams }: EventPageProps) {
   const { locale, orgSlug, eventSlug } = await params;
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
@@ -107,6 +111,19 @@ export default async function EventPage({ params }: EventPageProps) {
 
   if (!event) {
     notFound();
+  }
+
+  // The Affiliate Link this visitor arrived through, counted after the response
+  // is on its way: the click is display-only stats for an organizer, so it may
+  // never sit between a buyer and the page. The code is not checked first — the
+  // API accepts and ignores a dead one, and asking would be a round trip spent
+  // on nothing.
+  //
+  // The Locale the visitor is reading in is not part of it: a click is a click,
+  // and the two slugs name the Event in every language.
+  const code = affiliateCodeFromRef((await searchParams).ref);
+  if (code) {
+    after(() => recordAffiliateClick(orgSlug, eventSlug, code));
   }
 
   // The words are the visitor's language; the clock stays the Event's own.

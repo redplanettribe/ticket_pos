@@ -452,7 +452,7 @@ export function normalizePhone(phone: string): string | null {
  * to complain about. It answers with the API's own field code rather than a
  * sentence, so the caller resolves it through the same catalog entry the API's
  * field error resolves through — the field cannot complain in English before the
- * round trip and in Spanish after it (ADR 0022). The rule below is untouched;
+ * round trip and in Spanish after it (ADR 0023). The rule below is untouched;
  * only the wording of its verdict moved out of this module.
  *
  * A blank field is *not* an error: the phone is optional (#103), and a buyer who
