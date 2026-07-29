@@ -142,13 +142,13 @@ func promotionPathValues(w http.ResponseWriter, r *http.Request, reqID string) (
 	ticketTypeID := strings.TrimSpace(r.PathValue("ticketTypeId"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return "", "", false
 	}
 	if ticketTypeID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "ticket_type_id", Message: "is required"},
+			{Field: "ticket_type_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return "", "", false
 	}
@@ -163,9 +163,9 @@ func parsePromotion(body promotionBody) (service.SetPromotionInput, []platform.F
 	var fields []platform.FieldError
 
 	if body.PromotionalPriceCents == nil {
-		fields = append(fields, platform.FieldError{Field: "promotional_price_cents", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "promotional_price_cents", Code: platform.CodeRequired, Message: "is required"})
 	} else if *body.PromotionalPriceCents < 0 {
-		fields = append(fields, platform.FieldError{Field: "promotional_price_cents", Message: "must be zero or greater"})
+		fields = append(fields, platform.FieldError{Field: "promotional_price_cents", Code: platform.CodeInvalidNonNegativeInt, Message: "must be zero or greater"})
 	}
 
 	startsAt, startFields := parsePromotionTime("starts_at", body.StartsAt)
@@ -173,7 +173,7 @@ func parsePromotion(body promotionBody) (service.SetPromotionInput, []platform.F
 
 	var endsAt *time.Time
 	if body.EndsAt == nil || strings.TrimSpace(*body.EndsAt) == "" {
-		fields = append(fields, platform.FieldError{Field: "ends_at", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "ends_at", Code: platform.CodeRequired, Message: "is required"})
 	} else {
 		parsed, endFields := parsePromotionTime("ends_at", body.EndsAt)
 		fields = append(fields, endFields...)
@@ -181,7 +181,7 @@ func parsePromotion(body promotionBody) (service.SetPromotionInput, []platform.F
 	}
 
 	if startsAt != nil && endsAt != nil && !startsAt.Before(*endsAt) {
-		fields = append(fields, platform.FieldError{Field: "starts_at", Message: "must be before the end time"})
+		fields = append(fields, platform.FieldError{Field: "starts_at", Code: platform.CodeStartAfterEnd, Message: "must be before the end time"})
 	}
 
 	if len(fields) > 0 {
@@ -201,7 +201,7 @@ func parsePromotionTime(field string, raw *string) (*time.Time, []platform.Field
 	}
 	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*raw))
 	if err != nil {
-		return nil, []platform.FieldError{{Field: field, Message: "must be a valid RFC3339 timestamp"}}
+		return nil, []platform.FieldError{{Field: field, Code: platform.CodeInvalidTimestamp, Message: "must be a valid RFC3339 timestamp"}}
 	}
 	return &parsed, nil
 }

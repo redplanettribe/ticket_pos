@@ -14,15 +14,15 @@ type MessageData struct {
 // EnvelopeEventList documents GET /api/v1/staff/events success responses.
 type EnvelopeEventList struct {
 	Data      []service.EventListItem `json:"data"`
-	Error     *platform.APIError             `json:"error"`
-	RequestID string                         `json:"request_id"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
 }
 
 // EnvelopeEventDetail documents event detail success responses.
 type EnvelopeEventDetail struct {
 	Data      service.EventDetail `json:"data"`
-	Error     *platform.APIError         `json:"error"`
-	RequestID string                     `json:"request_id"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
 }
 
 // EnvelopeMessage documents simple message success responses.

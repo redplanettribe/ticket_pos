@@ -28,8 +28,14 @@ type APIError struct {
 }
 
 // FieldError describes a single validation failure.
+//
+// Message is the English sentence; Code is the stable machine name of the rule
+// that failed (validation_codes.go). Clients key their own copy on Code and fall
+// back to Message, which is why Code is omitempty rather than required: a
+// validation that has not been given a code yet still renders, in English.
 type FieldError struct {
 	Field   string `json:"field"`
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 }
 

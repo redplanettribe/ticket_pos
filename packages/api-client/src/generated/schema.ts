@@ -5044,6 +5044,16 @@ export interface components {
             cover_video_url?: string;
             currency?: string;
             description?: string;
+            /**
+             * @description Discoverable mirrors the Event's Discoverable flag so the Storefront can
+             *     mark a non-Discoverable Event noindex. ADR 0002 draws the line between
+             *     reachable and advertised: a published Event is always reachable by direct
+             *     link, and Discoverable only decides whether the platform's own surfaces
+             *     advertise it. Exposing the flag extends that same distinction to crawlers —
+             *     it says nothing about who may load the page, only about who should index
+             *     it, so reachability is unchanged.
+             */
+            discoverable?: boolean;
             ends_at?: string;
             has_ended?: boolean;
             name?: string;

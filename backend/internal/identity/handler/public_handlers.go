@@ -13,7 +13,7 @@ func (h *Handler) GetPublicOrganization(w http.ResponseWriter, r *http.Request) 
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "slug", Message: "is required"},
+			{Field: "slug", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}

@@ -5,6 +5,11 @@ import { cn } from "../lib/utils";
 type OrgAvatarProps = {
   logoUrl?: string | null;
   name?: string;
+  /**
+   * Overrides the derived alt text. Defaults to "<name> logo", falling back to
+   * "Organization logo" when the Organization has no name to interpolate.
+   */
+  alt?: string;
   className?: string;
   /**
    * "tile": a fixed 40px square cell, for list/row/card contexts where the
@@ -16,8 +21,8 @@ type OrgAvatarProps = {
   shape?: "tile" | "inline";
 };
 
-export function OrgAvatar({ logoUrl, name, className, shape = "tile" }: OrgAvatarProps) {
-  const alt = name ? `${name} logo` : "Organization logo";
+export function OrgAvatar({ logoUrl, name, alt: altOverride, className, shape = "tile" }: OrgAvatarProps) {
+  const alt = altOverride ?? (name ? `${name} logo` : "Organization logo");
 
   if (logoUrl) {
     if (shape === "inline") {

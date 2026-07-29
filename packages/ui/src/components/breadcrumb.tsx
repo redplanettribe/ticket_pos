@@ -12,11 +12,13 @@ export type BreadcrumbItem = {
 type BreadcrumbProps = {
   items: BreadcrumbItem[];
   className?: string;
+  /** Defaults to the English "Breadcrumb", so omitting it changes nothing. */
+  label?: string;
 };
 
-export function Breadcrumb({ items, className }: BreadcrumbProps) {
+export function Breadcrumb({ items, className, label = "Breadcrumb" }: BreadcrumbProps) {
   return (
-    <nav aria-label="Breadcrumb" className={cn("min-w-0", className)}>
+    <nav aria-label={label} className={cn("min-w-0", className)}>
       <ol className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
         {items.map((item, index) => {
           const isLast = index === items.length - 1;

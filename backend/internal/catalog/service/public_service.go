@@ -105,6 +105,14 @@ type PublicEventDetail struct {
 	PriceIncludesFee bool               `json:"price_includes_fee"`
 	TicketTypes      []PublicTicketType `json:"ticket_types"`
 	Tags             []TagView          `json:"tags"`
+	// Discoverable mirrors the Event's Discoverable flag so the Storefront can
+	// mark a non-Discoverable Event noindex. ADR 0002 draws the line between
+	// reachable and advertised: a published Event is always reachable by direct
+	// link, and Discoverable only decides whether the platform's own surfaces
+	// advertise it. Exposing the flag extends that same distinction to crawlers —
+	// it says nothing about who may load the page, only about who should index
+	// it, so reachability is unchanged.
+	Discoverable bool `json:"discoverable"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -279,6 +287,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 		PriceIncludesFee: handling == sales.FeeHandlingPassOn,
 		TicketTypes:      make([]PublicTicketType, 0, len(types)),
 		Tags:             toTagViews(tags),
+		Discoverable:     row.Discoverable,
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time

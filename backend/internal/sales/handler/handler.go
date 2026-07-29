@@ -79,7 +79,7 @@ func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Requ
 
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -119,7 +119,7 @@ func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
 
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *Handler) CommitDirectSaleImport(w http.ResponseWriter, r *http.Request)
 
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -191,7 +191,7 @@ func (h *Handler) ListSaleImports(w http.ResponseWriter, r *http.Request) {
 
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -253,7 +253,7 @@ func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
 
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -296,7 +296,7 @@ func (h *Handler) GetSalesSummary(w http.ResponseWriter, r *http.Request) {
 
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -349,6 +349,7 @@ func validateEnum(raw, field string, allowed []string, fields *[]platform.FieldE
 	}
 	*fields = append(*fields, platform.FieldError{
 		Field:   field,
+		Code:    platform.CodeInvalidEnum,
 		Message: "must be one of " + strings.Join(allowed, ", "),
 	})
 	return ""
@@ -364,7 +365,7 @@ func validateUUID(raw, field string, fields *[]platform.FieldError) string {
 		return ""
 	}
 	if _, err := uuid.Parse(value); err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Message: "must be a valid id"})
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidID, Message: "must be a valid id"})
 		return ""
 	}
 	return value
@@ -379,7 +380,7 @@ func validateDate(raw, field string, fields *[]platform.FieldError) string {
 		return ""
 	}
 	if _, err := time.Parse("2006-01-02", value); err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Message: "must be a date (YYYY-MM-DD)"})
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
 		return ""
 	}
 	return value
@@ -474,10 +475,10 @@ func (h *Handler) UndoSaleImport(w http.ResponseWriter, r *http.Request) {
 	batchID := strings.TrimSpace(r.PathValue("batchId"))
 	var fields []platform.FieldError
 	if eventID == "" {
-		fields = append(fields, platform.FieldError{Field: "id", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "id", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if batchID == "" {
-		fields = append(fields, platform.FieldError{Field: "batchId", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "batchId", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
@@ -547,13 +548,13 @@ func (h *Handler) commitFromFile(w http.ResponseWriter, r *http.Request, reqID, 
 
 	var fields []platform.FieldError
 	if idempotencyKey == "" {
-		fields = append(fields, platform.FieldError{Field: "idempotency_key", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "idempotency_key", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if source != "direct" {
-		fields = append(fields, platform.FieldError{Field: "source", Message: "must be 'direct'"})
+		fields = append(fields, platform.FieldError{Field: "source", Code: platform.CodeInvalidImportSource, Message: "must be 'direct'"})
 	}
 	if len(rows) == 0 {
-		fields = append(fields, platform.FieldError{Field: "file", Message: "must contain at least one row"})
+		fields = append(fields, platform.FieldError{Field: "file", Code: platform.CodeEmptyCollection, Message: "must contain at least one row"})
 	}
 	if skipErr != nil {
 		fields = append(fields, *skipErr)
@@ -593,13 +594,13 @@ func writeCommitResult(w http.ResponseWriter, reqID string, result *service.Impo
 func (h *Handler) parseUploadedFile(w http.ResponseWriter, r *http.Request, reqID string) ([]importfile.RawRow, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Message: "must be a valid multipart upload"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Code: platform.CodeInvalidUpload, Message: "must be a valid multipart upload"}})
 		return nil, false
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "file", Code: platform.CodeRequired, Message: "is required"}})
 		return nil, false
 	}
 	defer func() { _ = file.Close() }()
@@ -626,6 +627,12 @@ func (h *Handler) parseUploadedFile(w http.ResponseWriter, r *http.Request, reqI
 
 // rowValidationFields flattens per-row errors into the field-error list a
 // VALIDATION_FAILED envelope carries (e.g. "rows[3].customer_email").
+//
+// These carry no stable code. A RowError is a spreadsheet cell's complaint,
+// already shown verbatim beside the row in the Sale Import preview table, and it
+// is Staff-only — the code exists so the Storefront can key Spanish copy on it,
+// and nothing here is reachable from the Storefront. An empty code is the
+// documented "fall back to the message" case rather than an omission.
 func rowValidationFields(result *importfile.ValidateResult) []platform.FieldError {
 	var fields []platform.FieldError
 	for _, row := range result.Rows {
@@ -656,7 +663,7 @@ func parseSkipRows(raw string) ([]int, *platform.FieldError) {
 		}
 		n, err := strconv.Atoi(part)
 		if err != nil {
-			return nil, &platform.FieldError{Field: "skip_rows", Message: "must be a comma-separated list of row numbers"}
+			return nil, &platform.FieldError{Field: "skip_rows", Code: platform.CodeInvalidRowSelection, Message: "must be a comma-separated list of row numbers"}
 		}
 		out = append(out, n)
 	}
@@ -690,13 +697,13 @@ func validateImport(source string, body commitImportBody) ([]platform.FieldError
 	var fields []platform.FieldError
 
 	if strings.TrimSpace(body.IdempotencyKey) == "" {
-		fields = append(fields, platform.FieldError{Field: "idempotency_key", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "idempotency_key", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if source != "direct" {
-		fields = append(fields, platform.FieldError{Field: "source", Message: "must be 'direct'"})
+		fields = append(fields, platform.FieldError{Field: "source", Code: platform.CodeInvalidImportSource, Message: "must be 'direct'"})
 	}
 	if len(body.Sales) == 0 {
-		fields = append(fields, platform.FieldError{Field: "sales", Message: "must contain at least one row"})
+		fields = append(fields, platform.FieldError{Field: "sales", Code: platform.CodeEmptyCollection, Message: "must contain at least one row"})
 		return fields, nil
 	}
 
@@ -705,35 +712,35 @@ func validateImport(source string, body commitImportBody) ([]platform.FieldError
 		prefix := fmt.Sprintf("sales[%d].", i)
 
 		if strings.TrimSpace(row.CustomerEmail) == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "customer_email", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: prefix + "customer_email", Code: platform.CodeRequired, Message: "is required"})
 		} else if _, err := mail.ParseAddress(row.CustomerEmail); err != nil {
-			fields = append(fields, platform.FieldError{Field: prefix + "customer_email", Message: "must be a valid email"})
+			fields = append(fields, platform.FieldError{Field: prefix + "customer_email", Code: platform.CodeInvalidEmail, Message: "must be a valid email"})
 		}
 		if strings.TrimSpace(row.CustomerFirstName) == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "customer_first_name", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: prefix + "customer_first_name", Code: platform.CodeRequired, Message: "is required"})
 		}
 		if strings.TrimSpace(row.CustomerLastName) == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "customer_last_name", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: prefix + "customer_last_name", Code: platform.CodeRequired, Message: "is required"})
 		}
 		if strings.TrimSpace(row.TicketTypeID) == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Code: platform.CodeRequired, Message: "is required"})
 		}
 		if row.Quantity <= 0 {
-			fields = append(fields, platform.FieldError{Field: prefix + "quantity", Message: "must be greater than zero"})
+			fields = append(fields, platform.FieldError{Field: prefix + "quantity", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
 		}
 		if row.PaymentMethod != "cash" && row.PaymentMethod != "transfer" {
-			fields = append(fields, platform.FieldError{Field: prefix + "payment_method", Message: "must be 'cash' or 'transfer'"})
+			fields = append(fields, platform.FieldError{Field: prefix + "payment_method", Code: platform.CodeInvalidPaymentMethod, Message: "must be 'cash' or 'transfer'"})
 		}
 		var soldAt time.Time
 		if strings.TrimSpace(row.SoldAt) == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "sold_at", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: prefix + "sold_at", Code: platform.CodeRequired, Message: "is required"})
 		} else if parsed, err := time.Parse(time.RFC3339, row.SoldAt); err != nil {
-			fields = append(fields, platform.FieldError{Field: prefix + "sold_at", Message: "must be an ISO 8601 timestamp"})
+			fields = append(fields, platform.FieldError{Field: prefix + "sold_at", Code: platform.CodeInvalidTimestamp, Message: "must be an ISO 8601 timestamp"})
 		} else {
 			soldAt = parsed
 		}
 		if row.AmountCents != nil && *row.AmountCents < 0 {
-			fields = append(fields, platform.FieldError{Field: prefix + "amount_cents", Message: "must not be negative"})
+			fields = append(fields, platform.FieldError{Field: prefix + "amount_cents", Code: platform.CodeInvalidNonNegativeInt, Message: "must not be negative"})
 		}
 
 		rows = append(rows, service.ImportSaleInput{

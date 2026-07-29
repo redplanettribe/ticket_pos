@@ -170,7 +170,7 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 		{"redirect_uri", body.RedirectURI},
 	} {
 		if strings.TrimSpace(required.value) == "" {
-			fields = append(fields, platform.FieldError{Field: required.name, Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: required.name, Code: platform.CodeRequired, Message: "is required"})
 		}
 	}
 	if len(fields) > 0 {
@@ -398,10 +398,10 @@ func staffSessionID(r *http.Request) string {
 func validateEmail(email string) []platform.FieldError {
 	email = strings.TrimSpace(email)
 	if email == "" {
-		return []platform.FieldError{{Field: "email", Message: "is required"}}
+		return []platform.FieldError{{Field: "email", Code: platform.CodeRequired, Message: "is required"}}
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return []platform.FieldError{{Field: "email", Message: "must be a valid email address"}}
+		return []platform.FieldError{{Field: "email", Code: platform.CodeInvalidEmail, Message: "must be a valid email address"}}
 	}
 	return nil
 }
@@ -409,14 +409,14 @@ func validateEmail(email string) []platform.FieldError {
 func validateOTPCode(code string) []platform.FieldError {
 	code = strings.TrimSpace(code)
 	if code == "" {
-		return []platform.FieldError{{Field: "code", Message: "is required"}}
+		return []platform.FieldError{{Field: "code", Code: platform.CodeRequired, Message: "is required"}}
 	}
 	if len(code) != 6 {
-		return []platform.FieldError{{Field: "code", Message: "must be 6 digits"}}
+		return []platform.FieldError{{Field: "code", Code: platform.CodeInvalidPasscodeFormat, Message: "must be 6 digits"}}
 	}
 	for _, ch := range code {
 		if ch < '0' || ch > '9' {
-			return []platform.FieldError{{Field: "code", Message: "must be 6 digits"}}
+			return []platform.FieldError{{Field: "code", Code: platform.CodeInvalidPasscodeFormat, Message: "must be 6 digits"}}
 		}
 	}
 	return nil
@@ -427,12 +427,12 @@ func validateCreateOrganization(name, slug string) []platform.FieldError {
 	slug = strings.ToLower(strings.TrimSpace(slug))
 	var fields []platform.FieldError
 	if name == "" {
-		fields = append(fields, platform.FieldError{Field: "name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "name", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if slug == "" {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeRequired, Message: "is required"})
 	} else if !slugPattern.MatchString(slug) {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
+		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeInvalidSlug, Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
 	}
 	return fields
 }
@@ -440,7 +440,7 @@ func validateCreateOrganization(name, slug string) []platform.FieldError {
 func validateMemberID(memberID string) []platform.FieldError {
 	memberID = strings.TrimSpace(memberID)
 	if memberID == "" {
-		return []platform.FieldError{{Field: "member_id", Message: "is required"}}
+		return []platform.FieldError{{Field: "member_id", Code: platform.CodeRequired, Message: "is required"}}
 	}
 	return nil
 }

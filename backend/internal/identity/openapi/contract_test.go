@@ -19,7 +19,7 @@ func TestOpenAPIContract(t *testing.T) {
 	}
 
 	var doc struct {
-		OpenAPI string `yaml:"openapi"`
+		OpenAPI    string `yaml:"openapi"`
 		Components struct {
 			SecuritySchemes map[string]any `yaml:"securitySchemes"`
 			Schemas         map[string]any `yaml:"schemas"`

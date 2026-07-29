@@ -130,6 +130,16 @@ func PhoneNumberMessage(phone string) string {
 	return PhoneGenericMessage
 }
 
+// PhoneNumberCode is the stable code half of PhoneNumberMessage's verdict, and
+// picks its tier the same way and from the same input, so a client rendering its
+// own wording splits Ecuadorian from generic exactly where the English does.
+func PhoneNumberCode(phone string) string {
+	if strings.HasPrefix(digitsOnly(phone), ecuadorDigits) {
+		return CodeInvalidPhoneEC
+	}
+	return CodeInvalidPhone
+}
+
 // PhoneFieldErrors validates a supplied phone number and, on failure, returns
 // the field-level error under the name the field travels under on this surface —
 // `customer_phone` at checkout, `phone` on the profile — while the verdict and
@@ -143,7 +153,7 @@ func PhoneNumberMessage(phone string) string {
 func PhoneFieldErrors(field, phone string) (string, []FieldError) {
 	normalized, err := ValidatePhone(phone)
 	if err != nil {
-		return "", []FieldError{{Field: field, Message: PhoneNumberMessage(phone)}}
+		return "", []FieldError{{Field: field, Code: PhoneNumberCode(phone), Message: PhoneNumberMessage(phone)}}
 	}
 	return normalized, nil
 }

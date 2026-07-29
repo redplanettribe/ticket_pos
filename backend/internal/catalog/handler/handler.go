@@ -152,7 +152,7 @@ func (h *Handler) GetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -189,7 +189,7 @@ func (h *Handler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -234,7 +234,7 @@ func (h *Handler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -269,7 +269,7 @@ func (h *Handler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -303,7 +303,7 @@ func (h *Handler) CancelEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -344,7 +344,7 @@ func (h *Handler) SetEventDiscoverable(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -356,7 +356,7 @@ func (h *Handler) SetEventDiscoverable(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Discoverable == nil {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "discoverable", Message: "is required"},
+			{Field: "discoverable", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -392,7 +392,7 @@ func (h *Handler) CreateCoverUploadURL(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -406,13 +406,13 @@ func (h *Handler) CreateCoverUploadURL(w http.ResponseWriter, r *http.Request) {
 	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
 	if contentType == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "is required"},
+			{Field: "content_type", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
 	if !storage.CoverContentTypeAllowed(contentType) {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "must be image/jpeg, image/png, or image/webp"},
+			{Field: "content_type", Code: platform.CodeInvalidImageContentType, Message: "must be image/jpeg, image/png, or image/webp"},
 		})
 		return
 	}
@@ -456,7 +456,7 @@ func (h *Handler) CreateVideoUploadURL(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -470,13 +470,13 @@ func (h *Handler) CreateVideoUploadURL(w http.ResponseWriter, r *http.Request) {
 	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
 	if contentType == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "is required"},
+			{Field: "content_type", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
 	if !storage.VideoContentTypeAllowed(contentType) {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "must be video/mp4"},
+			{Field: "content_type", Code: platform.CodeInvalidVideoContentType, Message: "must be video/mp4"},
 		})
 		return
 	}
@@ -526,7 +526,7 @@ func (h *Handler) ListTicketTypes(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -562,7 +562,7 @@ func (h *Handler) CreateTicketType(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -615,13 +615,13 @@ func (h *Handler) UpdateTicketType(w http.ResponseWriter, r *http.Request) {
 	ticketTypeID := strings.TrimSpace(r.PathValue("ticketTypeId"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
 	if ticketTypeID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "ticket_type_id", Message: "is required"},
+			{Field: "ticket_type_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -673,13 +673,13 @@ func (h *Handler) DeleteTicketType(w http.ResponseWriter, r *http.Request) {
 	ticketTypeID := strings.TrimSpace(r.PathValue("ticketTypeId"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
 	if ticketTypeID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "ticket_type_id", Message: "is required"},
+			{Field: "ticket_type_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -698,13 +698,13 @@ func (h *Handler) DeleteTicketType(w http.ResponseWriter, r *http.Request) {
 func validateTicketType(name string, priceCents, capacity int) []platform.FieldError {
 	var fields []platform.FieldError
 	if strings.TrimSpace(name) == "" {
-		fields = append(fields, platform.FieldError{Field: "name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "name", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if priceCents < 0 {
-		fields = append(fields, platform.FieldError{Field: "price_cents", Message: "must be zero or greater"})
+		fields = append(fields, platform.FieldError{Field: "price_cents", Code: platform.CodeInvalidNonNegativeInt, Message: "must be zero or greater"})
 	}
 	if capacity <= 0 {
-		fields = append(fields, platform.FieldError{Field: "capacity", Message: "must be greater than zero"})
+		fields = append(fields, platform.FieldError{Field: "capacity", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
 	}
 	return fields
 }
@@ -714,12 +714,12 @@ func validateCreateEvent(name, slug string) []platform.FieldError {
 	slug = strings.ToLower(strings.TrimSpace(slug))
 	var fields []platform.FieldError
 	if name == "" {
-		fields = append(fields, platform.FieldError{Field: "name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "name", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if slug == "" {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeRequired, Message: "is required"})
 	} else if !slugPattern.MatchString(slug) {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
+		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeInvalidSlug, Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
 	}
 	return fields
 }
@@ -730,12 +730,12 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 	name := strings.TrimSpace(body.Name)
 	slug := strings.ToLower(strings.TrimSpace(body.Slug))
 	if name == "" {
-		fields = append(fields, platform.FieldError{Field: "name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "name", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if slug == "" {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeRequired, Message: "is required"})
 	} else if !slugPattern.MatchString(slug) {
-		fields = append(fields, platform.FieldError{Field: "slug", Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
+		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeInvalidSlug, Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
 	}
 
 	var startsAt, endsAt *time.Time
@@ -745,7 +745,7 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		} else {
 			t, err := time.Parse(time.RFC3339, strings.TrimSpace(*body.StartsAt))
 			if err != nil {
-				fields = append(fields, platform.FieldError{Field: "starts_at", Message: "must be a valid RFC3339 timestamp"})
+				fields = append(fields, platform.FieldError{Field: "starts_at", Code: platform.CodeInvalidTimestamp, Message: "must be a valid RFC3339 timestamp"})
 			} else {
 				startsAt = &t
 			}
@@ -757,19 +757,19 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		} else {
 			t, err := time.Parse(time.RFC3339, strings.TrimSpace(*body.EndsAt))
 			if err != nil {
-				fields = append(fields, platform.FieldError{Field: "ends_at", Message: "must be a valid RFC3339 timestamp"})
+				fields = append(fields, platform.FieldError{Field: "ends_at", Code: platform.CodeInvalidTimestamp, Message: "must be a valid RFC3339 timestamp"})
 			} else {
 				endsAt = &t
 			}
 		}
 	}
 	if startsAt != nil && endsAt != nil && endsAt.Before(*startsAt) {
-		fields = append(fields, platform.FieldError{Field: "ends_at", Message: "must be after start time"})
+		fields = append(fields, platform.FieldError{Field: "ends_at", Code: platform.CodeEndBeforeStart, Message: "must be after start time"})
 	}
 
 	if body.Timezone != nil && strings.TrimSpace(*body.Timezone) != "" {
 		if _, err := time.LoadLocation(strings.TrimSpace(*body.Timezone)); err != nil {
-			fields = append(fields, platform.FieldError{Field: "timezone", Message: "must be a valid IANA timezone"})
+			fields = append(fields, platform.FieldError{Field: "timezone", Code: platform.CodeInvalidTimezone, Message: "must be a valid IANA timezone"})
 		}
 	}
 
@@ -777,7 +777,7 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 	if body.FeeHandling != nil {
 		parsed, ok := sales.ParseFeeHandling(strings.TrimSpace(*body.FeeHandling))
 		if !ok {
-			fields = append(fields, platform.FieldError{Field: "fee_handling", Message: "must be pass_on or absorb"})
+			fields = append(fields, platform.FieldError{Field: "fee_handling", Code: platform.CodeInvalidFeeHandling, Message: "must be pass_on or absorb"})
 		} else {
 			feeHandling = &parsed
 		}
