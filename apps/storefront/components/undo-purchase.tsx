@@ -13,6 +13,7 @@ import {
   toast,
 } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 /**
@@ -65,6 +66,10 @@ export function UndoPurchase({
   paidLabel = null,
 }: UndoPurchaseProps) {
   const router = useRouter();
+  // The dialog's own copy is still English in the source and comes across in a
+  // later pass; the close affordance belongs to the chrome the shell owns, so
+  // it reads from the same namespace every other dismiss control does.
+  const t = useTranslations("shell");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +126,7 @@ export function UndoPurchase({
           setOpen(next);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" closeLabel={t("closeLabel")}>
           <DialogHeader>
             <DialogTitle>Undo this purchase?</DialogTitle>
             <DialogDescription>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { APIError, confirmCheckout } from "@/lib/api";
 import { parseProviderReturn } from "@/lib/checkout";
+import { readCheckoutLocale } from "@/lib/checkout-context";
 import { localizedPath, type AppLocale } from "@/lib/locale";
 import { redirectLocale } from "@/lib/redirect-locale";
 
@@ -26,8 +27,11 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   // The Payment Provider built this URL from a constant it was handed when the
   // Payment began, so it names no language and this handler chooses one for the
-  // terminal page.
-  const locale = await redirectLocale();
+  // terminal page. The buyer's own came back with them in the checkout context;
+  // only when that is gone, damaged, or older than the field does this fall back
+  // to guessing from the switcher's cookie and Accept-Language — which is what a
+  // buyer reading /es on an English-language browser used to get after paying.
+  const locale = (await readCheckoutLocale()) ?? (await redirectLocale());
   const redirectTo = (path: string) => localizedRedirect(locale, path);
 
   const { clientTransactionId, providerParams } = parseProviderReturn(

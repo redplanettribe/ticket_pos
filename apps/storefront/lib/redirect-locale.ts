@@ -11,11 +11,12 @@
  * — because it is the same question. It decides a REDIRECT TARGET and nothing
  * else; no page's content is ever computed from it (see lib/locale.ts).
  *
- * It is an approximation for one case: a visitor reading in Spanish whose
- * browser says English, and who has not used the switcher, comes back from the
- * Payment Provider into English. Carrying the locale across those round trips
- * is a separate change; this at least never sends anybody somewhere they cannot
- * read.
+ * It is a guess, and the two round trips that can do better than guessing do:
+ * the begin-checkout route writes the language the buyer set off in into the
+ * checkout context, and /checkout/return prefers that, reaching for this chain
+ * only when the cookie is gone, damaged, or older than the field. A Confirmation
+ * Link has nothing of the sort — it is opened days later, from an inbox, often
+ * on another device — so it chooses here and always will.
  */
 
 import { cookies, headers } from "next/headers";

@@ -1,5 +1,8 @@
 {
-  "Common": {
-    "brand": "Multiticketing"
+  "shell": {
+    "poweredBy": "Powered by {brand}",
+    "organizationLogoAlt": "{organization} logo",
+    "breadcrumbLabel": "Breadcrumb",
+    "closeLabel": "Close"
   }
 }

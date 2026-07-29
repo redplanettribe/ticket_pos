@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { Badge, Breadcrumb } from "@ticket-pos/ui";
@@ -10,9 +10,11 @@ import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { Link } from "@/i18n/navigation";
+import { localeAlternates } from "@/lib/alternates";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
+import { storefrontBaseUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -29,20 +31,26 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
   const description = event.description ?? `Get tickets for ${event.name}.`;
   // The canonical address is the one being served, locale and all: /en and /es
   // are two pages, and a canonical that named neither would ask a crawler to
-  // pick one for us.
-  const path = localizedPath(toAppLocale(locale), `/${orgSlug}/events/${eventSlug}`);
+  // pick one for us. The languages map pairs them (lib/alternates.ts).
+  const { canonical, languages } = localeAlternates(
+    `/${orgSlug}/events/${eventSlug}`,
+    toAppLocale(locale),
+    storefrontBaseUrl(),
+  );
   // Cover URLs are already absolute (object storage), so previews render even
   // when metadataBase is unset off-platform.
   const images = event.cover_image_url ? [event.cover_image_url] : undefined;
   return {
     title,
     description,
-    alternates: { canonical: path },
+    alternates: { canonical, languages },
     openGraph: {
       title,
       description,
       type: "website",
-      url: path,
+      // The same address the canonical names, so a share from the Spanish page
+      // opens the Spanish page.
+      url: canonical,
       images,
     },
     twitter: {
@@ -66,6 +74,7 @@ export default async function EventPage({ params }: EventPageProps) {
   }
 
   const dateLabel = formatEventDateTime(event.starts_at, event.timezone);
+  const t = await getTranslations("shell");
 
   return (
     <StorefrontShell
@@ -76,6 +85,7 @@ export default async function EventPage({ params }: EventPageProps) {
       <article className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <Breadcrumb
           className="mb-6"
+          label={t("breadcrumbLabel")}
           items={[
             // Plain anchors in the shared UI package, so these carry the
             // locale explicitly rather than through the navigation helpers.

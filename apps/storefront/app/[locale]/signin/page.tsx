@@ -3,9 +3,12 @@ import { setRequestLocale } from "next-intl/server";
 
 import { StorefrontShell } from "@/components/storefront-shell";
 import { redirect } from "@/i18n/navigation";
+import { localeAlternates } from "@/lib/alternates";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
+import { toAppLocale } from "@/lib/locale";
+import { storefrontBaseUrl } from "@/lib/site";
 import { safePrefillEmail } from "@/lib/signin-prefill";
 
 import { SignInForm } from "./signin-form";
@@ -20,10 +23,30 @@ export const dynamic = "force-dynamic";
 // themselves, one segment up. Nothing reserves slugs server-side today; noted
 // here so it is a known trade rather than a surprise.
 
-export const metadata: Metadata = {
-  title: "Sign in · Multiticketing",
-  description: "Sign in with your email to see your tickets.",
-};
+/**
+ * Sign-in is annotated like the public pages, unlike the Customer Area it leads
+ * to. It declares no `robots`, so it is an indexable page in two languages —
+ * leaving it unpaired would be the worst of both: still indexed, but with a
+ * Spanish and an English version competing as unrelated duplicates. Should this
+ * page ever be marked noindex, the annotation should go with it.
+ *
+ * `?next=`, `?expired=` and the rest never reach the canonical: they steer one
+ * visit, they do not make a different page, and each one would otherwise mint
+ * an indexable address of its own.
+ */
+export async function generateMetadata({ params }: SignInPageProps): Promise<Metadata> {
+  const { locale } = await params;
+  const { canonical, languages } = localeAlternates(
+    "/signin",
+    toAppLocale(locale),
+    storefrontBaseUrl(),
+  );
+  return {
+    title: "Sign in · Multiticketing",
+    description: "Sign in with your email to see your tickets.",
+    alternates: { canonical, languages },
+  };
+}
 
 type SignInPageProps = {
   params: Promise<{ locale: string }>;

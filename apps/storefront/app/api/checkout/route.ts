@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
+import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
 import { customerSessionToken } from "@/lib/customer-session";
 
 // Begins a Payment and touches a cookie; never cached.
@@ -12,8 +13,8 @@ export const dynamic = "force-dynamic";
  * The begin-checkout BFF hop: the browser posts the selection and checkout
  * identity here, this handler asks the Go API to begin the checkout
  * (server-side, per ADR 0008 — no browser may address the API), notes the
- * event page in the checkout-context cookie for the terminal pages, and hands
- * back the Payment Provider's redirect URL. The browser then performs a
+ * event page and the language it was being read in in the checkout-context
+ * cookie for the return leg, and hands back the Payment Provider's redirect URL. The browser then performs a
  * full-page navigation to it: the payment page must be top-level, never an
  * iframe.
  *
@@ -130,11 +131,18 @@ export async function POST(request: Request) {
     // already filled in (#121). Checkout is guest-facing, so this app's only
     // record of who bought is the form they just submitted; it is a prefill and
     // never a credential.
+    // So does the language they were reading in, taken from the Event page that
+    // called this route: it is the last moment anything knows it. The Payment
+    // Provider's return URL is a locale-free constant, so without this the
+    // handler behind it can only guess (T5). Null when the Referer said nothing,
+    // which leaves that handler exactly the guess it had before — the same
+    // browser asks both times, so nothing is lost by not writing one down here.
     await rememberCheckoutContext({
       clientTransactionId: result.client_transaction_id,
       eventPath: `/${orgSlug}/events/${eventSlug}`,
       eventName: asTrimmedString(body.event_name).slice(0, 200),
       customerEmail: asTrimmedString(body.customer_email),
+      locale: checkoutLocaleFromReferer(request.headers.get("referer")),
     });
 
     return NextResponse.json({ data: result, error: null, request_id: crypto.randomUUID() });

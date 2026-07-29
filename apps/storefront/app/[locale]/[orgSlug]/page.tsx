@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { Breadcrumb, PageHeader } from "@ticket-pos/ui";
@@ -7,8 +7,10 @@ import { Breadcrumb, PageHeader } from "@ticket-pos/ui";
 import { EmptyState, EventGrid } from "@/components/event-grid";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
+import { localeAlternates } from "@/lib/alternates";
 import { getOrganizationEvents } from "@/lib/api";
 import { localizedPath, toAppLocale } from "@/lib/locale";
+import { storefrontBaseUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +19,20 @@ type OrganizationPageProps = {
 };
 
 export async function generateMetadata({ params }: OrganizationPageProps): Promise<Metadata> {
-  const { orgSlug } = await params;
+  const { locale, orgSlug } = await params;
   const data = await getOrganizationEvents(orgSlug);
+  // A slug nobody owns is a 404, and a 404 has no address to canonicalise and
+  // no translation to pair with.
   if (!data) return { title: "Organization not found" };
+  const { canonical, languages } = localeAlternates(
+    `/${orgSlug}`,
+    toAppLocale(locale),
+    storefrontBaseUrl(),
+  );
   return {
     title: `${data.organization.name} · Events`,
     description: `Upcoming events from ${data.organization.name}.`,
+    alternates: { canonical, languages },
   };
 }
 
@@ -37,6 +47,7 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
   }
 
   const { organization, upcoming, past } = data;
+  const t = await getTranslations("shell");
 
   return (
     <StorefrontShell
@@ -46,6 +57,7 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
     >
       <div className="mx-auto w-full max-w-6xl space-y-10 px-4 py-10 sm:py-12">
         <Breadcrumb
+          label={t("breadcrumbLabel")}
           // The crumbs are plain anchors in the shared UI package, so their
           // addresses carry the locale explicitly rather than through the
           // navigation helpers.

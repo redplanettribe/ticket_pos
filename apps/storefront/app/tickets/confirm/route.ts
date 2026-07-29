@@ -32,6 +32,13 @@ export async function GET(request: Request) {
   // A Confirmation Link is a fixed address that has been sitting in an inbox
   // since the sale, so it carries no locale of its own and this handler has to
   // choose one for the page it hands the Customer on to.
+  //
+  // Unlike the Payment Provider's return leg, there is no checkout context to
+  // read it from and deliberately no attempt to find one: a link is opened days
+  // later, from a mail client, often on another device entirely, so the browser
+  // in front of us is the only evidence there is. A context cookie surviving
+  // from some unrelated purchase in this jar would be worse evidence, not
+  // better.
   const locale = await redirectLocale();
   const redirectTo = (path: string) => localizedRedirect(locale, path);
 

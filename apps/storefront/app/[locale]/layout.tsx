@@ -75,9 +75,20 @@ export default async function LocaleLayout({
     // number marks and month names that belongs to lib/format.ts.
     <html lang={locale}>
       <body className={`${inter.variable} surface-storefront font-sans`}>
-        {/* Hands the locale down to client components, which is how a link
-            rendered on the client knows which language to prefix. Its props are
-            inherited from the server request config (i18n/request.ts). */}
+        {/* Hands the locale and the messages down to client components, which
+            is how a link rendered on the client knows which language to prefix
+            and how `useTranslations` finds anything to say. Both are inherited
+            from the server request config (i18n/request.ts) rather than passed:
+            the provider reads them when the props are absent, so a namespace
+            added to the catalog is available on the client without anyone
+            remembering to list it here.
+
+            That does serialize the whole catalog into the document. It is one
+            small file of chrome and page copy, and the alternative — naming the
+            namespaces the client needs — is a list that silently goes stale
+            every time a client component starts translating something new, with
+            a blank label as the only symptom. Revisit if the catalog grows into
+            surfaces the Storefront rarely serves. */}
         <NextIntlClientProvider>
           {children}
           <Toaster />
