@@ -116,14 +116,11 @@ func TestAffiliateLinkClickOnADeactivatedLinkCountsNothing(t *testing.T) {
 	if created.Error != nil {
 		t.Fatalf("create affiliate link error=%+v", created.Error)
 	}
-	code := decodeAffiliateLink(t, created.Data).Code
+	link := decodeAffiliateLink(t, created.Data)
+	code := link.Code
 
-	// SQL rather than the API: deactivating an Affiliate Link is a lifecycle
-	// action that has no endpoint yet (it lands with the rest of the lifecycle
-	// work), and this rule — a deactivated link stops counting — has to hold from
-	// the moment clicks exist.
-	if _, err := env.db.Exec(`UPDATE affiliate_links SET active = FALSE WHERE code = $1`, code); err != nil {
-		t.Fatalf("deactivate affiliate link: %v", err)
+	if resp, body := updateAffiliateLink(t, env, sessionID, eventID, link.ID, map[string]any{"active": false}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("deactivate affiliate link status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
 	resp, body := clickAffiliateLink(t, env, "test-org", "click-fest", code)

@@ -10,6 +10,12 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   FormField,
   Input,
   toast,
@@ -18,7 +24,9 @@ import {
 import {
   AFFILIATE_LINK_NAME_MAX_LENGTH,
   createAffiliateLink,
+  deleteAffiliateLink,
   listAffiliateLinks,
+  updateAffiliateLink,
   type AffiliateLink,
 } from "@/lib/affiliates-api";
 import { formatPriceCents } from "@/lib/events-api";
@@ -34,6 +42,14 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   const [name, setName] = useState("");
   const [links, setLinks] = useState<AffiliateLink[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // The two lifecycle dialogs, each holding the row it was opened on. A rename
+  // is an edit, a delete is destructive and confirmed the way every other
+  // destructive staff action is; the activate/deactivate toggle is reversible
+  // and asks nothing.
+  const [renameTarget, setRenameTarget] = useState<AffiliateLink | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<AffiliateLink | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   // The Event's currency, for the attributed Net Proceeds figures. It is read
   // from the sales summary — the same figure's own surface, behind the same
   // Org-Admin/Event-Owner gate — rather than kept a second time here. A summary
@@ -89,6 +105,67 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       toast.error(createError instanceof Error ? createError.message : "Failed to create affiliate link");
     } finally {
       setCreating(false);
+    }
+  }
+
+  function openRenameDialog(link: AffiliateLink) {
+    setRenameTarget(link);
+    setRenameValue(link.name);
+  }
+
+  async function handleRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!renameTarget) {
+      return;
+    }
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      return;
+    }
+    setBusyId(renameTarget.id);
+    try {
+      await updateAffiliateLink(eventId, renameTarget.id, { name: trimmed });
+      setRenameTarget(null);
+      await loadLinks();
+      toast.success("Affiliate link renamed");
+    } catch (renameError) {
+      toast.error(renameError instanceof Error ? renameError.message : "Failed to rename affiliate link");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleActive(link: AffiliateLink) {
+    setBusyId(link.id);
+    try {
+      await updateAffiliateLink(eventId, link.id, { active: !link.active });
+      await loadLinks();
+      toast.success(link.active ? "Affiliate link deactivated" : "Affiliate link reactivated");
+    } catch (toggleError) {
+      toast.error(
+        toggleError instanceof Error ? toggleError.message : "Failed to update affiliate link",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) {
+      return;
+    }
+    setBusyId(deleteTarget.id);
+    try {
+      await deleteAffiliateLink(eventId, deleteTarget.id);
+      setDeleteTarget(null);
+      await loadLinks();
+      toast.success("Affiliate link deleted");
+    } catch (deleteError) {
+      // The API refuses a link with any history, and its message says to
+      // deactivate instead — surfaced as it comes rather than restated here.
+      toast.error(deleteError instanceof Error ? deleteError.message : "Failed to delete affiliate link");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -178,12 +255,99 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                   <Button type="button" variant="outline" size="sm" onClick={() => void copyURL(link)}>
                     {copiedId === link.id ? "Copied" : "Copy link"}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busyId === link.id}
+                    onClick={() => openRenameDialog(link)}
+                  >
+                    Rename
+                  </Button>
+                  {/* Deactivating leaves everything on this row where it is and
+                      only stops the code counting and attributing; reactivating
+                      resumes both under the same link. */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busyId === link.id}
+                    onClick={() => void toggleActive(link)}
+                  >
+                    {link.active ? "Deactivate" : "Reactivate"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={busyId === link.id}
+                    onClick={() => setDeleteTarget(link)}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </CardContent>
+
+      <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && setRenameTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename affiliate link</DialogTitle>
+            <DialogDescription>
+              Only the name changes. The code, the link itself, and everything it has already done stay
+              exactly as they are.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={(event) => void handleRename(event)}>
+            <FormField id="affiliate-link-rename" label="Name">
+              <Input
+                id="affiliate-link-rename"
+                value={renameValue}
+                maxLength={AFFILIATE_LINK_NAME_MAX_LENGTH}
+                onChange={(event) => setRenameValue(event.target.value)}
+                required
+              />
+            </FormField>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busyId !== null || renameValue.trim() === ""}>
+                Save name
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete affiliate link?</DialogTitle>
+            <DialogDescription>
+              Remove <strong>{deleteTarget?.name}</strong> from this Event? This cannot be undone. A link
+              that has any clicks or attributed sales cannot be deleted — deactivate it instead, and it
+              keeps its history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busyId !== null}
+              onClick={() => void handleDelete()}
+            >
+              Delete affiliate link
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

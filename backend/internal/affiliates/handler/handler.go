@@ -117,6 +117,115 @@ func (h *Handler) ListAffiliateLinks(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, links)
 }
 
+// updateAffiliateLinkBody is the lifecycle request: a rename, an
+// activate/deactivate toggle, or both. Both fields are optional — an absent one
+// is left as it is — and there is still no field for the code.
+type updateAffiliateLinkBody struct {
+	Name   *string `json:"name"`
+	Active *bool   `json:"active"`
+}
+
+// UpdateAffiliateLink renames an Affiliate Link and/or changes whether it is live.
+//
+// @Summary      Update affiliate link
+// @Description  Renames an Affiliate Link and/or takes it out of circulation. Both body fields are optional: an absent field is left unchanged, so a rename never disturbs the link's active state and vice versa. The code and URL are immutable and never change. A deactivated link's code is dead everywhere a buyer could carry it — the click counter ignores it and a checkout begun with it records the sale unattributed — while its historical clicks, attributed sales and Net Proceeds stay on the staff list, marked inactive; reactivating resumes both under the same code. Org Admin and Event Owner only.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path      string                   true  "Event ID"
+// @Param        linkId  path      string                   true  "Affiliate link ID"
+// @Param        body    body      updateAffiliateLinkBody  true  "Fields to change"
+// @Success      200     {object}  openapi.EnvelopeAffiliateLink
+// @Failure      400     {object}  platform.Envelope
+// @Failure      401     {object}  platform.Envelope
+// @Failure      403     {object}  platform.Envelope
+// @Failure      404     {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/affiliate-links/{linkId} [patch]
+func (h *Handler) UpdateAffiliateLink(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, linkID, ok := lifecyclePathValues(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	var body updateAffiliateLinkBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	input := service.UpdateAffiliateLinkInput{Active: body.Active}
+	if body.Name != nil {
+		name, valid := service.NormalizeName(*body.Name)
+		if !valid {
+			_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+				{Field: "name", Message: fmt.Sprintf("is required and must be at most %d characters", service.MaxNameLength)},
+			})
+			return
+		}
+		input.Name = &name
+	}
+
+	link, err := h.svc.UpdateAffiliateLink(r.Context(), actorFromRequest(r), eventID, linkID, input)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, link)
+}
+
+// DeleteAffiliateLink removes an Affiliate Link that has no history.
+//
+// @Summary      Delete affiliate link
+// @Description  Deletes an Affiliate Link, but only while it has zero clicks and no attributed sales — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path      string  true  "Event ID"
+// @Param        linkId  path      string  true  "Affiliate link ID"
+// @Success      200     {object}  openapi.EnvelopeMessage
+// @Failure      401     {object}  platform.Envelope
+// @Failure      403     {object}  platform.Envelope
+// @Failure      404     {object}  platform.Envelope
+// @Failure      409     {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/affiliate-links/{linkId} [delete]
+func (h *Handler) DeleteAffiliateLink(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, linkID, ok := lifecyclePathValues(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	if err := h.svc.DeleteAffiliateLink(r.Context(), actorFromRequest(r), eventID, linkID); err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, map[string]string{
+		"message": "Affiliate link deleted.",
+	})
+}
+
+// lifecyclePathValues reads the two ids both lifecycle routes address a link by,
+// writing the validation error and reporting false when either is missing.
+func lifecyclePathValues(w http.ResponseWriter, r *http.Request, reqID string) (eventID, linkID string, ok bool) {
+	eventID = strings.TrimSpace(r.PathValue("id"))
+	linkID = strings.TrimSpace(r.PathValue("linkId"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "id", Message: "is required"},
+		})
+		return "", "", false
+	}
+	if linkID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "link_id", Message: "is required"},
+		})
+		return "", "", false
+	}
+	return eventID, linkID, true
+}
+
 // RecordAffiliateLinkClick counts one visit to an Event page reached through an
 // Affiliate Link.
 //

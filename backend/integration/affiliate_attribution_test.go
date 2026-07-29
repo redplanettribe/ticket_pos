@@ -128,13 +128,11 @@ func TestCheckoutWithAnUnknownOrDeadAffiliateCodeSucceedsUnattributed(t *testing
 	sessionID := orgAdminSession(t, env)
 	eventID, ticketTypeID := publishCheckoutEvent(t, env, sessionID, "Ref Fest", "ref-fest", 1000, 10)
 	liveCode := newAffiliateLink(t, env, sessionID, eventID, "María's Instagram")
-	deadCode := newAffiliateLink(t, env, sessionID, eventID, "Last year's flyer")
+	dead := newAffiliateLinkView(t, env, sessionID, eventID, "Last year's flyer")
+	deadCode := dead.Code
 
-	// Deactivation has no staff endpoint yet (it lands with the rest of the
-	// Affiliate Link lifecycle), so the deactivated state is staged in SQL. The
-	// rule under test is the resolver's, not the toggle's.
-	if _, err := env.db.Exec(`UPDATE affiliate_links SET active = FALSE WHERE code = $1`, deadCode); err != nil {
-		t.Fatalf("deactivate affiliate link: %v", err)
+	if resp, body := updateAffiliateLink(t, env, sessionID, eventID, dead.ID, map[string]any{"active": false}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("deactivate affiliate link status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
 	// A code that never existed, a mistyped one, and one that has been

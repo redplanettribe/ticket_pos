@@ -2393,6 +2393,155 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/affiliate-links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete affiliate link
+         * @description Deletes an Affiliate Link, but only while it has zero clicks and no attributed sales — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Affiliate link ID */
+                    linkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeMessage"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Update affiliate link
+         * @description Renames an Affiliate Link and/or takes it out of circulation. Both body fields are optional: an absent field is left unchanged, so a rename never disturbs the link's active state and vice versa. The code and URL are immutable and never change. A deactivated link's code is dead everywhere a buyer could carry it — the click counter ignores it and a checkout begun with it records the sale unattributed — while its historical clicks, attributed sales and Net Proceeds stay on the staff list, marked inactive; reactivating resumes both under the same code. Org Admin and Event Owner only.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Affiliate link ID */
+                    linkId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Fields to change */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.updateAffiliateLinkBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAffiliateLink"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/cancel": {
         parameters: {
             query?: never;
@@ -4377,6 +4526,10 @@ export interface components {
         };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
+        };
+        "handler.updateAffiliateLinkBody": {
+            active?: boolean;
+            name?: string;
         };
         "handler.updateAvatarBody": {
             image_key?: string;

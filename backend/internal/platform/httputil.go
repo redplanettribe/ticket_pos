@@ -119,8 +119,14 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
-	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND":
+	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND":
 		return http.StatusNotFound
+	// An Affiliate Link that has been clicked or has attributed a sale cannot be
+	// deleted: 409, because the request was well formed and permitted, and the
+	// link's history is what stands in the way. Deactivation is the way out, and
+	// retrying the delete never becomes the answer.
+	case "AFFILIATE_LINK_HAS_HISTORY":
+		return http.StatusConflict
 	// The Customer-initiated Sale Reversal refusals (ADR 0018). All three are
 	// 409: the request was well formed and the caller was entitled to make it,
 	// but the Ticket Sale is not in a state that admits an undo — already

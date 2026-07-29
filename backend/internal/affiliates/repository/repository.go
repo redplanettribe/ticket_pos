@@ -184,6 +184,81 @@ func (r *Repository) ListByEventID(ctx context.Context, eventID string) ([]Affil
 	return links, rows.Err()
 }
 
+// GetByIDForEvent returns one of an Event's Affiliate Links with its attribution
+// figures, or nil when the Event has no link by that id. Scoped to the Event so
+// a link id from elsewhere is simply absent rather than reachable.
+//
+// It picks the row out of the Event's own list rather than repeating that
+// query's attribution arithmetic: an Event carries a handful of links, and one
+// definition of what a link's figures are is worth more than the row skipped.
+func (r *Repository) GetByIDForEvent(ctx context.Context, eventID, linkID string) (*AffiliateLink, error) {
+	links, err := r.ListByEventID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	for _, link := range links {
+		if link.ID == linkID {
+			return &link, nil
+		}
+	}
+	return nil, nil
+}
+
+// UpdateNameAndActive writes an Affiliate Link's two mutable fields and returns
+// the stored row. The code is not among them: it is generated once and travels
+// in URLs that outlive any edit, so nothing here can move it.
+//
+// Returns nil when the Event has no link by that id.
+func (r *Repository) UpdateNameAndActive(ctx context.Context, eventID, linkID, name string, active bool) (*AffiliateLink, error) {
+	var updated AffiliateLink
+	err := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE affiliate_links
+		SET name = $3, active = $4, updated_at = NOW()
+		WHERE id = $2 AND event_id = $1
+		RETURNING `+affiliateLinkColumns,
+		eventID, linkID, name, active,
+	).Scan(
+		&updated.ID, &updated.EventID, &updated.OrganizationID, &updated.Name,
+		&updated.Code, &updated.Active, &updated.ClickCount,
+		&updated.CreatedAt, &updated.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
+}
+
+// DeleteIfNoHistory removes an Affiliate Link only while it has none, and
+// reports whether it removed anything.
+//
+// The history test lives inside the DELETE rather than in a read before it, so a
+// click or a checkout landing between the two cannot slip a link out from under
+// its own past. History is any click at all and any attributed row of any status
+// — a reversed Ticket Sale still names the link that drove it, and a Payment
+// carries the same snapshot — which is also what keeps the delete FK-safe:
+// nothing that could be orphaned survives the WHERE clause.
+func (r *Repository) DeleteIfNoHistory(ctx context.Context, eventID, linkID string) (bool, error) {
+	result, err := r.db.Pool.ExecContext(ctx, `
+		DELETE FROM affiliate_links al
+		WHERE al.id = $2
+		  AND al.event_id = $1
+		  AND al.click_count = 0
+		  AND NOT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.affiliate_link_id = al.id)
+		  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.affiliate_link_id = al.id)
+	`, eventID, linkID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
+}
+
 // RecordClick counts one visit to an Event page reached through the given code,
 // resolved by the two Storefront slugs the visitor's URL carries.
 //

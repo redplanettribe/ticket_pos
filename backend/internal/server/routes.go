@@ -278,6 +278,12 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	ah := app.AffiliatesHandler
 	mux.Handle("GET /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.ListAffiliateLinks)))
 	mux.Handle("POST /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.CreateAffiliateLink)))
+	// The lifecycle: rename and the activate/deactivate toggle share one PATCH,
+	// and DELETE removes a link that never did anything (#148). Same gate as the
+	// two above — deciding whose link stops attributing is the same authority as
+	// deciding there is a link at all.
+	mux.Handle("PATCH /api/v1/staff/events/{id}/affiliate-links/{linkId}", eventOwnerOrAdmin(http.HandlerFunc(ah.UpdateAffiliateLink)))
+	mux.Handle("DELETE /api/v1/staff/events/{id}/affiliate-links/{linkId}", eventOwnerOrAdmin(http.HandlerFunc(ah.DeleteAffiliateLink)))
 
 	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
 	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))

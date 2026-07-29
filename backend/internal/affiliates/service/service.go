@@ -142,6 +142,102 @@ func (s *Service) ListAffiliateLinks(ctx context.Context, actor ActorContext, ev
 	return views, nil
 }
 
+// UpdateAffiliateLinkInput is a partial edit of an Affiliate Link: a rename, a
+// change of circulation, or both. Both fields are optional pointers, so leaving
+// one out leaves it alone — a rename never disturbs whether the link is live,
+// and taking a link out of circulation never disturbs its label.
+type UpdateAffiliateLinkInput struct {
+	Name   *string
+	Active *bool
+}
+
+// UpdateAffiliateLink renames an Affiliate Link, deactivates or reactivates it,
+// or both at once.
+//
+// The code is untouchable here, and that is the point of the whole lifecycle: a
+// deactivated link's code stops counting clicks (repository.RecordClick) and
+// stops attributing at checkout (repository.FindActiveLinkIDByCode) while its
+// history stays on the staff list marked inactive, and reactivating resumes both
+// under the same code — the URLs a promoter published never stop being the same
+// URLs.
+func (s *Service) UpdateAffiliateLink(ctx context.Context, actor ActorContext, eventID, linkID string, input UpdateAffiliateLinkInput) (*AffiliateLinkView, error) {
+	target, err := s.repo.GetLinkTarget(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if target == nil {
+		return nil, affiliates.ErrEventNotFound()
+	}
+
+	current, err := s.repo.GetByIDForEvent(ctx, eventID, linkID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, affiliates.ErrAffiliateLinkNotFound()
+	}
+
+	name, active := current.Name, current.Active
+	if input.Name != nil {
+		name = *input.Name
+	}
+	if input.Active != nil {
+		active = *input.Active
+	}
+
+	updated, err := s.repo.UpdateNameAndActive(ctx, eventID, linkID, name, active)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, affiliates.ErrAffiliateLinkNotFound()
+	}
+	// The attribution figures come from the read above: this update moves neither
+	// of them, and re-deriving them would only put a second, slower answer to the
+	// same question in the response.
+	updated.SalesCount = current.SalesCount
+	updated.NetProceedsCents = current.NetProceedsCents
+
+	view := s.toView(*updated, *target)
+	return &view, nil
+}
+
+// DeleteAffiliateLink removes an Affiliate Link that has done nothing.
+//
+// A link is deletable only while it has zero clicks and no attributed row of any
+// status: a mistyped link created a minute ago can be taken back, and anything
+// that has actually happened is kept. A reversed attributed sale counts as
+// history like any other — it still names the link that drove it — so the way to
+// retire a link that worked is to deactivate it, which is what the refusal says.
+func (s *Service) DeleteAffiliateLink(ctx context.Context, actor ActorContext, eventID, linkID string) error {
+	target, err := s.repo.GetLinkTarget(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return err
+	}
+	if target == nil {
+		return affiliates.ErrEventNotFound()
+	}
+
+	link, err := s.repo.GetByIDForEvent(ctx, eventID, linkID)
+	if err != nil {
+		return err
+	}
+	if link == nil {
+		return affiliates.ErrAffiliateLinkNotFound()
+	}
+
+	deleted, err := s.repo.DeleteIfNoHistory(ctx, eventID, linkID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		// The link was there a statement ago, so what stopped the delete is its
+		// history — the condition the delete carries with it.
+		return affiliates.ErrAffiliateLinkHasHistory()
+	}
+	return nil
+}
+
 // ResolveLiveCode answers who, if anybody, a checkout begun with this code
 // should be attributed to: the id of the Event's ACTIVE Affiliate Link carrying
 // it, or "" when no live link does.

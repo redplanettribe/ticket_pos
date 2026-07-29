@@ -40,3 +40,31 @@ export async function createAffiliateLink(eventId: string, name: string): Promis
     body: JSON.stringify({ name }),
   });
 }
+
+/**
+ * Renames an Affiliate Link and/or takes it out of circulation. Both fields are
+ * optional and an omitted one is left alone: the code and its URL never change
+ * either way, so a deactivated link resumes under exactly the same link when it
+ * is reactivated.
+ */
+export async function updateAffiliateLink(
+  eventId: string,
+  linkId: string,
+  patch: { name?: string; active?: boolean },
+): Promise<AffiliateLink> {
+  return fetchEventsJSON<AffiliateLink>(`/api/events/${eventId}/affiliate-links/${linkId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/**
+ * Deletes an Affiliate Link. The API refuses one that has any clicks or any
+ * attributed sale (a reversed one included) — history is never rewritten, and
+ * the way to retire a link that worked is to deactivate it.
+ */
+export async function deleteAffiliateLink(eventId: string, linkId: string): Promise<void> {
+  await fetchEventsJSON<{ message: string }>(`/api/events/${eventId}/affiliate-links/${linkId}`, {
+    method: "DELETE",
+  });
+}
