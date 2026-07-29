@@ -99,3 +99,25 @@ variable "payphone_store_id" {
   type        = string
   default     = ""
 }
+
+# The Reversal Reconciler tick (ADR 0024). All three are operational levers
+# rather than credentials, so they are ordinary variables with defaults — not
+# TF_VAR_ from a sourced .env.
+
+variable "reversal_reconciler_enabled" {
+  description = "Whether the reversal drain tick fires in production. Starts false: ADR 0024's rollout is to deploy the endpoint and exercise it by hand for a day, confirming it is a no-op on an empty queue, before a cron drives it. Also the incident switch — set false and apply to stop the tick without deleting the job."
+  type        = bool
+  default     = false
+}
+
+variable "reversal_reconciler_schedule" {
+  description = "Unix cron for the production drain tick. Every minute; the module variable of the same name carries why."
+  type        = string
+  default     = "* * * * *"
+}
+
+variable "reversal_reconciler_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production drain. Declared here so the knob can be turned during an incident without editing the module. It is one term of a chain that must be read before it is moved; the module variable of the same name says where the chain is written down."
+  type        = number
+  default     = 90
+}

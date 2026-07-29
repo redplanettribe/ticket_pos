@@ -44,14 +44,35 @@ type SaleVoided struct {
 	Reference    string
 }
 
+// SaleReversalRefused is the notice emailed to a Customer whose Reversal Request
+// the Payment Provider definitively refused after the platform had already told
+// them it was being processed (ADR 0024, #161).
+//
+// It exists because that is the one path where this system knowingly breaks a
+// promise it made, and the person most owed the correction is the one who closed
+// the tab: no page will ever reach them again. Which reversal endings send this,
+// which send SaleVoided and which send nothing is decided at the one site that
+// resolves a pending request — see service.resolveReversalRequest.
+//
+// It carries no reason and no provider code, deliberately, and the wording that
+// enacts that lives on Text().
+type SaleReversalRefused struct {
+	To           string
+	CustomerName string
+	EventName    string
+	Reference    string
+}
+
 // EmailSender delivers transactional email: staff one-time passcodes,
-// Customer Sale Confirmations, and Sale void/cancellation notices. A real
-// provider is deferred; development and tests use the logging and capture
+// Customer Sale Confirmations, Sale void/cancellation notices, and the notice
+// that a refund the Customer was told was being processed could not be made. A
+// real provider is deferred; development and tests use the logging and capture
 // implementations below.
 type EmailSender interface {
 	SendOTP(ctx context.Context, to string, code string) error
 	SendSaleConfirmation(ctx context.Context, confirmation SaleConfirmation) error
 	SendSaleVoided(ctx context.Context, voided SaleVoided) error
+	SendSaleReversalRefused(ctx context.Context, refused SaleReversalRefused) error
 }
 
 // LoggingEmailSender logs email delivery to the configured logger (development use).
@@ -80,6 +101,13 @@ func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 	return nil
 }
 
+// SendSaleReversalRefused logs the refused-reversal notice for local development
+// and testing.
+func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleReversalRefused) error {
+	s.Logger.Info("sale reversal refused notice sent", "email", r.To, "reference", r.Reference, "event", r.EventName)
+	return nil
+}
+
 // NoopEmailSender discards delivery (tests).
 type NoopEmailSender struct{}
 
@@ -98,6 +126,11 @@ func (NoopEmailSender) SendSaleVoided(_ context.Context, _ SaleVoided) error {
 	return nil
 }
 
+// SendSaleReversalRefused discards the refused-reversal notice.
+func (NoopEmailSender) SendSaleReversalRefused(_ context.Context, _ SaleReversalRefused) error {
+	return nil
+}
+
 // CaptureEmailSender records delivered email for integration tests. It is safe
 // for concurrent use so tests can exercise concurrent sales.
 type CaptureEmailSender struct {
@@ -107,6 +140,7 @@ type CaptureEmailSender struct {
 	otpSends          int
 	SaleConfirmations []SaleConfirmation
 	VoidedSales       []SaleVoided
+	RefusedReversals  []SaleReversalRefused
 }
 
 // SendOTP records the last OTP delivered.
@@ -135,6 +169,14 @@ func (s *CaptureEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 	return nil
 }
 
+// SendSaleReversalRefused records a delivered refused-reversal notice.
+func (s *CaptureEmailSender) SendSaleReversalRefused(_ context.Context, r SaleReversalRefused) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RefusedReversals = append(s.RefusedReversals, r)
+	return nil
+}
+
 // Confirmations returns a copy of the captured Sale Confirmations.
 func (s *CaptureEmailSender) Confirmations() []SaleConfirmation {
 	s.mu.Lock()
@@ -150,6 +192,17 @@ func (s *CaptureEmailSender) Voided() []SaleVoided {
 	defer s.mu.Unlock()
 	out := make([]SaleVoided, len(s.VoidedSales))
 	copy(out, s.VoidedSales)
+	return out
+}
+
+// RefusedReversalNotices returns a copy of the captured refused-reversal
+// notices. Tests assert on its LENGTH as much as on its contents: the notice is
+// sent at most once per Reversal Request, and two actors can resolve one.
+func (s *CaptureEmailSender) RefusedReversalNotices() []SaleReversalRefused {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]SaleReversalRefused, len(s.RefusedReversals))
+	copy(out, s.RefusedReversals)
 	return out
 }
 
@@ -171,4 +224,5 @@ func (s *CaptureEmailSender) Reset() {
 	s.otpSends = 0
 	s.SaleConfirmations = nil
 	s.VoidedSales = nil
+	s.RefusedReversals = nil
 }

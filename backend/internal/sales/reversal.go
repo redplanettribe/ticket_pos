@@ -55,10 +55,10 @@ const (
 	// own dashboard can say. It awaits a Platform Operator, who settles it as an
 	// Operator Reversal if the money did in fact leave.
 	//
-	// Reached today by one route: the Ticket Sale was reversed by somebody else
-	// while the request was in flight, so asking the provider again could refund
-	// the buyer twice and the platform stops rather than find out. The other
-	// route — a day of unknown answers — arrives with the Reversal Reconciler
-	// (#158).
+	// Reached by two routes. The Ticket Sale was reversed by somebody else while
+	// the request was in flight, so asking the provider again could refund the
+	// buyer twice and the platform stops rather than find out; or a whole day of
+	// unknown answers passed and the platform stopped asking (ReversalGiveUpAfter).
+	// Both are the same admission — nobody here knows what became of the money.
 	ReversalRequestNeedsAttention = "needs_attention"
 )

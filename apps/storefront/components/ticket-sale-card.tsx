@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 
 import { Badge } from "@ticket-pos/ui";
 
+import { ReversalWatch } from "@/components/reversal-watch";
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import { getFormatLocale } from "@/i18n/format-locale.server";
@@ -216,6 +217,23 @@ export async function TicketSaleCard({
           )}
         </UndoWindowNotice>
       ) : null}
+
+      {/* And on the surface that can make it move, the Customer need not reload
+          to find out: the page re-asks itself while the answer is outstanding
+          (#160). It is left off the Confirmation Link surface by the same split
+          that decides the sentence above — the backend drains an in-flight
+          Reversal Request only for a full Customer Session, so a timer there
+          would be re-reading a state its own reads can never change.
+
+          It draws nothing, so it sits last rather than between the sentences
+          above and the comment that explains them. */}
+      {viaConfirmationLink ? null : (
+        <ReversalWatch
+          pending={refundPending}
+          reversed={reversed}
+          reversalStatus={sale.reversal_status}
+        />
+      )}
     </li>
   );
 }

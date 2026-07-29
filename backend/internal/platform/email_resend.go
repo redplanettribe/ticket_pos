@@ -124,3 +124,16 @@ func (s *ResendEmailSender) SendSaleVoided(ctx context.Context, v SaleVoided) er
 	}
 	return nil
 }
+
+// SendSaleReversalRefused delivers the notice that a refund the Customer was
+// told was being processed could not be made. Best-effort like the notices
+// above, and the log line is what is left when it fails: this is the only
+// message that ever corrects a promise, so a Customer who never hears is a
+// Customer who still believes their refund is coming.
+func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleReversalRefused) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send sale reversal refused failed", "email", r.To, "reference", r.Reference, "error", err)
+		return err
+	}
+	return nil
+}

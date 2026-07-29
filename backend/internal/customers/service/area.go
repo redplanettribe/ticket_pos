@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 	"time"
 
@@ -109,6 +110,17 @@ type TicketSaleView struct {
 	// while a request is in flight makes nothing new happen — and that composing
 	// is the surface's job, not this rule's.
 	ReversalPending bool `json:"reversal_pending"`
+	// ReversalStatus is where this sale's most recent Reversal Request stands —
+	// "in_flight", "succeeded", "refused" or "needs_attention" — and null when the
+	// buyer has never asked (ADR 0024).
+	//
+	// It exists because ReversalPending alone cannot tell a surface why a pending
+	// refund stopped being pending. An Unresolved Reversal leaves the sale active
+	// and ReversalPending false, exactly as a refusal does, and the two owe the
+	// buyer opposite things: a refusal is theirs to be told, while an Unresolved
+	// Reversal must be met with silence, because nobody knows whether the money
+	// went back. Only "refused" may be presented as a refusal.
+	ReversalStatus *string `json:"reversal_status"`
 }
 
 // CustomerAreaView is the signed-in Customer's purchases, split into what is
@@ -140,10 +152,9 @@ func (s *Service) GetCustomerArea(ctx context.Context, token string) (*CustomerA
 	// it became rather than as pending for one more page load.
 	//
 	// It is the opportunistic drain and not the whole recovery: the Reversal
-	// Reconciler that pursues a request nobody comes back to look at is #158.
-	// Until then this is what stops the pending state from being a regression —
-	// before ADR 0024 the recovery mechanism was the buyer pressing Undo again,
-	// and a second press is now answered from the request row.
+	// Reconciler pursues a request nobody comes back to look at. This is the
+	// accelerator for the buyer who did come back, so their answer arrives in
+	// seconds rather than on the next tick.
 	//
 	// Only a full session drives it. A Confirmation Link session is a read
 	// credential scoped to one sale — it cannot ask for a reversal in the first
@@ -362,6 +373,7 @@ func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platf
 		Reversible:      offer.Reversible,
 		ReversibleUntil: offer.ReversibleUntil,
 		ReversalPending: sale.ReversalPending,
+		ReversalStatus:  nullStringPtr(sale.ReversalStatus),
 	}
 }
 
@@ -378,4 +390,15 @@ func stringPtr(valid bool, s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// nullStringPtr renders a nullable database string as a pointer, so an absent
+// value reaches JSON as null rather than as the empty string. The two are not
+// the same answer anywhere in this file: "" would say a Reversal Request exists
+// and stands nowhere.
+func nullStringPtr(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+	return &v.String
 }

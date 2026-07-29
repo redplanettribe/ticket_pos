@@ -121,7 +121,8 @@ func reverseSalePending(t *testing.T, env *testEnv, token, saleID string) saleRe
 func reversalRequests(t *testing.T, env *testEnv, ref string) []reversalRequestRow {
 	t.Helper()
 	rows, err := env.db.Query(`
-		SELECT sr.status, sr.attempt_count, sr.client_transaction_id, sr.requested_at, sr.last_error
+		SELECT sr.status, sr.attempt_count, sr.client_transaction_id, sr.requested_at,
+		       sr.next_attempt_at, sr.last_error
 		FROM sale_reversals sr
 		JOIN ticket_sales ts ON ts.id = sr.ticket_sale_id
 		WHERE ts.confirmation_ref = $1
@@ -135,7 +136,7 @@ func reversalRequests(t *testing.T, env *testEnv, ref string) []reversalRequestR
 	var out []reversalRequestRow
 	for rows.Next() {
 		var r reversalRequestRow
-		if err := rows.Scan(&r.status, &r.attempts, &r.clientTransactionID, &r.requestedAt, &r.lastError); err != nil {
+		if err := rows.Scan(&r.status, &r.attempts, &r.clientTransactionID, &r.requestedAt, &r.nextAttemptAt, &r.lastError); err != nil {
 			t.Fatalf("scan Reversal Request: %v", err)
 		}
 		out = append(out, r)
@@ -151,7 +152,12 @@ type reversalRequestRow struct {
 	attempts            int
 	clientTransactionID string
 	requestedAt         time.Time
-	lastError           sql.NullString
+	// nextAttemptAt is the earliest instant the platform may ask about this
+	// request again. It is read because it is where two rules that nothing else
+	// makes visible are written down: the backoff a probe's outcome earned, and
+	// the short delay a claim that could not be probed is handed back with.
+	nextAttemptAt time.Time
+	lastError     sql.NullString
 }
 
 // theOnlyReversalRequest asserts a Ticket Sale has exactly one Reversal Request

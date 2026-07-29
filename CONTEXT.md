@@ -214,11 +214,13 @@ _Avoid_: Pending reversal, reversal attempt, refund request
 **Reversal Reconciler**:
 The platform asking the Payment Provider again what became of a Reversal Request it never answered, until the answer is definite or the platform gives up. It is the platform doing for itself what the Customer would otherwise do by pressing Undo a second time.
 It only ever finds out; it never re-decides. A Reversal Request that was inside the Reversal Window when it was made stays authorised however long the answer takes.
+It also finishes a reversal the Payment Provider agreed to and the platform failed to record: there the answer is already known, so it retries the local commit alone and asks nobody anything.
 _Avoid_: Retry job, reversal worker, refund poller
 
 **Unresolved Reversal**:
 A Reversal Request the Reversal Reconciler gave up on with the answer still unknown — the money may or may not have gone back, and only the Payment Provider's own dashboard can say. Awaits a Platform Operator, who settles it as an Operator Reversal if the money did in fact leave.
 The Customer is told nothing, because there is nothing true to tell them yet.
+One kind is not unknown at all: a reversal the provider agreed to whose local commit never landed. The money went back, and the Operator's move is to void the sale rather than to look anything up.
 _Avoid_: Failed reversal, stuck refund, orphaned reversal
 
 **Operator Reversal**:

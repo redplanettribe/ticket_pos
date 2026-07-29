@@ -732,3 +732,79 @@ func TestPressingUndoOnASucceededButUncommittedRequestIsPending(t *testing.T) {
 		t.Fatalf("Customer Area sale = %+v, want an active sale whose refund is still being processed", sale)
 	}
 }
+
+// TestTheBackoffIsMeasuredFromTheEndOfTheProbe: the wait before the platform
+// asks PayPhone again starts when PayPhone stopped answering, not when the buyer
+// pressed.
+//
+// The two are the same instant only when the provider is quick, and the case
+// this feature exists for is the one where it is not. A probe can cost the full
+// ten-second provider timeout and the backoff's first step is also ten seconds,
+// so a delay measured from the ask is entirely consumed by the ask itself: the
+// first retry comes due the moment the probe returns, and the throttle standing
+// between an unwell PayPhone and this platform hammering it is zero on its very
+// first step — precisely when a provider is least able to take it.
+//
+// The clock has to run for this, which is why it is the one test here that does
+// not freeze it. A frozen clock cannot tell "when the buyer pressed" from "when
+// the probe finished", so it cannot see the bug at all.
+func TestTheBackoffIsMeasuredFromTheEndOfTheProbe(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishEventStarting(t, env, sessionID, "Slow Answer Fest", "slow-answer-fest",
+		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
+
+	payphoneStub.reset()
+	t.Cleanup(payphoneStub.reset)
+	token, ref, saleID := buyThenReadOwnSale(t, "slow-answer-fest", gaID, "ana@example.com", 2)
+
+	// PayPhone holds the reversal open past the platform's own call timeout: the
+	// 2026-07-28 incident, and the only shape in which the two instants differ.
+	payphoneStub.reverseTimesOut()
+	atRunningReversalClock(t)
+	reverseSalePending(t, payphoneEnv, token, saleID)
+
+	// requested_at is when the buyer pressed; next_attempt_at is when the platform
+	// may ask again. The gap must cover the probe AND a first backoff step, and it
+	// is asserted as a bound rather than an equality because jitter only ever adds
+	// and a real ten-second timeout never lands on the second.
+	request := theOnlyReversalRequest(t, env, ref)
+	if request.status != "in_flight" {
+		t.Fatalf("Reversal Request after an unanswered probe = %+v, want in flight", request)
+	}
+	wait := request.nextAttemptAt.Sub(request.requestedAt)
+	if wait < payPhoneCallTimeout+reversalFirstBackoffStep-time.Second {
+		t.Fatalf("the next probe is due %v after the buyer pressed, want at least %v — the ten seconds spent waiting for PayPhone is not a backoff, and a wait means a wait since we last asked",
+			wait, payPhoneCallTimeout+reversalFirstBackoffStep-time.Second)
+	}
+}
+
+// payPhoneCallTimeout and reversalFirstBackoffStep are the two ten-second
+// intervals the test above proves do not overlap: what one probe can cost, and
+// what the schedule owes after it. Both are unexported where they are defined —
+// the PayPhone client and ADR 0024's schedule — and the point of the assertion
+// is precisely that nobody has to import one to reason about the other.
+const (
+	payPhoneCallTimeout      = 10 * time.Second
+	reversalFirstBackoffStep = 10 * time.Second
+)
+
+// atRunningReversalClock lets the reversal path's clock run in real time from
+// the suite's fixed instant, instead of standing still at it.
+//
+// Everything else here freezes the clock, because a frozen clock is what makes
+// the Reversal Window and the retry schedule assertable at all. This is the one
+// property that a frozen clock makes invisible: whether an instant is read
+// before or after a provider call is a distinction with no meaning when both
+// reads answer the same number.
+func atRunningReversalClock(t *testing.T) {
+	t.Helper()
+	base, start := fixedClock, time.Now()
+	running := func() time.Time { return base.Add(time.Since(start)) }
+	payphoneApp.SalesService.WithClock(running)
+	payphoneApp.CustomersService.WithClock(running)
+	t.Cleanup(func() {
+		payphoneApp.SalesService.WithClock(func() time.Time { return fixedClock })
+		payphoneApp.CustomersService.WithClock(func() time.Time { return fixedClock })
+	})
+}

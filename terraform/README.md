@@ -323,6 +323,67 @@ ownership. It is the same token shape the frontends will present once #48 grants
 **Rolling back** is step 3 with the previous tag; no Terraform change is involved. Rolling *migrations*
 back is not a command — that is what the expand-and-contract rule above buys.
 
+## The Reversal Reconciler schedule
+
+`reversal_reconciler.tf` creates a Cloud Scheduler job that POSTs
+`/api/v1/internal/reversals/drain` on the API about once a minute, a dedicated service account
+(`prod-ticket-pos-reversals`), and that account's `run.invoker` grant on the API — the third and last
+principal holding that role. It is the first scheduled execution in this deployment; ADR 0024 has the
+reasoning, including why an in-process ticker cannot work against `min_instances = 0` and
+`cpu_idle = true`.
+
+**It needs `cloudscheduler.googleapis.com` enabled on the project** (`gcloud services enable
+cloudscheduler.googleapis.com`). Enabling the API also creates the Cloud Scheduler service agent and
+grants it the token-creator role it uses to mint the OIDC token as the account above; an OIDC failure
+that looks like a broken `run.invoker` grant is usually that agent instead.
+
+**It ships paused.** `reversal_reconciler_enabled` defaults to `false` in both the module and
+`envs/prod`, because the rollout is to prove the endpoint by hand against production first:
+
+```bash
+API_URL=$(gcloud run services describe prod-ticket-pos-api \
+  --region us-east1 --format='value(status.url)')
+
+curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$API_URL/api/v1/internal/reversals/drain"
+# a small JSON summary; on an empty queue it does nothing, which is the point
+```
+
+That same curl is how reconciliation is driven manually during an incident. So is
+`gcloud scheduler jobs run prod-ticket-pos-reversal-reconciler --location us-east1`, which fires one
+tick even while the job is paused.
+
+**Pausing.** The Terraform-owned switch, which is the one to use:
+
+```bash
+terraform -chdir=envs/prod apply -var reversal_reconciler_enabled=false
+```
+
+Faster, for the first minute of an incident:
+
+```bash
+gcloud scheduler jobs pause prod-ticket-pos-reversal-reconciler --location us-east1
+```
+
+A console or gcloud pause is real but not recorded: the next `terraform apply` resumes it. Follow it
+with the variable change, or the tick returns without anyone deciding it should.
+
+Pausing stops the platform pursuing stuck Reversal Requests; it does not strand them. Nothing expires
+because the tick stopped — the Customer Area still drains a buyer's own request opportunistically, and
+each request keeps its own `next_attempt_at`, so resuming picks up exactly where it left off.
+
+Neither a failed nor an overlapping run can double-refund, for the reason `reversal_reconciler.tf`
+gives beside `attempt_deadline`: correctness rests on the per-sale advisory lock, never on the
+schedule. That is also why the job retries zero times — the next tick is a better retry, and
+per-request backoff lives in `sale_reversals.next_attempt_at` where it can be read in SQL.
+
+**The attempt deadline is not a tuning knob on its own.** `reversal_reconciler_attempt_deadline_seconds`
+is the middle term of a chain: the backend's own drain budget expires first, Scheduler's deadline
+second, `api_request_timeout_seconds` last. Each term is worthless without the ones around it, and the
+chain — the numbers included — is written down once in
+`backend/internal/sales/service/reconciler.go` beside `reversalDrainBudget`, where a backend test reads
+both Terraform defaults and fails if the three stop agreeing. Read it before changing any of them.
+
 ## What is not here yet
 
 The frontend `run.invoker` grants (#48) and the keyless deploy pipeline (#49) have landed — see

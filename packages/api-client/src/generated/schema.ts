@@ -961,7 +961,7 @@ export interface paths {
         put?: never;
         /**
          * Undo a Ticket Sale
-         * @description Reverses one of the signed-in Customer's own Ticket Sales within its Reversal Window (ADR 0018), or records the ask as a Reversal Request when the Payment Provider does not answer in time (ADR 0024). Authorization is the Customer Session and nothing else — a Customer may only reverse a Ticket Sale they own, and a Confirmation Link session is not a credential for this. The Reversal Window is enforced here on the server whatever the client believed, and it is evaluated once, when the Reversal Request is created; a request already made stays authorised however long the answer takes. **200 OK — undone.** The Ticket Sale becomes reversed with status `reversed` and `reversed_at`, every line's quantity returns to its Ticket Type's capacity, and the void notice is emailed to the Customer once the reversal has committed. The sale is not deleted: it keeps its Sale Confirmation reference and stays visible in the Customer Area with a reversed status. **202 Accepted — pending.** The Payment Provider gave no definite answer (a timeout, a 5xx, a body this integration cannot place), so the money may or may not have moved: the body carries status `pending` and `requested_at`, and a Reversal Request is in flight. Nothing about the money or the tickets has changed — the Ticket Sale stays active, its capacity stays held, and the tickets are still valid — and the platform asks the provider again, including whenever the Customer loads their Customer Area. A client must never render a 202 as a completed refund. Pressing Undo again while a request is in flight returns 202 with the original request's `requested_at`: no second Reversal Request, and no second call to the Payment Provider. Refused, with nothing changed, when the sale is already reversed (SALE_ALREADY_REVERSED), is not an Online Sale or was settled by a Payment Provider this deployment cannot ask (SALE_NOT_REVERSIBLE), or its window has closed (REVERSAL_WINDOW_CLOSED). Refused with 502 SALE_REVERSAL_FAILED, again with nothing changed, when the provider was asked and definitely declined: nothing happened, the response carries the Sale Confirmation reference and makes no claim about the cause, because the provider publishes no code meaning the deadline passed, and the provider's own error code goes to the log only. Two simultaneous presses reverse once: attempts on one Ticket Sale are serialised for the whole attempt including the call to the Payment Provider, so the second is refused as already reversed (SALE_ALREADY_REVERSED), the provider is asked exactly once, and capacity is never restored twice. A free Online Sale has no provider to ask, creates no Reversal Request, and is always answered synchronously.
+         * @description Reverses one of the signed-in Customer's own Ticket Sales within its Reversal Window (ADR 0018), or records the ask as a Reversal Request when the Payment Provider does not answer in time (ADR 0024). Authorization is the Customer Session and nothing else — a Customer may only reverse a Ticket Sale they own, and a Confirmation Link session is not a credential for this. The Reversal Window is enforced here on the server whatever the client believed, and it is evaluated once, when the Reversal Request is created; a request already made stays authorised however long the answer takes. **200 OK — undone.** The Ticket Sale becomes reversed with status `reversed` and `reversed_at`, every line's quantity returns to its Ticket Type's capacity, and the void notice is emailed to the Customer once the reversal has committed. The sale is not deleted: it keeps its Sale Confirmation reference and stays visible in the Customer Area with a reversed status. **202 Accepted — pending.** The Payment Provider gave no definite answer (a timeout, a 5xx, a body this integration cannot place), so the money may or may not have moved: the body carries status `pending` and `requested_at`, and a Reversal Request is in flight. Nothing about the money or the tickets has changed — the Ticket Sale stays active, its capacity stays held, and the tickets are still valid — and the platform asks the provider again, including whenever the Customer loads their Customer Area. A client must never render a 202 as a completed refund. Pressing Undo again while a request is in flight returns 202 with the original request's `requested_at`: no second Reversal Request, and no second call to the Payment Provider. Refused, with nothing changed, when the sale is already reversed (SALE_ALREADY_REVERSED), is not an Online Sale or was settled by a Payment Provider this deployment cannot ask (SALE_NOT_REVERSIBLE), or its window has closed (REVERSAL_WINDOW_CLOSED), or the platform gave up on an earlier Reversal Request for it with the outcome still unknown (REVERSAL_UNRESOLVED) — that last one is never retried and never reaches the provider, because the money may already have gone back and asking again could return it twice; a Platform Operator settles it. Refused with 502 SALE_REVERSAL_FAILED, again with nothing changed, when the provider was asked and definitely declined: nothing happened, the response carries the Sale Confirmation reference and makes no claim about the cause, because the provider publishes no code meaning the deadline passed, and the provider's own error code goes to the log only. Two simultaneous presses reverse once: attempts on one Ticket Sale are serialised for the whole attempt including the call to the Payment Provider, so the second is refused as already reversed (SALE_ALREADY_REVERSED), the provider is asked exactly once, and capacity is never restored twice. A free Online Sale has no provider to ask, creates no Reversal Request, and is always answered synchronously.
          */
         post: {
             parameters: {
@@ -1031,6 +1031,54 @@ export interface paths {
                 };
                 /** @description Bad Gateway */
                 502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/reversals/drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pursue stuck Reversal Requests
+         * @description Runs the Reversal Reconciler: the platform asks the Payment Provider again what became of the Reversal Requests it never answered, on the backoff ADR 0024 sets (10s, 30s, 2m, 5m, 15m, then every 30m with jitter), and gives up 24 hours after the Customer asked by recording an Unresolved Reversal. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. It also finishes a reversal the provider already agreed to whose local write failed, leaving the Ticket Sale active while the money had gone back: there the answer is already recorded, so the run completes the local commit only and the provider is not called at all — a second reversal of a payment already reversed could refund the buyer twice — and a commit that will not land within the same day becomes an Unresolved Reversal whose sale a Platform Operator voids by hand. Safe to call by hand at any time and a no-op on an empty queue. It only ever finds out what the provider did; it never re-evaluates eligibility, so a Reversal Request made inside the Reversal Window still resolves however long after the Window closed the answer arrives. Each run claims one Reversal Request at a time, works it, and stops at a time budget of its own that expires before any deadline outside it, so a backlog can never wedge it; whatever it did not reach stays exactly as due as it was found, for the next run. Every pursuit takes the per-sale advisory lock, so it can never overlap a Customer's own press or the Customer Area drain — a contended Reversal Request is skipped and retried on the next run — and a Ticket Sale somebody else reversed out of band is never re-asked about, because that could refund the buyer twice. The response tallies what the run did, reports the standing in-flight backlog (how many Reversal Requests are still open and when the oldest was asked, so two curls a minute apart say whether an incident is getting better or worse), and carries the standing Unresolved Reversal queue with each row's client transaction id and last error, so a Platform Operator can find the transaction on the provider's own dashboard.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeReversalDrain"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -5043,6 +5091,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeReversalDrain": {
+            data?: components["schemas"]["service.ReversalDrainResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeSaleReversal": {
             data?: components["schemas"]["service.SaleReversalResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -5513,6 +5566,64 @@ export interface components {
             remaining?: number;
             sold_out?: boolean;
         };
+        "service.ReversalDrainResult": {
+            /**
+             * @description Failed is requests whose pursuit errored — the database, or a local write
+             *     after the provider agreed. Each one logged its own line.
+             */
+            failed?: number;
+            /**
+             * @description GaveUp counts the requests THIS RUN turned into Unresolved Reversals. It is
+             *     the number worth alerting on, and it is not the size of the queue below.
+             */
+            gave_up?: number;
+            /**
+             * @description InFlightTotal is how many Reversal Requests are still open once this run
+             *     finished, and OldestInFlightRequestedAt is when the buyer at the front of
+             *     that queue pressed (RFC3339 in UTC, absent when there is nobody).
+             *
+             *     They are the answer to "is this getting better or worse", and the reason
+             *     they are here rather than left to the Unresolved queue below is that the
+             *     queue below is EMPTY for the first 24 hours of any outage — the give-up
+             *     bound has not been reached — which is precisely the day an operator is
+             *     looking. The count says how big the backlog is and the timestamp says how
+             *     long it has been building, so two curls a minute apart answer the question
+             *     without a database session.
+             */
+            in_flight_total?: number;
+            oldest_in_flight_requested_at?: string;
+            /**
+             * @description Pursued is how many Reversal Requests this run claimed. Zero is the
+             *     ordinary answer: nothing was stuck.
+             */
+            pursued?: number;
+            refused?: number;
+            /**
+             * @description Reversed, Refused, StillInFlight and GaveUp are where those requests ended.
+             *     They sum to Pursued alongside Skipped and Failed.
+             */
+            reversed?: number;
+            /**
+             * @description Skipped is requests another actor held or had already settled — a buyer's
+             *     own press, a Customer Area drain, another instance. Not a failure: the claim
+             *     is handed straight back and the next tick takes it up.
+             */
+            skipped?: number;
+            still_in_flight?: number;
+            /**
+             * @description Unresolved is the standing Unresolved Reversal queue, oldest ask first,
+             *     capped at unresolvedQueuePageSize. It carries what the backlog above cannot
+             *     — the client transaction id and last error per row — because these are the
+             *     ones nobody is pursuing any more, and the next move on each is a human
+             *     typing something into the provider's dashboard.
+             */
+            unresolved?: components["schemas"]["service.UnresolvedReversal"][];
+            /**
+             * @description UnresolvedTotal is how long that queue really is, so a truncated page is
+             *     never read as the whole backlog.
+             */
+            unresolved_total?: number;
+        };
         "service.ReversalOffer": {
             reversible?: boolean;
             /**
@@ -5690,6 +5801,19 @@ export interface components {
              */
             reversal_pending?: boolean;
             /**
+             * @description ReversalStatus is where this sale's most recent Reversal Request stands —
+             *     "in_flight", "succeeded", "refused" or "needs_attention" — and null when the
+             *     buyer has never asked (ADR 0024).
+             *
+             *     It exists because ReversalPending alone cannot tell a surface why a pending
+             *     refund stopped being pending. An Unresolved Reversal leaves the sale active
+             *     and ReversalPending false, exactly as a refusal does, and the two owe the
+             *     buyer opposite things: a refusal is theirs to be told, while an Unresolved
+             *     Reversal must be met with silence, because nobody knows whether the money
+             *     went back. Only "refused" may be presented as a refusal.
+             */
+            reversal_status?: string;
+            /**
              * @description Reversible reports whether the Customer could undo this Ticket Sale right
              *     now (ADR 0018) — and it is the exact question the reversal endpoint asks
              *     itself, so a true here is an offer the API will honour if taken promptly.
@@ -5754,6 +5878,28 @@ export interface components {
             sold_count?: number;
             sort_order?: number;
             updated_at?: string;
+        };
+        "service.UnresolvedReversal": {
+            attempt_count?: number;
+            client_transaction_id?: string;
+            confirmation_ref?: string;
+            last_error?: string;
+            /**
+             * @description RequestedAt is when the Customer pressed Undo, RFC3339 in UTC — the instant
+             *     the queue is ordered by, and how long this person has been waiting.
+             */
+            requested_at?: string;
+            /**
+             * @description SaleStatus is where the Ticket Sale stands. `reversed` means somebody else
+             *     settled the sale while this ask was in flight, so nothing local is owed.
+             *     `active` means the sale still stands and the operator's move depends on
+             *     LastError beside it: usually nobody knows whether the money left, and the
+             *     dashboard has to say — but a reversal the provider agreed to and the
+             *     platform could not record says so in as many words, and there the money is
+             *     already gone and only the sale needs voiding (#162).
+             */
+            sale_status?: string;
+            ticket_sale_id?: string;
         };
         "storage.CoverUploadResult": {
             object_key?: string;

@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle, Button, PageHeader } from "@ticket
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { MyInfo } from "@/components/my-info";
+import { RetryFailedRead } from "@/components/reversal-watch";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSaleCard } from "@/components/ticket-sale-card";
@@ -106,14 +107,21 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
         {fromConfirmationLink ? <ConfirmationLinkNotice /> : null}
 
         {area.status === "error" ? (
-          <Alert variant="destructive">
-            <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
-            {/* Which failure it was stays the API's to say; only the words are
-                this page's. There is always a sentence: a failure that named
-                nothing at all is still a failure the reader is owed an
-                explanation for. */}
-            <AlertDescription>{loadFailure}</AlertDescription>
-          </Alert>
+          <>
+            <Alert variant="destructive">
+              <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
+              {/* Which failure it was stays the API's to say; only the words are
+                  this page's. There is always a sentence: a failure that named
+                  nothing at all is still a failure the reader is owed an
+                  explanation for. */}
+              <AlertDescription>{loadFailure}</AlertDescription>
+            </Alert>
+            {/* The error replaces the cards, and with them anything watching a
+                Reversal Request resolve — so a failed read is what would
+                otherwise end the watch for good. A few silent retries make one
+                blip survivable; see RetryFailedRead. */}
+            <RetryFailedRead />
+          </>
         ) : (
           <CustomerArea
             upcoming={area.data.upcoming}

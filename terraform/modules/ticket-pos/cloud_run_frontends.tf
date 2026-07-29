@@ -35,9 +35,10 @@ resource "google_service_account" "storefront" {
 # present a valid ID token and Cloud Run still returns 403 — the token proves
 # who they are, this says who is allowed in.
 #
-# These are the ONLY invoker bindings on the API. There is deliberately no
-# allUsers member here; adding one silently converts the API into a public
-# service and every other control in this module into decoration.
+# These two and the Reversal Reconciler's (reversal_reconciler.tf) are the only
+# invoker bindings on the API. There is deliberately no allUsers member here;
+# adding one silently converts the API into a public service and every other
+# control in this module into decoration.
 resource "google_cloud_run_v2_service_iam_member" "staff_invokes_api" {
   project  = var.project_id
   location = google_cloud_run_v2_service.api.location

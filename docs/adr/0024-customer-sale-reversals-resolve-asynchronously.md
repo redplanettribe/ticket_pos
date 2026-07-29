@@ -71,8 +71,18 @@ analogue today:
 jitter. The buyer's own stuck request is additionally drained opportunistically when they load the
 Customer Area, so the common case resolves in seconds. Every actor takes the existing
 `pg_try_advisory_lock(18, hashtext(saleID))` before probing, so the buyer's press, the poll and the
-tick can never overlap on one sale; a contended drain skips that row and tries next tick. Each
-tick claims a bounded batch and stops well inside Cloud Run's 300s request timeout.
+tick can never overlap on one sale; a contended drain skips that row and tries next tick.
+
+**A tick claims one Reversal Request at a time and probes it before claiming the next**, and stops on
+a budget of its own that expires before Cloud Scheduler's 90-second attempt deadline — the binding
+constraint, since Scheduler abandons the request long before Cloud Run's 300-second timeout would.
+Claiming the whole batch up front would have been the obvious shape and is the wrong one: a run that
+stopped at its budget would leave the rest of that batch claimed and invisible to every other actor
+until the claim expired, so stopping early would have made those buyers wait *longer*. Claiming as it
+goes means everything a run does not reach is exactly as due as it found it. The budget must be the
+innermost of the three deadlines because it is the only one that stops a run politely: the other two
+abandon the request where it stands, and the write recording what PayPhone just said fails on the very
+context that was cancelled.
 
 **A retry is the continuation of an authorised reversal, not a new one — so it never re-checks
 eligibility.** The Reversal Window governs when a Customer may *ask*; it says nothing about how
@@ -86,8 +96,15 @@ today, the moment we learned it succeeded.
 
 The Reconciler also finishes the **`SALE_REVERSAL_NOT_COMMITTED`** case — PayPhone said yes and
 our local write failed — which is today a log line and a hand-repair. It is a Reversal Request in
-state `succeeded` whose sale is still `active`, and the loop retries the local commit until it
-lands.
+state `succeeded` whose local commit never landed — recorded as a column on the request itself rather
+than asked of the sale, because a queue every tick reads must be the size of what is broken and not of
+every reversal ever completed — and the loop retries that commit until it lands: the commit alone, on a
+path with no provider call in it, because the answer is already
+recorded and a second Reverse against a payment that has already been reversed is the double refund
+everything above is arranged to avoid. A commit that will not land within the day ends as an
+Unresolved Reversal like the rest, but a differently shaped one: the money is known to have gone
+back, so there is nothing to look up on PayPhone's dashboard and the Operator's move is simply to
+void the sale (ADR 0019).
 
 ## Considered options
 
@@ -132,6 +149,19 @@ lands.
 endpoint.** Nothing in the backend has ever run outside a request — no goroutine workers, no
 tickers, no cron. The endpoint is deliberately safe to curl by hand, so the incident runbook
 exists before the automation does.
+
+**`api_min_instances = 0` stops being true in practice.** A tick every minute is a request every
+minute, so the API never idles long enough to scale to zero: a warm instance and its database
+connection pool are now held around the clock rather than only while somebody is on the site. That
+is a real change to what this deployment costs and to how many Cloud SQL connections stand open
+against a shared-core instance, and it is the price of the deployment argument above — the whole reason an
+in-process ticker was rejected is that nothing is running at 21:00 on a quiet evening, and the fix
+for that is something that keeps an instance running. The cadence is a variable
+(`reversal_reconciler_schedule`), so the trade can be made differently: at five or ten minutes the
+API would idle down between ticks and cost less, and a buyer whose reversal timed out would wait
+that long for the platform to ask again — which the opportunistic Customer Area drain already
+covers for a buyer who stayed, and nobody covers for the one who closed the tab. A minute is chosen
+because that person is the reason this exists.
 
 **ADR 0018's "the provider is called first, and nothing is retried" is amended, not overturned.**
 The provider is still called before anything local is written. What changes is that a *silence*

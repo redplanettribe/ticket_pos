@@ -196,7 +196,36 @@ export type TicketSale = {
    * card composes that (components/ticket-sale-card.tsx).
    */
   reversal_pending: boolean;
+  /**
+   * The state of the live Reversal Request over this sale, straight from
+   * `sale_reversals.status`, and null when the sale has none (ADR 0024).
+   *
+   * `reversal_pending` answers "is a refund being worked on"; this answers "how
+   * did it end", and the two questions are not the same one asked twice. A
+   * request that was refused and one that became an Unresolved Reversal both
+   * leave the sale `active` and `reversal_pending` false, so nothing but this
+   * field can tell them apart — and they are opposite things to say to a
+   * Customer: the first means their money never moved and is not coming, the
+   * second means nobody yet knows where it is.
+   *
+   * It is carried as the request's own four states rather than as a flag per
+   * outcome so that a surface which must say nothing for some of them can spell
+   * out which ones, instead of a new state arriving as the absence of every flag
+   * and inheriting whichever branch was written for "not the good one".
+   */
+  reversal_status: ReversalRequestStatus | null;
 };
+
+/**
+ * The four states a Reversal Request ends up in (ADR 0024), named here exactly as
+ * the API sends them.
+ *
+ * `needs_attention` is an Unresolved Reversal: the platform gave up with the
+ * money's fate unknown and a Platform Operator settles it. Nothing about it may
+ * be reported to the Customer, so it is spelled out rather than left to fall in
+ * with the rest.
+ */
+export type ReversalRequestStatus = "in_flight" | "succeeded" | "refused" | "needs_attention";
 
 /**
  * What the API returns when a purchase has been undone: the sale, still carrying

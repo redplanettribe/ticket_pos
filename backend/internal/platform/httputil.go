@@ -148,6 +148,14 @@ func domainHTTPStatus(code string) int {
 	// nothing, which is what separates them from a 400 the caller could fix.
 	case "SALE_ALREADY_REVERSED", "SALE_NOT_REVERSIBLE", "REVERSAL_WINDOW_CLOSED":
 		return http.StatusConflict
+	// A Customer pressing Undo on a sale whose reversal became an Unresolved
+	// Reversal (ADR 0024). A fourth 409 for the same reason as the three above —
+	// the request was fine and the sale is not in a state that admits an undo —
+	// and pointedly not the 503-with-a-retry the operator's contention gets:
+	// retrying is the one thing that must not happen here, because nobody knows
+	// whether the money already went back.
+	case "REVERSAL_UNRESOLVED":
+		return http.StatusConflict
 	// An Operator Reversal that contended with a reversal already in flight on the
 	// same Ticket Sale (ADR 0024). 503 with a retry rather than 409: unlike the
 	// three above, this says nothing about the sale's state — it is the platform
