@@ -202,8 +202,24 @@ _Avoid_: Ticket, receipt, order confirmation
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
 Reachable by three routes, and the sale records which one voided it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
+An outcome, not an ask. The Customer's route passes through a Reversal Request, and becomes a Sale Reversal only once the Payment Provider has confirmed the money went back; a Reversal Request that is refused never becomes one.
 A reversed Ticket Sale is never deleted: it keeps its Sale Confirmation reference and stays visible to both the Customer and the Organization, and it stops counting toward Net Proceeds, the Withdrawable Balance, and platform revenue — except for a Platform Fee an Operator Reversal said the platform kept.
 _Avoid_: Refund, cancellation, void, chargeback
+
+**Reversal Request**:
+A Customer's ask to undo their own Online Sale, recorded the moment they ask and pursued by the platform until the Payment Provider gives a definite answer. It ends as a Sale Reversal, as a refusal that leaves the sale exactly as it was, or as an Unresolved Reversal.
+It exists because the Payment Provider does not always answer in time, and an unanswered reversal is not a failure to report but a question still open: until it is settled the Ticket Sale stays active and its capacity stays held, because no money is known to have moved. Only a Customer reversing a paid Online Sale makes one — a free Online Sale has no provider to wait on, and neither an Operator Reversal nor a Sale Import undo asks anybody's permission.
+_Avoid_: Pending reversal, reversal attempt, refund request
+
+**Reversal Reconciler**:
+The platform asking the Payment Provider again what became of a Reversal Request it never answered, until the answer is definite or the platform gives up. It is the platform doing for itself what the Customer would otherwise do by pressing Undo a second time.
+It only ever finds out; it never re-decides. A Reversal Request that was inside the Reversal Window when it was made stays authorised however long the answer takes.
+_Avoid_: Retry job, reversal worker, refund poller
+
+**Unresolved Reversal**:
+A Reversal Request the Reversal Reconciler gave up on with the answer still unknown — the money may or may not have gone back, and only the Payment Provider's own dashboard can say. Awaits a Platform Operator, who settles it as an Operator Reversal if the money did in fact leave.
+The Customer is told nothing, because there is nothing true to tell them yet.
+_Avoid_: Failed reversal, stuck refund, orphaned reversal
 
 **Operator Reversal**:
 A Sale Reversal a Platform Operator records after refunding a buyer off-platform — by hand in the Payment Provider's dashboard, or by bank transfer the platform never saw. A record of money that already moved, like a Payout: no Payment Provider is involved and none is asked to confirm it.
@@ -216,6 +232,7 @@ _Avoid_: Manual refund, admin refund, force reversal, out-of-band reversal
 The period during which a Customer may reverse their own Online Sale: from the moment its Payment is approved until the earlier of 20:00 Ecuador time on the day of purchase, or the Event's start.
 A platform rule rather than a provider one — it applies equally to a free Online Sale, where there is no money to return. That the launch Payment Provider happens to accept reversals over the same period is a fact about that provider, not the definition.
 Ends early at the Event's start because the platform has no record of attendance and cannot otherwise tell a change of mind from a completed visit.
+Governs when a Customer may ask, and nothing else. How long the platform then takes to learn what the Payment Provider did is not bounded by it: a Reversal Request made a minute before the cutoff is settled whenever the answer arrives, however long after the Window has closed.
 _Avoid_: Refund period, cooling-off period, grace period, cancellation policy
 
 **Platform Fee**:
