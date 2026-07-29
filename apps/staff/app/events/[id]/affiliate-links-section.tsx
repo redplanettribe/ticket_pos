@@ -21,6 +21,8 @@ import {
   listAffiliateLinks,
   type AffiliateLink,
 } from "@/lib/affiliates-api";
+import { formatPriceCents } from "@/lib/events-api";
+import { fetchSalesSummary } from "@/lib/sales-api";
 
 type AffiliateLinksSectionProps = {
   eventId: string;
@@ -32,6 +34,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   const [name, setName] = useState("");
   const [links, setLinks] = useState<AffiliateLink[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // The Event's currency, for the attributed Net Proceeds figures. It is read
+  // from the sales summary — the same figure's own surface, behind the same
+  // Org-Admin/Event-Owner gate — rather than kept a second time here. A summary
+  // that will not load leaves the counts on screen and the money unlabelled.
+  const [currency, setCurrency] = useState<string | null>(null);
 
   const loadLinks = useCallback(async () => {
     setLoading(true);
@@ -47,6 +54,24 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   useEffect(() => {
     void loadLinks();
   }, [loadLinks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSalesSummary(eventId)
+      .then((summary) => {
+        if (!cancelled) {
+          setCurrency(summary.currency);
+        }
+      })
+      .catch(() => {
+        // Silent: the attributed sale counts are the point of this section, and
+        // a missing currency label is not worth a second error toast over the
+        // one loadLinks already raises when the section itself fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +149,21 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                 <div className="min-w-0">
                   <p className="font-medium">{link.name}</p>
                   <p className="break-all text-sm text-muted-foreground">{link.url}</p>
+                  {/* What the link has actually done: active attributed sales,
+                      and what they left the Organization. A reversed sale is in
+                      neither. Both are informational — no commission is owed on
+                      either figure. */}
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{link.sales_count}</span>{" "}
+                    {link.sales_count === 1 ? "sale" : "sales"}
+                    {" · "}
+                    <span className="font-medium text-foreground">
+                      {currency
+                        ? formatPriceCents(link.net_proceeds_cents, currency)
+                        : (link.net_proceeds_cents / 100).toFixed(2)}
+                    </span>{" "}
+                    net proceeds
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={link.active ? "default" : "secondary"}>

@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { AFFILIATE_REF_COOKIE, readAffiliateCode } from "@/lib/affiliate-ref";
 import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
@@ -101,6 +103,20 @@ export async function POST(request: Request) {
   // that counts.
   const phone = asTrimmedString(body.customer_phone);
 
+  // Affiliate Attribution's second half (ADR 0021): the code this browser's last
+  // click on THIS Event left behind, if the Attribution Window has not passed.
+  // It comes from the cookie rather than from the request body, so a page script
+  // cannot claim credit for a link nobody clicked, and the key is dropped when
+  // nothing is remembered — the ordinary, unattributed checkout. Whether the
+  // code still names a live Affiliate Link is the API's verdict, and either way
+  // the buyer's checkout proceeds identically.
+  const affiliateCode = readAffiliateCode(
+    (await cookies()).get(AFFILIATE_REF_COOKIE)?.value ?? null,
+    orgSlug,
+    eventSlug,
+    Date.now(),
+  );
+
   try {
     // The Customer Session token, when the visitor has one, rides along in
     // Authorization. It is never required — guest checkout is the baseline — and
@@ -118,6 +134,7 @@ export async function POST(request: Request) {
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
         ...(phone ? { customer_phone: phone } : {}),
+        ...(affiliateCode ? { affiliate_code: affiliateCode } : {}),
         lines,
       },
       await customerSessionToken(),

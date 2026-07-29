@@ -6,8 +6,8 @@ import { fetchEventsJSON } from "./events-api";
  * copies — the API derives it from the Storefront origin it is configured with,
  * so this app never assembles a Storefront URL itself.
  *
- * Later tickets add clicks, attributed sales, and Net Proceeds to the same rows;
- * read fields by name rather than assuming this is the full set.
+ * Later tickets add clicks to the same rows; read fields by name rather than
+ * assuming this is the full set.
  */
 export type AffiliateLink = {
   id: string;
@@ -15,6 +15,14 @@ export type AffiliateLink = {
   code: string;
   active: boolean;
   url: string;
+  /**
+   * The link's Affiliate Attribution figures: how many ACTIVE Ticket Sales it
+   * drove and what they left the Organization after platform costs. Display-only
+   * — nothing is owed on either — and a reversed sale drops out of both, however
+   * it came to be reversed.
+   */
+  sales_count: number;
+  net_proceeds_cents: number;
   created_at: string;
 };
 

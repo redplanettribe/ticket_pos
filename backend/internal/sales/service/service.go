@@ -87,6 +87,20 @@ type CustomerService interface {
 	ConfirmationLinkURL(ticketSaleID string, eventEnd time.Time) (string, error)
 }
 
+// AffiliateLinkResolver is what sales needs from Affiliate Links: given the
+// code a checkout arrived with, who — if anybody — the sale it produces belongs
+// to. Implemented by the affiliates service, so the cross-module call goes
+// through that module's service rather than its repository, exactly as
+// CustomerService does above.
+//
+// The seam is deliberately this narrow. Sales knows nothing about codes,
+// activation or the Attribution Window; it hands over what the request carried
+// and stores the id it gets back. An empty id means unattributed, which is the
+// ordinary case and never an error.
+type AffiliateLinkResolver interface {
+	ResolveLiveCode(ctx context.Context, eventID, code string) (string, error)
+}
+
 // Service implements sales business rules.
 type Service struct {
 	repo      *repository.Repository
@@ -101,9 +115,14 @@ type Service struct {
 	// fees is the platform's configured Platform Fee schedule. Checkout reads it
 	// once per Payment and snapshots what it computed, so a later rate change
 	// never moves recorded economics (ADR 0014).
-	fees   sales.FeeRates
-	logger platform.Logger
-	now    func() time.Time
+	fees sales.FeeRates
+	// affiliates resolves the Affiliate Link code a checkout arrived with.
+	// Optional: unset, no checkout is ever attributed and everything else is
+	// unchanged — which is exactly what the channels that never carry a code do
+	// anyway.
+	affiliates AffiliateLinkResolver
+	logger     platform.Logger
+	now        func() time.Time
 }
 
 // New returns a sales service. The customers service is required: every Ticket
@@ -127,6 +146,15 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithAffiliateLinks supplies the Affiliate Link resolver, so an Online Sale
+// begun with a live code is credited to it. Applied after construction because
+// the affiliates service is wired after this one, and because attribution is
+// additive: without it, checkout behaves exactly as it did before #146.
+func (s *Service) WithAffiliateLinks(resolver AffiliateLinkResolver) *Service {
+	s.affiliates = resolver
 	return s
 }
 

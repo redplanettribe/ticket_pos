@@ -227,6 +227,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	affiliatesRepo := affiliatesrepo.New(db)
 	affiliatesService := affiliatessvc.New(affiliatesRepo, cfg.StorefrontBaseURL, platformLogger)
 	affiliatesHandler := affiliateshandler.New(affiliatesService)
+	// Affiliate Attribution's one crossing between the two modules: sales hands
+	// the code a checkout arrived with to affiliates and stores the link id it
+	// gets back. Wired here rather than at construction because affiliates is
+	// built after sales, and because it is additive — an unwired resolver simply
+	// attributes nothing (#146).
+	salesService = salesService.WithAffiliateLinks(affiliatesService)
 
 	// The Operator Dashboard is composed from the modules that own its data:
 	// identity for Organizations, catalog for Events, sales for money. It is

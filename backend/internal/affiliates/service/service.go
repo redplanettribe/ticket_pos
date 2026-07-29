@@ -51,8 +51,16 @@ type AffiliateLinkView struct {
 	// the code as its ref. Derived at read time from the Storefront origin this
 	// process is configured with, never stored, so moving the Storefront moves
 	// every link with it.
-	URL       string    `json:"url"`
-	CreatedAt time.Time `json:"created_at"`
+	URL string `json:"url"`
+	// SalesCount and NetProceedsCents are the link's Affiliate Attribution
+	// figures: how many ACTIVE Ticket Sales it drove, and what they left the
+	// Organization after the Platform Fee and its Fee IVA. Display-only — no
+	// commission is computed from either — and a reversed sale drops out of both
+	// however it was reversed. A link that drove only free claims shows its count
+	// with zero beside it.
+	SalesCount       int       `json:"sales_count"`
+	NetProceedsCents int       `json:"net_proceeds_cents"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // Service implements Affiliate Link operations.
@@ -130,6 +138,26 @@ func (s *Service) ListAffiliateLinks(ctx context.Context, actor ActorContext, ev
 	return views, nil
 }
 
+// ResolveLiveCode answers who, if anybody, a checkout begun with this code
+// should be attributed to: the id of the Event's ACTIVE Affiliate Link carrying
+// it, or "" when no live link does.
+//
+// It is the whole of the backend's view of Affiliate Attribution's front half.
+// Where the code came from — a cookie the Storefront kept for the Attribution
+// Window, a hand-typed URL, a bookmark — is none of this module's business, and
+// an unknown, mistyped or deactivated code is not an error: it means the sale is
+// unattributed, and the buyer must never learn the difference (#146).
+//
+// Codes are drawn from an uppercase alphabet, so a code typed in lower case
+// still finds its link.
+func (s *Service) ResolveLiveCode(ctx context.Context, eventID, code string) (string, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return "", nil
+	}
+	return s.repo.FindActiveLinkIDByCode(ctx, eventID, code)
+}
+
 // NormalizeName trims an Affiliate Link's display name and reports whether what
 // is left is usable. Exported so the handler can refuse a blank or overlong name
 // with a field-level validation error before the service is entered.
@@ -146,12 +174,14 @@ const MaxNameLength = maxNameLength
 
 func (s *Service) toView(link repository.AffiliateLink, target repository.LinkTarget) AffiliateLinkView {
 	return AffiliateLinkView{
-		ID:        link.ID,
-		Name:      link.Name,
-		Code:      link.Code,
-		Active:    link.Active,
-		URL:       s.storefrontURL(target, link.Code),
-		CreatedAt: link.CreatedAt,
+		ID:               link.ID,
+		Name:             link.Name,
+		Code:             link.Code,
+		Active:           link.Active,
+		URL:              s.storefrontURL(target, link.Code),
+		SalesCount:       link.SalesCount,
+		NetProceedsCents: link.NetProceedsCents,
+		CreatedAt:        link.CreatedAt,
 	}
 }
 

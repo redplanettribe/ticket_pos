@@ -87,7 +87,7 @@ func (h *Handler) CreateAffiliateLink(w http.ResponseWriter, r *http.Request) {
 // ListAffiliateLinks returns an Event's Affiliate Links.
 //
 // @Summary      List affiliate links
-// @Description  Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, and when it was created. Org Admin and Event Owner only.
+// @Description  Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. Org Admin and Event Owner only.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth

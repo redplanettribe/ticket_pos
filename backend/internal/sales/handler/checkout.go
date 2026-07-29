@@ -43,7 +43,13 @@ type beginCheckoutBody struct {
 	// nothing left to type but the card; a buyer who omits it checks out exactly
 	// as they did before the field existed. Absent, empty, or whitespace all mean
 	// the same thing — no phone — and are not validation failures.
-	CustomerPhone string             `json:"customer_phone"`
+	CustomerPhone string `json:"customer_phone"`
+	// AffiliateCode is the Affiliate Link code the Storefront remembered from the
+	// buyer's last click on this Event, OPTIONAL and never validated as a field:
+	// the service resolves it against the Event's live links and records the sale
+	// unattributed when nothing matches. A checkout is never refused over a ref
+	// (#146).
+	AffiliateCode string             `json:"affiliate_code"`
 	Lines         []checkoutLineBody `json:"lines"`
 }
 
@@ -59,7 +65,7 @@ type confirmCheckoutBody struct {
 // Provider's redirect URL.
 //
 // @Summary      Begin an online checkout
-// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
+// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_code is optional and carries the Affiliate Link the buyer's last click left behind: matched against this Event's live links it credits the Ticket Sale, and an unknown, mistyped or deactivated code simply records the sale unattributed — it never refuses a checkout. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
 // @Tags         public
 // @Accept       json
 // @Produce      json
@@ -209,6 +215,10 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 			Phone:     phone,
 		},
 		Lines: lines,
+		// Passed through as typed, with no field error possible: what it resolves
+		// to — a live Affiliate Link or nobody — is a business rule, and either
+		// outcome is a successful checkout.
+		AffiliateCode: strings.TrimSpace(body.AffiliateCode),
 	}
 }
 

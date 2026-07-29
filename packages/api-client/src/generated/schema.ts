@@ -1770,7 +1770,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_code is optional and carries the Affiliate Link the buyer's last click left behind: matched against this Event's live links it credits the Ticket Sale, and an unknown, mistyped or deactivated code simply records the sale unattributed — it never refuses a checkout. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
          */
         post: {
             parameters: {
@@ -2220,7 +2220,7 @@ export interface paths {
         };
         /**
          * List affiliate links
-         * @description Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, and when it was created. Org Admin and Event Owner only.
+         * @description Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. Org Admin and Event Owner only.
          */
         get: {
             parameters: {
@@ -4225,6 +4225,14 @@ export interface components {
             file_name?: string;
         };
         "handler.beginCheckoutBody": {
+            /**
+             * @description AffiliateCode is the Affiliate Link code the Storefront remembered from the
+             *     buyer's last click on this Event, OPTIONAL and never validated as a field:
+             *     the service resolves it against the Event's live links and records the sale
+             *     unattributed when nothing matches. A checkout is never refused over a ref
+             *     (#146).
+             */
+            affiliate_code?: string;
             customer_email?: string;
             customer_first_name?: string;
             customer_last_name?: string;
@@ -4654,6 +4662,16 @@ export interface components {
             created_at?: string;
             id?: string;
             name?: string;
+            net_proceeds_cents?: number;
+            /**
+             * @description SalesCount and NetProceedsCents are the link's Affiliate Attribution
+             *     figures: how many ACTIVE Ticket Sales it drove, and what they left the
+             *     Organization after the Platform Fee and its Fee IVA. Display-only — no
+             *     commission is computed from either — and a reversed sale drops out of both
+             *     however it was reversed. A link that drove only free claims shows its count
+             *     with zero beside it.
+             */
+            sales_count?: number;
             /**
              * @description URL is the whole thing an organizer copies: the Storefront Event page with
              *     the code as its ref. Derived at read time from the Storefront origin this

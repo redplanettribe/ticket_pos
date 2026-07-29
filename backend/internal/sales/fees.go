@@ -97,6 +97,16 @@ func (r FeeRates) NetProceedsUnitCents(handling FeeHandling, baseCents int) int 
 	return r.BuyerUnitPriceCents(handling, baseCents) - r.Withhold(baseCents).TotalCents()
 }
 
+// LineNetProceedsSQL is the Net Proceeds of one Ticket Sale Line (aliased tsl)
+// as SQL, read off the snapshot the line froze: quantity × (what the Customer
+// paid − the Platform Fee − the Fee IVA withheld). It is the same arithmetic
+// NetProceedsUnitCents does in Go, and it lives here — beside it, in the package
+// that owns the fee vocabulary — because more than one module now sums Net
+// Proceeds: the Event's summary and the Organization's Withdrawable Balance in
+// sales, and an Affiliate Link's attributed figures in affiliates. One
+// definition is what keeps the figure the same wherever it is shown (ADR 0014).
+const LineNetProceedsSQL = `tsl.quantity * (tsl.unit_price_cents - tsl.fee_cents - tsl.fee_iva_cents)`
+
 // FeeSnapshot is the per-unit economics of one checkout line, frozen at
 // begin-checkout: the price the Organization set, the buyer price the Event's
 // Fee Handling turns it into, the withholding the platform takes from it, and

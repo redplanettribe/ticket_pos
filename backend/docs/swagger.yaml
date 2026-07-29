@@ -9,6 +9,14 @@ components:
       type: object
     handler.beginCheckoutBody:
       properties:
+        affiliate_code:
+          description: |-
+            AffiliateCode is the Affiliate Link code the Storefront remembered from the
+            buyer's last click on this Event, OPTIONAL and never validated as a field:
+            the service resolves it against the Event's live links and records the sale
+            unattributed when nothing matches. A checkout is never refused over a ref
+            (#146).
+          type: string
         customer_email:
           type: string
         customer_first_name:
@@ -766,6 +774,17 @@ components:
           type: string
         name:
           type: string
+        net_proceeds_cents:
+          type: integer
+        sales_count:
+          description: |-
+            SalesCount and NetProceedsCents are the link's Affiliate Attribution
+            figures: how many ACTIVE Ticket Sales it drove, and what they left the
+            Organization after the Platform Fee and its Fee IVA. Display-only — no
+            commission is computed from either — and a reversed sale drops out of both
+            however it was reversed. A link that drove only free claims shows its count
+            with zero beside it.
+          type: integer
         url:
           description: |-
             URL is the whole thing an organizer copies: the Storefront Event page with
@@ -2858,10 +2877,13 @@ paths:
         as it is for a paid one. customer_phone is optional: supplied, it is recorded
         in canonical E.164 form and offered to the Payment Provider so its hosted
         payment page arrives prefilled; omitted, the checkout proceeds identically
-        and nothing is sent in its place. A Customer Session presented in Authorization
-        is optional and changes nothing about the sale — it marks the buyer''s details
-        as their own assertion, which is what lets them replace the Tax ID and phone
-        already stored on that Customer.'
+        and nothing is sent in its place. affiliate_code is optional and carries the
+        Affiliate Link the buyer''s last click left behind: matched against this Event''s
+        live links it credits the Ticket Sale, and an unknown, mistyped or deactivated
+        code simply records the sale unattributed — it never refuses a checkout. A
+        Customer Session presented in Authorization is optional and changes nothing
+        about the sale — it marks the buyer''s details as their own assertion, which
+        is what lets them replace the Tax ID and phone already stored on that Customer.'
       parameters:
       - description: Organization slug
         in: path
@@ -3161,8 +3183,13 @@ paths:
   /api/v1/staff/events/{id}/affiliate-links:
     get:
       description: 'Lists an Event''s Affiliate Links, newest first: name, immutable
-        code, active status, the full copyable Storefront URL, and when it was created.
-        Org Admin and Event Owner only.'
+        code, active status, the full copyable Storefront URL, when it was created,
+        and the link''s Affiliate Attribution figures — sales_count, the ACTIVE Ticket
+        Sales it drove, and net_proceeds_cents, what those sales left the Organization
+        after the Platform Fee and its Fee IVA. Both figures are display-only and
+        count active sales only: a Sale Reversal by any route drops the sale out of
+        each, and an attributed free claim counts as a sale worth nothing. Org Admin
+        and Event Owner only.'
       parameters:
       - description: Event ID
         in: path
