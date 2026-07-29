@@ -119,8 +119,16 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
-	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND":
+	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND":
 		return http.StatusNotFound
+	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
+	// the caller was entitled to make it, but the catalog is not in a state that
+	// admits it — the one slot is taken, or the price would break the invariant
+	// that a Promotional Price sits strictly below its List Price. Each needs a
+	// different edit elsewhere before it can succeed, which is why they are three
+	// codes and not one.
+	case "PROMOTION_ALREADY_EXISTS", "PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE", "LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE":
+		return http.StatusConflict
 	// An Affiliate Link that has been clicked or has attributed a sale cannot be
 	// deleted: 409, because the request was well formed and permitted, and the
 	// link's history is what stands in the way. Deactivation is the way out, and

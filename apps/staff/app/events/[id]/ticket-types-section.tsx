@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -22,12 +23,22 @@ import {
 } from "@ticket-pos/ui";
 
 import {
+  ApiError,
+  dateTimeLocalToISO,
   fetchEventsJSON,
+  formatEventStartDate,
   formatPriceCents,
+  isoToDateTimeLocal,
   parsePriceToCents,
   type TicketType,
 } from "@/lib/events-api";
 import { buyerUnitPriceCents, netProceedsUnitCents, type FeeHandling, type FeeRates } from "@/lib/fees";
+import {
+  promotionErrorMessage,
+  promotionState,
+  promotionStateBadgeVariant,
+  PROMOTION_STATE_LABELS,
+} from "@/lib/promotions";
 
 type TicketTypesSectionProps = {
   eventId: string;
@@ -35,6 +46,8 @@ type TicketTypesSectionProps = {
   /** The Event's Fee Handling and the fee schedule it is read with (ADR 0014). */
   feeHandling: FeeHandling;
   feeRates: FeeRates;
+  /** The Event's timezone: Promotion windows are typed and read in it (ADR 0021). */
+  eventTimezone: string | null;
   onTicketTypeCountChange?: (count: number) => void;
   missingWarning?: boolean;
 };
@@ -53,11 +66,25 @@ const emptyForm: TicketTypeFormState = {
   capacity: "",
 };
 
+/** The whole Promotion, as typed: a Promotional Price and the window it holds for. */
+type PromotionFormState = {
+  price: string;
+  startsAtLocal: string;
+  endsAtLocal: string;
+};
+
+const emptyPromotionForm: PromotionFormState = {
+  price: "",
+  startsAtLocal: "",
+  endsAtLocal: "",
+};
+
 export function TicketTypesSection({
   eventId,
   eventStatus,
   feeHandling,
   feeRates,
+  eventTimezone,
   onTicketTypeCountChange,
   missingWarning,
 }: TicketTypesSectionProps) {
@@ -66,11 +93,21 @@ export function TicketTypesSection({
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<TicketType | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TicketType | null>(null);
+  const [promotionTarget, setPromotionTarget] = useState<TicketType | null>(null);
   const [form, setForm] = useState<TicketTypeFormState>(emptyForm);
+  const [promotionForm, setPromotionForm] = useState<PromotionFormState>(emptyPromotionForm);
   const [saving, setSaving] = useState(false);
+  const [savingPromotion, setSavingPromotion] = useState(false);
+  // Rejections the organizer must act on stay next to the field that caused
+  // them rather than in a toast that scrolls away.
+  const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
   const [organizationCurrency, setOrganizationCurrency] = useState("USD");
 
   const canDelete = eventStatus === "draft";
+  // Promotion windows are typed and read in the Event's timezone. A draft that
+  // has not picked one yet falls back to UTC, and the field labels say which.
+  const timezone = eventTimezone ?? "UTC";
 
   const loadTicketTypes = useCallback(async () => {
     setLoading(true);
@@ -103,17 +140,34 @@ export function TicketTypesSection({
 
   function openAddDialog() {
     setForm(emptyForm);
+    setTicketTypeError(null);
     setAddOpen(true);
   }
 
   function openEditDialog(ticketType: TicketType) {
     setEditTarget(ticketType);
+    setTicketTypeError(null);
     setForm({
       name: ticketType.name,
       description: ticketType.description ?? "",
       price: (ticketType.price_cents / 100).toFixed(2),
       capacity: String(ticketType.capacity),
     });
+  }
+
+  function openPromotionDialog(ticketType: TicketType) {
+    const promotion = ticketType.promotion;
+    setPromotionTarget(ticketType);
+    setPromotionError(null);
+    setPromotionForm(
+      promotion === null
+        ? emptyPromotionForm
+        : {
+            price: (promotion.promotional_price_cents / 100).toFixed(2),
+            startsAtLocal: isoToDateTimeLocal(promotion.starts_at, timezone),
+            endsAtLocal: isoToDateTimeLocal(promotion.ends_at, timezone),
+          },
+    );
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -185,9 +239,102 @@ export function TicketTypesSection({
       await loadTicketTypes();
       toast.success("Ticket type updated");
     } catch (updateError) {
+      // A List Price edit that would sink to or below a live Promotional Price
+      // is rejected: say so on the form, where the price the organizer just
+      // typed still is.
+      const inline =
+        updateError instanceof ApiError ? promotionErrorMessage(updateError.code) : null;
+      if (inline) {
+        setTicketTypeError(inline);
+        return;
+      }
       toast.error(updateError instanceof Error ? updateError.message : "Failed to update ticket type");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSavePromotion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!promotionTarget) {
+      return;
+    }
+
+    setPromotionError(null);
+    const promotionalPriceCents = parsePriceToCents(promotionForm.price);
+    if (promotionalPriceCents === null) {
+      setPromotionError("Enter a valid promotional price");
+      return;
+    }
+    if (promotionalPriceCents >= promotionTarget.price_cents) {
+      setPromotionError(
+        promotionErrorMessage("PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE") ?? "Invalid promotional price",
+      );
+      return;
+    }
+    const endsAt = dateTimeLocalToISO(promotionForm.endsAtLocal, timezone);
+    if (endsAt === null) {
+      setPromotionError("Enter the date and time the promotion ends");
+      return;
+    }
+    const startsAt = dateTimeLocalToISO(promotionForm.startsAtLocal, timezone);
+    if (startsAt !== null && startsAt >= endsAt) {
+      setPromotionError("The promotion must end after it starts");
+      return;
+    }
+
+    setSavingPromotion(true);
+    try {
+      await fetchEventsJSON<TicketType>(
+        `/api/events/${eventId}/ticket-types/${promotionTarget.id}/promotion`,
+        {
+          // The slot is either empty or filled; there is no partial edit of a
+          // Promotion, so an update restates the price and the window.
+          method: promotionTarget.promotion === null ? "POST" : "PATCH",
+          body: JSON.stringify({
+            promotional_price_cents: promotionalPriceCents,
+            starts_at: startsAt,
+            ends_at: endsAt,
+          }),
+        },
+      );
+      setPromotionTarget(null);
+      setPromotionForm(emptyPromotionForm);
+      await loadTicketTypes();
+      toast.success("Promotion saved");
+    } catch (saveError) {
+      const inline = saveError instanceof ApiError ? promotionErrorMessage(saveError.code) : null;
+      setPromotionError(
+        inline ?? (saveError instanceof Error ? saveError.message : "Failed to save the promotion"),
+      );
+    } finally {
+      setSavingPromotion(false);
+    }
+  }
+
+  async function handleRemovePromotion() {
+    if (!promotionTarget) {
+      return;
+    }
+
+    setPromotionError(null);
+    setSavingPromotion(true);
+    try {
+      await fetchEventsJSON<TicketType>(
+        `/api/events/${eventId}/ticket-types/${promotionTarget.id}/promotion`,
+        { method: "DELETE" },
+      );
+      setPromotionTarget(null);
+      setPromotionForm(emptyPromotionForm);
+      await loadTicketTypes();
+      toast.success("Promotion removed");
+    } catch (removeError) {
+      const inline = removeError instanceof ApiError ? promotionErrorMessage(removeError.code) : null;
+      setPromotionError(
+        inline ?? (removeError instanceof Error ? removeError.message : "Failed to remove the promotion"),
+      );
+    } finally {
+      setSavingPromotion(false);
     }
   }
 
@@ -249,18 +396,23 @@ export function TicketTypesSection({
     }
   }
 
+  const currency = ticketTypes[0]?.currency ?? editTarget?.currency ?? organizationCurrency;
+
+  // The consequence of a price being typed, derived with the same arithmetic
+  // checkout uses: under pass-on what the buyer is charged, under absorb what
+  // the sale leaves the Organization. A Promotional Price is the base price
+  // while its window holds, so it reads through exactly the same line.
+  function derivedPriceLine(priceCents: number | null): string | null {
+    if (priceCents === null) {
+      return null;
+    }
+    return feeHandling === "pass_on"
+      ? `Buyers will pay ${formatPriceCents(buyerUnitPriceCents("pass_on", priceCents, feeRates), currency)}`
+      : `You'll receive ${formatPriceCents(netProceedsUnitCents("absorb", priceCents, feeRates), currency)} per ticket`;
+  }
+
   function ticketTypeForm(idPrefix: string, onSubmit: (event: FormEvent<HTMLFormElement>) => void) {
-    const currency = ticketTypes[0]?.currency ?? editTarget?.currency ?? organizationCurrency;
-    // The consequence of the price being typed, derived with the same
-    // arithmetic checkout uses: under pass-on what the buyer is charged, under
-    // absorb what the sale leaves the Organization.
-    const priceCents = parsePriceToCents(form.price);
-    const derivedLine =
-      priceCents === null
-        ? null
-        : feeHandling === "pass_on"
-          ? `Buyers will pay ${formatPriceCents(buyerUnitPriceCents("pass_on", priceCents, feeRates), currency)}`
-          : `You'll receive ${formatPriceCents(netProceedsUnitCents("absorb", priceCents, feeRates), currency)} per ticket`;
+    const derivedLine = derivedPriceLine(parsePriceToCents(form.price));
 
     return (
       <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
@@ -308,12 +460,41 @@ export function TicketTypesSection({
           </FormField>
         </div>
         {derivedLine ? <p className="text-sm text-muted-foreground">{derivedLine}</p> : null}
+        {ticketTypeError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {ticketTypeError}
+          </p>
+        ) : null}
         <Button type="submit" disabled={saving}>
           {saving ? "Saving..." : "Save ticket type"}
         </Button>
       </form>
     );
   }
+
+  function promotionSummary(ticketType: TicketType) {
+    const promotion = ticketType.promotion;
+    if (promotion === null) {
+      return null;
+    }
+    const state = promotionState(promotion, new Date());
+    return (
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <Badge variant={promotionStateBadgeVariant(state)}>
+          Promotion · {PROMOTION_STATE_LABELS[state]}
+        </Badge>
+        <span>
+          {formatPriceCents(promotion.promotional_price_cents, ticketType.currency)}
+          {promotion.starts_at
+            ? ` · From ${formatEventStartDate(promotion.starts_at, timezone)}`
+            : ""}{" "}
+          · Until {formatEventStartDate(promotion.ends_at, timezone)}
+        </span>
+      </p>
+    );
+  }
+
+  const promotionDerivedLine = derivedPriceLine(parsePriceToCents(promotionForm.price));
 
   return (
     <Card>
@@ -351,6 +532,7 @@ export function TicketTypesSection({
                     {formatPriceCents(ticketType.price_cents, ticketType.currency)} · Capacity{" "}
                     {ticketType.capacity} · Sold {ticketType.sold_count}
                   </p>
+                  {promotionSummary(ticketType)}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
@@ -373,6 +555,14 @@ export function TicketTypesSection({
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(ticketType)}>
                     Edit
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openPromotionDialog(ticketType)}
+                  >
+                    {ticketType.promotion === null ? "Add promotion" : "Edit promotion"}
                   </Button>
                   {canDelete ? (
                     <Button
@@ -408,6 +598,101 @@ export function TicketTypesSection({
             <DialogDescription>Update name, price, and capacity for this ticket category.</DialogDescription>
           </DialogHeader>
           {ticketTypeForm("edit", handleUpdate)}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={promotionTarget !== null} onOpenChange={(open) => !open && setPromotionTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {promotionTarget?.promotion === null ? "Add promotion" : "Edit promotion"}
+            </DialogTitle>
+            <DialogDescription>
+              A promotion sells <strong>{promotionTarget?.name}</strong> at a lower price for a set
+              window. Outside the window the list price of{" "}
+              {promotionTarget
+                ? formatPriceCents(promotionTarget.price_cents, promotionTarget.currency)
+                : ""}{" "}
+              applies again.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={(event) => void handleSavePromotion(event)}>
+            <FormField
+              id="promotion-price"
+              label={`Promotional price (${currency})`}
+              description="Must be below the list price. Zero makes the ticket free while the promotion is live."
+            >
+              <Input
+                id="promotion-price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={promotionForm.price}
+                onChange={(changeEvent) =>
+                  setPromotionForm((current) => ({ ...current, price: changeEvent.target.value }))
+                }
+                required
+              />
+            </FormField>
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField
+                id="promotion-starts-at"
+                label={`Starts at (${timezone})`}
+                description="Leave empty to start right away."
+              >
+                <Input
+                  id="promotion-starts-at"
+                  type="datetime-local"
+                  value={promotionForm.startsAtLocal}
+                  onChange={(changeEvent) =>
+                    setPromotionForm((current) => ({
+                      ...current,
+                      startsAtLocal: changeEvent.target.value,
+                    }))
+                  }
+                />
+              </FormField>
+              <FormField id="promotion-ends-at" label={`Ends at (${timezone})`}>
+                <Input
+                  id="promotion-ends-at"
+                  type="datetime-local"
+                  value={promotionForm.endsAtLocal}
+                  onChange={(changeEvent) =>
+                    setPromotionForm((current) => ({
+                      ...current,
+                      endsAtLocal: changeEvent.target.value,
+                    }))
+                  }
+                  required
+                />
+              </FormField>
+            </div>
+            {promotionDerivedLine ? (
+              <p className="text-sm text-muted-foreground">
+                {promotionDerivedLine} while the promotion is live
+              </p>
+            ) : null}
+            {promotionError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {promotionError}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" disabled={savingPromotion}>
+                {savingPromotion ? "Saving..." : "Save promotion"}
+              </Button>
+              {promotionTarget?.promotion ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={savingPromotion}
+                  onClick={() => void handleRemovePromotion()}
+                >
+                  Remove promotion
+                </Button>
+              ) : null}
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
 

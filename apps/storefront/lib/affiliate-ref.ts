@@ -1,7 +1,7 @@
 /**
  * The Storefront's memory of Affiliate Link clicks: which codes brought this
  * visitor to which Event, so the checkout that follows — minutes or days later
- * — can name the link that drove it (ADR 0021).
+ * — can name the link that drove it (ADR 0022).
  *
  * Affiliate Attribution is last-click within the Attribution Window: 7 days, per
  * Event, newest click winning. All three rules live here, in one first-party
@@ -10,7 +10,7 @@
  *
  * Why a short history per Event rather than one remembered code: liveness is
  * not knowable at click time (validating would mean an API call on every page
- * view, ADR 0021), so a click on a code that has since been deactivated would
+ * view, ADR 0022), so a click on a code that has since been deactivated would
  * otherwise erase the live click before it and cost that link its credit. The
  * list keeps the order — newest first — and the API applies the liveness rule
  * it alone can answer.
@@ -30,7 +30,7 @@ export const AFFILIATE_REF_COOKIE = "ticket_pos_affiliate_ref";
  * The Attribution Window: how long a click is remembered. Generous enough to
  * credit "clicked on the bus, bought at home", and the accepted cost of that
  * generosity is that some of those buyers would have returned anyway — a price
- * worth paying for display-only stats (ADR 0021).
+ * worth paying for display-only stats (ADR 0022).
  */
 export const ATTRIBUTION_WINDOW_DAYS = 7;
 

@@ -213,18 +213,35 @@ export type PublicEventCard = {
   tags: { name: string; curated: boolean }[];
 };
 
+// A live Promotion on a Ticket Type: the Promotional Price that overrides the
+// List Price until the window closes (ADR 0021). Present only while the window
+// is live — the API omits it before it opens and once it has ended, so this app
+// never evaluates the window itself. Both amounts are buyer prices on the same
+// footing as price_cents, fee included where the Event passes it on.
+export type PublicPromotion = {
+  // Equal to the Ticket Type's price_cents while the Promotion is live.
+  promotional_price_cents: number;
+  // What the ticket costs once the Promotion ends: the price to strike through.
+  list_price_cents: number;
+  // RFC3339 instant; rendered in the Event's timezone.
+  ends_at: string;
+};
+
 export type PublicTicketType = {
   // The Ticket Type's id, which begin-checkout lines are keyed by.
   id: string;
   name: string;
   description: string | null;
   // The effective buyer price, server-computed: what checkout will charge per
-  // ticket, already carrying the service fee where the Event passes it on.
-  // This app never computes fees — it shows this number (ADR 0014).
+  // ticket, already carrying the service fee where the Event passes it on, and
+  // already the Promotional Price where a Promotion is live. This app never
+  // computes fees and never applies a Promotion to it — it shows this number
+  // (ADR 0014, ADR 0021).
   price_cents: number;
   currency: string;
   remaining: number;
   sold_out: boolean;
+  promotion: PublicPromotion | null;
 };
 
 export type PublicEventDetail = {
@@ -356,7 +373,7 @@ export type BeginCheckoutRequest = {
   /**
    * The Affiliate Link codes this buyer's recent clicks on this Event left
    * behind, newest first, read out of the attribution cookie by the
-   * begin-checkout route (ADR 0021). Omitted entirely when nothing is
+   * begin-checkout route (ADR 0022). Omitted entirely when nothing is
    * remembered, and never validated here: the API credits the first code that
    * still names a live link and records the sale unattributed when none does —
    * which is why the order, not just the newest code, is what travels.

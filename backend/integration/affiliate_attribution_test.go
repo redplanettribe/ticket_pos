@@ -168,7 +168,7 @@ func TestCheckoutWithAnUnknownOrDeadAffiliateCodeSucceedsUnattributed(t *testing
 
 // Last click means last LIVE click (#142, #148). The Storefront cannot know
 // whether a code is live when it is clicked — validating on a page view was
-// rejected outright (ADR 0021) — so it carries the buyer's recent clicks newest
+// rejected outright (ADR 0022) — so it carries the buyer's recent clicks newest
 // first and the API, which alone can answer, credits the first that still names
 // a live link. A promoter whose link is clicked before a dead one keeps the
 // credit rather than losing it to a URL nobody could have known was dead.

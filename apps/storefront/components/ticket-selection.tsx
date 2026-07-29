@@ -46,6 +46,8 @@ import {
   type TaxIdType,
 } from "@/lib/tax-id";
 
+import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion";
+
 /**
  * Ticket selection and the one checkout step, inline on the event page
  * (docs/design/storefront.md): quantity steppers per Ticket Type, a sticky
@@ -92,6 +94,8 @@ type TicketSelectionProps = {
    * (ADR 0014).
    */
   priceIncludesFee: boolean;
+  /** The Event's timezone, which a Promotion's deadline is read in (ADR 0021). */
+  timezone: string | null;
 };
 
 /** The one line a pass-on Customer ever sees about the fee. No amount, no breakdown. */
@@ -143,6 +147,7 @@ export function TicketSelection({
   eventName,
   ticketTypes,
   priceIncludesFee,
+  timezone,
 }: TicketSelectionProps) {
   const router = useRouter();
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -362,16 +367,18 @@ export function TicketSelection({
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold">{ticketType.name}</h3>
                     {ticketType.sold_out ? <Badge variant="secondary">Sold out</Badge> : null}
+                    <PromotionBadge ticketType={ticketType} />
                   </div>
                   {ticketType.description ? (
                     <p className="text-sm text-muted-foreground">{ticketType.description}</p>
                   ) : null}
+                  <PromotionDeadline ticketType={ticketType} timezone={timezone} />
                   {!ticketType.sold_out ? (
                     <p className="text-sm text-muted-foreground">{formatRemaining(ticketType.remaining)}</p>
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center justify-between gap-4 sm:flex-col sm:items-end">
-                  <p className="font-semibold">{formatPrice(ticketType.price_cents, ticketType.currency)}</p>
+                  <TicketTypePrice ticketType={ticketType} />
                   {!ticketType.sold_out ? (
                     <div className="flex items-center gap-1">
                       <Button

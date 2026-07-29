@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 )
@@ -242,35 +243,67 @@ func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID s
 	return &out, true, nil
 }
 
-// ImportTicketType is a Ticket Type snapshot used to match import rows and
-// compute capacity impact.
-type ImportTicketType struct {
+// EventTicketType is a Ticket Type as the sales domain reads it: what it is
+// priced at, and how much of its capacity is already spoken for. It serves
+// every channel that starts from the Event's catalog — matching import rows and
+// computing their capacity impact, and pricing an online cart at
+// begin-checkout.
+type EventTicketType struct {
 	ID         string
 	Name       string
 	PriceCents int
 	Capacity   int
 	SoldCount  int
+	// Promotion is the Ticket Type's Promotion slot (ADR 0021), nil when empty
+	// and carrying its own window when filled — being present is not being live,
+	// which only an instant can answer. It is read here rather than in a second
+	// query so a cart of any size is still priced from one catalog read.
+	//
+	// Only the channels that price from the catalog consult it: a Sale Import
+	// carries its own amounts and ignores this, as it ignores the List Price.
+	Promotion *catalog.Promotion
 }
 
-// ListTicketTypesForImport returns the Event's Ticket Types for template
-// generation and import validation.
-func (r *Repository) ListTicketTypesForImport(ctx context.Context, orgID, eventID string) ([]ImportTicketType, error) {
+// ListEventTicketTypes returns the Event's Ticket Types with their Promotion
+// slots, for import template generation and validation and for online checkout
+// pricing.
+func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID string) ([]EventTicketType, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT id, name, price_cents, capacity, sold_count
-		FROM ticket_types
-		WHERE event_id = $1 AND organization_id = $2
-		ORDER BY sort_order, name
+		SELECT tt.id, tt.name, tt.price_cents, tt.capacity, tt.sold_count,
+		       p.promotional_price_cents, p.starts_at, p.ends_at
+		FROM ticket_types tt
+		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
+		WHERE tt.event_id = $1 AND tt.organization_id = $2
+		ORDER BY tt.sort_order, tt.name
 	`, eventID, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []ImportTicketType
+	var out []EventTicketType
 	for rows.Next() {
-		var tt ImportTicketType
-		if err := rows.Scan(&tt.ID, &tt.Name, &tt.PriceCents, &tt.Capacity, &tt.SoldCount); err != nil {
+		var tt EventTicketType
+		var promotionalPriceCents sql.NullInt64
+		var startsAt, endsAt sql.NullTime
+		if err := rows.Scan(
+			&tt.ID, &tt.Name, &tt.PriceCents, &tt.Capacity, &tt.SoldCount,
+			&promotionalPriceCents, &startsAt, &endsAt,
+		); err != nil {
 			return nil, err
+		}
+		// The end is NOT NULL on a Promotion row, so the join either produced a
+		// whole Promotion or none at all.
+		if promotionalPriceCents.Valid && endsAt.Valid {
+			promotion := &catalog.Promotion{
+				PromotionalPriceCents: int(promotionalPriceCents.Int64),
+				EndsAt:                endsAt.Time,
+			}
+			if startsAt.Valid {
+				start := startsAt.Time
+				promotion.StartsAt = &start
+			}
+			tt.Promotion = promotion
 		}
 		out = append(out, tt)
 	}

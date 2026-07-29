@@ -103,7 +103,7 @@ export async function POST(request: Request) {
   // that counts.
   const phone = asTrimmedString(body.customer_phone);
 
-  // Affiliate Attribution's second half (ADR 0021): the codes this browser's
+  // Affiliate Attribution's second half (ADR 0022): the codes this browser's
   // recent clicks on THIS Event left behind, newest first, within the
   // Attribution Window. They come from the cookie rather than from the request
   // body, so a page script cannot claim credit for a link nobody clicked, and

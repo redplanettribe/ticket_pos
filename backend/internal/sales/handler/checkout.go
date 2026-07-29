@@ -25,7 +25,7 @@ import (
 const maxCheckoutLines = 50
 
 // maxAffiliateCodes bounds how many remembered clicks a checkout is read for.
-// The Storefront's cookie keeps three per Event (ADR 0021); five leaves room to
+// The Storefront's cookie keeps three per Event (ADR 0022); five leaves room to
 // widen that without an API change, and stops a hand-crafted request turning a
 // display-only statistic into a list of lookups.
 const maxAffiliateCodes = 5
@@ -75,7 +75,7 @@ type beginCheckoutBody struct {
 	// refused over a ref (#146).
 	//
 	// A list rather than one code because liveness is unknowable at click time
-	// (ADR 0021): a click on a since-deactivated code must not erase the live
+	// (ADR 0022): a click on a since-deactivated code must not erase the live
 	// click before it. Anything past maxAffiliateCodes is dropped unread — a
 	// browser sends at most three.
 	AffiliateCodes []string           `json:"affiliate_codes"`

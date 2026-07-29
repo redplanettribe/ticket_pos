@@ -60,16 +60,32 @@ const publicEventColumns = `
 // already speak for. The holds sub-select is the shared sales.LiveHoldsSQL —
 // reading the payments table directly, as the ADR prescribes for the public
 // figures. cutoffExpr is the placeholder carrying the hold-window cutoff.
-func publicEventFrom(cutoffExpr string) string {
+//
+// min_price is the cheapest *effective* base price (ADR 0021): a Ticket Type
+// under a live Promotion contributes its Promotional Price, so a listing card's
+// "from" price is the cheapest ticket a Customer could actually buy right now
+// rather than the cheapest List Price. The window is evaluated against
+// nowExpr — the placeholder carrying the service's injected clock, never SQL
+// now() — and is half-open, start inclusive and end exclusive, the same rule
+// catalog.EffectiveBasePriceCents applies everywhere else. At most one
+// Promotion exists per Ticket Type (a UNIQUE slot), so the join cannot fan the
+// aggregate out.
+func publicEventFrom(cutoffExpr, nowExpr string) string {
 	return `
 	FROM events e
 	JOIN organizations o ON o.id = e.organization_id
 	LEFT JOIN LATERAL (
 		SELECT
-			MIN(tt.price_cents) AS min_price,
+			MIN(CASE
+				WHEN (p.starts_at IS NULL OR p.starts_at <= ` + nowExpr + `)
+				 AND ` + nowExpr + ` < p.ends_at
+				THEN p.promotional_price_cents
+				ELSE tt.price_cents
+			END) AS min_price,
 			BOOL_AND(tt.sold_count + COALESCE(h.held, 0) >= tt.capacity) AS all_sold_out,
 			COUNT(*) AS ticket_count
 		FROM ticket_types tt
+		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
 		LEFT JOIN (` + sales.LiveHoldsSQL(cutoffExpr, "", "") + `) h ON h.ticket_type_id = tt.id
 		WHERE tt.event_id = e.id
 	) tt ON TRUE
@@ -153,7 +169,7 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+publicEventColumns+`
-		`+publicEventFrom("$9")+`
+		`+publicEventFrom("$9", "$1")+`
 		WHERE e.status = 'published'
 		  AND e.discoverable = TRUE
 		  AND COALESCE(e.ends_at, e.starts_at) >= $1
@@ -193,17 +209,18 @@ func (r *Repository) ListDiscoverableEvents(ctx context.Context, filter PublicEv
 }
 
 // ListDiscoverableEventsByOrganization returns all published, discoverable Events
-// for one Organization (upcoming and past), soonest first. now anchors the
-// hold-window cutoff for the sold-out aggregates.
+// for one Organization (upcoming and past), soonest first. now anchors both the
+// hold-window cutoff for the sold-out aggregates and the Promotion windows the
+// "from" price is built on.
 func (r *Repository) ListDiscoverableEventsByOrganization(ctx context.Context, orgID string, now time.Time) ([]PublicEventRow, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+publicEventColumns+`
-		`+publicEventFrom("$2")+`
+		`+publicEventFrom("$2", "$3")+`
 		WHERE e.organization_id = $1
 		  AND e.status = 'published'
 		  AND e.discoverable = TRUE
 		ORDER BY e.starts_at ASC, e.id ASC
-	`, orgID, sales.HoldCutoff(now))
+	`, orgID, sales.HoldCutoff(now), now)
 	if err != nil {
 		return nil, err
 	}
@@ -212,16 +229,17 @@ func (r *Repository) ListDiscoverableEventsByOrganization(ctx context.Context, o
 
 // GetPublishedEventBySlug loads a single published Event by Organization and Event
 // slug for the Storefront event page. Discoverability is not required: a published
-// Event is always reachable by direct link. now anchors the hold-window cutoff
-// for the sold-out aggregates.
+// Event is always reachable by direct link. now anchors both the hold-window
+// cutoff for the sold-out aggregates and the Promotion windows the "from" price
+// is built on.
 func (r *Repository) GetPublishedEventBySlug(ctx context.Context, orgSlug, eventSlug string, now time.Time) (*PublicEventRow, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
 		SELECT `+publicEventColumns+`
-		`+publicEventFrom("$3")+`
+		`+publicEventFrom("$3", "$4")+`
 		WHERE o.slug = $1
 		  AND e.slug = $2
 		  AND e.status = 'published'
-	`, orgSlug, eventSlug, sales.HoldCutoff(now))
+	`, orgSlug, eventSlug, sales.HoldCutoff(now), now)
 	result, err := scanPublicEventRow(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

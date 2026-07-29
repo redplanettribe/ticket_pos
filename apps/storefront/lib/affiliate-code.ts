@@ -16,7 +16,7 @@
  *
  * Nothing here decides whether a code is LIVE. That is the API's verdict, and
  * asking it on a page view would mean an API call to answer a question whose
- * answer can change before the buyer pays (ADR 0021).
+ * answer can change before the buyer pays (ADR 0022).
  */
 export const AFFILIATE_CODE_PATTERN = /^[0-9A-Z]{4,32}$/;
 

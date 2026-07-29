@@ -153,7 +153,11 @@ export default async function EventPage({ params, searchParams }: EventPageProps
             // Ticket Types render read-only, with no steppers and no checkout.
             <div className="space-y-3">
               {event.ticket_types.map((ticketType) => (
-                <TicketTypeCard key={ticketType.name} ticketType={ticketType} />
+                <TicketTypeCard
+                  key={ticketType.name}
+                  ticketType={ticketType}
+                  timezone={event.timezone}
+                />
               ))}
               {event.price_includes_fee ? (
                 <p className="text-xs text-muted-foreground">Prices include the service fee.</p>
@@ -169,6 +173,7 @@ export default async function EventPage({ params, searchParams }: EventPageProps
               eventName={event.name}
               ticketTypes={event.ticket_types}
               priceIncludesFee={event.price_includes_fee}
+              timezone={event.timezone}
             />
           )}
         </section>

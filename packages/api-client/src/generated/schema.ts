@@ -3868,6 +3868,233 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/promotion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set ticket type promotion
+         * @description Sets the promotion on a ticket type. A ticket type holds at most one promotion; setting one where a promotion already exists is rejected.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Promotional price and window */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.promotionBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketTypeDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        /**
+         * Remove ticket type promotion
+         * @description Removes a ticket type's promotion, returning it to its list price. The freed slot may be filled again.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketTypeDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Update ticket type promotion
+         * @description Replaces the promotional price and window of a ticket type's existing promotion.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Promotional price and window */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.promotionBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketTypeDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/video-upload-url": {
         parameters: {
             query?: never;
@@ -4428,7 +4655,7 @@ export interface components {
              *     refused over a ref (#146).
              *
              *     A list rather than one code because liveness is unknowable at click time
-             *     (ADR 0021): a click on a since-deactivated code must not erase the live
+             *     (ADR 0022): a click on a since-deactivated code must not erase the live
              *     click before it. Anything past maxAffiliateCodes is dropped unread — a
              *     browser sends at most three.
              */
@@ -4509,6 +4736,11 @@ export interface components {
             quantity?: number;
             sold_at?: string;
             ticket_type_id?: string;
+        };
+        "handler.promotionBody": {
+            ends_at?: string;
+            promotional_price_cents?: number;
+            starts_at?: string;
         };
         "handler.recordPayoutBody": {
             amount_cents?: number;
@@ -5168,6 +5400,17 @@ export interface components {
              */
             total_owed_cents?: number;
         };
+        /**
+         * @description Promotion is the Ticket Type's one Promotion slot, or null when it is
+         *     empty. It travels with the Ticket Type so the editor can render the
+         *     Promotion's state without a second request; PriceCents above stays the
+         *     List Price whether or not a Promotion is live (ADR 0021).
+         */
+        "service.PromotionView": {
+            ends_at?: string;
+            promotional_price_cents?: number;
+            starts_at?: string;
+        };
         "service.PublicEventCard": {
             cover_image_url?: string;
             currency?: string;
@@ -5227,12 +5470,18 @@ export interface components {
             name?: string;
             slug?: string;
         };
+        "service.PublicPromotion": {
+            ends_at?: string;
+            list_price_cents?: number;
+            promotional_price_cents?: number;
+        };
         "service.PublicTicketType": {
             currency?: string;
             description?: string;
             id?: string;
             name?: string;
             price_cents?: number;
+            promotion?: components["schemas"]["service.PublicPromotion"];
             remaining?: number;
             sold_out?: boolean;
         };
@@ -5437,6 +5686,7 @@ export interface components {
             id?: string;
             name?: string;
             price_cents?: number;
+            promotion?: components["schemas"]["service.PromotionView"];
             sold_count?: number;
             sort_order?: number;
             updated_at?: string;

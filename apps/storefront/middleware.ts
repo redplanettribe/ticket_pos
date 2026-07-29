@@ -7,7 +7,7 @@ import {
 } from "@/lib/affiliate-ref";
 
 /**
- * The click half of Affiliate Attribution (ADR 0021): an Event page served with
+ * The click half of Affiliate Attribution (ADR 0022): an Event page served with
  * a `?ref=` remembers that code for this Event, for the Attribution Window, and
  * the begin-checkout route carries it to the API when the buyer eventually pays.
  *
