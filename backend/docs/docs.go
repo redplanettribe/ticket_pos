@@ -1824,6 +1824,10 @@ const docTemplate = `{
                     "description": {
                         "type": "string"
                     },
+                    "discoverable": {
+                        "description": "Discoverable mirrors the Event's Discoverable flag so the Storefront can\nmark a non-Discoverable Event noindex. ADR 0002 draws the line between\nreachable and advertised: a published Event is always reachable by direct\nlink, and Discoverable only decides whether the platform's own surfaces\nadvertise it. Exposing the flag extends that same distinction to crawlers —\nit says nothing about who may load the page, only about who should index\nit, so reachability is unchanged.",
+                        "type": "boolean"
+                    },
                     "ends_at": {
                         "type": "string"
                     },

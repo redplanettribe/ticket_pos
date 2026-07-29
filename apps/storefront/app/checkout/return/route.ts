@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 
 import { APIError, confirmCheckout } from "@/lib/api";
 import { parseProviderReturn } from "@/lib/checkout";
+import { readCheckoutLocale } from "@/lib/checkout-context";
+import { localizedPath, type AppLocale } from "@/lib/locale";
+import { redirectLocale } from "@/lib/redirect-locale";
 
 // Confirms a Payment; never cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -22,6 +25,15 @@ export const dynamic = "force-dynamic";
  * sale.
  */
 export async function GET(request: Request) {
+  // The Payment Provider built this URL from a constant it was handed when the
+  // Payment began, so it names no language and this handler chooses one for the
+  // terminal page. The buyer's own came back with them in the checkout context;
+  // only when that is gone, damaged, or older than the field does this fall back
+  // to guessing from the switcher's cookie and Accept-Language — which is what a
+  // buyer reading /es on an English-language browser used to get after paying.
+  const locale = (await readCheckoutLocale()) ?? (await redirectLocale());
+  const redirectTo = (path: string) => localizedRedirect(locale, path);
+
   const { clientTransactionId, providerParams } = parseProviderReturn(
     new URL(request.url).searchParams,
   );
@@ -50,7 +62,23 @@ export async function GET(request: Request) {
   }
 }
 
-/** Relative Location, resolved by the browser against the URL it asked for (see tickets/confirm). */
-function redirectTo(path: string): NextResponse {
-  return new NextResponse(null, { status: 303, headers: { Location: path } });
+/**
+ * Relative Location, resolved by the browser against the URL it asked for (see tickets/confirm).
+ *
+ * Vary names both inputs the language above was chosen from, for the reason
+ * middleware.ts sets the same header: a cache keyed on this URL alone would hand
+ * the next buyer the previous buyer's language, and here that happens on the leg
+ * that lands after a real payment.
+ *
+ * Both are named even though the checkout context cookie usually decides alone.
+ * The tempting narrower answer — Cookie, since the buyer's own language came
+ * back with them — is correct only while that cookie survives; when it is gone,
+ * damaged, or older than the field, Accept-Language picks the page, and a Vary
+ * that omits it is wrong in exactly the case the fallback exists for.
+ */
+function localizedRedirect(locale: AppLocale, path: string): NextResponse {
+  return new NextResponse(null, {
+    status: 303,
+    headers: { Location: localizedPath(locale, path), Vary: "Accept-Language, Cookie" },
+  });
 }

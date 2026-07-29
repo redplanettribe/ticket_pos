@@ -1,8 +1,9 @@
-import Link from "next/link";
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
 import { Button } from "@ticket-pos/ui";
 
+import { Link } from "@/i18n/navigation";
 import { customerAreaSaleHref } from "@/lib/destination";
 import { signInToUndoHref } from "@/lib/undo-window";
 
@@ -27,6 +28,11 @@ import { signInToUndoHref } from "@/lib/undo-window";
  * one thing that genuinely differs: the Customer Area hands it the button that
  * undoes, and the guest surfaces hand it a link to sign in. Neither this
  * component nor anything under it on a guest surface can execute a reversal.
+ *
+ * The words live in the `checkout` namespace for the same reason they live in
+ * one component: the buyer meets this sentence for the first time seconds after
+ * paying, and a Customer Area namespace that could word it differently would
+ * reintroduce exactly the drift this component exists to prevent.
  */
 export function UndoWindowNotice({
   deadline,
@@ -44,13 +50,19 @@ export function UndoWindowNotice({
   /** The action offered beside it, if any. */
   children?: ReactNode;
 }) {
+  const t = useTranslations("checkout");
+
   return (
     <div
       className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-3 text-left ${className}`}
     >
       <p className="text-sm text-muted-foreground">
-        You can undo this purchase until{" "}
-        <span className="font-medium text-foreground">{deadline}</span> Ecuador time.
+        {/* The emphasis is inside the sentence, so the message carries it as a
+            tag: a language that puts the deadline elsewhere must be able to. */}
+        {t.rich("undoUntil", {
+          deadline,
+          when: (chunks) => <span className="font-medium text-foreground">{chunks}</span>,
+        })}
       </p>
       {children}
     </div>
@@ -106,16 +118,18 @@ export function SignInToUndo({
    */
   ticketSaleId?: string | null;
 }) {
+  const t = useTranslations("checkout");
+
   if (signedIn) {
     return (
       <Button asChild variant="outline" className="h-11">
-        <Link href={customerAreaSaleHref(ticketSaleId)}>Undo it in your tickets</Link>
+        <Link href={customerAreaSaleHref(ticketSaleId)}>{t("undoInTickets")}</Link>
       </Button>
     );
   }
   return (
     <Button asChild variant="outline" className="h-11">
-      <Link href={signInToUndoHref(email, ticketSaleId)}>Sign in to undo</Link>
+      <Link href={signInToUndoHref(email, ticketSaleId)}>{t("signInToUndo")}</Link>
     </Button>
   );
 }

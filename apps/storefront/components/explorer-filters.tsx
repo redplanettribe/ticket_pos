@@ -1,10 +1,12 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button, Input, cn } from "@ticket-pos/ui";
 
+import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
 import { WHEN_PRESETS, type WhenPreset } from "@/lib/when";
 
@@ -24,6 +26,7 @@ function parseTags(raw: string | null): Set<string> {
 }
 
 export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
+  const t = useTranslations("explorer");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -75,20 +78,20 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search events or organizers"
-          aria-label="Search events or organizers"
+          placeholder={t("searchLabel")}
+          aria-label={t("searchLabel")}
         />
-        <Button type="submit">Search</Button>
+        <Button type="submit">{t("searchSubmit")}</Button>
       </form>
 
       <div className="flex flex-wrap gap-2">
         {WHEN_PRESETS.map((preset) => {
-          const active = preset.value === currentWhen;
+          const active = preset === currentWhen;
           return (
             <button
-              key={preset.value}
+              key={preset}
               type="button"
-              onClick={() => pushParams({ when: preset.value })}
+              onClick={() => pushParams({ when: preset })}
               aria-pressed={active}
               className={cn(
                 "rounded-full border px-3 py-1 text-sm transition-colors",
@@ -97,14 +100,16 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
                   : "border-input bg-background text-foreground hover:bg-muted",
               )}
             >
-              {preset.label}
+              {/* The preset's own token is the message key, so a preset added
+                  to lib/when.ts fails to compile until its label is written. */}
+              {t(`when.${preset}`)}
             </button>
           );
         })}
       </div>
 
       {presetTags.length > 0 ? (
-        <div className="flex flex-wrap gap-2" aria-label="Filter by tag">
+        <div className="flex flex-wrap gap-2" aria-label={t("tagFilterLabel")}>
           {presetTags.map((tag) => {
             const active = selectedTags.has(tag.name.toLowerCase());
             return (

@@ -76,7 +76,7 @@ func (h *Handler) ListEventTags(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -112,7 +112,7 @@ func (h *Handler) SetEventTags(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "id", Message: "is required"},
+			{Field: "id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -124,7 +124,7 @@ func (h *Handler) SetEventTags(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Tags == nil {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "tags", Message: "is required"},
+			{Field: "tags", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}

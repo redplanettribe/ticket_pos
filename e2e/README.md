@@ -14,8 +14,15 @@ pnpm install
 pnpm test
 ```
 
-The default `baseURL` is `http://localhost:64300` (Storefront).
+The default `baseURL` is `http://localhost:64300` (Storefront), overridable with `PLAYWRIGHT_BASE_URL`.
 Start the full stack with `make dev` before running browser tests against a live environment.
+
+The override exists for the case `make dev` cannot serve: a build of a branch, running on its own port,
+which is the only way to point these specs at code the dev stack does not have. Note that a production
+build needs `STOREFRONT_STUB_PAYMENTS=1` for `checkout.spec.ts` — the stub Payment Provider's
+interstitial is a 404 without it (`apps/storefront/lib/stub-payments.ts`) — and that the API it talks to
+must be built from the same branch, since it is what decides both the Event fields the Storefront reads
+and the origin the Payment Provider redirects back to.
 
 ## Parity suite
 

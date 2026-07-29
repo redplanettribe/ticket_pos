@@ -214,7 +214,21 @@ export type CustomerArea = {
 export type SessionOutcome<T> =
   | { status: "ok"; data: T }
   | { status: "signed-out" }
-  | { status: "error"; message: string };
+  /**
+   * `code` is the API's own code when the failure came back as an envelope, and
+   * null when nothing was reached at all. It travels beside the message so the
+   * page rendering this can choose its copy on the code and fall back to the
+   * message (ADR 0023) — the same pair every other failed call hands its
+   * surface.
+   *
+   * Both are null when the API was never reached. The fallback is only ever the
+   * API's OWN words; a thrown transport error's `message` is not those words —
+   * it is a runtime string ("fetch failed"), written in English by a library
+   * with no idea a Customer will read it. Handing that to the surface as if it
+   * were copy is what put an English sentence on a Spanish page. Null instead,
+   * so the surface says its own translated sentence.
+   */
+  | { status: "error"; code: string | null; message: string | null };
 
 /**
  * signedOutStatuses are the API responses that mean "this token is worth
@@ -243,10 +257,12 @@ async function readWithSession<T>(path: string): Promise<SessionOutcome<T>> {
     if (isSignedOut(error)) {
       return { status: "signed-out" };
     }
-    return {
-      status: "error",
-      message: error instanceof Error ? error.message : "Could not reach the ticket service.",
-    };
+    // Only an APIError carries an envelope, and only an envelope carries words
+    // meant for a Customer. Everything else reached nothing and has nothing to
+    // relay.
+    return error instanceof APIError
+      ? { status: "error", code: error.code, message: error.message }
+      : { status: "error", code: null, message: null };
   }
 }
 

@@ -8,6 +8,12 @@ import { formatTaxId, isTaxIdType, normalizeTaxIdNumber, validateTaxId } from ".
 // this file rejects but the API accepts is a buyer locked out of a sale the
 // platform would have taken. The fixtures below are the same ones the Go
 // integration suite uses, for exactly that reason.
+//
+// The verdicts are asserted as the CODES the API sends for the same failures
+// (validation_codes.go), which is what the mirror answers with since ADR 0023 —
+// the sentence is chosen from the code by the catalog, in the language the page
+// is read in, and api-errors.test.ts is where the two paths are held to one
+// sentence.
 
 const VALID_CEDULA = "1712345675";
 const NATURAL_RUC = "1712345675001";
@@ -19,31 +25,35 @@ test("accepts a cédula with a correct check digit", () => {
 });
 
 test("rejects a cédula that fails the check digit, length, or province", () => {
-  assert.notEqual(validateTaxId("cedula", "1712345678"), null); // wrong check digit
-  assert.notEqual(validateTaxId("cedula", "17123456"), null); // too short
-  assert.notEqual(validateTaxId("cedula", "9912345675"), null); // no such province
-  assert.notEqual(validateTaxId("cedula", "17123456ab"), null); // not digits
+  assert.equal(validateTaxId("cedula", "1712345678"), "INVALID_CEDULA"); // wrong check digit
+  assert.equal(validateTaxId("cedula", "17123456"), "INVALID_CEDULA"); // too short
+  assert.equal(validateTaxId("cedula", "9912345675"), "INVALID_CEDULA"); // no such province
+  assert.equal(validateTaxId("cedula", "17123456ab"), "INVALID_CEDULA"); // not digits
 });
 
 test("accepts both RUC forms and rejects the wrong length", () => {
   assert.equal(validateTaxId("ruc", NATURAL_RUC), null);
   assert.equal(validateTaxId("ruc", COMPANY_RUC), null);
-  assert.notEqual(validateTaxId("ruc", VALID_CEDULA), null);
+  assert.equal(validateTaxId("ruc", VALID_CEDULA), "INVALID_RUC");
   // Third digit 7 names no RUC form.
-  assert.notEqual(validateTaxId("ruc", "1772345675001"), null);
+  assert.equal(validateTaxId("ruc", "1772345675001"), "INVALID_RUC");
 });
 
 test("accepts a passport on shape alone", () => {
   assert.equal(validateTaxId("passport", "ab123456"), null);
   assert.equal(validateTaxId("passport", "X1234567890"), null);
-  assert.notEqual(validateTaxId("passport", "AB12"), null);
-  assert.notEqual(validateTaxId("passport", "AB-123456"), null);
+  assert.equal(validateTaxId("passport", "AB12"), "INVALID_PASSPORT");
+  assert.equal(validateTaxId("passport", "AB-123456"), "INVALID_PASSPORT");
 });
 
 test("a blank number is required whatever the type", () => {
   for (const type of ["cedula", "ruc", "passport"]) {
-    assert.equal(validateTaxId(type, "   "), "is required");
+    assert.equal(validateTaxId(type, "   "), "REQUIRED");
   }
+});
+
+test("an unknown Tax ID Type is the type field's problem, not the number's", () => {
+  assert.equal(validateTaxId("dni", "12345678"), null);
 });
 
 test("normalisation trims, and uppercases passports only", () => {

@@ -174,15 +174,15 @@ func validateRecordPayout(body recordPayoutBody) (service.RecordPayoutInput, []p
 	var fields []platform.FieldError
 
 	if body.AmountCents <= 0 {
-		fields = append(fields, platform.FieldError{Field: "amount_cents", Message: "must be greater than zero"})
+		fields = append(fields, platform.FieldError{Field: "amount_cents", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
 	}
 
 	var paidAt time.Time
 	raw := strings.TrimSpace(body.PaidAt)
 	if raw == "" {
-		fields = append(fields, platform.FieldError{Field: "paid_at", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "paid_at", Code: platform.CodeRequired, Message: "is required"})
 	} else if parsed, err := time.Parse(payoutDateFormat, raw); err != nil {
-		fields = append(fields, platform.FieldError{Field: "paid_at", Message: "must be a date (YYYY-MM-DD)"})
+		fields = append(fields, platform.FieldError{Field: "paid_at", Code: platform.CodeInvalidDate, Message: "must be a date (YYYY-MM-DD)"})
 	} else {
 		paidAt = parsed
 	}
@@ -337,19 +337,21 @@ func validateReverseSale(body reverseSaleBody) (service.OperatorReversalInput, [
 	if body.RefundedAmountCents == nil && body.PlatformFeeKept != nil {
 		fields = append(fields, platform.FieldError{
 			Field:   "refunded_amount_cents",
+			Code:    platform.CodeRequiredWithPlatformFeeKept,
 			Message: "is required when platform_fee_kept is given",
 		})
 	}
 	if body.PlatformFeeKept == nil && body.RefundedAmountCents != nil {
 		fields = append(fields, platform.FieldError{
 			Field:   "platform_fee_kept",
+			Code:    platform.CodeRequiredWithRefundedAmount,
 			Message: "is required when refunded_amount_cents is given",
 		})
 	}
 	// Zero is refused rather than read as "nothing to refund": absence is how
 	// that is said, and a refund of nothing is not a refund.
 	if body.RefundedAmountCents != nil && *body.RefundedAmountCents <= 0 {
-		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Message: "must be greater than zero"})
+		fields = append(fields, platform.FieldError{Field: "refunded_amount_cents", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
 	}
 
 	var note *string
@@ -358,6 +360,7 @@ func validateReverseSale(body reverseSaleBody) (service.OperatorReversalInput, [
 			if len([]rune(trimmed)) > reversalNoteMaxLength {
 				fields = append(fields, platform.FieldError{
 					Field:   "note",
+					Code:    platform.CodeTooLong,
 					Message: "must be at most " + strconv.Itoa(reversalNoteMaxLength) + " characters",
 				})
 			}

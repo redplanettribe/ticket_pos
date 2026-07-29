@@ -3,12 +3,15 @@
 
 export type WhenPreset = "all" | "weekend" | "week" | "month";
 
-export const WHEN_PRESETS: { value: WhenPreset; label: string }[] = [
-  { value: "all", label: "All upcoming" },
-  { value: "weekend", label: "This weekend" },
-  { value: "week", label: "This week" },
-  { value: "month", label: "This month" },
-];
+/**
+ * The presets in the order the chip bar offers them — widest first, then the
+ * three windows from nearest to furthest.
+ *
+ * Values only. A preset's label is copy, and copy is per-locale: it lives in the
+ * catalog under `explorer.when.<value>` so this module stays a pure function of
+ * dates that a unit test can run without a request or a translator.
+ */
+export const WHEN_PRESETS: readonly WhenPreset[] = ["all", "weekend", "week", "month"];
 
 export function isWhenPreset(value: string | undefined): value is WhenPreset {
   return value === "all" || value === "weekend" || value === "week" || value === "month";

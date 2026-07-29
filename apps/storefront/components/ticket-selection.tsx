@@ -17,10 +17,18 @@ import {
   FormField,
   Input,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 
+import { useFormatLocale } from "@/i18n/format-locale";
 import type { BeginCheckoutResult, PublicTicketType } from "@/lib/api";
+import {
+  apiErrorMessage,
+  fieldCodeMessage,
+  fieldErrorMessages,
+  type ErrorCatalog,
+} from "@/lib/api-errors";
 import {
   checkoutDestination,
   clampQuantity,
@@ -29,10 +37,11 @@ import {
   totalQuantity,
 } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
+import { localizedPath, toAppLocale } from "@/lib/locale";
 import {
-  COUNTRIES,
   ECUADOR_DIALLING_CODE,
   composePhone,
+  countries,
   normalizePhone,
   splitPhone,
   validatePhone,
@@ -98,13 +107,6 @@ type TicketSelectionProps = {
   timezone: string | null;
 };
 
-/** The one line a pass-on Customer ever sees about the fee. No amount, no breakdown. */
-const SERVICE_FEE_NOTE = "Prices include the service fee.";
-
-function formatRemaining(remaining: number): string {
-  return `${new Intl.NumberFormat("en-US").format(remaining)} remaining`;
-}
-
 /** The API's begin-checkout field names, mapped onto the form's inputs. */
 const FORM_FIELDS = [
   "customer_email",
@@ -121,21 +123,39 @@ function isFormField(field: string): field is (typeof FORM_FIELDS)[number] {
   return (FORM_FIELDS as readonly string[]).includes(field);
 }
 
-function fieldErrorsFromDetails(details: unknown): FieldErrors {
+/**
+ * The API's field errors narrowed to the inputs this dialog actually drew.
+ *
+ * The copy is chosen by fieldErrorMessages on each FieldError's stable `code`,
+ * falling back to its message (ADR 0023); the only thing added here is the
+ * filter. `lines[0].quantity` has no control on this form to sit under, so it is
+ * dropped rather than shown somewhere it means nothing.
+ */
+function fieldErrorsFromDetails(catalog: ErrorCatalog, details: unknown): FieldErrors {
   const errors: FieldErrors = {};
-  if (typeof details !== "object" || details === null) return errors;
-  const fields = (details as { fields?: unknown }).fields;
-  if (!Array.isArray(fields)) return errors;
-  for (const entry of fields) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const { field, message } = entry as { field?: unknown; message?: unknown };
-    if (typeof field !== "string" || typeof message !== "string") continue;
+  for (const [field, message] of Object.entries(fieldErrorMessages(catalog, details))) {
     if (isFormField(field)) {
       errors[field] = message;
     }
   }
   return errors;
 }
+
+/**
+ * What went wrong, as a fact rather than as a sentence.
+ *
+ * `code` is the API's verdict about WHICH failure this is, and it is what the
+ * sentence gets chosen by; `message` is the API's own words, kept as the
+ * fallback for a code the catalog has never heard of (ADR 0023). `fallback`
+ * names which of this app's own two failures to say instead when the API said
+ * nothing at all. Nothing here is a sentence: the words are looked up at render,
+ * so state never holds copy that a language switch would strand.
+ */
+type CheckoutError = {
+  code: string | null;
+  message: string | null;
+  fallback: "startFailed" | "networkFailed";
+};
 
 /** Matches the Input component's height and border so the select reads as a peer. */
 const SELECT_CLASS =
@@ -149,7 +169,19 @@ export function TicketSelection({
   priceIncludesFee,
   timezone,
 }: TicketSelectionProps) {
+  // next/navigation's router, deliberately: the only thing asked of it here is
+  // refresh(), which has no address to localize.
   const router = useRouter();
+  const locale = toAppLocale(useLocale());
+  const t = useTranslations("checkout");
+  // The error catalog as plain data rather than through `t`: its keys are API
+  // codes, which arrive as strings at runtime and cannot be typed message keys.
+  const errorCopy = useMessages().errors;
+  // A Ticket Type's own statements about itself — sold out, how many are left,
+  // whether the fee is inside the price — are the Event page's words, and the
+  // read-only list on an ended Event says them from the same keys. Two lists of
+  // the same Ticket Types must not be able to word the same fact differently.
+  const eventCopy = useTranslations("event");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -174,7 +206,7 @@ export function TicketSelection({
   const [phoneDiallingCode, setPhoneDiallingCode] = useState(ECUADOR_DIALLING_CODE);
   const [phoneNationalNumber, setPhoneNationalNumber] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [error, setError] = useState<{ code: string | null; message: string } | null>(null);
+  const [error, setError] = useState<CheckoutError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const prefillAttempted = useRef(false);
   const taxIdTouched = useRef(false);
@@ -183,6 +215,10 @@ export function TicketSelection({
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
   const currency = ticketTypes[0]?.currency ?? "USD";
+  const formatLocale = useFormatLocale();
+  // Two hundred region names and a collation sort, held across the keystrokes
+  // that re-render the form around the selector.
+  const countryRows = useMemo(() => countries(formatLocale), [formatLocale]);
 
   function adjust(ticketType: PublicTicketType, delta: number) {
     setQuantities((current) => ({
@@ -262,10 +298,15 @@ export function TicketSelection({
     // The mirror check: a mistyped cédula is caught here so the buyer is told
     // before a round trip. The API validates the same rules and its verdict is
     // the one that decides whether the sale happens (ADR 0016).
+    //
+    // The mirror names the rule that broke and the catalog says it in the
+    // language this page is being read in — the same entry the API's own field
+    // error would have resolved through, so the field says one thing rather than
+    // the same thing twice in two languages (ADR 0023).
     const taxIdProblem = validateTaxId(taxIdType, taxIdNumber);
     if (taxIdProblem) {
       setError(null);
-      setFieldErrors({ customer_tax_id_number: taxIdProblem });
+      setFieldErrors({ customer_tax_id_number: fieldCodeMessage(errorCopy, taxIdProblem) });
       return;
     }
 
@@ -278,7 +319,7 @@ export function TicketSelection({
     const phoneProblem = validatePhone(phone);
     if (phoneProblem) {
       setError(null);
-      setFieldErrors({ customer_phone: phoneProblem });
+      setFieldErrors({ customer_phone: fieldCodeMessage(errorCopy, phoneProblem) });
       return;
     }
     // Non-null exactly when the buyer gave a number that passed, which is the
@@ -308,15 +349,24 @@ export function TicketSelection({
           // rather than as a value nobody entered.
           ...(canonicalPhone ? { customer_phone: canonicalPhone } : {}),
           lines: selectionLines(quantities),
+          // The language this page is being read in, stated rather than left to
+          // be inferred. It is written into the checkout context cookie so the
+          // buyer comes back from the Payment Provider into the language they
+          // left in, and it goes no further — the Go API stays Locale-unaware.
+          // The route can also read it off the Referer, but that header is one
+          // Referrer-Policy or privacy extension away from not being there, and
+          // this page is the one thing that knows the answer for certain.
+          locale,
         }),
       });
       const envelope = (await response.json()) as Envelope<BeginCheckoutResult>;
       if (!response.ok || envelope.error || !envelope.data) {
         const apiError = envelope.error;
-        setFieldErrors(fieldErrorsFromDetails(apiError?.details));
+        setFieldErrors(fieldErrorsFromDetails(errorCopy, apiError?.details));
         setError({
           code: apiError?.code ?? null,
-          message: apiError?.message ?? "The checkout could not be started. Please try again.",
+          message: apiError?.message ?? null,
+          fallback: "startFailed",
         });
         setSubmitting(false);
         return;
@@ -326,22 +376,23 @@ export function TicketSelection({
         // The API accepted the checkout but named nowhere to go, so there is
         // nothing truthful to navigate to. Say so rather than assign a missing
         // redirect_url, which the browser would resolve against this event page.
-        setError({
-          code: null,
-          message: "The checkout could not be started. Please try again.",
-        });
+        setError({ code: null, message: null, fallback: "startFailed" });
         setSubmitting(false);
         return;
       }
       // Full-page navigation: to the provider's hosted payment page, or straight
       // to the confirmation when there was nothing to pay. submitting stays true
       // so the button cannot fire a second Payment while the browser unloads.
-      window.location.assign(destination);
+      //
+      // The two destinations are told apart by their shape, because only one of
+      // them is ours to localize: an absolute provider URL is left exactly as
+      // the API sent it, while the confirmation page is a path on this
+      // Storefront and gains the language the buyer is reading in.
+      window.location.assign(
+        destination.startsWith("/") ? localizedPath(locale, destination) : destination,
+      );
     } catch {
-      setError({
-        code: null,
-        message: "The checkout could not be started. Please check your connection and try again.",
-      });
+      setError({ code: null, message: null, fallback: "networkFailed" });
       setSubmitting(false);
     }
   }
@@ -366,7 +417,9 @@ export function TicketSelection({
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold">{ticketType.name}</h3>
-                    {ticketType.sold_out ? <Badge variant="secondary">Sold out</Badge> : null}
+                    {ticketType.sold_out ? (
+                      <Badge variant="secondary">{eventCopy("soldOut")}</Badge>
+                    ) : null}
                     <PromotionBadge ticketType={ticketType} />
                   </div>
                   {ticketType.description ? (
@@ -374,7 +427,9 @@ export function TicketSelection({
                   ) : null}
                   <PromotionDeadline ticketType={ticketType} timezone={timezone} />
                   {!ticketType.sold_out ? (
-                    <p className="text-sm text-muted-foreground">{formatRemaining(ticketType.remaining)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {eventCopy("remaining", { count: ticketType.remaining })}
+                    </p>
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center justify-between gap-4 sm:flex-col sm:items-end">
@@ -386,7 +441,7 @@ export function TicketSelection({
                         variant="outline"
                         size="icon"
                         className="size-11"
-                        aria-label={`Remove one ${ticketType.name} ticket`}
+                        aria-label={t("decreaseQuantity", { ticketType: ticketType.name })}
                         disabled={quantity === 0}
                         onClick={() => adjust(ticketType, -1)}
                       >
@@ -394,7 +449,7 @@ export function TicketSelection({
                       </Button>
                       <span
                         className="w-10 text-center text-base font-semibold tabular-nums"
-                        aria-label={`${ticketType.name} quantity`}
+                        aria-label={t("quantityLabel", { ticketType: ticketType.name })}
                         aria-live="polite"
                       >
                         {quantity}
@@ -404,7 +459,7 @@ export function TicketSelection({
                         variant="outline"
                         size="icon"
                         className="size-11"
-                        aria-label={`Add one ${ticketType.name} ticket`}
+                        aria-label={t("increaseQuantity", { ticketType: ticketType.name })}
                         disabled={quantity >= ticketType.remaining}
                         onClick={() => adjust(ticketType, 1)}
                       >
@@ -424,18 +479,19 @@ export function TicketSelection({
       <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm text-muted-foreground">
-              {count === 0 ? "No tickets selected" : `${count} ${count === 1 ? "ticket" : "tickets"}`}
-            </p>
+            {/* "No tickets selected" is the zero case of the same sentence, not
+                a different one: which of the three a language needs is the
+                catalog's plural rules to decide, not this component's. */}
+            <p className="text-sm text-muted-foreground">{t("selectionCount", { count })}</p>
             <p className="text-lg font-semibold" data-testid="selection-total">
-              {formatPrice(total, currency)}
+              {formatPrice(total, currency, formatLocale)}
             </p>
             {priceIncludesFee ? (
-              <p className="text-xs text-muted-foreground">{SERVICE_FEE_NOTE}</p>
+              <p className="text-xs text-muted-foreground">{eventCopy("feeIncluded")}</p>
             ) : null}
           </div>
           <Button type="button" size="lg" className="h-11" disabled={count === 0} onClick={openCheckout}>
-            Get tickets
+            {t("getTickets")}
           </Button>
         </div>
       </div>
@@ -450,10 +506,8 @@ export function TicketSelection({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Checkout</DialogTitle>
-            <DialogDescription>
-              {eventName} — we&apos;ll email your confirmation to this address.
-            </DialogDescription>
+            <DialogTitle>{t("title")}</DialogTitle>
+            <DialogDescription>{t("description", { event: eventName })}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
@@ -463,40 +517,48 @@ export function TicketSelection({
                 const quantity = quantities[ticketType.id] ?? 0;
                 return (
                   <div key={ticketType.id} className="flex items-center justify-between gap-2">
-                    <span>
-                      {quantity} × {ticketType.name}
-                    </span>
+                    <span>{t("lineQuantity", { count: quantity, ticketType: ticketType.name })}</span>
                     <span className="tabular-nums">
-                      {formatPrice(quantity * ticketType.price_cents, ticketType.currency)}
+                      {formatPrice(quantity * ticketType.price_cents, ticketType.currency, formatLocale)}
                     </span>
                   </div>
                 );
               })}
             <div className="flex items-center justify-between gap-2 border-t pt-1 font-semibold">
-              <span>Total</span>
-              <span className="tabular-nums">{formatPrice(total, currency)}</span>
+              <span>{t("total")}</span>
+              <span className="tabular-nums">{formatPrice(total, currency, formatLocale)}</span>
             </div>
             {priceIncludesFee ? (
-              <p className="text-xs font-normal text-muted-foreground">{SERVICE_FEE_NOTE}</p>
+              <p className="text-xs font-normal text-muted-foreground">{eventCopy("feeIncluded")}</p>
             ) : null}
           </div>
 
           {error ? (
             <Alert variant="destructive">
-              {capacityExceeded ? <AlertTitle>Not enough tickets left</AlertTitle> : null}
-              <AlertDescription>{error.message}</AlertDescription>
+              {capacityExceeded ? <AlertTitle>{t("capacityTitle")}</AlertTitle> : null}
+              {/* The API decided which failure this is; the catalog decides how
+                  to say it, in this page's language, falling back to the API's
+                  own message for a code it does not know. This app's own two
+                  sentences are for the failures the API never got to report. */}
+              <AlertDescription>
+                {apiErrorMessage(errorCopy, error) ?? t(error.fallback)}
+              </AlertDescription>
             </Alert>
           ) : null}
 
           {capacityExceeded ? (
             <DialogFooter>
               <Button type="button" variant="secondary" className="h-11 w-full" onClick={backToTickets}>
-                Back to ticket selection
+                {t("backToSelection")}
               </Button>
             </DialogFooter>
           ) : (
             <form className="space-y-4" onSubmit={handleSubmit} noValidate>
-              <FormField id="checkout-email" label="Email" error={fieldErrors.customer_email}>
+              <FormField
+                id="checkout-email"
+                label={t("emailLabel")}
+                error={fieldErrors.customer_email}
+              >
                 <Input
                   name="email"
                   type="email"
@@ -507,7 +569,11 @@ export function TicketSelection({
                 />
               </FormField>
               <div className="grid gap-4 sm:grid-cols-2">
-                <FormField id="checkout-first-name" label="First name" error={fieldErrors.customer_first_name}>
+                <FormField
+                  id="checkout-first-name"
+                  label={t("firstNameLabel")}
+                  error={fieldErrors.customer_first_name}
+                >
                   <Input
                     name="given-name"
                     autoComplete="given-name"
@@ -516,7 +582,11 @@ export function TicketSelection({
                     onChange={(event) => setFirstName(event.target.value)}
                   />
                 </FormField>
-                <FormField id="checkout-last-name" label="Last name" error={fieldErrors.customer_last_name}>
+                <FormField
+                  id="checkout-last-name"
+                  label={t("lastNameLabel")}
+                  error={fieldErrors.customer_last_name}
+                >
                   <Input
                     name="family-name"
                     autoComplete="family-name"
@@ -532,7 +602,7 @@ export function TicketSelection({
               <div className="grid gap-4 sm:grid-cols-[minmax(0,9rem)_1fr]">
                 <FormField
                   id="checkout-tax-id-type"
-                  label="ID type"
+                  label={t("taxIdTypeLabel")}
                   error={fieldErrors.customer_tax_id_type}
                 >
                   <select
@@ -545,6 +615,9 @@ export function TicketSelection({
                       if (isTaxIdType(event.target.value)) setTaxIdType(event.target.value);
                     }}
                   >
+                    {/* Cédula, RUC and Pasaporte are the names of Ecuadorian
+                        documents, so they read the same in both languages and
+                        are not in the catalog. */}
                     {TAX_ID_TYPES.map((type) => (
                       <option key={type} value={type}>
                         {TAX_ID_TYPE_LABELS[type]}
@@ -554,7 +627,7 @@ export function TicketSelection({
                 </FormField>
                 <FormField
                   id="checkout-tax-id-number"
-                  label="ID number"
+                  label={t("taxIdNumberLabel")}
                   error={fieldErrors.customer_tax_id_number}
                 >
                   <Input
@@ -581,7 +654,7 @@ export function TicketSelection({
                   across two controls, so they share a row like the Tax ID
                   above. */}
               <div className="grid gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
-                <FormField id="checkout-phone-country" label="Country code">
+                <FormField id="checkout-phone-country" label={t("phoneCountryLabel")}>
                   <select
                     name="phone-country"
                     className={SELECT_CLASS}
@@ -591,21 +664,27 @@ export function TicketSelection({
                       setPhoneDiallingCode(event.target.value);
                     }}
                   >
-                    {/* Keyed by name, valued by dialling code: the codes are not
-                        unique (+1 covers the US, Canada and twenty more), so
-                        picking one of a shared code shows the first country
-                        listed under it. The accepted cosmetic imperfection from
-                        #103 — the number submitted is identical either way. */}
-                    {COUNTRIES.map((country) => (
-                      <option key={country.name} value={country.diallingCode}>
-                        {country.name} ({country.diallingCode})
+                    {/* Keyed by region code, valued by dialling code: the region
+                        is the row's identity and its name is only a rendering of
+                        it, so the key survives a change of language. The dialling
+                        codes are not unique (+1 covers the US, Canada and twenty
+                        more), so picking one of a shared code shows the first
+                        country listed under it — the accepted cosmetic
+                        imperfection from #103, and the number submitted is
+                        identical either way. */}
+                    {countryRows.map((country) => (
+                      <option key={country.regionCode} value={country.diallingCode}>
+                        {t("countryOption", {
+                          country: country.name,
+                          diallingCode: country.diallingCode,
+                        })}
                       </option>
                     ))}
                   </select>
                 </FormField>
                 <FormField
                   id="checkout-phone"
-                  label="Phone (optional)"
+                  label={t("phoneLabel")}
                   error={fieldErrors.customer_phone}
                 >
                   <Input
@@ -625,7 +704,7 @@ export function TicketSelection({
                 </FormField>
               </div>
               <Button type="submit" className="h-11 w-full" disabled={submitting} aria-busy={submitting}>
-                {submitting ? "Starting payment…" : "Continue to payment"}
+                {submitting ? t("submitting") : t("submit")}
               </Button>
             </form>
           )}

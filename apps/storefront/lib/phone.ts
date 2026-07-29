@@ -25,20 +25,43 @@
  * sale.
  */
 
+// The ".ts" is written out because the unit tests run this module directly
+// under `node --experimental-strip-types`, which resolves specifiers exactly.
+// Next resolves it identically.
+import type { FieldErrorCode } from "./api-errors.ts";
+import { DEFAULT_LOCALE, type IntlLocale } from "./format.ts";
+
 /**
- * A row of the country selector: the name a buyer looks for and the dialling
- * code that gets prepended to what they type.
+ * A row of the country selector as it is rendered: the region it stands for, the
+ * name a buyer looks for, and the dialling code that gets prepended to what they
+ * type.
+ *
+ * `name` is a rendering of `regionCode` under one Locale and nothing more, so it
+ * is the wrong thing to key, store or compare on. `regionCode` is the identity —
+ * the same row is "Germany" and "Alemania" depending only on who is reading.
  */
 export type Country = {
+  regionCode: string;
   name: string;
   diallingCode: string;
 };
 
-/** Ecuador's dialling code — the default selection, and the one strict tier. */
+/** Ecuador — the default selection, and the one strict validation tier. */
+export const ECUADOR_REGION_CODE = "EC";
 export const ECUADOR_DIALLING_CODE = "+593";
 
 /**
- * The country table.
+ * The country table: an ISO 3166-1 alpha-2 region and the dialling code you
+ * reach it on.
+ *
+ * Only the dialling codes are kept by hand, because a dialling code is a fact
+ * about the telephone network that no platform API will tell us. The NAMES are
+ * not kept here at all — they come from `Intl.DisplayNames` under the Locale the
+ * page was routed with (see `countries` below), so the Spanish Storefront gets
+ * "Alemania" without anyone translating two hundred rows, and a renaming like
+ * Turkey's arrives on its own. What was here before was two hundred English
+ * strings that served a Spanish reader nothing and that only a hand-edit could
+ * ever correct.
  *
  * It carries NO validation duty whatsoever: it supplies the prefix for display
  * and for assembling the canonical number, and that is all. Validation is the
@@ -46,248 +69,326 @@ export const ECUADOR_DIALLING_CODE = "+593";
  * number itself, not off this list. Adding or removing a row changes what the
  * selector offers and nothing about what is accepted.
  *
- * Ecuador is first because it is the default selection and the overwhelming
- * majority of buyers — the common case should need no interaction at all. The
- * rest are alphabetical, which is the only order a person scanning a long list
- * can predict.
+ * Ordered by region code, which is the only order that is the same in every
+ * language — what a buyer sees is sorted per Locale by `countries`, and a source
+ * file sorted by yesterday's English names would just be a lie about the order
+ * anyone reads it in.
  *
  * Accepted cosmetic imperfection (#103): `+1` covers the United States, Canada
  * and some twenty other countries, and `+7` covers Russia and Kazakhstan. The
  * longest-prefix match in `splitPhone` therefore resolves a stored `+1` number
- * to whichever `+1` row appears first here — Canada, alphabetically — regardless
- * of where the buyer actually is. This is deliberately not solved: the value
- * sent to PayPhone is unaffected, split dialling-code columns would not have
- * recorded the distinction either, and the alternative is a second table of
+ * to a dialling code shared by several rows, and the selector lands on whichever
+ * of them the reader's Locale sorts first. This is deliberately not solved: the
+ * value sent to PayPhone is unaffected, split dialling-code columns would not
+ * have recorded the distinction either, and the alternative is a second table of
  * area-code ranges maintained forever. The Caribbean NANP territories are listed
  * with their full three-digit `+1XXX` codes, so those at least resolve exactly.
  */
-export const COUNTRIES: readonly Country[] = [
-  { name: "Ecuador", diallingCode: ECUADOR_DIALLING_CODE },
-  { name: "Afghanistan", diallingCode: "+93" },
-  { name: "Albania", diallingCode: "+355" },
-  { name: "Algeria", diallingCode: "+213" },
-  { name: "Andorra", diallingCode: "+376" },
-  { name: "Angola", diallingCode: "+244" },
-  { name: "Antigua and Barbuda", diallingCode: "+1268" },
-  { name: "Argentina", diallingCode: "+54" },
-  { name: "Armenia", diallingCode: "+374" },
-  { name: "Aruba", diallingCode: "+297" },
-  { name: "Australia", diallingCode: "+61" },
-  { name: "Austria", diallingCode: "+43" },
-  { name: "Azerbaijan", diallingCode: "+994" },
-  { name: "Bahamas", diallingCode: "+1242" },
-  { name: "Bahrain", diallingCode: "+973" },
-  { name: "Bangladesh", diallingCode: "+880" },
-  { name: "Barbados", diallingCode: "+1246" },
-  { name: "Belarus", diallingCode: "+375" },
-  { name: "Belgium", diallingCode: "+32" },
-  { name: "Belize", diallingCode: "+501" },
-  { name: "Benin", diallingCode: "+229" },
-  { name: "Bermuda", diallingCode: "+1441" },
-  { name: "Bhutan", diallingCode: "+975" },
-  { name: "Bolivia", diallingCode: "+591" },
-  { name: "Bosnia and Herzegovina", diallingCode: "+387" },
-  { name: "Botswana", diallingCode: "+267" },
-  { name: "Brazil", diallingCode: "+55" },
-  { name: "Brunei", diallingCode: "+673" },
-  { name: "Bulgaria", diallingCode: "+359" },
-  { name: "Burkina Faso", diallingCode: "+226" },
-  { name: "Burundi", diallingCode: "+257" },
-  { name: "Cambodia", diallingCode: "+855" },
-  { name: "Cameroon", diallingCode: "+237" },
-  { name: "Canada", diallingCode: "+1" },
-  { name: "Cape Verde", diallingCode: "+238" },
-  { name: "Cayman Islands", diallingCode: "+1345" },
-  { name: "Central African Republic", diallingCode: "+236" },
-  { name: "Chad", diallingCode: "+235" },
-  { name: "Chile", diallingCode: "+56" },
-  { name: "China", diallingCode: "+86" },
-  { name: "Colombia", diallingCode: "+57" },
-  { name: "Comoros", diallingCode: "+269" },
-  { name: "Congo (Democratic Republic)", diallingCode: "+243" },
-  { name: "Congo (Republic)", diallingCode: "+242" },
-  { name: "Costa Rica", diallingCode: "+506" },
-  { name: "Côte d'Ivoire", diallingCode: "+225" },
-  { name: "Croatia", diallingCode: "+385" },
-  { name: "Cuba", diallingCode: "+53" },
-  { name: "Curaçao", diallingCode: "+599" },
-  { name: "Cyprus", diallingCode: "+357" },
-  { name: "Czechia", diallingCode: "+420" },
-  { name: "Denmark", diallingCode: "+45" },
-  { name: "Djibouti", diallingCode: "+253" },
-  { name: "Dominica", diallingCode: "+1767" },
-  { name: "Dominican Republic", diallingCode: "+1809" },
-  { name: "Egypt", diallingCode: "+20" },
-  { name: "El Salvador", diallingCode: "+503" },
-  { name: "Equatorial Guinea", diallingCode: "+240" },
-  { name: "Eritrea", diallingCode: "+291" },
-  { name: "Estonia", diallingCode: "+372" },
-  { name: "Eswatini", diallingCode: "+268" },
-  { name: "Ethiopia", diallingCode: "+251" },
-  { name: "Fiji", diallingCode: "+679" },
-  { name: "Finland", diallingCode: "+358" },
-  { name: "France", diallingCode: "+33" },
-  { name: "French Guiana", diallingCode: "+594" },
-  { name: "French Polynesia", diallingCode: "+689" },
-  { name: "Gabon", diallingCode: "+241" },
-  { name: "Gambia", diallingCode: "+220" },
-  { name: "Georgia", diallingCode: "+995" },
-  { name: "Germany", diallingCode: "+49" },
-  { name: "Ghana", diallingCode: "+233" },
-  { name: "Gibraltar", diallingCode: "+350" },
-  { name: "Greece", diallingCode: "+30" },
-  { name: "Greenland", diallingCode: "+299" },
-  { name: "Grenada", diallingCode: "+1473" },
-  { name: "Guadeloupe", diallingCode: "+590" },
-  { name: "Guam", diallingCode: "+1671" },
-  { name: "Guatemala", diallingCode: "+502" },
-  { name: "Guinea", diallingCode: "+224" },
-  { name: "Guinea-Bissau", diallingCode: "+245" },
-  { name: "Guyana", diallingCode: "+592" },
-  { name: "Haiti", diallingCode: "+509" },
-  { name: "Honduras", diallingCode: "+504" },
-  { name: "Hong Kong", diallingCode: "+852" },
-  { name: "Hungary", diallingCode: "+36" },
-  { name: "Iceland", diallingCode: "+354" },
-  { name: "India", diallingCode: "+91" },
-  { name: "Indonesia", diallingCode: "+62" },
-  { name: "Iran", diallingCode: "+98" },
-  { name: "Iraq", diallingCode: "+964" },
-  { name: "Ireland", diallingCode: "+353" },
-  { name: "Israel", diallingCode: "+972" },
-  { name: "Italy", diallingCode: "+39" },
-  { name: "Jamaica", diallingCode: "+1876" },
-  { name: "Japan", diallingCode: "+81" },
-  { name: "Jordan", diallingCode: "+962" },
-  { name: "Kazakhstan", diallingCode: "+7" },
-  { name: "Kenya", diallingCode: "+254" },
-  { name: "Kiribati", diallingCode: "+686" },
-  { name: "Kosovo", diallingCode: "+383" },
-  { name: "Kuwait", diallingCode: "+965" },
-  { name: "Kyrgyzstan", diallingCode: "+996" },
-  { name: "Laos", diallingCode: "+856" },
-  { name: "Latvia", diallingCode: "+371" },
-  { name: "Lebanon", diallingCode: "+961" },
-  { name: "Lesotho", diallingCode: "+266" },
-  { name: "Liberia", diallingCode: "+231" },
-  { name: "Libya", diallingCode: "+218" },
-  { name: "Liechtenstein", diallingCode: "+423" },
-  { name: "Lithuania", diallingCode: "+370" },
-  { name: "Luxembourg", diallingCode: "+352" },
-  { name: "Macao", diallingCode: "+853" },
-  { name: "Madagascar", diallingCode: "+261" },
-  { name: "Malawi", diallingCode: "+265" },
-  { name: "Malaysia", diallingCode: "+60" },
-  { name: "Maldives", diallingCode: "+960" },
-  { name: "Mali", diallingCode: "+223" },
-  { name: "Malta", diallingCode: "+356" },
-  { name: "Marshall Islands", diallingCode: "+692" },
-  { name: "Martinique", diallingCode: "+596" },
-  { name: "Mauritania", diallingCode: "+222" },
-  { name: "Mauritius", diallingCode: "+230" },
-  { name: "Mexico", diallingCode: "+52" },
-  { name: "Micronesia", diallingCode: "+691" },
-  { name: "Moldova", diallingCode: "+373" },
-  { name: "Monaco", diallingCode: "+377" },
-  { name: "Mongolia", diallingCode: "+976" },
-  { name: "Montenegro", diallingCode: "+382" },
-  { name: "Morocco", diallingCode: "+212" },
-  { name: "Mozambique", diallingCode: "+258" },
-  { name: "Myanmar", diallingCode: "+95" },
-  { name: "Namibia", diallingCode: "+264" },
-  { name: "Nauru", diallingCode: "+674" },
-  { name: "Nepal", diallingCode: "+977" },
-  { name: "Netherlands", diallingCode: "+31" },
-  { name: "New Caledonia", diallingCode: "+687" },
-  { name: "New Zealand", diallingCode: "+64" },
-  { name: "Nicaragua", diallingCode: "+505" },
-  { name: "Niger", diallingCode: "+227" },
-  { name: "Nigeria", diallingCode: "+234" },
-  { name: "North Korea", diallingCode: "+850" },
-  { name: "North Macedonia", diallingCode: "+389" },
-  { name: "Norway", diallingCode: "+47" },
-  { name: "Oman", diallingCode: "+968" },
-  { name: "Pakistan", diallingCode: "+92" },
-  { name: "Palau", diallingCode: "+680" },
-  { name: "Palestine", diallingCode: "+970" },
-  { name: "Panama", diallingCode: "+507" },
-  { name: "Papua New Guinea", diallingCode: "+675" },
-  { name: "Paraguay", diallingCode: "+595" },
-  { name: "Peru", diallingCode: "+51" },
-  { name: "Philippines", diallingCode: "+63" },
-  { name: "Poland", diallingCode: "+48" },
-  { name: "Portugal", diallingCode: "+351" },
-  { name: "Puerto Rico", diallingCode: "+1787" },
-  { name: "Qatar", diallingCode: "+974" },
-  { name: "Réunion", diallingCode: "+262" },
-  { name: "Romania", diallingCode: "+40" },
-  { name: "Russia", diallingCode: "+7" },
-  { name: "Rwanda", diallingCode: "+250" },
-  { name: "Saint Kitts and Nevis", diallingCode: "+1869" },
-  { name: "Saint Lucia", diallingCode: "+1758" },
-  { name: "Saint Vincent and the Grenadines", diallingCode: "+1784" },
-  { name: "Samoa", diallingCode: "+685" },
-  { name: "San Marino", diallingCode: "+378" },
-  { name: "São Tomé and Príncipe", diallingCode: "+239" },
-  { name: "Saudi Arabia", diallingCode: "+966" },
-  { name: "Senegal", diallingCode: "+221" },
-  { name: "Serbia", diallingCode: "+381" },
-  { name: "Seychelles", diallingCode: "+248" },
-  { name: "Sierra Leone", diallingCode: "+232" },
-  { name: "Singapore", diallingCode: "+65" },
-  { name: "Sint Maarten", diallingCode: "+1721" },
-  { name: "Slovakia", diallingCode: "+421" },
-  { name: "Slovenia", diallingCode: "+386" },
-  { name: "Solomon Islands", diallingCode: "+677" },
-  { name: "Somalia", diallingCode: "+252" },
-  { name: "South Africa", diallingCode: "+27" },
-  { name: "South Korea", diallingCode: "+82" },
-  { name: "South Sudan", diallingCode: "+211" },
-  { name: "Spain", diallingCode: "+34" },
-  { name: "Sri Lanka", diallingCode: "+94" },
-  { name: "Sudan", diallingCode: "+249" },
-  { name: "Suriname", diallingCode: "+597" },
-  { name: "Sweden", diallingCode: "+46" },
-  { name: "Switzerland", diallingCode: "+41" },
-  { name: "Syria", diallingCode: "+963" },
-  { name: "Taiwan", diallingCode: "+886" },
-  { name: "Tajikistan", diallingCode: "+992" },
-  { name: "Tanzania", diallingCode: "+255" },
-  { name: "Thailand", diallingCode: "+66" },
-  { name: "Timor-Leste", diallingCode: "+670" },
-  { name: "Togo", diallingCode: "+228" },
-  { name: "Tonga", diallingCode: "+676" },
-  { name: "Trinidad and Tobago", diallingCode: "+1868" },
-  { name: "Tunisia", diallingCode: "+216" },
-  { name: "Turkey", diallingCode: "+90" },
-  { name: "Turkmenistan", diallingCode: "+993" },
-  { name: "Turks and Caicos Islands", diallingCode: "+1649" },
-  { name: "Tuvalu", diallingCode: "+688" },
-  { name: "Uganda", diallingCode: "+256" },
-  { name: "Ukraine", diallingCode: "+380" },
-  { name: "United Arab Emirates", diallingCode: "+971" },
-  { name: "United Kingdom", diallingCode: "+44" },
-  { name: "United States", diallingCode: "+1" },
-  { name: "Uruguay", diallingCode: "+598" },
-  { name: "Uzbekistan", diallingCode: "+998" },
-  { name: "Vanuatu", diallingCode: "+678" },
-  { name: "Vatican City", diallingCode: "+379" },
-  { name: "Venezuela", diallingCode: "+58" },
-  { name: "Vietnam", diallingCode: "+84" },
-  { name: "Virgin Islands (British)", diallingCode: "+1284" },
-  { name: "Virgin Islands (U.S.)", diallingCode: "+1340" },
-  { name: "Yemen", diallingCode: "+967" },
-  { name: "Zambia", diallingCode: "+260" },
-  { name: "Zimbabwe", diallingCode: "+263" },
+const DIALLING_CODES: readonly { regionCode: string; diallingCode: string }[] = [
+  { regionCode: "AD", diallingCode: "+376" },
+  { regionCode: "AE", diallingCode: "+971" },
+  { regionCode: "AF", diallingCode: "+93" },
+  { regionCode: "AG", diallingCode: "+1268" },
+  { regionCode: "AL", diallingCode: "+355" },
+  { regionCode: "AM", diallingCode: "+374" },
+  { regionCode: "AO", diallingCode: "+244" },
+  { regionCode: "AR", diallingCode: "+54" },
+  { regionCode: "AT", diallingCode: "+43" },
+  { regionCode: "AU", diallingCode: "+61" },
+  { regionCode: "AW", diallingCode: "+297" },
+  { regionCode: "AZ", diallingCode: "+994" },
+  { regionCode: "BA", diallingCode: "+387" },
+  { regionCode: "BB", diallingCode: "+1246" },
+  { regionCode: "BD", diallingCode: "+880" },
+  { regionCode: "BE", diallingCode: "+32" },
+  { regionCode: "BF", diallingCode: "+226" },
+  { regionCode: "BG", diallingCode: "+359" },
+  { regionCode: "BH", diallingCode: "+973" },
+  { regionCode: "BI", diallingCode: "+257" },
+  { regionCode: "BJ", diallingCode: "+229" },
+  { regionCode: "BM", diallingCode: "+1441" },
+  { regionCode: "BN", diallingCode: "+673" },
+  { regionCode: "BO", diallingCode: "+591" },
+  { regionCode: "BR", diallingCode: "+55" },
+  { regionCode: "BS", diallingCode: "+1242" },
+  { regionCode: "BT", diallingCode: "+975" },
+  { regionCode: "BW", diallingCode: "+267" },
+  { regionCode: "BY", diallingCode: "+375" },
+  { regionCode: "BZ", diallingCode: "+501" },
+  { regionCode: "CA", diallingCode: "+1" },
+  { regionCode: "CD", diallingCode: "+243" },
+  { regionCode: "CF", diallingCode: "+236" },
+  { regionCode: "CG", diallingCode: "+242" },
+  { regionCode: "CH", diallingCode: "+41" },
+  { regionCode: "CI", diallingCode: "+225" },
+  { regionCode: "CL", diallingCode: "+56" },
+  { regionCode: "CM", diallingCode: "+237" },
+  { regionCode: "CN", diallingCode: "+86" },
+  { regionCode: "CO", diallingCode: "+57" },
+  { regionCode: "CR", diallingCode: "+506" },
+  { regionCode: "CU", diallingCode: "+53" },
+  { regionCode: "CV", diallingCode: "+238" },
+  { regionCode: "CW", diallingCode: "+599" },
+  { regionCode: "CY", diallingCode: "+357" },
+  { regionCode: "CZ", diallingCode: "+420" },
+  { regionCode: "DE", diallingCode: "+49" },
+  { regionCode: "DJ", diallingCode: "+253" },
+  { regionCode: "DK", diallingCode: "+45" },
+  { regionCode: "DM", diallingCode: "+1767" },
+  { regionCode: "DO", diallingCode: "+1809" },
+  { regionCode: "DZ", diallingCode: "+213" },
+  { regionCode: "EC", diallingCode: ECUADOR_DIALLING_CODE },
+  { regionCode: "EE", diallingCode: "+372" },
+  { regionCode: "EG", diallingCode: "+20" },
+  { regionCode: "ER", diallingCode: "+291" },
+  { regionCode: "ES", diallingCode: "+34" },
+  { regionCode: "ET", diallingCode: "+251" },
+  { regionCode: "FI", diallingCode: "+358" },
+  { regionCode: "FJ", diallingCode: "+679" },
+  { regionCode: "FM", diallingCode: "+691" },
+  { regionCode: "FR", diallingCode: "+33" },
+  { regionCode: "GA", diallingCode: "+241" },
+  { regionCode: "GB", diallingCode: "+44" },
+  { regionCode: "GD", diallingCode: "+1473" },
+  { regionCode: "GE", diallingCode: "+995" },
+  { regionCode: "GF", diallingCode: "+594" },
+  { regionCode: "GH", diallingCode: "+233" },
+  { regionCode: "GI", diallingCode: "+350" },
+  { regionCode: "GL", diallingCode: "+299" },
+  { regionCode: "GM", diallingCode: "+220" },
+  { regionCode: "GN", diallingCode: "+224" },
+  { regionCode: "GP", diallingCode: "+590" },
+  { regionCode: "GQ", diallingCode: "+240" },
+  { regionCode: "GR", diallingCode: "+30" },
+  { regionCode: "GT", diallingCode: "+502" },
+  { regionCode: "GU", diallingCode: "+1671" },
+  { regionCode: "GW", diallingCode: "+245" },
+  { regionCode: "GY", diallingCode: "+592" },
+  { regionCode: "HK", diallingCode: "+852" },
+  { regionCode: "HN", diallingCode: "+504" },
+  { regionCode: "HR", diallingCode: "+385" },
+  { regionCode: "HT", diallingCode: "+509" },
+  { regionCode: "HU", diallingCode: "+36" },
+  { regionCode: "ID", diallingCode: "+62" },
+  { regionCode: "IE", diallingCode: "+353" },
+  { regionCode: "IL", diallingCode: "+972" },
+  { regionCode: "IN", diallingCode: "+91" },
+  { regionCode: "IQ", diallingCode: "+964" },
+  { regionCode: "IR", diallingCode: "+98" },
+  { regionCode: "IS", diallingCode: "+354" },
+  { regionCode: "IT", diallingCode: "+39" },
+  { regionCode: "JM", diallingCode: "+1876" },
+  { regionCode: "JO", diallingCode: "+962" },
+  { regionCode: "JP", diallingCode: "+81" },
+  { regionCode: "KE", diallingCode: "+254" },
+  { regionCode: "KG", diallingCode: "+996" },
+  { regionCode: "KH", diallingCode: "+855" },
+  { regionCode: "KI", diallingCode: "+686" },
+  { regionCode: "KM", diallingCode: "+269" },
+  { regionCode: "KN", diallingCode: "+1869" },
+  { regionCode: "KP", diallingCode: "+850" },
+  { regionCode: "KR", diallingCode: "+82" },
+  { regionCode: "KW", diallingCode: "+965" },
+  { regionCode: "KY", diallingCode: "+1345" },
+  { regionCode: "KZ", diallingCode: "+7" },
+  { regionCode: "LA", diallingCode: "+856" },
+  { regionCode: "LB", diallingCode: "+961" },
+  { regionCode: "LC", diallingCode: "+1758" },
+  { regionCode: "LI", diallingCode: "+423" },
+  { regionCode: "LK", diallingCode: "+94" },
+  { regionCode: "LR", diallingCode: "+231" },
+  { regionCode: "LS", diallingCode: "+266" },
+  { regionCode: "LT", diallingCode: "+370" },
+  { regionCode: "LU", diallingCode: "+352" },
+  { regionCode: "LV", diallingCode: "+371" },
+  { regionCode: "LY", diallingCode: "+218" },
+  { regionCode: "MA", diallingCode: "+212" },
+  { regionCode: "MC", diallingCode: "+377" },
+  { regionCode: "MD", diallingCode: "+373" },
+  { regionCode: "ME", diallingCode: "+382" },
+  { regionCode: "MG", diallingCode: "+261" },
+  { regionCode: "MH", diallingCode: "+692" },
+  { regionCode: "MK", diallingCode: "+389" },
+  { regionCode: "ML", diallingCode: "+223" },
+  { regionCode: "MM", diallingCode: "+95" },
+  { regionCode: "MN", diallingCode: "+976" },
+  { regionCode: "MO", diallingCode: "+853" },
+  { regionCode: "MQ", diallingCode: "+596" },
+  { regionCode: "MR", diallingCode: "+222" },
+  { regionCode: "MT", diallingCode: "+356" },
+  { regionCode: "MU", diallingCode: "+230" },
+  { regionCode: "MV", diallingCode: "+960" },
+  { regionCode: "MW", diallingCode: "+265" },
+  { regionCode: "MX", diallingCode: "+52" },
+  { regionCode: "MY", diallingCode: "+60" },
+  { regionCode: "MZ", diallingCode: "+258" },
+  { regionCode: "NA", diallingCode: "+264" },
+  { regionCode: "NC", diallingCode: "+687" },
+  { regionCode: "NE", diallingCode: "+227" },
+  { regionCode: "NG", diallingCode: "+234" },
+  { regionCode: "NI", diallingCode: "+505" },
+  { regionCode: "NL", diallingCode: "+31" },
+  { regionCode: "NO", diallingCode: "+47" },
+  { regionCode: "NP", diallingCode: "+977" },
+  { regionCode: "NR", diallingCode: "+674" },
+  { regionCode: "NZ", diallingCode: "+64" },
+  { regionCode: "OM", diallingCode: "+968" },
+  { regionCode: "PA", diallingCode: "+507" },
+  { regionCode: "PE", diallingCode: "+51" },
+  { regionCode: "PF", diallingCode: "+689" },
+  { regionCode: "PG", diallingCode: "+675" },
+  { regionCode: "PH", diallingCode: "+63" },
+  { regionCode: "PK", diallingCode: "+92" },
+  { regionCode: "PL", diallingCode: "+48" },
+  { regionCode: "PR", diallingCode: "+1787" },
+  { regionCode: "PS", diallingCode: "+970" },
+  { regionCode: "PT", diallingCode: "+351" },
+  { regionCode: "PW", diallingCode: "+680" },
+  { regionCode: "PY", diallingCode: "+595" },
+  { regionCode: "QA", diallingCode: "+974" },
+  { regionCode: "RE", diallingCode: "+262" },
+  { regionCode: "RO", diallingCode: "+40" },
+  { regionCode: "RS", diallingCode: "+381" },
+  { regionCode: "RU", diallingCode: "+7" },
+  { regionCode: "RW", diallingCode: "+250" },
+  { regionCode: "SA", diallingCode: "+966" },
+  { regionCode: "SB", diallingCode: "+677" },
+  { regionCode: "SC", diallingCode: "+248" },
+  { regionCode: "SD", diallingCode: "+249" },
+  { regionCode: "SE", diallingCode: "+46" },
+  { regionCode: "SG", diallingCode: "+65" },
+  { regionCode: "SI", diallingCode: "+386" },
+  { regionCode: "SK", diallingCode: "+421" },
+  { regionCode: "SL", diallingCode: "+232" },
+  { regionCode: "SM", diallingCode: "+378" },
+  { regionCode: "SN", diallingCode: "+221" },
+  { regionCode: "SO", diallingCode: "+252" },
+  { regionCode: "SR", diallingCode: "+597" },
+  { regionCode: "SS", diallingCode: "+211" },
+  { regionCode: "ST", diallingCode: "+239" },
+  { regionCode: "SV", diallingCode: "+503" },
+  { regionCode: "SX", diallingCode: "+1721" },
+  { regionCode: "SY", diallingCode: "+963" },
+  { regionCode: "SZ", diallingCode: "+268" },
+  { regionCode: "TC", diallingCode: "+1649" },
+  { regionCode: "TD", diallingCode: "+235" },
+  { regionCode: "TG", diallingCode: "+228" },
+  { regionCode: "TH", diallingCode: "+66" },
+  { regionCode: "TJ", diallingCode: "+992" },
+  { regionCode: "TL", diallingCode: "+670" },
+  { regionCode: "TM", diallingCode: "+993" },
+  { regionCode: "TN", diallingCode: "+216" },
+  { regionCode: "TO", diallingCode: "+676" },
+  { regionCode: "TR", diallingCode: "+90" },
+  { regionCode: "TT", diallingCode: "+1868" },
+  { regionCode: "TV", diallingCode: "+688" },
+  { regionCode: "TW", diallingCode: "+886" },
+  { regionCode: "TZ", diallingCode: "+255" },
+  { regionCode: "UA", diallingCode: "+380" },
+  { regionCode: "UG", diallingCode: "+256" },
+  { regionCode: "US", diallingCode: "+1" },
+  { regionCode: "UY", diallingCode: "+598" },
+  { regionCode: "UZ", diallingCode: "+998" },
+  { regionCode: "VA", diallingCode: "+379" },
+  { regionCode: "VC", diallingCode: "+1784" },
+  { regionCode: "VE", diallingCode: "+58" },
+  { regionCode: "VG", diallingCode: "+1284" },
+  { regionCode: "VI", diallingCode: "+1340" },
+  { regionCode: "VN", diallingCode: "+84" },
+  { regionCode: "VU", diallingCode: "+678" },
+  { regionCode: "WS", diallingCode: "+685" },
+  { regionCode: "XK", diallingCode: "+383" },
+  { regionCode: "YE", diallingCode: "+967" },
+  { regionCode: "ZA", diallingCode: "+27" },
+  { regionCode: "ZM", diallingCode: "+260" },
+  { regionCode: "ZW", diallingCode: "+263" },
 ];
 
 /**
- * The two field messages, one per tier, worded exactly as the API words them so
- * the field does not visibly change its mind when the server answers.
- * Mirrors PhoneEcuadorMessage and PhoneGenericMessage in phone.go.
+ * The Intl.DisplayNames of a Locale, built once. Constructing one is the
+ * expensive part — it loads a locale's whole region table — and both pickers
+ * rebuild their list on every keystroke that re-renders the form.
  */
-export const PHONE_ECUADOR_MESSAGE = "must be an Ecuadorian mobile: 9 digits starting with 9";
-export const PHONE_GENERIC_MESSAGE = "must be 4–15 digits in international format, like +12025550123";
+const DISPLAY_NAMES = new Map<IntlLocale, Intl.DisplayNames>();
+
+function displayNames(locale: IntlLocale): Intl.DisplayNames {
+  let names = DISPLAY_NAMES.get(locale);
+  if (!names) {
+    // "none" rather than the default "code": a missing name must come back as
+    // nothing so the fallback below can try elsewhere, instead of arriving
+    // disguised as the string "ZX".
+    names = new Intl.DisplayNames(locale, { type: "region", fallback: "none" });
+    DISPLAY_NAMES.set(locale, names);
+  }
+  return names;
+}
+
+function lookupName(regionCode: string, locale: IntlLocale): string | undefined {
+  try {
+    // `of` throws on anything that is not a well-formed region subtag, which a
+    // typo in the table above would be. A selector row is not worth a crashed
+    // checkout, so it degrades to the next candidate instead.
+    return displayNames(locale).of(regionCode) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What to call a region under a Locale.
+ *
+ * Three candidates, in order: the Locale asked for, then English, then the
+ * region code itself. The English step is what covers a runtime whose ICU data
+ * was trimmed to one language — the name is then in the wrong language, which is
+ * a blemish, where a blank option in the middle of the selector is a row nobody
+ * can pick. The code is the last resort for a region CLDR has never heard of; no
+ * row in the table above reaches it, and phone.test.ts holds that line.
+ */
+export function countryName(regionCode: string, locale: IntlLocale = DEFAULT_LOCALE): string {
+  return lookupName(regionCode, locale) ?? lookupName(regionCode, DEFAULT_LOCALE) ?? regionCode;
+}
+
+/** Built lists, per Locale. Two hundred lookups and a collation sort. */
+const COUNTRY_LISTS = new Map<IntlLocale, readonly Country[]>();
+
+/**
+ * The selector's rows, named and ordered for one Locale.
+ *
+ * Ecuador is first because it is the default selection and the overwhelming
+ * majority of buyers — the common case should need no interaction at all.
+ *
+ * The rest are sorted by `Intl.Collator`, not by `<`. Comparing the strings
+ * directly is an ASCII ordering wearing alphabetical clothes: it files every
+ * accented name after "Z", so a Spanish list would end in a tail of Á-, É- and
+ * Ñ- countries that a buyer scanning for "Alemania" would never reach. The
+ * collator is also the only thing that knows a language's own rules about where
+ * its letters go.
+ *
+ * The result is plain serialisable data, so a Server Component can build it once
+ * and hand it to a client picker as a prop — which is also the only way to be
+ * sure the two agree, since a browser's CLDR and the server's are different
+ * builds and can disagree on a name ("Turkey" became "Türkiye" in CLDR 42).
+ */
+export function countries(locale: IntlLocale = DEFAULT_LOCALE): readonly Country[] {
+  const cached = COUNTRY_LISTS.get(locale);
+  if (cached) return cached;
+
+  const collator = new Intl.Collator(locale);
+  const named = DIALLING_CODES.map((row) => ({
+    regionCode: row.regionCode,
+    name: countryName(row.regionCode, locale),
+    diallingCode: row.diallingCode,
+  }));
+
+  const ecuador = named.filter((country) => country.regionCode === ECUADOR_REGION_CODE);
+  const rest = named
+    .filter((country) => country.regionCode !== ECUADOR_REGION_CODE)
+    .sort((a, b) => collator.compare(a.name, b.name));
+
+  const list: readonly Country[] = [...ecuador, ...rest];
+  COUNTRY_LISTS.set(locale, list);
+  return list;
+}
 
 /**
  * The punctuation people write phone numbers with — "+593 (0)98-765.4321" — all
@@ -347,8 +448,12 @@ export function normalizePhone(phone: string): string | null {
 }
 
 /**
- * validatePhone returns the message to show under the field, or null when there
- * is nothing to complain about.
+ * validatePhone names the tier the number failed, or null when there is nothing
+ * to complain about. It answers with the API's own field code rather than a
+ * sentence, so the caller resolves it through the same catalog entry the API's
+ * field error resolves through — the field cannot complain in English before the
+ * round trip and in Spanish after it (ADR 0023). The rule below is untouched;
+ * only the wording of its verdict moved out of this module.
  *
  * A blank field is *not* an error: the phone is optional (#103), and a buyer who
  * skips it completes their purchase exactly as they do today. The caller simply
@@ -361,23 +466,23 @@ export function normalizePhone(phone: string): string | null {
  * from what parsed, mirroring PhoneNumberMessage in phone.go, so someone
  * mistyping an Ecuadorian mobile is told about Ecuadorian mobiles.
  */
-export function validatePhone(phone: string): string | null {
+export function validatePhone(phone: string): FieldErrorCode | null {
   if (phone.trim() === "") return null;
   if (normalizePhone(phone) !== null) return null;
-  return phoneMessage(phone);
+  return phoneCode(phone);
 }
 
 /**
- * phoneMessage picks the tier a rejected number was aiming at, from the digits
+ * phoneCode picks the tier a rejected number was aiming at, from the digits
  * the buyer typed rather than from what parsed — the mirror of PhoneNumberMessage
  * in phone.go, factored out here for the same reason it is a named function
  * there: the tier choice is a rule, and a rule stated inline in one runtime and
  * named in the other is a rule that drifts.
  */
-function phoneMessage(phone: string): string {
+function phoneCode(phone: string): FieldErrorCode {
   return phone.replace(/[^0-9]/g, "").startsWith(ECUADOR_DIGITS)
-    ? PHONE_ECUADOR_MESSAGE
-    : PHONE_GENERIC_MESSAGE;
+    ? "INVALID_PHONE_EC"
+    : "INVALID_PHONE";
 }
 
 /**
@@ -412,6 +517,11 @@ export function composePhone(diallingCode: string, nationalNumber: string): stri
  * text field — by LONGEST-PREFIX match against the country table. Longest wins
  * so "+12425551234" resolves to the Bahamas' "+1242" rather than to "+1".
  *
+ * It reads the dialling codes, never the named list: which halves a stored
+ * number breaks into is a fact about the telephone network, and a number that
+ * split differently for a Spanish reader than an English one would mean a buyer
+ * switching language could submit a different number than the one they had.
+ *
  * Nothing stored: Ecuador and an empty field, because Ecuador is the default
  * selection and the common case should need no interaction.
  *
@@ -427,9 +537,9 @@ export function splitPhone(phone: string | null | undefined): {
   if (!phone) return { diallingCode: ECUADOR_DIALLING_CODE, nationalNumber: "" };
 
   let match = "";
-  for (const country of COUNTRIES) {
-    if (phone.startsWith(country.diallingCode) && country.diallingCode.length > match.length) {
-      match = country.diallingCode;
+  for (const { diallingCode } of DIALLING_CODES) {
+    if (phone.startsWith(diallingCode) && diallingCode.length > match.length) {
+      match = diallingCode;
     }
   }
   if (match === "") return { diallingCode: "", nationalNumber: phone };

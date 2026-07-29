@@ -24,6 +24,12 @@
 // `node --experimental-strip-types`, whose resolution needs it (as
 // lib/google-signin.ts does for the same reason).
 import {
+  fieldCodeMessage,
+  fieldErrorMessages,
+  type ErrorCatalog,
+  type FieldErrorCode,
+} from "./api-errors.ts";
+import {
   ECUADOR_DIALLING_CODE,
   composePhone,
   normalizePhone,
@@ -65,7 +71,15 @@ export const PROFILE_FIELDS = [
 
 export type ProfileField = (typeof PROFILE_FIELDS)[number];
 
+/** The sentences the form shows under its inputs, keyed by field. */
 export type ProfileFieldErrors = Partial<Record<ProfileField, string>>;
+
+/**
+ * The same fields, holding the API's field CODE instead of a sentence — what the
+ * mirror validation answers with before anything is sent. Copy is chosen from it
+ * at render, by profileFieldMessages, so nothing here is language-bound.
+ */
+export type ProfileFieldCodes = Partial<Record<ProfileField, FieldErrorCode>>;
 
 /**
  * What the form holds while it is being edited.
@@ -104,14 +118,18 @@ function isProfileField(field: string): field is ProfileField {
 }
 
 /**
- * validateProfileDraft returns the field errors to show, or an empty object when
- * the draft is ready to send. The messages mirror the API's own wording so a
- * field does not visibly change its mind when the server answers.
+ * validateProfileDraft returns the rule each field broke, keyed by field, or an
+ * empty object when the draft is ready to send.
+ *
+ * Codes, not sentences: the same codes the API's own field errors carry, so a
+ * verdict reached here and the identical verdict reached by the API resolve to
+ * one sentence in whichever language the page is being read in (ADR 0023). The
+ * rules are exactly the ones this function has always applied.
  */
-export function validateProfileDraft(draft: ProfileDraft): ProfileFieldErrors {
-  const errors: ProfileFieldErrors = {};
-  if (draft.firstName.trim() === "") errors.first_name = "is required";
-  if (draft.lastName.trim() === "") errors.last_name = "is required";
+export function validateProfileDraft(draft: ProfileDraft): ProfileFieldCodes {
+  const errors: ProfileFieldCodes = {};
+  if (draft.firstName.trim() === "") errors.first_name = "REQUIRED";
+  if (draft.lastName.trim() === "") errors.last_name = "REQUIRED";
 
   // An empty number is the clear, and clearing is always allowed.
   if (draft.taxIdNumber.trim() !== "") {
@@ -186,18 +204,41 @@ export function profileDraftPhone(phone: string | null): {
 }
 
 /**
+ * profileFieldMessages is the mirror's half of the copy: the codes
+ * validateProfileDraft answered with, each resolved to the sentence its field
+ * shows.
+ *
+ * It sits beside profileFieldErrorsFromDetails deliberately. The two are the
+ * before and after of one round trip, they resolve through the same catalog
+ * group on the same codes, and a reader comparing them should be able to see at
+ * a glance that neither has its own opinion about wording.
+ */
+export function profileFieldMessages(
+  catalog: ErrorCatalog,
+  codes: ProfileFieldCodes,
+): ProfileFieldErrors {
+  const errors: ProfileFieldErrors = {};
+  for (const [field, code] of Object.entries(codes)) {
+    if (code && isProfileField(field)) errors[field] = fieldCodeMessage(catalog, code);
+  }
+  return errors;
+}
+
+/**
  * profileFieldErrorsFromDetails picks the field-level errors out of the API's
  * VALIDATION_FAILED envelope, ignoring any field this form has no input for.
+ *
+ * The copy itself is chosen by fieldErrorMessages, on the FieldError's stable
+ * `code`, falling back to its message (ADR 0023). All this adds is the filter,
+ * which is the one part that belongs to the form: a field with no input to sit
+ * under has nowhere to render.
  */
-export function profileFieldErrorsFromDetails(details: unknown): ProfileFieldErrors {
+export function profileFieldErrorsFromDetails(
+  catalog: ErrorCatalog,
+  details: unknown,
+): ProfileFieldErrors {
   const errors: ProfileFieldErrors = {};
-  if (typeof details !== "object" || details === null) return errors;
-  const fields = (details as { fields?: unknown }).fields;
-  if (!Array.isArray(fields)) return errors;
-  for (const entry of fields) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const { field, message } = entry as { field?: unknown; message?: unknown };
-    if (typeof field !== "string" || typeof message !== "string") continue;
+  for (const [field, message] of Object.entries(fieldErrorMessages(catalog, details))) {
     if (isProfileField(field)) errors[field] = message;
   }
   return errors;

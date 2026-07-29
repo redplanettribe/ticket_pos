@@ -163,7 +163,7 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 		{"redirect_uri", body.RedirectURI},
 	} {
 		if strings.TrimSpace(required.value) == "" {
-			fields = append(fields, platform.FieldError{Field: required.name, Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: required.name, Code: platform.CodeRequired, Message: "is required"})
 		}
 	}
 	if len(fields) > 0 {
@@ -215,7 +215,7 @@ func (h *Handler) RedeemConfirmationLink(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if strings.TrimSpace(body.Token) == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "token", Message: "is required"}})
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "token", Code: platform.CodeRequired, Message: "is required"}})
 		return
 	}
 
@@ -414,10 +414,10 @@ func validateUpdateProfile(body updateProfileBody) ([]platform.FieldError, servi
 	firstName := strings.TrimSpace(body.FirstName)
 	lastName := strings.TrimSpace(body.LastName)
 	if firstName == "" {
-		fields = append(fields, platform.FieldError{Field: "first_name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "first_name", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if lastName == "" {
-		fields = append(fields, platform.FieldError{Field: "last_name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "last_name", Code: platform.CodeRequired, Message: "is required"})
 	}
 
 	input := service.UpdateProfileInput{FirstName: firstName, LastName: lastName}
@@ -431,9 +431,9 @@ func validateUpdateProfile(body updateProfileBody) ([]platform.FieldError, servi
 		// supply one again — where a sale may fill the blank they left
 		// (ADR 0016).
 	case taxIDType == "":
-		fields = append(fields, platform.FieldError{Field: "tax_id_type", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "tax_id_type", Code: platform.CodeRequired, Message: "is required"})
 	case taxIDNumber == "":
-		fields = append(fields, platform.FieldError{Field: "tax_id_number", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "tax_id_number", Code: platform.CodeRequired, Message: "is required"})
 	default:
 		normalized, taxIDFields := platform.TaxIDFieldErrors("tax_id_type", "tax_id_number", taxIDType, taxIDNumber)
 		if len(taxIDFields) > 0 {
@@ -509,7 +509,7 @@ func (h *Handler) CreateAvatarUploadURL(w http.ResponseWriter, r *http.Request) 
 	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
 	if contentType == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "is required"},
+			{Field: "content_type", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -560,7 +560,7 @@ func (h *Handler) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
 	imageKey := strings.TrimSpace(body.ImageKey)
 	if imageKey == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "image_key", Message: "is required"},
+			{Field: "image_key", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -607,10 +607,10 @@ func customerSessionToken(r *http.Request) string {
 func validateEmail(email string) []platform.FieldError {
 	email = strings.TrimSpace(email)
 	if email == "" {
-		return []platform.FieldError{{Field: "email", Message: "is required"}}
+		return []platform.FieldError{{Field: "email", Code: platform.CodeRequired, Message: "is required"}}
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return []platform.FieldError{{Field: "email", Message: "must be a valid email address"}}
+		return []platform.FieldError{{Field: "email", Code: platform.CodeInvalidEmail, Message: "must be a valid email address"}}
 	}
 	return nil
 }
@@ -618,14 +618,14 @@ func validateEmail(email string) []platform.FieldError {
 func validateOTPCode(code string) []platform.FieldError {
 	code = strings.TrimSpace(code)
 	if code == "" {
-		return []platform.FieldError{{Field: "code", Message: "is required"}}
+		return []platform.FieldError{{Field: "code", Code: platform.CodeRequired, Message: "is required"}}
 	}
 	if len(code) != 6 {
-		return []platform.FieldError{{Field: "code", Message: "must be 6 digits"}}
+		return []platform.FieldError{{Field: "code", Code: platform.CodeInvalidPasscodeFormat, Message: "must be 6 digits"}}
 	}
 	for _, ch := range code {
 		if ch < '0' || ch > '9' {
-			return []platform.FieldError{{Field: "code", Message: "must be 6 digits"}}
+			return []platform.FieldError{{Field: "code", Code: platform.CodeInvalidPasscodeFormat, Message: "must be 6 digits"}}
 		}
 	}
 	return nil

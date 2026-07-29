@@ -10,7 +10,13 @@ import { test, expect, type Page } from "@playwright/test";
 // published, discoverable Event this spec buys from. Capacity is 200, so
 // repeated runs never sell it out; declined Payments never consume capacity.
 
-const EVENT_PATH = "/demo-venue/events/midnight-synth-live";
+// Every Storefront page is served under a Locale carried in the URL, so these
+// journeys walk the English Storefront by name rather than leaning on the
+// redirect an address naming no language gets. The stub Payment Provider's own
+// page is the exception: the API builds that URL from a fixed constant, so the
+// buyer arrives at it unprefixed and is redirected — which is asserted below.
+const LOCALE = "en";
+const EVENT_PATH = `/${LOCALE}/demo-venue/events/midnight-synth-live`;
 const EVENT_NAME = "Midnight Synth Live";
 
 // One General Admission ticket, priced at $35.00 by the seed and quoted all in
@@ -51,7 +57,7 @@ async function fillCheckoutForm(page: Page, email: string) {
 
   // The stub Payment Provider's interstitial: a top-level page showing the
   // amount, exactly where a real provider's hosted payment page would be.
-  await expect(page).toHaveURL(/\/checkout\/stub\?/);
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}/checkout/stub\\?`));
   await expect(page.getByTestId("stub-amount")).toHaveText(GA_PRICE);
 }
 
@@ -64,7 +70,8 @@ test("a Customer buys a ticket through the stub provider and lands on the confir
 
   await page.getByRole("link", { name: "Approve payment" }).click();
 
-  await expect(page).toHaveURL(/\/checkout\/success\?ref=/);
+  // Still in the Locale the buyer was reading in when they started.
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}/checkout/success\\?ref=`));
   await expect(page.getByRole("heading", { name: "You're going!" })).toBeVisible();
 
   // The confirmation reference is the artifact of the whole journey: it only
@@ -88,7 +95,7 @@ test("a declined payment lands on the failure page and retry returns to the Even
 
   await page.getByRole("link", { name: "Decline payment" }).click();
 
-  await expect(page).toHaveURL(/\/checkout\/failed/);
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}/checkout/failed`));
   await expect(page.getByRole("heading", { name: "Payment not completed" })).toBeVisible();
   await expect(page.getByText("You haven't been charged", { exact: false })).toBeVisible();
 

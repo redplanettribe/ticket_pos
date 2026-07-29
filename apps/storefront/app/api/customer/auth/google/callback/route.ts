@@ -16,6 +16,8 @@ import {
   signInFailurePath,
   statesMatch,
 } from "@/lib/google-signin";
+import { localizedPath, type AppLocale } from "@/lib/locale";
+import { redirectLocale } from "@/lib/redirect-locale";
 
 // Reads one cookie and writes two. Never cached, never prerendered.
 export const dynamic = "force-dynamic";
@@ -40,6 +42,11 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const store = await cookies();
+  // Google returns the browser to a redirect URI registered as a constant, so
+  // the language of the page this hands off to is chosen here. The destination
+  // carried through the state cookie is a locale-free path for the same reason.
+  const locale = await redirectLocale();
+  const redirectTo = (path: string) => localizedRedirect(locale, path);
 
   // Read then immediately schedule the deletion, before any branch below can
   // return: the cookie is spent the moment it is read, whatever happens next.
@@ -103,10 +110,10 @@ export async function GET(request: Request) {
 }
 
 /**
- * Redirects within this Storefront using a relative Location, for the same
- * reason /tickets/confirm does: NextResponse.redirect needs an absolute URL and
- * would have to guess this app's public origin.
+ * Redirects into a localized page within this Storefront using a relative
+ * Location, for the same reason /tickets/confirm does: NextResponse.redirect
+ * needs an absolute URL and would have to guess this app's public origin.
  */
-function redirectTo(path: string): NextResponse {
-  return new NextResponse(null, { status: 303, headers: { Location: path } });
+function localizedRedirect(locale: AppLocale, path: string): NextResponse {
+  return new NextResponse(null, { status: 303, headers: { Location: localizedPath(locale, path) } });
 }

@@ -1,4 +1,5 @@
 import { cn } from "@ticket-pos/ui";
+import { useTranslations } from "next-intl";
 
 /**
  * The Customer's Avatar: their photo when they have one, their initials when
@@ -38,12 +39,16 @@ export function CustomerAvatar({
   email,
   className,
 }: CustomerAvatarProps) {
+  // Alt text is copy: it is what a screen reader says out loud, and it belongs
+  // to the Customer's own details like everything else about their photo.
+  const t = useTranslations("myInfo");
+
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={avatarUrl}
-        alt="Your profile photo"
+        alt={t("photoAlt")}
         className={cn("h-8 w-8 shrink-0 rounded-full object-cover", className)}
       />
     );

@@ -123,7 +123,9 @@ async function serviceAuthHeaders(): Promise<HeadersInit | undefined> {
 /**
  * APIError carries a failed envelope from the Go API so a route handler can
  * relay the API's own `error.code` and `error.message` to the browser instead of
- * inventing copy (docs/design/README.md: show API messages faithfully).
+ * inventing a verdict of its own (docs/design/README.md). The code is the half
+ * the rendering surface keys its copy on, and the message is the half it falls
+ * back to when it does not know the code (ADR 0023) — both have to survive.
  */
 export class APIError extends Error {
   code: string;
@@ -266,6 +268,12 @@ export type PublicEventDetail = {
   price_includes_fee: boolean;
   ticket_types: PublicTicketType[];
   tags: { name: string; curated: boolean }[];
+  // Whether the Event advertises itself. It gates nothing about rendering or
+  // selling — a published Event is reachable by direct link either way (ADR
+  // 0002) — and is read only by generateMetadata, which marks a
+  // non-Discoverable Event noindex so a leaked URL cannot put it in a search
+  // result the organizer opted out of.
+  discoverable: boolean;
 };
 
 export type PublicEventPage = {
@@ -297,13 +305,38 @@ export type ListEventsParams = {
   limit?: number;
 };
 
-async function fetchData<T>(path: string): Promise<T | null> {
+/**
+ * Opting one read into Next's Data Cache.
+ *
+ * Every read here is `cache: "no-store"` by default and stays that way: an
+ * Event page shows remaining stock and a live Promotional Price, and a buyer
+ * looking at a cached count is a buyer being lied to.
+ *
+ * `revalidate` is for the one caller that wants the opposite — a route that is
+ * itself regenerated on a timer and whose reads must be allowed to live that
+ * long (app/sitemap.ts). It matters that this is opt-IN and per call: `cache:
+ * "no-store"` on the fetch OVERRIDES a route's own `export const revalidate`,
+ * so a route asking to be regenerated hourly while calling an uncached fetch
+ * quietly regenerates on every single request. Nothing about that failure is
+ * visible — the page is correct, it is just never cached — which is why the two
+ * options are mutually exclusive below rather than merged.
+ */
+export type ReadCache = {
+  /** Seconds this read may be served from the Data Cache. */
+  revalidate: number;
+};
+
+function cacheInit(cache?: ReadCache): RequestInit {
+  return cache ? { next: { revalidate: cache.revalidate } } : { cache: "no-store" };
+}
+
+async function fetchData<T>(path: string, cache?: ReadCache): Promise<T | null> {
   // Deliberately outside the try: a missing service credential is a
   // deployment fault and must surface, while an API that is merely down or
   // unhappy still degrades to an empty page.
   const headers = await serviceAuthHeaders();
   try {
-    const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store", headers });
+    const response = await fetch(`${apiBaseUrl()}${path}`, { ...cacheInit(cache), headers });
     const envelope = (await response.json()) as APIEnvelope<T>;
     if (!response.ok || envelope.error) {
       return null;
@@ -318,7 +351,10 @@ export async function getPublicOrganization(slug: string): Promise<PublicOrganiz
   return fetchData<PublicOrganization>(`/api/v1/public/organizations/${encodeURIComponent(slug)}`);
 }
 
-export async function listPublicEvents(params: ListEventsParams = {}): Promise<PublicEventPage | null> {
+export async function listPublicEvents(
+  params: ListEventsParams = {},
+  cache?: ReadCache,
+): Promise<PublicEventPage | null> {
   const query = new URLSearchParams();
   if (params.q) query.set("q", params.q);
   if (params.from) query.set("from", params.from);
@@ -327,7 +363,31 @@ export async function listPublicEvents(params: ListEventsParams = {}): Promise<P
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return fetchData<PublicEventPage>(`/api/v1/public/events${suffix}`);
+  return fetchData<PublicEventPage>(`/api/v1/public/events${suffix}`, cache);
+}
+
+/** How long the sitemap's Event walk may be reused; see listSitemapEvents. */
+export const SITEMAP_READ_REVALIDATE_SECONDS = 3600;
+
+/**
+ * One page of the sitemap's Event walk — the single read in this app that opts
+ * into the Data Cache (see ReadCache above).
+ *
+ * The opt-in lives here rather than at the call site in app/sitemap.ts because
+ * dropping it there would cost nothing visible: the sitemap would still be
+ * correct, still be served, and quietly walk the whole catalog again on every
+ * crawler hit. A `{ revalidate }` written inside a function is one a unit test
+ * can assert (lib/api.test.ts); one written at a call site inside a route is
+ * one that has to be trusted.
+ *
+ * The page size stays with the walk that chose it (SITEMAP_PAGE_SIZE) and is
+ * passed in, so this function owns the caching decision and nothing else.
+ */
+export async function listSitemapEvents(
+  cursor: string | undefined,
+  limit: number,
+): Promise<PublicEventPage | null> {
+  return listPublicEvents({ cursor, limit }, { revalidate: SITEMAP_READ_REVALIDATE_SECONDS });
 }
 
 // listPublicTags returns the preset filter chips for the explorer. The backend

@@ -5,7 +5,9 @@ import { AFFILIATE_REF_COOKIE, readAffiliateCodes } from "@/lib/affiliate-ref";
 import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
+import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
 import { customerSessionToken } from "@/lib/customer-session";
+import { isAppLocale, type AppLocale } from "@/lib/locale";
 
 // Begins a Payment and touches a cookie; never cached.
 export const dynamic = "force-dynamic";
@@ -14,10 +16,10 @@ export const dynamic = "force-dynamic";
  * The begin-checkout BFF hop: the browser posts the selection and checkout
  * identity here, this handler asks the Go API to begin the checkout
  * (server-side, per ADR 0008 — no browser may address the API), notes the
- * event page in the checkout-context cookie for the terminal pages, and hands
- * back the Payment Provider's redirect URL. The browser then performs a
- * full-page navigation to it: the payment page must be top-level, never an
- * iframe.
+ * event page and the language it was being read in in the checkout-context
+ * cookie for the return leg, and hands back the Payment Provider's redirect
+ * URL. The browser then performs a full-page navigation to it: the payment page
+ * must be top-level, never an iframe.
  *
  * Validation here is shape-only — is this parseable as a checkout at all? The
  * API owns the real rules (event published, capacity, email validity) and its
@@ -41,10 +43,33 @@ type CheckoutRequestBody = {
   customer_tax_id_number?: unknown;
   customer_phone?: unknown;
   lines?: unknown;
+  locale?: unknown;
 };
 
 function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * The language the buyer was reading in, for the checkout context cookie and
+ * for nothing else — it is never sent on to the Go API, which stays
+ * Locale-unaware.
+ *
+ * The page that posted here states it, because it is the only party that knows
+ * the answer for certain: it was rendered under a locale prefix. The Referer is
+ * kept as the fallback for a client that has not been updated, but it is a
+ * fragile signal to lead with — a Referrer-Policy header, a privacy extension
+ * or a future browser default each drop it silently, and the buyer then comes
+ * back from a real payment into the wrong language.
+ *
+ * Anything unrecognised is ignored rather than trusted: this is browser input,
+ * it decides which of this Storefront's own prefixes the return leg redirects
+ * into, and an unknown value would be a prefix no page is served under. Null
+ * means nothing here has anything to say, which leaves the return leg exactly
+ * the ordinary cookie-then-Accept-Language guess it had before.
+ */
+function checkoutLocale(value: unknown, referer: string | null): AppLocale | null {
+  return isAppLocale(value) ? value : checkoutLocaleFromReferer(referer);
 }
 
 function parseLines(value: unknown): BeginCheckoutRequest["lines"] | null {
@@ -148,11 +173,19 @@ export async function POST(request: Request) {
     // already filled in (#121). Checkout is guest-facing, so this app's only
     // record of who bought is the form they just submitted; it is a prefill and
     // never a credential.
+    // So does the language they were reading in, as the Event page that called
+    // this route states it: this is the last moment anything knows it. The
+    // Payment Provider's return URL is a locale-free constant, so without this
+    // the handler behind it can only guess (T5). Null when neither the body nor
+    // the Referer says, which leaves that handler exactly the guess it had
+    // before — the same browser asks both times, so nothing is lost by not
+    // writing one down here.
     await rememberCheckoutContext({
       clientTransactionId: result.client_transaction_id,
       eventPath: `/${orgSlug}/events/${eventSlug}`,
       eventName: asTrimmedString(body.event_name).slice(0, 200),
       customerEmail: asTrimmedString(body.customer_email),
+      locale: checkoutLocale(body.locale, request.headers.get("referer")),
     });
 
     return NextResponse.json({ data: result, error: null, request_id: crypto.randomUUID() });

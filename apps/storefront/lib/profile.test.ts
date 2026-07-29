@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ECUADOR_DIALLING_CODE, PHONE_ECUADOR_MESSAGE, PHONE_GENERIC_MESSAGE } from "./phone.ts";
+import { ECUADOR_DIALLING_CODE } from "./phone.ts";
 import {
   profileDraftPhone,
   profileFieldErrorsFromDetails,
+  profileFieldMessages,
   profileUpdateBody,
   validateProfileDraft,
   type ProfileDraft,
@@ -34,18 +35,25 @@ test("accepts a complete draft", () => {
 
 test("rejects a blank first or last name", () => {
   // The API rejects these too, and must: its customer-upsert guard reads a
-  // blank name as "never named".
-  assert.equal(validateProfileDraft(draft({ firstName: "" })).first_name, "is required");
-  assert.equal(validateProfileDraft(draft({ firstName: "   " })).first_name, "is required");
-  assert.equal(validateProfileDraft(draft({ lastName: "" })).last_name, "is required");
-  assert.equal(validateProfileDraft(draft({ lastName: "\t" })).last_name, "is required");
+  // blank name as "never named". REQUIRED is the API's own code for it, so the
+  // form says the same thing whichever side answered first (ADR 0023).
+  assert.equal(validateProfileDraft(draft({ firstName: "" })).first_name, "REQUIRED");
+  assert.equal(validateProfileDraft(draft({ firstName: "   " })).first_name, "REQUIRED");
+  assert.equal(validateProfileDraft(draft({ lastName: "" })).last_name, "REQUIRED");
+  assert.equal(validateProfileDraft(draft({ lastName: "\t" })).last_name, "REQUIRED");
 });
 
 test("rejects a Tax ID number that fails its type's rules", () => {
   // Right length, wrong check digit.
-  assert.ok(validateProfileDraft(draft({ taxIdNumber: "1712345678" })).tax_id_number);
+  assert.equal(
+    validateProfileDraft(draft({ taxIdNumber: "1712345678" })).tax_id_number,
+    "INVALID_CEDULA",
+  );
   // A RUC typed under the cédula type.
-  assert.ok(validateProfileDraft(draft({ taxIdNumber: `${VALID_CEDULA}001` })).tax_id_number);
+  assert.equal(
+    validateProfileDraft(draft({ taxIdNumber: `${VALID_CEDULA}001` })).tax_id_number,
+    "INVALID_CEDULA",
+  );
 });
 
 test("treats an empty ID number as clearing rather than as an error", () => {
@@ -97,24 +105,37 @@ test("treats an empty phone field as clearing rather than as an error", () => {
   assert.equal(profileUpdateBody(draft({ phoneNationalNumber: "  " })).phone, null);
 });
 
-test("rejects a phone the API would reject, in the API's own words", () => {
+test("rejects a phone the API would reject, under the API's own code", () => {
   // An Ecuadorian landline: a real number, refused because the hosted payment
   // form wants a cardholder's mobile.
   assert.equal(
     validateProfileDraft(draft({ phoneNationalNumber: "22345678" })).phone,
-    PHONE_ECUADOR_MESSAGE,
+    "INVALID_PHONE_EC",
   );
-  // A mobile a digit short gets the same tier's message.
+  // A mobile a digit short is the same tier's verdict.
   assert.equal(
     validateProfileDraft(draft({ phoneNationalNumber: "98765432" })).phone,
-    PHONE_ECUADOR_MESSAGE,
+    "INVALID_PHONE_EC",
   );
-  // Everywhere else, the permissive tier and its wording.
+  // Everywhere else, the permissive tier.
   assert.equal(
     validateProfileDraft(draft({ phoneDiallingCode: "+1", phoneNationalNumber: "202555012345678" }))
       .phone,
-    PHONE_GENERIC_MESSAGE,
+    "INVALID_PHONE",
   );
+});
+
+test("the codes a draft answers with become the sentences the form shows", () => {
+  // profileFieldMessages is the whole of what "My info" does with a mirror
+  // verdict: one lookup per field, in the same catalog group the API's own field
+  // errors resolve through, so the form owns no copy of its own.
+  const codes = validateProfileDraft(draft({ firstName: "", taxIdNumber: "1712345678" }));
+  const catalog = { field: { REQUIRED: "Campo obligatorio", INVALID_CEDULA: "Cédula inválida" } };
+  assert.deepEqual(profileFieldMessages(catalog, codes), {
+    first_name: "Campo obligatorio",
+    tax_id_number: "Cédula inválida",
+  });
+  assert.deepEqual(profileFieldMessages(catalog, {}), {});
 });
 
 test("resolves a stored number back into the two controls that typed it", () => {
@@ -145,8 +166,13 @@ test("a stored number survives the round trip through the form untouched", () =>
   assert.equal(body.phone, stored);
 });
 
+// The copy the fields get is api-errors.ts's business and is tested there; what
+// this form owns is the filter, so the catalog handed in here is deliberately
+// empty and every assertion below is about the API's own messages surviving.
+const NO_COPY = {};
+
 test("reads the API's field errors and ignores fields the form has no input for", () => {
-  const errors = profileFieldErrorsFromDetails({
+  const errors = profileFieldErrorsFromDetails(NO_COPY, {
     fields: [
       { field: "first_name", message: "is required" },
       { field: "tax_id_number", message: "must be a valid 10-digit cédula" },
@@ -159,8 +185,16 @@ test("reads the API's field errors and ignores fields the form has no input for"
   });
 });
 
+test("a field error carrying a code the catalog knows renders the catalog's copy", () => {
+  const errors = profileFieldErrorsFromDetails(
+    { field: { REQUIRED: "hace falta" } },
+    { fields: [{ field: "first_name", code: "REQUIRED", message: "is required" }] },
+  );
+  assert.deepEqual(errors, { first_name: "hace falta" });
+});
+
 test("survives an error envelope with no usable details", () => {
-  assert.deepEqual(profileFieldErrorsFromDetails(undefined), {});
-  assert.deepEqual(profileFieldErrorsFromDetails({ fields: "nope" }), {});
-  assert.deepEqual(profileFieldErrorsFromDetails({ fields: [null, 7, {}] }), {});
+  assert.deepEqual(profileFieldErrorsFromDetails(NO_COPY, undefined), {});
+  assert.deepEqual(profileFieldErrorsFromDetails(NO_COPY, { fields: "nope" }), {});
+  assert.deepEqual(profileFieldErrorsFromDetails(NO_COPY, { fields: [null, 7, {}] }), {});
 });

@@ -113,7 +113,7 @@ func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
 	eventSlug := strings.TrimSpace(r.PathValue("eventSlug"))
 	if orgSlug == "" || eventSlug == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "slug", Message: "organization and event slug are required"},
+			{Field: "slug", Code: platform.CodeRequired, Message: "organization and event slug are required"},
 		})
 		return
 	}
@@ -150,15 +150,15 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 	var fields []platform.FieldError
 
 	if strings.TrimSpace(body.CustomerEmail) == "" {
-		fields = append(fields, platform.FieldError{Field: "customer_email", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "customer_email", Code: platform.CodeRequired, Message: "is required"})
 	} else if _, err := mail.ParseAddress(body.CustomerEmail); err != nil {
-		fields = append(fields, platform.FieldError{Field: "customer_email", Message: "must be a valid email"})
+		fields = append(fields, platform.FieldError{Field: "customer_email", Code: platform.CodeInvalidEmail, Message: "must be a valid email"})
 	}
 	if strings.TrimSpace(body.CustomerFirstName) == "" {
-		fields = append(fields, platform.FieldError{Field: "customer_first_name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "customer_first_name", Code: platform.CodeRequired, Message: "is required"})
 	}
 	if strings.TrimSpace(body.CustomerLastName) == "" {
-		fields = append(fields, platform.FieldError{Field: "customer_last_name", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "customer_last_name", Code: platform.CodeRequired, Message: "is required"})
 	}
 
 	// The Tax ID: required here because an Online Sale is a native Sales Channel
@@ -172,12 +172,12 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 	var taxID platform.SaleTaxID
 	switch {
 	case taxIDType == "":
-		fields = append(fields, platform.FieldError{Field: "customer_tax_id_type", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "customer_tax_id_type", Code: platform.CodeRequired, Message: "is required"})
 		if taxIDNumber == "" {
-			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Code: platform.CodeRequired, Message: "is required"})
 		}
 	case taxIDNumber == "":
-		fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Message: "is required"})
+		fields = append(fields, platform.FieldError{Field: "customer_tax_id_number", Code: platform.CodeRequired, Message: "is required"})
 	default:
 		normalized, taxIDFields := platform.TaxIDFieldErrors(
 			"customer_tax_id_type", "customer_tax_id_number", taxIDType, taxIDNumber)
@@ -208,10 +208,10 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 	}
 
 	if len(body.Lines) == 0 {
-		fields = append(fields, platform.FieldError{Field: "lines", Message: "must contain at least one line"})
+		fields = append(fields, platform.FieldError{Field: "lines", Code: platform.CodeEmptyCollection, Message: "must contain at least one line"})
 	}
 	if len(body.Lines) > maxCheckoutLines {
-		fields = append(fields, platform.FieldError{Field: "lines", Message: fmt.Sprintf("must contain at most %d lines", maxCheckoutLines)})
+		fields = append(fields, platform.FieldError{Field: "lines", Code: platform.CodeTooManyItems, Message: fmt.Sprintf("must contain at most %d lines", maxCheckoutLines)})
 	}
 
 	lines := make([]service.CheckoutLineInput, 0, len(body.Lines))
@@ -219,14 +219,14 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		prefix := fmt.Sprintf("lines[%d].", i)
 		ticketTypeID := strings.TrimSpace(line.TicketTypeID)
 		if ticketTypeID == "" {
-			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Message: "is required"})
+			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Code: platform.CodeRequired, Message: "is required"})
 		} else if _, err := uuid.Parse(ticketTypeID); err != nil {
 			// The column is UUID-typed; a malformed id would otherwise surface as a
 			// database error rather than a VALIDATION_FAILED 400.
-			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Message: "must be a valid id"})
+			fields = append(fields, platform.FieldError{Field: prefix + "ticket_type_id", Code: platform.CodeInvalidID, Message: "must be a valid id"})
 		}
 		if line.Quantity <= 0 {
-			fields = append(fields, platform.FieldError{Field: prefix + "quantity", Message: "must be greater than zero"})
+			fields = append(fields, platform.FieldError{Field: prefix + "quantity", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
 		}
 		lines = append(lines, service.CheckoutLineInput{TicketTypeID: ticketTypeID, Quantity: line.Quantity})
 	}
@@ -300,7 +300,7 @@ func (h *Handler) ConfirmCheckout(w http.ResponseWriter, r *http.Request) {
 	clientTransactionID := strings.TrimSpace(r.PathValue("clientTransactionId"))
 	if clientTransactionID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "clientTransactionId", Message: "is required"},
+			{Field: "clientTransactionId", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}

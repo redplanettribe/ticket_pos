@@ -47,7 +47,7 @@ func (h *Handler) ListPublicEvents(w http.ResponseWriter, r *http.Request) {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 0 {
 			_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-				{Field: "limit", Message: "must be a non-negative integer"},
+				{Field: "limit", Code: platform.CodeInvalidNonNegativeInt, Message: "must be a non-negative integer"},
 			})
 			return
 		}
@@ -120,7 +120,7 @@ func (h *Handler) GetPublicOrganizationEvents(w http.ResponseWriter, r *http.Req
 	slug := strings.TrimSpace(r.PathValue("slug"))
 	if slug == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "slug", Message: "is required"},
+			{Field: "slug", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -150,7 +150,7 @@ func (h *Handler) GetPublicEvent(w http.ResponseWriter, r *http.Request) {
 	eventSlug := strings.TrimSpace(r.PathValue("eventSlug"))
 	if slug == "" || eventSlug == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "slug", Message: "organization and event slug are required"},
+			{Field: "slug", Code: platform.CodeRequired, Message: "organization and event slug are required"},
 		})
 		return
 	}
@@ -170,7 +170,7 @@ func parseOptionalTime(raw, field string, fields *[]platform.FieldError) (*time.
 	}
 	t, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
-		*fields = append(*fields, platform.FieldError{Field: field, Message: "must be a valid RFC3339 timestamp"})
+		*fields = append(*fields, platform.FieldError{Field: field, Code: platform.CodeInvalidTimestamp, Message: "must be a valid RFC3339 timestamp"})
 		return nil, false
 	}
 	return &t, true

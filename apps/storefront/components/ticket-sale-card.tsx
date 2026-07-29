@@ -1,9 +1,11 @@
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 
 import { Badge } from "@ticket-pos/ui";
 
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
+import { getFormatLocale } from "@/i18n/format-locale.server";
+import { Link } from "@/i18n/navigation";
 import type { TicketSale } from "@/lib/customer-session";
 import { ticketSaleAnchorId } from "@/lib/destination";
 import { formatEventDateTime, formatPrice } from "@/lib/format";
@@ -15,7 +17,7 @@ import { undoDeadline } from "@/lib/undo-window";
  * actually cares about — the Event — with the Organization behind it, what was
  * bought, and the Sale Confirmation reference they can quote to a promoter.
  */
-export function TicketSaleCard({
+export async function TicketSaleCard({
   sale,
   viaConfirmationLink = false,
   customerEmail = null,
@@ -39,7 +41,16 @@ export function TicketSaleCard({
   /** The address this session belongs to, to prefill sign-in with. */
   customerEmail?: string | null;
 }) {
-  const dateLabel = formatEventDateTime(sale.event.starts_at, sale.event.timezone);
+  const t = await getTranslations("customerArea");
+  // The Event page's own words for the Organization behind an Event, read from
+  // where they are written rather than restated here: a purchase and the Event
+  // it is for must not credit the same Organization two different ways.
+  const eventCopy = await getTranslations("event");
+  const formatLocale = await getFormatLocale();
+  // The words of a date are the Customer's language; the clock behind them
+  // stays the Event's own timezone, which is a fact about the Event.
+  const dateLabel = formatEventDateTime(sale.event.starts_at, sale.event.timezone, formatLocale);
+  const when = dateLabel ?? t("dateTbd");
   const reversed = sale.status === "reversed";
   const eventHref = `/${sale.organization.slug}/events/${sale.event.slug}`;
   const totalTickets = sale.lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -57,7 +68,10 @@ export function TicketSaleCard({
   // The card trusts that answer rather than recomputing it, and reads it through
   // the same helper the guest surfaces use (#121), so one sale cannot show one
   // deadline here and another on the page a buyer saw before they signed in.
-  const reversalDeadline = undoDeadline(sale);
+  //
+  // The deadline's words follow the page's language; its clock stays Ecuador's,
+  // which is the Reversal Window's own (ADR 0018).
+  const reversalDeadline = undoDeadline(sale, formatLocale);
 
   return (
     // The card is addressable (#121). The Customer Area is one page listing every
@@ -73,14 +87,21 @@ export function TicketSaleCard({
           </Link>
         </h3>
         <p className="text-sm text-muted-foreground">
-          {dateLabel ?? "Date to be announced"}
-          {sale.event.venue_name ? ` · ${sale.event.venue_name}` : ""}
+          {/* Two facts joined by a separator we chose, so the join is a message:
+              a language that wants a comma, or the venue first, can have it. */}
+          {sale.event.venue_name
+            ? t("eventWhenWhere", { when, venue: sale.event.venue_name })
+            : when}
         </p>
         <p className="text-sm text-muted-foreground">
-          Presented by{" "}
-          <Link href={`/${sale.organization.slug}`} className="hover:text-foreground hover:underline">
-            {sale.organization.name}
-          </Link>
+          {eventCopy.rich("presentedBy", {
+            organization: sale.organization.name,
+            organizer: (chunks) => (
+              <Link href={`/${sale.organization.slug}`} className="hover:text-foreground hover:underline">
+                {chunks}
+              </Link>
+            ),
+          })}
         </p>
       </div>
 
@@ -88,10 +109,10 @@ export function TicketSaleCard({
         {sale.lines.map((line, index) => (
           <li key={`${line.ticket_type_name}-${index}`} className="flex justify-between gap-4">
             <span>
-              {line.quantity} × {line.ticket_type_name}
+              {t("lineQuantity", { count: line.quantity, ticketType: line.ticket_type_name })}
             </span>
             <span className="text-muted-foreground">
-              {formatPrice(line.unit_price_cents * line.quantity, sale.currency)}
+              {formatPrice(line.unit_price_cents * line.quantity, sale.currency, formatLocale)}
             </span>
           </li>
         ))}
@@ -99,22 +120,37 @@ export function TicketSaleCard({
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-4 text-sm">
         <div className="space-y-1 text-muted-foreground">
+          {/* The value is emphasised inside the sentence rather than after it,
+              so a language that leads with the reference still can. */}
           <p>
-            Confirmation{" "}
-            <span className="font-mono font-medium text-foreground">{sale.confirmation_ref}</span>
+            {t.rich("confirmation", {
+              reference: sale.confirmation_ref,
+              value: (chunks) => (
+                <span className="font-mono font-medium text-foreground">{chunks}</span>
+              ),
+            })}
           </p>
           <p>
-            Tax ID{" "}
-            <span className="font-medium text-foreground">{taxId ?? "—"}</span>
+            {t.rich("taxId", {
+              // "Cédula", "RUC" and "Pasaporte" name Ecuadorian documents and
+              // read the same in both languages, so the formatted value is not
+              // in the catalog. The em dash is punctuation, not copy.
+              taxId: taxId ?? "—",
+              value: (chunks) => <span className="font-medium text-foreground">{chunks}</span>,
+            })}
           </p>
         </div>
         <div className="flex items-center gap-3">
           {/* A reversed sale must say so plainly rather than sit in the list
               looking like tickets the Customer still holds. */}
-          {reversed ? <Badge variant="destructive">Reversed</Badge> : null}
+          {reversed ? <Badge variant="destructive">{t("reversedBadge")}</Badge> : null}
           <p className="font-medium">
-            {totalTickets} {totalTickets === 1 ? "ticket" : "tickets"} ·{" "}
-            {formatPrice(sale.amount_cents, sale.currency)}
+            {/* One message, so the count's plural and the total it sits beside
+                cannot be assembled in an order English happens to like. */}
+            {t("ticketsTotal", {
+              count: totalTickets,
+              total: formatPrice(sale.amount_cents, sale.currency, formatLocale),
+            })}
           </p>
         </div>
       </div>
@@ -135,7 +171,9 @@ export function TicketSaleCard({
               eventName={sale.event.name}
               confirmationRef={sale.confirmation_ref}
               paidLabel={
-                sale.amount_cents > 0 ? formatPrice(sale.amount_cents, sale.currency) : null
+                sale.amount_cents > 0
+                  ? formatPrice(sale.amount_cents, sale.currency, formatLocale)
+                  : null
               }
             />
           )}

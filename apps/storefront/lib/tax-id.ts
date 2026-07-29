@@ -11,15 +11,20 @@
  * two disagree the field error the API returns wins on screen.
  */
 
+// The ".ts" is written out because the unit tests run this module directly
+// under `node --experimental-strip-types`, which resolves specifiers exactly.
+// Next resolves it identically.
+import type { FieldErrorCode } from "./api-errors.ts";
+
 export const TAX_ID_TYPES = ["cedula", "ruc", "passport"] as const;
 
 export type TaxIdType = (typeof TAX_ID_TYPES)[number];
 
 /**
- * The labels a buyer reads. Spanish for the identifier names, because that is
- * what is printed on the documents themselves — an Ecuadorian buyer looks for
- * the word "Cédula" on the card in their hand, not a translation of it — inside
- * an otherwise English Storefront.
+ * The labels a buyer reads, and the one thing on this Storefront that is the
+ * same in both languages. They are the names printed on the documents
+ * themselves — an Ecuadorian buyer looks for the word "Cédula" on the card in
+ * their hand, not a translation of it — so they are not in the catalogs at all.
  */
 export const TAX_ID_TYPE_LABELS: Record<TaxIdType, string> = {
   cedula: "Cédula",
@@ -104,20 +109,27 @@ function isValidPassport(number: string): boolean {
 }
 
 /**
- * validateTaxId returns the message to show under the number field, or null when
- * the pair looks good. The messages mirror the API's own wording so the field
- * does not visibly change its mind when the server answers.
+ * validateTaxId names the rule the number broke, or null when the pair looks
+ * good. It returns the API's own field code rather than a sentence, so the
+ * caller resolves it through the same catalog entry the API's field error
+ * resolves through and the field cannot say one thing before the round trip and
+ * another after it — in English before and in Spanish after, which is what a
+ * sentence written here meant once the Storefront had two languages (ADR 0023).
+ *
+ * The verdicts are unchanged; only their wording moved. This module stays pure —
+ * no next-intl, no translator argument — because the rules are what is worth
+ * unit-testing and copy is not.
  */
-export function validateTaxId(taxIdType: string, number: string): string | null {
+export function validateTaxId(taxIdType: string, number: string): FieldErrorCode | null {
   const trimmed = number.trim();
-  if (trimmed === "") return "is required";
+  if (trimmed === "") return "REQUIRED";
   switch (taxIdType) {
     case "cedula":
-      return isValidCedula(trimmed) ? null : "must be a valid 10-digit cédula";
+      return isValidCedula(trimmed) ? null : "INVALID_CEDULA";
     case "ruc":
-      return isValidRuc(trimmed) ? null : "must be a valid 13-digit RUC";
+      return isValidRuc(trimmed) ? null : "INVALID_RUC";
     case "passport":
-      return isValidPassport(trimmed) ? null : "must be 6–20 letters or digits";
+      return isValidPassport(trimmed) ? null : "INVALID_PASSPORT";
     default:
       // An unknown type is the type field's problem, not the number's.
       return null;

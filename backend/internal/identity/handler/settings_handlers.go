@@ -113,13 +113,13 @@ func (h *Handler) CreateLogoUploadURL(w http.ResponseWriter, r *http.Request) {
 	contentType := strings.ToLower(strings.TrimSpace(body.ContentType))
 	if contentType == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "is required"},
+			{Field: "content_type", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
 	if !storage.CoverContentTypeAllowed(contentType) {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "content_type", Message: "must be image/jpeg, image/png, or image/webp"},
+			{Field: "content_type", Code: platform.CodeInvalidImageContentType, Message: "must be image/jpeg, image/png, or image/webp"},
 		})
 		return
 	}
@@ -153,7 +153,7 @@ func (h *Handler) DeleteOrganization(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(body.ConfirmationName) == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "confirmation_name", Message: "is required"},
+			{Field: "confirmation_name", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -217,7 +217,7 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	memberID := strings.TrimSpace(r.PathValue("memberID"))
 	if memberID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "member_id", Message: "is required"},
+			{Field: "member_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -250,7 +250,7 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	memberID := strings.TrimSpace(r.PathValue("memberID"))
 	if memberID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "member_id", Message: "is required"},
+			{Field: "member_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -272,7 +272,7 @@ func (h *Handler) ListEventAssignments(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("eventID"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "event_id", Message: "is required"},
+			{Field: "event_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -294,7 +294,7 @@ func (h *Handler) UpsertEventAssignment(w http.ResponseWriter, r *http.Request) 
 	memberID := strings.TrimSpace(r.PathValue("memberID"))
 	if eventID == "" || memberID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "event_id", Message: "is required"},
+			{Field: "event_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -328,7 +328,7 @@ func (h *Handler) RemoveEventAssignment(w http.ResponseWriter, r *http.Request) 
 	memberID := strings.TrimSpace(r.PathValue("memberID"))
 	if eventID == "" || memberID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "event_id", Message: "is required"},
+			{Field: "event_id", Code: platform.CodeRequired, Message: "is required"},
 		})
 		return
 	}
@@ -346,7 +346,7 @@ func (h *Handler) RemoveEventAssignment(w http.ResponseWriter, r *http.Request) 
 
 func validateOrganizationName(name string) []platform.FieldError {
 	if strings.TrimSpace(name) == "" {
-		return []platform.FieldError{{Field: "name", Message: "is required"}}
+		return []platform.FieldError{{Field: "name", Code: platform.CodeRequired, Message: "is required"}}
 	}
 	return nil
 }
@@ -360,7 +360,7 @@ func validateOrganizationCurrency(currency *string) []platform.FieldError {
 		return nil
 	}
 	if _, ok := supportedCurrencies[code]; !ok {
-		return []platform.FieldError{{Field: "currency", Message: "must be a supported ISO 4217 currency code"}}
+		return []platform.FieldError{{Field: "currency", Code: platform.CodeInvalidCurrency, Message: "must be a supported ISO 4217 currency code"}}
 	}
 	return nil
 }
@@ -377,7 +377,7 @@ func validateMemberRole(role string) []platform.FieldError {
 	case "org_admin", "event_owner", "event_staff":
 		return nil
 	default:
-		return []platform.FieldError{{Field: "role", Message: "must be org_admin, event_owner, or event_staff"}}
+		return []platform.FieldError{{Field: "role", Code: platform.CodeInvalidRole, Message: "must be org_admin, event_owner, or event_staff"}}
 	}
 }
 
@@ -386,6 +386,6 @@ func validateAssignmentRole(role string) []platform.FieldError {
 	case "event_owner", "event_staff":
 		return nil
 	default:
-		return []platform.FieldError{{Field: "role", Message: "must be event_owner or event_staff"}}
+		return []platform.FieldError{{Field: "role", Code: platform.CodeInvalidRole, Message: "must be event_owner or event_staff"}}
 	}
 }

@@ -166,11 +166,11 @@ func TaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string,
 	normalized, err := ValidateTaxID(taxIDType, number)
 	switch {
 	case errors.Is(err, ErrTaxIDTypeUnknown):
-		return "", []FieldError{{Field: typeField, Message: TaxIDTypeMessage}}
+		return "", []FieldError{{Field: typeField, Code: CodeInvalidTaxIDType, Message: TaxIDTypeMessage}}
 	case errors.Is(err, ErrTaxIDNumberInvalid):
-		return "", []FieldError{{Field: numberField, Message: TaxIDNumberMessage(taxIDType)}}
+		return "", []FieldError{{Field: numberField, Code: TaxIDNumberCode(taxIDType), Message: TaxIDNumberMessage(taxIDType)}}
 	case err != nil:
-		return "", []FieldError{{Field: numberField, Message: "is not valid"}}
+		return "", []FieldError{{Field: numberField, Code: CodeInvalidTaxIDNumber, Message: "is not valid"}}
 	default:
 		return normalized, nil
 	}
@@ -190,6 +190,23 @@ func TaxIDNumberMessage(taxIDType string) string {
 		return "must be 6–20 letters or digits"
 	default:
 		return "is not valid"
+	}
+}
+
+// TaxIDNumberCode is the stable code half of TaxIDNumberMessage's verdict, and
+// moves with it for the same reason the message moves with the rules: a client
+// showing its own Spanish wording for a rejected cédula must be told it was the
+// cédula rule that rejected it, not merely that something was wrong.
+func TaxIDNumberCode(taxIDType string) string {
+	switch taxIDType {
+	case TaxIDTypeCedula:
+		return CodeInvalidCedula
+	case TaxIDTypeRUC:
+		return CodeInvalidRUC
+	case TaxIDTypePassport:
+		return CodeInvalidPassport
+	default:
+		return CodeInvalidTaxIDNumber
 	}
 }
 

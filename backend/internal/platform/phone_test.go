@@ -126,7 +126,7 @@ func TestPhoneNumberMessage(t *testing.T) {
 }
 
 // TestPhoneFieldErrors pins the shape a handler surfaces: the field name it was
-// given, and the message for the tier the number was aiming at. A valid number
+// given, and the code and message for the tier the number was aiming at. A valid number
 // yields the canonical form and no errors at all.
 func TestPhoneFieldErrors(t *testing.T) {
 	t.Run("valid number normalises with no errors", func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestPhoneFieldErrors(t *testing.T) {
 		if got != "" {
 			t.Fatalf("PhoneFieldErrors = %q, want empty on failure", got)
 		}
-		want := []FieldError{{Field: "phone", Message: PhoneEcuadorMessage}}
+		want := []FieldError{{Field: "phone", Code: CodeInvalidPhoneEC, Message: PhoneEcuadorMessage}}
 		if len(fieldErrors) != 1 || fieldErrors[0] != want[0] {
 			t.Fatalf("PhoneFieldErrors errors = %v, want %v", fieldErrors, want)
 		}

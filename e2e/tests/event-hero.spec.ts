@@ -14,7 +14,10 @@ import { test, expect } from "@playwright/test";
 // 404s — which changes nothing here, because the element, its src and its
 // poster are decided before a single byte is fetched.
 
-const EVENT_PATH = "/demo-venue/events/sunrise-jazz-brunch";
+// The Storefront serves every page under a Locale carried in the URL; this spec
+// reads the English one.
+const LOCALE = "en";
+const EVENT_PATH = `/${LOCALE}/demo-venue/events/sunrise-jazz-brunch`;
 const EVENT_NAME = "Sunrise Jazz Brunch";
 
 // The seeded keys, as the API computes them into public bucket URLs.
@@ -69,12 +72,12 @@ test("Storefront listing cards stay still images", async ({ page }) => {
   // The global explorer lists the same Event whose hero carries a video. Cards
   // are scanned, not watched, and a grid of autoplaying loops is the thing this
   // decision exists to prevent.
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
   await expect(page.getByRole("heading", { level: 3, name: EVENT_NAME })).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
 
   // The Organization page lists it too, from the same card component.
-  await page.goto("/demo-venue");
+  await page.goto(`/${LOCALE}/demo-venue`);
   await expect(page.getByRole("heading", { level: 3, name: EVENT_NAME })).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
 });

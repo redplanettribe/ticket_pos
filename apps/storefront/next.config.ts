@@ -1,6 +1,11 @@
 import path from "node:path";
 
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+// Wires i18n/request.ts (the default location) into the build, so server
+// components can read the locale of the request they are rendering for.
+const withNextIntl = createNextIntlPlugin();
 
 const nextConfig: NextConfig = {
   // Standalone output ships a self-contained server plus only the traced
@@ -18,4 +23,4 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

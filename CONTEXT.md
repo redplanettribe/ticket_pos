@@ -165,6 +165,12 @@ _Avoid_: Sale type, payment method
 The public-facing channel through which a Customer completes an Online Sale.
 _Avoid_: Shop, web store, e-commerce site
 
+**Locale**:
+The language-and-region identity a Storefront page is rendered under, carried explicitly in the URL (`/{locale}/...`) so that an address always says which language it serves.
+Decides words and the marks around numbers and dates. Decides nothing about time or money: an Event's times are drawn in the Event's own timezone and the Reversal Window's cutoff in Ecuador's, and a Ticket Type's currency is the Organization's — none of them follows the reader's language.
+A page's Locale comes from its address alone, never from the reader's browser or cookies; those only choose which Locale an address naming none redirects to.
+_Avoid_: Language (as the whole concept), region, translation, i18n, culture
+
 **Online Sale**:
 A Ticket Sale completed through the Storefront, recorded the moment its Payment is approved.
 _Avoid_: Web sale, e-commerce sale

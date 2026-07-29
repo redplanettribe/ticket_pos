@@ -1,5 +1,5 @@
 import type { PublicPromotion } from "./api.ts";
-import { formatEventDateShort } from "./format.ts";
+import { DEFAULT_LOCALE, formatEventDateShort, type IntlLocale } from "./format.ts";
 
 // Presentation rules for a Promotion — the time-boxed Promotional Price that
 // overrides a Ticket Type's List Price for a scheduled window (ADR 0021).
@@ -42,6 +42,7 @@ export function promotionSavingsPercent(promotion: PublicPromotion): number | nu
 export function formatPromotionDeadline(
   promotion: PublicPromotion,
   timezone: string | null,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): string | null {
-  return formatEventDateShort(promotion.ends_at, timezone);
+  return formatEventDateShort(promotion.ends_at, timezone, locale);
 }
