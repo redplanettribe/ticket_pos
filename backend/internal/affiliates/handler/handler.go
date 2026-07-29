@@ -1,4 +1,6 @@
-// Package handler exposes the staff HTTP surface for Affiliate Links.
+// Package handler exposes the HTTP surface for Affiliate Links: the staff
+// section that manages them, and the one public route the Storefront reports
+// clicks on.
 package handler
 
 import (
@@ -113,4 +115,31 @@ func (h *Handler) ListAffiliateLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, links)
+}
+
+// RecordAffiliateLinkClick counts one visit to an Event page reached through an
+// Affiliate Link.
+//
+// @Summary      Record affiliate link click
+// @Description  Counts one visit to an Event page reached through an Affiliate Link's code (?ref=CODE). Public and unauthenticated: the Storefront calls it fire-and-forget while rendering the page. Raw counting — repeat visits count again, with no dedup and no visitor identification. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and counts nothing, so a dead ref in a URL never becomes an error a buyer can see.
+// @Tags         public
+// @Produce      json
+// @Param        slug       path      string  true  "Organization slug"
+// @Param        eventSlug  path      string  true  "Event slug"
+// @Param        code       path      string  true  "Affiliate link code"
+// @Success      202  {object}  platform.Envelope
+// @Router       /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click [post]
+func (h *Handler) RecordAffiliateLinkClick(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	// Every outcome is 202: recorded, and accepted-but-ignored, are the same
+	// answer to a page load that has nothing to do with the result. A storage
+	// failure is logged inside the service and swallowed here for the same
+	// reason — a display-only counter must never cost a buyer a page.
+	_ = h.svc.RecordClick(
+		r.Context(),
+		strings.TrimSpace(r.PathValue("slug")),
+		strings.TrimSpace(r.PathValue("eventSlug")),
+		strings.TrimSpace(r.PathValue("code")),
+	)
+	_ = platform.WriteSuccess(w, reqID, http.StatusAccepted, nil)
 }

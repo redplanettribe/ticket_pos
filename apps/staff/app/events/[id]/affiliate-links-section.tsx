@@ -166,6 +166,12 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* Clicks sit next to the link so a bad link reads differently
+                      from a bad audience: no clicks means nobody followed it. */}
+                  <span className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{link.clicks}</span>{" "}
+                    {link.clicks === 1 ? "click" : "clicks"}
+                  </span>
                   <Badge variant={link.active ? "default" : "secondary"}>
                     {link.active ? "Active" : "Inactive"}
                   </Badge>

@@ -1759,6 +1759,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record affiliate link click
+         * @description Counts one visit to an Event page reached through an Affiliate Link's code (?ref=CODE). Public and unauthenticated: the Storefront calls it fire-and-forget while rendering the page. Raw counting — repeat visits count again, with no dedup and no visitor identification. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and counts nothing, so a dead ref in a URL never becomes an error a buyer can see.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                    /** @description Event slug */
+                    eventSlug: string;
+                    /** @description Affiliate link code */
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
         parameters: {
             query?: never;
@@ -4658,6 +4704,12 @@ export interface components {
         };
         "service.AffiliateLinkView": {
             active?: boolean;
+            /**
+             * @description Clicks is how many times the Event page was reached through this link —
+             *     raw visits, counted again every time, which is what makes a bad link
+             *     readable next to a bad audience.
+             */
+            clicks?: number;
             code?: string;
             created_at?: string;
             id?: string;
