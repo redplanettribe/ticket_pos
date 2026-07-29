@@ -121,6 +121,10 @@ export function checkoutContextLocale(raw: string | null | undefined): AppLocale
  * The language the page that began a checkout was being read in, taken from the
  * Referer of the browser's call to the begin-checkout route.
  *
+ * The fallback, not the first answer: the page states its own locale in the
+ * request body, and that is what the route prefers. This reads a header the
+ * browser may simply not send.
+ *
  * That route's own address carries no locale — it is one of the unprefixed BFF
  * paths — but the page calling it is always a prefixed Event page, and a
  * same-origin fetch carries that page's full URL under the browsers' default

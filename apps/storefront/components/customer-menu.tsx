@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 import { Link, useRouter } from "@/i18n/navigation";
@@ -30,6 +31,10 @@ type CustomerMenuProps = {
 
 export function CustomerMenu({ email, firstName, lastName, avatarUrl }: CustomerMenuProps) {
   const router = useRouter();
+  const t = useTranslations("customerArea");
+  // Each entry is named by the surface it opens, from that surface's own key, so
+  // a menu item and the heading it lands on cannot come to disagree.
+  const myInfo = useTranslations("myInfo");
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -85,7 +90,7 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Account menu for ${email}`}
+        aria-label={t("menuLabel", { email })}
         className="flex items-center rounded-full ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <CustomerAvatar
@@ -108,7 +113,7 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
           </p>
           <div className="my-1 border-t" />
           <Link href="/tickets" role="menuitem" className={itemClass} onClick={() => setOpen(false)}>
-            Your tickets
+            {t("title")}
           </Link>
           <Link
             href="/tickets#my-info"
@@ -116,7 +121,7 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
             className={itemClass}
             onClick={() => setOpen(false)}
           >
-            My info
+            {myInfo("heading")}
           </Link>
           <div className="my-1 border-t" />
           <button
@@ -127,7 +132,7 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
             disabled={signingOut}
             aria-busy={signingOut}
           >
-            {signingOut ? "Signing out…" : "Sign out"}
+            {signingOut ? t("signingOut") : t("signOut")}
           </button>
         </div>
       ) : null}

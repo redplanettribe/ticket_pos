@@ -266,6 +266,12 @@ export type PublicEventDetail = {
   price_includes_fee: boolean;
   ticket_types: PublicTicketType[];
   tags: { name: string; curated: boolean }[];
+  // Whether the Event advertises itself. It gates nothing about rendering or
+  // selling — a published Event is reachable by direct link either way (ADR
+  // 0002) — and is read only by generateMetadata, which marks a
+  // non-Discoverable Event noindex so a leaked URL cannot put it in a search
+  // result the organizer opted out of.
+  discoverable: boolean;
 };
 
 export type PublicEventPage = {
@@ -297,13 +303,38 @@ export type ListEventsParams = {
   limit?: number;
 };
 
-async function fetchData<T>(path: string): Promise<T | null> {
+/**
+ * Opting one read into Next's Data Cache.
+ *
+ * Every read here is `cache: "no-store"` by default and stays that way: an
+ * Event page shows remaining stock and a live Promotional Price, and a buyer
+ * looking at a cached count is a buyer being lied to.
+ *
+ * `revalidate` is for the one caller that wants the opposite — a route that is
+ * itself regenerated on a timer and whose reads must be allowed to live that
+ * long (app/sitemap.ts). It matters that this is opt-IN and per call: `cache:
+ * "no-store"` on the fetch OVERRIDES a route's own `export const revalidate`,
+ * so a route asking to be regenerated hourly while calling an uncached fetch
+ * quietly regenerates on every single request. Nothing about that failure is
+ * visible — the page is correct, it is just never cached — which is why the two
+ * options are mutually exclusive below rather than merged.
+ */
+export type ReadCache = {
+  /** Seconds this read may be served from the Data Cache. */
+  revalidate: number;
+};
+
+function cacheInit(cache?: ReadCache): RequestInit {
+  return cache ? { next: { revalidate: cache.revalidate } } : { cache: "no-store" };
+}
+
+async function fetchData<T>(path: string, cache?: ReadCache): Promise<T | null> {
   // Deliberately outside the try: a missing service credential is a
   // deployment fault and must surface, while an API that is merely down or
   // unhappy still degrades to an empty page.
   const headers = await serviceAuthHeaders();
   try {
-    const response = await fetch(`${apiBaseUrl()}${path}`, { cache: "no-store", headers });
+    const response = await fetch(`${apiBaseUrl()}${path}`, { ...cacheInit(cache), headers });
     const envelope = (await response.json()) as APIEnvelope<T>;
     if (!response.ok || envelope.error) {
       return null;
@@ -318,7 +349,10 @@ export async function getPublicOrganization(slug: string): Promise<PublicOrganiz
   return fetchData<PublicOrganization>(`/api/v1/public/organizations/${encodeURIComponent(slug)}`);
 }
 
-export async function listPublicEvents(params: ListEventsParams = {}): Promise<PublicEventPage | null> {
+export async function listPublicEvents(
+  params: ListEventsParams = {},
+  cache?: ReadCache,
+): Promise<PublicEventPage | null> {
   const query = new URLSearchParams();
   if (params.q) query.set("q", params.q);
   if (params.from) query.set("from", params.from);
@@ -327,7 +361,7 @@ export async function listPublicEvents(params: ListEventsParams = {}): Promise<P
   if (params.cursor) query.set("cursor", params.cursor);
   if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return fetchData<PublicEventPage>(`/api/v1/public/events${suffix}`);
+  return fetchData<PublicEventPage>(`/api/v1/public/events${suffix}`, cache);
 }
 
 // listPublicTags returns the preset filter chips for the explorer. The backend

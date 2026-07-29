@@ -1,7 +1,9 @@
 import { Badge } from "@ticket-pos/ui";
+import { useLocale, useTranslations } from "next-intl";
 
 import type { PublicTicketType } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
+import { intlLocale, toAppLocale } from "@/lib/locale";
 import { formatPromotionDeadline, promotionSavingsPercent } from "@/lib/promotion";
 
 /**
@@ -17,14 +19,19 @@ import { formatPromotionDeadline, promotionSavingsPercent } from "@/lib/promotio
  *
  * A Ticket Type without a live Promotion renders exactly as before: no badge, no
  * deadline, one price and no strikethrough (ADR 0021).
+ *
+ * All three read the `event` namespace, including on the sellable list inside
+ * ticket-selection.tsx: a Promotion is something the Event page says about a
+ * Ticket Type, and the two lists must not be able to word it differently.
  */
 
 /** "37% off", when the Promotion is worth a whole percent. */
 export function PromotionBadge({ ticketType }: { ticketType: PublicTicketType }) {
+  const t = useTranslations("event");
   const percent = ticketType.promotion ? promotionSavingsPercent(ticketType.promotion) : null;
   if (percent === null) return null;
 
-  return <Badge>{percent}% off</Badge>;
+  return <Badge>{t("promotionSavings", { percent })}</Badge>;
 }
 
 /**
@@ -40,14 +47,21 @@ export function PromotionDeadline({
   /** The Event's timezone; the window is scheduled in it (ADR 0021). */
   timezone: string | null;
 }) {
+  const t = useTranslations("event");
+  const locale = intlLocale(toAppLocale(useLocale()));
   const deadline = ticketType.promotion
-    ? formatPromotionDeadline(ticketType.promotion, timezone)
+    ? formatPromotionDeadline(ticketType.promotion, timezone, locale)
     : null;
   if (!deadline) return null;
 
   return (
     <p className="text-sm text-muted-foreground">
-      Promotional Price until <span className="font-medium text-foreground">{deadline}</span>
+      {/* The emphasis is part of the sentence, so the message carries it as a
+          tag: a language that puts the date first must be able to. */}
+      {t.rich("promotionDeadline", {
+        deadline,
+        when: (chunks) => <span className="font-medium text-foreground">{chunks}</span>,
+      })}
     </p>
   );
 }
@@ -61,16 +75,23 @@ export function PromotionDeadline({
  * Promotion only adds what is being crossed out.
  */
 export function TicketTypePrice({ ticketType }: { ticketType: PublicTicketType }) {
+  const t = useTranslations("event");
+  const locale = intlLocale(toAppLocale(useLocale()));
   const listPriceCents = ticketType.promotion?.list_price_cents ?? null;
+  const listPrice =
+    listPriceCents === null ? null : formatPrice(listPriceCents, ticketType.currency, locale);
 
   return (
     <p className="font-semibold">
-      {formatPrice(ticketType.price_cents, ticketType.currency)}
-      {listPriceCents !== null ? (
+      {formatPrice(ticketType.price_cents, ticketType.currency, locale)}
+      {listPrice !== null ? (
         <span className="ml-2 text-sm font-normal text-muted-foreground">
-          {/* Sighted buyers read the strikethrough; everyone else needs the word. */}
-          <span className="sr-only">, down from </span>
-          <s>{formatPrice(listPriceCents, ticketType.currency)}</s>
+          {/* Sighted buyers read the strikethrough; everyone else is told in
+              words, and the amount goes inside those words rather than after
+              them — the phrase introducing a price does not sit in front of it
+              in every language. */}
+          <s aria-hidden="true">{listPrice}</s>
+          <span className="sr-only">{t("priceDownFrom", { price: listPrice })}</span>
         </span>
       ) : null}
     </p>

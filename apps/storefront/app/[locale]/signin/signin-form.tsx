@@ -14,6 +14,7 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useRouter } from "@/i18n/navigation";
@@ -70,14 +71,6 @@ type SignInFormProps = {
   googleSignInHref: string | null;
 };
 
-/**
- * The one thing said about any failed Google Sign-In. It never states whether
- * the address is known here, because the passcode request endpoint deliberately
- * will not either.
- */
-const GOOGLE_FAILURE_MESSAGE =
-  "We couldn't finish signing you in with Google. Try again, or use a passcode below.";
-
 /** Google's four-colour G, inline so the button needs no network request. */
 function GoogleMark() {
   return (
@@ -102,13 +95,6 @@ function GoogleMark() {
   );
 }
 
-const LINK_FAILURE_MESSAGE: Record<"expired" | "invalid", string> = {
-  expired:
-    "That ticket link has expired. Sign in with a passcode and you'll still find your purchase here.",
-  invalid:
-    "That ticket link didn't work. Sign in with a passcode to see your tickets — check you copied the whole link from your email.",
-};
-
 /**
  * Two steps, one page, no navigation between them: entering an email swaps the
  * form for the passcode field with the email still in component state, matching
@@ -127,6 +113,7 @@ export function SignInForm({
   googleSignInHref,
 }: SignInFormProps) {
   const router = useRouter();
+  const t = useTranslations("signin");
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
@@ -212,31 +199,36 @@ export function SignInForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Sign in</CardTitle>
+        <CardTitle className="text-xl">{t("title")}</CardTitle>
         <CardDescription>
-          {step === "email"
-            ? "Enter the email you used to buy your tickets and we'll send you a 6-digit passcode. No password needed."
-            : `Enter the 6-digit passcode we sent to ${email}.`}
+          {/* The address goes inside the sentence rather than being appended to
+              it: which side of it the words fall on is the translator's. */}
+          {step === "email" ? t("emailStep") : t("codeStep", { email })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {expired ? (
           <Alert>
-            <AlertDescription>
-              Your session has ended. Sign in again to see your tickets.
-            </AlertDescription>
+            <AlertDescription>{t("sessionEnded")}</AlertDescription>
           </Alert>
         ) : null}
 
         {linkFailure ? (
           <Alert>
-            <AlertDescription>{LINK_FAILURE_MESSAGE[linkFailure]}</AlertDescription>
+            {/* Two sentences, not one with the reason swapped in: "expired" is
+                told a genuine link ran out and "invalid" is told to check what
+                they pasted, and those stay separate keys so a translator is
+                never handed a fragment to fit into someone else's grammar. */}
+            <AlertDescription>{t(`link.${linkFailure}`)}</AlertDescription>
           </Alert>
         ) : null}
 
         {googleFailed && !error ? (
           <Alert variant="destructive">
-            <AlertDescription>{GOOGLE_FAILURE_MESSAGE}</AlertDescription>
+            {/* The one thing said about any failed Google Sign-In. It never
+                states whether the address is known here, because the passcode
+                request endpoint deliberately will not either. */}
+            <AlertDescription>{t("googleFailed")}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -271,11 +263,11 @@ export function SignInForm({
               className={cn(buttonVariants({ variant: "secondary" }), "h-11 w-full gap-3")}
             >
               <GoogleMark />
-              Continue with Google
+              {t("google")}
             </a>
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-border" aria-hidden="true" />
-              <span className="text-xs text-muted-foreground">or continue with email</span>
+              <span className="text-xs text-muted-foreground">{t("orEmail")}</span>
               <span className="h-px flex-1 bg-border" aria-hidden="true" />
             </div>
           </div>
@@ -283,7 +275,7 @@ export function SignInForm({
 
         {step === "email" ? (
           <form className="space-y-4" onSubmit={handleRequestPasscode} noValidate>
-            <FormField id="email" label="Email">
+            <FormField id="email" label={t("emailLabel")}>
               <Input
                 name="email"
                 type="email"
@@ -295,12 +287,12 @@ export function SignInForm({
               />
             </FormField>
             <Button type="submit" className="h-11 w-full" disabled={loading} aria-busy={loading}>
-              {loading ? "Sending…" : "Send passcode"}
+              {loading ? t("sending") : t("sendPasscode")}
             </Button>
           </form>
         ) : (
           <form className="space-y-4" onSubmit={handleVerifyPasscode} noValidate>
-            <FormField id="code" label="Passcode">
+            <FormField id="code" label={t("passcodeLabel")}>
               <Input
                 name="code"
                 type="text"
@@ -315,7 +307,7 @@ export function SignInForm({
               />
             </FormField>
             <Button type="submit" className="h-11 w-full" disabled={loading} aria-busy={loading}>
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? t("signingIn") : t("submit")}
             </Button>
             {showResend ? (
               <Button
@@ -325,7 +317,7 @@ export function SignInForm({
                 disabled={loading}
                 onClick={() => void requestPasscode(email)}
               >
-                Send a new passcode
+                {t("resend")}
               </Button>
             ) : null}
             <Button
@@ -340,7 +332,7 @@ export function SignInForm({
                 resetErrors();
               }}
             >
-              Use a different email
+              {t("differentEmail")}
             </Button>
           </form>
         )}

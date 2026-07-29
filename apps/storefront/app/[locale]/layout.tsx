@@ -3,9 +3,10 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { notFound } from "next/navigation";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { routing } from "@/i18n/routing";
+import { BRAND_NAME } from "@/lib/brand";
 import { storefrontBaseUrl } from "@/lib/site";
 
 import "../globals.css";
@@ -15,15 +16,33 @@ const inter = Inter({
   variable: "--font-geist-sans",
 });
 
+type LocaleLayoutProps = Readonly<{
+  children: React.ReactNode;
+  params: Promise<{ locale: string }>;
+}>;
+
 // Default title for the global explorer at "/{locale}". Organization and Event
 // pages set their own Organization-led titles via generateMetadata, so no title
 // template is applied here — the product name must not intrude on those tabs.
-export const metadata: Metadata = {
-  // Resolves canonical and og:url to absolute URLs; undefined off-platform
-  // (see lib/site.ts).
-  metadataBase: storefrontBaseUrl(),
-  title: "Multiticketing — Discover events",
-};
+//
+// A function rather than a constant, because this is the one title the explorer
+// has: its own generateMetadata sets only the alternates and inherits the rest,
+// so a constant here is a tab that says "Discover events" over a Spanish page.
+// The locale comes off the segment like everywhere else; an unsupported one
+// falls back to English in i18n/request.ts and is then 404ed below, so this
+// never has to guard for it.
+export async function generateMetadata({ params }: LocaleLayoutProps): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "explorer" });
+  return {
+    // Resolves canonical and og:url to absolute URLs; undefined off-platform
+    // (see lib/site.ts).
+    metadataBase: storefrontBaseUrl(),
+    // The brand is interpolated rather than written into the catalog, so a
+    // translator is handed a sentence and not a name to render.
+    title: t("metaTitle", { brand: BRAND_NAME }),
+  };
+}
 
 // Neutral chrome on the Storefront: the visible space belongs to the
 // Organization and its events, so mobile browser UI is not tinted brand blue.
@@ -44,13 +63,7 @@ export const viewport: Viewport = {
  * is a page that does not exist, and it says so rather than quietly rendering
  * English under a French address.
  */
-export default async function LocaleLayout({
-  children,
-  params,
-}: Readonly<{
-  children: React.ReactNode;
-  params: Promise<{ locale: string }>;
-}>) {
+export default async function LocaleLayout({ children, params }: LocaleLayoutProps) {
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) {
     notFound();

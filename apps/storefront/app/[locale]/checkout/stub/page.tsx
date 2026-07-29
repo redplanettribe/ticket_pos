@@ -1,19 +1,15 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, buttonVariants, cn } from "@ticket-pos/ui";
 
 import { parseStubPaymentRequest, stubOutcomeURL } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
+import { intlLocale, toAppLocale } from "@/lib/locale";
 import { stubPaymentsActive } from "@/lib/stub-payments";
 
 export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-  title: "Payment — test mode",
-  robots: { index: false, follow: false },
-};
 
 type StubPageProps = {
   params: Promise<{ locale: string }>;
@@ -24,6 +20,17 @@ type StubPageProps = {
     response_url?: string;
   }>;
 };
+
+export async function generateMetadata({ params }: StubPageProps): Promise<Metadata> {
+  const { locale } = await params;
+  // Metadata renders before the page declares its locale, so the namespace is
+  // asked for the locale off the URL explicitly rather than for the request's.
+  const t = await getTranslations({ locale, namespace: "checkout.stub" });
+  return {
+    title: t("metaTitle"),
+    robots: { index: false, follow: false },
+  };
+}
 
 /**
  * The stub Payment Provider's "hosted payment page" (contract in
@@ -51,23 +58,23 @@ export default async function StubPaymentPage({ params, searchParams }: StubPage
     notFound();
   }
 
+  const t = await getTranslations("checkout.stub");
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-2">
           <Badge variant="secondary" className="w-fit">
-            Test payment — no money moves
+            {t("badge")}
           </Badge>
-          <CardTitle className="text-xl">Confirm your payment</CardTitle>
-          <CardDescription>
-            This page stands in for the payment provider during development.
-          </CardDescription>
+          <CardTitle className="text-xl">{t("title")}</CardTitle>
+          <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <p className="text-sm text-muted-foreground">Amount</p>
+            <p className="text-sm text-muted-foreground">{t("amountLabel")}</p>
             <p className="text-3xl font-semibold" data-testid="stub-amount">
-              {formatPrice(request.amountCents, request.currency)}
+              {formatPrice(request.amountCents, request.currency, intlLocale(toAppLocale(locale)))}
             </p>
           </div>
           <div className="space-y-2">
@@ -77,17 +84,23 @@ export default async function StubPaymentPage({ params, searchParams }: StubPage
               href={stubOutcomeURL(request.responseUrl, request.clientTransactionId, "approved")}
               className={cn(buttonVariants({ size: "lg" }), "h-11 w-full")}
             >
-              Approve payment
+              {t("approve")}
             </a>
             <a
               href={stubOutcomeURL(request.responseUrl, request.clientTransactionId, "declined")}
               className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 w-full")}
             >
-              Decline payment
+              {t("decline")}
             </a>
           </div>
           <p className="break-all text-xs text-muted-foreground">
-            Reference: <span className="font-mono">{request.clientTransactionId}</span>
+            {/* The id is monospaced inside the sentence rather than appended
+                after it: the label does not sit in front of the value in every
+                language. */}
+            {t.rich("reference", {
+              reference: request.clientTransactionId,
+              id: (chunks) => <span className="font-mono">{chunks}</span>,
+            })}
           </p>
         </CardContent>
       </Card>

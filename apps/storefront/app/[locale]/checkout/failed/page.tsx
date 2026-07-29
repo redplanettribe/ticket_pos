@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { Alert, AlertDescription, AlertTitle, Button } from "@ticket-pos/ui";
 
@@ -10,15 +10,24 @@ import { readCheckoutContext } from "@/lib/checkout-context";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Payment not completed",
-  robots: { index: false, follow: false },
-};
-
 type FailedPageProps = {
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ issue?: string }>;
 };
+
+export async function generateMetadata({ params }: FailedPageProps): Promise<Metadata> {
+  const { locale } = await params;
+  // Metadata renders before the page declares its locale, so the namespace is
+  // asked for the locale off the URL explicitly rather than for the request's.
+  const t = await getTranslations({ locale, namespace: "checkout.failed" });
+  return {
+    // The ordinary outcome's heading, from the same key it renders from. The
+    // support case is a different page state, not a different address, so the
+    // tab keeps saying the thing this route is about.
+    title: t("title"),
+    robots: { index: false, follow: false },
+  };
+}
 
 /**
  * The end of a payment that did not become a sale. "Try again" goes back to
@@ -37,22 +46,20 @@ export default async function CheckoutFailedPage({ params, searchParams }: Faile
   const { issue } = await searchParams;
   const context = await readCheckoutContext();
   const retryHref = context?.eventPath ?? "/";
+  const t = await getTranslations("checkout.failed");
 
   if (issue === "support") {
     return (
       <StorefrontShell customerNav={<HeaderCustomerNav />}>
         <main className="mx-auto w-full max-w-xl px-4 py-12 sm:py-16">
           <div className="space-y-6 text-center">
-            <h1 className="text-3xl font-semibold tracking-tight">Something went wrong</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{t("supportTitle")}</h1>
             <Alert variant="destructive" className="text-left">
-              <AlertTitle>Your payment may have gone through</AlertTitle>
-              <AlertDescription>
-                We couldn&apos;t record your tickets after the payment step. Please don&apos;t pay
-                again — contact the event organizer and we&apos;ll sort it out.
-              </AlertDescription>
+              <AlertTitle>{t("supportAlertTitle")}</AlertTitle>
+              <AlertDescription>{t("supportAlertBody")}</AlertDescription>
             </Alert>
             <Button asChild variant="ghost" className="h-11">
-              <Link href="/">Back to Discover events</Link>
+              <Link href="/">{t("backToDiscover")}</Link>
             </Button>
           </div>
         </main>
@@ -65,24 +72,20 @@ export default async function CheckoutFailedPage({ params, searchParams }: Faile
       <main className="mx-auto w-full max-w-xl px-4 py-12 sm:py-16">
         <div className="space-y-6 text-center">
           <div className="space-y-2">
-            <h1 className="text-3xl font-semibold tracking-tight">Payment not completed</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{t("title")}</h1>
             <p className="text-muted-foreground">
-              {issue === "error"
-                ? "We couldn't finish confirming your payment. You haven't been charged, and no tickets were issued."
-                : "Your payment was declined or cancelled. You haven't been charged, and no tickets were issued."}
+              {issue === "error" ? t("unconfirmed") : t("declined")}
             </p>
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            Your tickets weren&apos;t reserved, so if you&apos;d still like to go, just start again.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("retryHint")}</p>
 
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild className="h-11">
-              <Link href={retryHref}>Try again</Link>
+              <Link href={retryHref}>{t("tryAgain")}</Link>
             </Button>
             <Button asChild variant="ghost" className="h-11">
-              <Link href="/">Discover more events</Link>
+              <Link href="/">{t("discoverMore")}</Link>
             </Button>
           </div>
         </div>

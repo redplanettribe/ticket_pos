@@ -2,15 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  COUNTRIES,
   ECUADOR_DIALLING_CODE,
+  ECUADOR_REGION_CODE,
   PHONE_ECUADOR_MESSAGE,
   PHONE_GENERIC_MESSAGE,
+  countries,
+  countryName,
   normalizePhone,
   composePhone,
   splitPhone,
   validatePhone,
 } from "./phone.ts";
+import { type Locale } from "./format.ts";
+
+const LOCALES: Locale[] = ["en-US", "es-EC"];
 
 // The mirror validator (#105). Its job is instant feedback, and its one hard
 // requirement is agreeing with backend/internal/platform/phone.go — a number
@@ -121,33 +126,107 @@ test("an accepted number has no message at all", () => {
 
 // The country table (#103). It supplies the prefix for display and carries no
 // validation duty, so the assertions here are about the selector a buyer sees.
+// The names come from the platform's own CLDR data rather than from a list kept
+// here, so what is worth asserting is that every row arrives named, ordered and
+// carrying the same dialling code in every language.
 
-test("Ecuador is first, because it is the default selection", () => {
-  assert.equal(COUNTRIES[0]?.name, "Ecuador");
-  assert.equal(COUNTRIES[0]?.diallingCode, ECUADOR_DIALLING_CODE);
-});
+for (const locale of LOCALES) {
+  test(`${locale}: Ecuador is first, because it is the default selection`, () => {
+    assert.equal(countries(locale)[0]?.regionCode, ECUADOR_REGION_CODE);
+    assert.equal(countries(locale)[0]?.diallingCode, ECUADOR_DIALLING_CODE);
+  });
 
-test("every row is a name and a plus-prefixed dialling code", () => {
-  for (const country of COUNTRIES) {
-    assert.ok(country.name.length > 0, `unnamed country for ${country.diallingCode}`);
-    assert.match(country.diallingCode, /^\+[0-9]{1,4}$/, `bad code for ${country.name}`);
+  test(`${locale}: every row is a region, a name and a plus-prefixed dialling code`, () => {
+    for (const country of countries(locale)) {
+      assert.match(country.regionCode, /^[A-Z]{2}$/, `bad region ${country.regionCode}`);
+      assert.ok(country.name.trim().length > 0, `unnamed region ${country.regionCode}`);
+      assert.match(country.diallingCode, /^\+[0-9]{1,4}$/, `bad code for ${country.regionCode}`);
+    }
+  });
+
+  test(`${locale}: no region is listed twice, and no two rows read alike`, () => {
+    const list = countries(locale);
+    const regions = list.map((country) => country.regionCode);
+    assert.equal(new Set(regions).size, regions.length);
+    // A buyer picks by reading. Two rows with the same words would be a coin
+    // toss between two different dialling codes.
+    const names = list.map((country) => country.name);
+    assert.equal(new Set(names).size, names.length);
+  });
+
+  test(`${locale}: the table is long enough to be a real selector`, () => {
+    // Not a magic number so much as a floor: this is a worldwide field, and a
+    // shortlist would be the same as no selector for the buyer it omits.
+    assert.ok(countries(locale).length > 150);
+  });
+
+  test(`${locale}: every row is really named, never degraded to its region code`, () => {
+    // The fallback in countryName exists for a region CLDR has never heard of.
+    // No row shipped here is one, and a row that became one would put a bare
+    // "XK" in the middle of the selector.
+    for (const country of countries(locale)) {
+      assert.notEqual(country.name, country.regionCode, `${country.regionCode} has no name`);
+    }
+  });
+
+  test(`${locale}: the rest of the list is in this language's alphabetical order`, () => {
+    const rest = countries(locale)
+      .slice(1)
+      .map((country) => country.name);
+    const collated = [...rest].sort(new Intl.Collator(locale).compare);
+    assert.deepEqual(rest, collated);
+  });
+
+  test(`${locale}: the order is collated, not compared as raw strings`, () => {
+    // The assertion above passes just as well against a `<` sort as long as the
+    // two happen to agree — this one is what proves they do not. Sorting the
+    // code points files "Côte d'Ivoire" and "Bélgica" after "Z", which is the
+    // subtle wrongness this ticket exists to remove.
+    const rest = countries(locale)
+      .slice(1)
+      .map((country) => country.name);
+    assert.notDeepEqual(rest, [...rest].sort());
+  });
+}
+
+test("the same regions and the same dialling codes are offered in every language", () => {
+  // A dialling code is a fact about the telephone network, so a buyer switching
+  // language must find their country still there and still reachable on the same
+  // prefix. Only the words and their order may differ.
+  const [reference, ...others] = LOCALES.map((locale) =>
+    countries(locale)
+      .map((country) => `${country.regionCode}${country.diallingCode}`)
+      .sort(),
+  );
+  for (const other of others) {
+    assert.deepEqual(other, reference);
   }
 });
 
-test("no country is listed twice", () => {
-  const names = COUNTRIES.map((country) => country.name);
-  assert.equal(new Set(names).size, names.length);
+test("a region is named in the language asked for", () => {
+  assert.equal(countryName("DE", "en-US"), "Germany");
+  assert.equal(countryName("DE", "es-EC"), "Alemania");
+  assert.equal(countryName("US", "es-EC"), "Estados Unidos");
+  assert.equal(countryName("EC", "es-EC"), "Ecuador");
+  // The list carries the same names the lookup does.
+  const spanish = countries("es-EC");
+  assert.equal(spanish.find((country) => country.regionCode === "DE")?.name, "Alemania");
+  assert.equal(countries("en-US").find((country) => country.regionCode === "DE")?.name, "Germany");
+  // And the Spanish list is genuinely re-sorted, not the English order relabelled:
+  // Alemania sits among the A's, where a Spanish reader looks for it.
+  assert.ok(spanish.findIndex((country) => country.regionCode === "DE") < 10);
 });
 
-test("the table is long enough to be a real selector", () => {
-  // Not a magic number so much as a floor: this is a worldwide field, and a
-  // shortlist would be the same as no selector for the buyer it omits.
-  assert.ok(COUNTRIES.length > 150);
-});
-
-test("the rest of the table is alphabetical, so a long list can be scanned", () => {
-  const rest = COUNTRIES.slice(1).map((country) => country.name);
-  assert.deepEqual(rest, [...rest].sort((a, b) => a.localeCompare(b, "en")));
+test("a region with no display name degrades to something, never to a blank", () => {
+  // "ZX" is well-formed and unassigned, so CLDR has nothing to say about it in
+  // any language; "ZZZ" is not a region subtag at all and makes Intl throw. A
+  // selector row is not worth a crashed checkout, and an option with no words in
+  // it is a row nobody can pick.
+  for (const locale of LOCALES) {
+    assert.equal(countryName("ZX", locale), "ZX");
+    assert.equal(countryName("ZZZ", locale), "ZZZ");
+    assert.equal(countryName("", locale), "");
+  }
 });
 
 // The split (#103): a stored canonical number back into the two halves a form

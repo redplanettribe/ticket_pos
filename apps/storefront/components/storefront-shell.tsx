@@ -2,6 +2,7 @@ import { StorefrontShell as BaseStorefrontShell } from "@ticket-pos/ui";
 import { getLocale, getTranslations } from "next-intl/server";
 import type { ComponentProps } from "react";
 
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { BRAND_NAME } from "@/lib/brand";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 
@@ -24,11 +25,20 @@ type BaseProps = ComponentProps<typeof BaseStorefrontShell>;
  * link's label is the exception and stays a constant: it is the brand name, and
  * a brand name is not translated (lib/brand.ts).
  *
+ * The language switcher is filled in here rather than page by page, and it is
+ * not a prop a page may pass: every page must offer both languages, because the
+ * link to a page's translation is how a crawler discovers that the translation
+ * exists at all (components/language-switcher.tsx). A page that could opt out
+ * would opt out silently.
+ *
  * The locale comes from the request rather than from props, which is what keeps
  * the pages themselves unchanged apart from the import.
  */
 export async function StorefrontShell(
-  props: Omit<BaseProps, "homeHref" | "homeLinkLabel" | "poweredByLabel" | "organizationLogoAlt">,
+  props: Omit<
+    BaseProps,
+    "homeHref" | "homeLinkLabel" | "poweredByLabel" | "organizationLogoAlt" | "languageSwitcher"
+  >,
 ) {
   const locale = toAppLocale(await getLocale());
   const t = await getTranslations("shell");
@@ -37,6 +47,7 @@ export async function StorefrontShell(
       {...props}
       homeHref={localizedPath(locale, "/")}
       homeLinkLabel={BRAND_NAME}
+      languageSwitcher={<LanguageSwitcher />}
       poweredByLabel={t("poweredBy", { brand: BRAND_NAME })}
       // Only the header with an Organization in it draws a logo; without a name
       // there is nothing to interpolate and the package's own fallback is the

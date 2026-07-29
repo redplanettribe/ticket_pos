@@ -1,6 +1,6 @@
 import { PageHeader } from "@ticket-pos/ui";
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { ExplorerFilters } from "@/components/explorer-filters";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
@@ -56,13 +56,12 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
     listPublicTags(),
   ]);
 
+  const t = await getTranslations("explorer");
+
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
       <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 sm:py-12">
-        <PageHeader
-          title="Discover events"
-          description="Find and explore upcoming events from organizers everywhere."
-        />
+        <PageHeader title={t("title")} description={t("subtitle")} />
         <ExplorerFilters presetTags={presetTags ?? []} />
         <ExplorerResults
           initialEvents={page?.events ?? []}

@@ -1,7 +1,8 @@
 "use client";
 
 import { Button } from "@ticket-pos/ui";
-import { useState } from "react";
+import { useTranslations } from "next-intl";
+import { useState, type ReactNode } from "react";
 
 import { useRouter } from "@/i18n/navigation";
 
@@ -20,8 +21,19 @@ import { useRouter } from "@/i18n/navigation";
  * Next prefetches links, so scrolling past this empty state would sign people
  * out, and a session-destroying GET is reachable from any other site's markup.
  */
-export function SignInOtherAddressButton() {
+export function SignInOtherAddressButton({
+  label,
+}: {
+  /**
+   * What the button reads while it is idle, handed down by the sentence it sits
+   * inside. The offer is one clause of that sentence, so its words belong to
+   * the sentence's message rather than to this component — which is what lets a
+   * language put the clause wherever it needs to go.
+   */
+  label: ReactNode;
+}) {
   const router = useRouter();
+  const t = useTranslations("customerArea");
   const [loading, setLoading] = useState(false);
 
   async function handleSwitchAddress() {
@@ -47,7 +59,9 @@ export function SignInOtherAddressButton() {
       disabled={loading}
       aria-busy={loading}
     >
-      {loading ? "Signing out…" : "Sign out and sign in with that address"}
+      {/* The busy state is this component's own business and never appears in
+          the sentence, so it comes from the catalog directly. */}
+      {loading ? t("signingOut") : label}
     </Button>
   );
 }

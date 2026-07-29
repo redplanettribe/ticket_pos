@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { Button, Card, CardContent } from "@ticket-pos/ui";
@@ -11,19 +11,28 @@ import { Link } from "@/i18n/navigation";
 import { getCheckoutReversal } from "@/lib/api";
 import { readCheckoutContext } from "@/lib/checkout-context";
 import { getCustomerSession } from "@/lib/customer-session";
+import { intlLocale, toAppLocale } from "@/lib/locale";
 import { undoDeadline } from "@/lib/undo-window";
 
 export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-  title: "You're going!",
-  robots: { index: false, follow: false },
-};
 
 type SuccessPageProps = {
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ ref?: string }>;
 };
+
+export async function generateMetadata({ params }: SuccessPageProps): Promise<Metadata> {
+  const { locale } = await params;
+  // Metadata renders before the page declares its locale, so the namespace is
+  // asked for the locale off the URL explicitly rather than for the request's.
+  const t = await getTranslations({ locale, namespace: "checkout.success" });
+  return {
+    // The same words as the heading, from the same key: the tab and the page
+    // are saying one thing.
+    title: t("title"),
+    robots: { index: false, follow: false },
+  };
+}
 
 /**
  * The end of an approved checkout: the Sale Confirmation reference, front and
@@ -69,34 +78,37 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
   // what lets the link below land a buyer on their own purchase instead of on a
   // list of everything they have ever bought (#121).
   const reversal = context ? await getCheckoutReversal(context.clientTransactionId) : null;
-  const reversalDeadline = undoDeadline(reversal);
+  // The words of the deadline are the buyer's language; the clock behind it
+  // stays Ecuador's, which is the rule's own (ADR 0018).
+  const reversalDeadline = undoDeadline(reversal, intlLocale(toAppLocale(locale)));
+  const t = await getTranslations("checkout.success");
 
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
       <main className="mx-auto w-full max-w-xl px-4 py-12 sm:py-16">
         <div className="space-y-6 text-center">
           <div className="space-y-2">
-            <h1 className="text-3xl font-semibold tracking-tight">You&apos;re going!</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{t("title")}</h1>
             <p className="text-muted-foreground">
+              {/* The Event's name is the organizer's and is never translated;
+                  only the sentence around it is, and the name goes inside that
+                  sentence rather than in front of it. */}
               {context?.eventName
-                ? `Your tickets for ${context.eventName} are confirmed.`
-                : "Your payment was approved and your tickets are confirmed."}
+                ? t("confirmedEvent", { event: context.eventName })
+                : t("confirmedGeneric")}
             </p>
           </div>
 
           <Card>
             <CardContent className="space-y-1 p-6">
-              <p className="text-sm text-muted-foreground">Confirmation reference</p>
+              <p className="text-sm text-muted-foreground">{t("referenceLabel")}</p>
               <p className="font-mono text-3xl font-semibold tracking-wide" data-testid="confirmation-ref">
                 {reference}
               </p>
             </CardContent>
           </Card>
 
-          <p className="text-sm text-muted-foreground">
-            We&apos;ve emailed your Sale Confirmation with a link to your tickets. Quote the
-            reference above at the door if you need to.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("emailed")}</p>
 
           {/* Changed your mind? Nothing here undoes anything — it names the
               deadline and offers the sign-in that leads to the purchase in the
@@ -115,16 +127,16 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             {signedIn ? (
               <Button asChild className="h-11">
-                <Link href="/tickets">See your tickets</Link>
+                <Link href="/tickets">{t("seeTickets")}</Link>
               </Button>
             ) : null}
             {context ? (
               <Button asChild variant={signedIn ? "secondary" : "default"} className="h-11">
-                <Link href={context.eventPath}>Back to the event</Link>
+                <Link href={context.eventPath}>{t("backToEvent")}</Link>
               </Button>
             ) : null}
             <Button asChild variant="ghost" className="h-11">
-              <Link href="/">Discover more events</Link>
+              <Link href="/">{t("discoverMore")}</Link>
             </Button>
           </div>
         </div>

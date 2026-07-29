@@ -53,18 +53,6 @@ export function priceFrom(
   return { kind: "from", price: formatPrice(cents, currency, locale) };
 }
 
-// The English rendering of priceFrom, kept while call sites still expect a
-// string. It hardcodes English copy, so it is only correct under en-US.
-export function formatPriceFrom(
-  cents: number | null,
-  currency: string,
-  locale: Locale = DEFAULT_LOCALE,
-): string | null {
-  const label = priceFrom(cents, currency, locale);
-  if (!label) return null;
-  return label.kind === "free" ? "Free" : `From ${label.price}`;
-}
-
 function timeZoneOrUndefined(timezone: string | null): string | undefined {
   return timezone ?? undefined;
 }

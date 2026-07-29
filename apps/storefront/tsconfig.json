@@ -35,9 +35,13 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-probe/types/**/*.ts",
+    ".next-proof-cached/types/**/*.ts",
+    ".next-proof-nostore/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-verify/types/**/*.ts"
+    ".next-probe2/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

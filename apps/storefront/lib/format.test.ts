@@ -6,7 +6,6 @@ import {
   formatEventDateShort,
   formatEventDateTime,
   formatPrice,
-  formatPriceFrom,
   formatReversalDeadline,
   priceFrom,
 } from "./format.ts";
@@ -26,12 +25,6 @@ test("es-EC prices use Ecuadorian number conventions", () => {
   // Same currency, same dollar sign — only the grouping and decimal marks move.
   assert.equal(formatPrice(2500, "USD", "es-EC"), "$25");
   assert.equal(formatPrice(123450, "USD", "es-EC"), "$1.234,50");
-});
-
-test("en-US 'from' pricing copy is unchanged", () => {
-  assert.equal(formatPriceFrom(2500, "USD"), "From $25");
-  assert.equal(formatPriceFrom(0, "USD"), "Free");
-  assert.equal(formatPriceFrom(null, "USD"), null);
 });
 
 test("the 'from' price is offered as data a message template can render", () => {

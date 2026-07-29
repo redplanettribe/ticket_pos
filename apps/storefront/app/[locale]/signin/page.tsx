@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { StorefrontShell } from "@/components/storefront-shell";
 import { redirect } from "@/i18n/navigation";
 import { localeAlternates } from "@/lib/alternates";
+import { BRAND_NAME } from "@/lib/brand";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
@@ -41,9 +42,14 @@ export async function generateMetadata({ params }: SignInPageProps): Promise<Met
     toAppLocale(locale),
     storefrontBaseUrl(),
   );
+  // Metadata renders before the page declares its locale, so the namespace is
+  // asked for the locale off the URL explicitly rather than for the request's.
+  const t = await getTranslations({ locale, namespace: "signin" });
   return {
-    title: "Sign in · Multiticketing",
-    description: "Sign in with your email to see your tickets.",
+    // The brand is interpolated rather than written into the catalog, so a
+    // translator has a sentence to translate and not a name to render.
+    title: t("metaTitle", { brand: BRAND_NAME }),
+    description: t("metaDescription"),
     alternates: { canonical, languages },
   };
 }

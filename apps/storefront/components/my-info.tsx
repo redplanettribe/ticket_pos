@@ -1,11 +1,13 @@
 "use client";
 
 import { Alert, AlertDescription, Button, FormField, Input, toast } from "@ticket-pos/ui";
+import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { CustomerAvatar } from "@/components/customer-avatar";
-import { COUNTRIES } from "@/lib/phone";
+import { intlLocale, toAppLocale } from "@/lib/locale";
+import { countries } from "@/lib/phone";
 import {
   profileDraftPhone,
   profileFieldErrorsFromDetails,
@@ -51,6 +53,13 @@ const AVATAR_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"];
 /** Mirrors the seeding cap on the API; a phone photo fits comfortably. */
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
+/**
+ * The cap as the two sentences about it state it. Interpolated rather than
+ * written into the catalogs, so raising the limit does not leave "5 MB" behind
+ * in a language nobody on this team reads.
+ */
+const MAX_AVATAR_MEGABYTES = MAX_AVATAR_BYTES / (1024 * 1024);
+
 /** The stored Tax ID as a line of prose, or the em dash history uses for "none". */
 function taxIdLabel(profile: CustomerProfile): string {
   if (!profile.tax_id_type || !profile.tax_id_number) return "—";
@@ -80,6 +89,8 @@ function fullName(profile: CustomerProfile): string {
 
 export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   const router = useRouter();
+  const t = useTranslations("myInfo");
+  const locale = toAppLocale(useLocale());
   // The saved profile is held here as well as on the server so the panel shows
   // the new values the instant the API confirms them, without waiting for the
   // page to be re-rendered.
@@ -105,6 +116,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Two hundred region names and a collation sort, held across the keystrokes
+  // that re-render the form around the selector.
+  const countryRows = useMemo(() => countries(intlLocale(locale)), [locale]);
 
   /**
    * The photo flow is three hops the person sees as one: mint a presigned URL,
@@ -117,12 +131,14 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
     event.target.value = "";
     if (!file) return;
 
+    // Both checks run before any request, so what they say is this app's own
+    // copy rather than a relayed API message.
     if (!AVATAR_CONTENT_TYPES.includes(file.type)) {
-      setPhotoError("Choose a JPEG, PNG, or WebP image.");
+      setPhotoError(t("photoTypeRefused"));
       return;
     }
     if (file.size > MAX_AVATAR_BYTES) {
-      setPhotoError("That image is over 5 MB. Choose a smaller one.");
+      setPhotoError(t("photoTooLarge", { limit: MAX_AVATAR_MEGABYTES }));
       return;
     }
 
@@ -165,7 +181,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       }
 
       setProfile(attached.data);
-      toast.success("Your photo is saved.");
+      toast.success(t("photoSaved"));
       // The header chip renders from the server-side session read; refreshing
       // keeps it in step with the photo this panel now shows.
       router.refresh();
@@ -187,7 +203,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
         return;
       }
       setProfile(envelope.data);
-      toast.success("Your photo is removed.");
+      toast.success(t("photoRemoved"));
       router.refresh();
     } catch {
       setPhotoError("Your photo could not be removed. Check your connection and try again.");
@@ -257,7 +273,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
       // Transient success, the way every other save in the system reports one
       // (docs/design/foundation.md): the panel already shows the new values, so
       // nothing persistent needs to sit on the page.
-      toast.success("Your details are saved.");
+      toast.success(t("saved"));
       // The server-rendered page holds the same session payload this panel came
       // from; refreshing keeps the two from drifting apart on a soft navigation.
       router.refresh();
@@ -273,11 +289,11 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
     <section id="my-info" className="scroll-mt-20 space-y-4" aria-labelledby="my-info-heading">
       <div className="flex items-center justify-between gap-4">
         <h2 id="my-info-heading" className="text-lg font-semibold tracking-tight">
-          My info
+          {t("heading")}
         </h2>
         {editing ? null : (
           <Button type="button" variant="secondary" size="sm" onClick={startEditing}>
-            Edit
+            {t("edit")}
           </Button>
         )}
       </div>
@@ -305,7 +321,11 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                 aria-busy={photoBusy}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {photoBusy ? "Working…" : profile.avatar_url ? "Change photo" : "Add photo"}
+                {photoBusy
+                  ? t("photoWorking")
+                  : profile.avatar_url
+                    ? t("changePhoto")
+                    : t("addPhoto")}
               </Button>
               {profile.avatar_url ? (
                 <Button
@@ -315,11 +335,13 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                   disabled={photoBusy}
                   onClick={handlePhotoRemove}
                 >
-                  Remove photo
+                  {t("removePhoto")}
                 </Button>
               ) : null}
             </div>
-            <p className="text-xs text-muted-foreground">JPEG, PNG, or WebP, up to 5 MB.</p>
+            <p className="text-xs text-muted-foreground">
+              {t("photoHint", { limit: MAX_AVATAR_MEGABYTES })}
+            </p>
             {photoError ? <p className="text-xs text-destructive">{photoError}</p> : null}
           </div>
           <input
@@ -333,24 +355,27 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
 
         <dl className="space-y-3 text-sm">
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-            <dt className="text-muted-foreground">Email</dt>
+            <dt className="text-muted-foreground">{t("emailLabel")}</dt>
             <dd className="font-medium">{profile.email}</dd>
           </div>
           {editing ? null : (
             <>
               <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-                <dt className="text-muted-foreground">Name</dt>
+                <dt className="text-muted-foreground">{t("nameLabel")}</dt>
                 <dd className="font-medium">{fullName(profile)}</dd>
               </div>
               <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-                <dt className="text-muted-foreground">ID</dt>
+                <dt className="text-muted-foreground">{t("idLabel")}</dt>
+                {/* "Cédula", "RUC" and "Pasaporte" name Ecuadorian documents and
+                    read the same in both languages, so the value beside this
+                    term is not in the catalog. */}
                 <dd className="font-medium">{taxIdLabel(profile)}</dd>
               </div>
               {/* The phone sits beside the ID because they are the same kind of
                   thing to the person reading: details the platform holds, given
                   once, reused at every checkout (#108). */}
               <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-                <dt className="text-muted-foreground">Phone</dt>
+                <dt className="text-muted-foreground">{t("phoneLabel")}</dt>
                 <dd className="font-medium tabular-nums">{phoneLabel(profile)}</dd>
               </div>
             </>
@@ -363,10 +388,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
             very form that answers it would be noise. */}
         {!editing && !profile.tax_id_type ? (
           <Alert className="mt-4">
-            <AlertDescription>
-              Add your ID to speed up checkout — it&apos;ll be filled in for you when you buy
-              tickets.
-            </AlertDescription>
+            <AlertDescription>{t("idNudge")}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -379,7 +401,11 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField id="my-info-first-name" label="First name" error={fieldErrors.first_name}>
+              <FormField
+                id="my-info-first-name"
+                label={t("firstNameLabel")}
+                error={fieldErrors.first_name}
+              >
                 <Input
                   name="given-name"
                   autoComplete="given-name"
@@ -388,7 +414,11 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                   onChange={(event) => setFirstName(event.target.value)}
                 />
               </FormField>
-              <FormField id="my-info-last-name" label="Last name" error={fieldErrors.last_name}>
+              <FormField
+                id="my-info-last-name"
+                label={t("lastNameLabel")}
+                error={fieldErrors.last_name}
+              >
                 <Input
                   name="family-name"
                   autoComplete="family-name"
@@ -403,7 +433,11 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                 sit on one row — and they clear together: emptying the number
                 removes the stored ID entirely. */}
             <div className="grid gap-4 sm:grid-cols-[minmax(0,9rem)_1fr]">
-              <FormField id="my-info-tax-id-type" label="ID type" error={fieldErrors.tax_id_type}>
+              <FormField
+                id="my-info-tax-id-type"
+                label={t("taxIdTypeLabel")}
+                error={fieldErrors.tax_id_type}
+              >
                 <select
                   name="tax-id-type"
                   className={SELECT_CLASS}
@@ -412,6 +446,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                     if (isTaxIdType(event.target.value)) setTaxIdType(event.target.value);
                   }}
                 >
+                  {/* Cédula, RUC and Pasaporte are the names of Ecuadorian
+                      documents, so they read the same in both languages and are
+                      not in the catalog. */}
                   {TAX_ID_TYPES.map((type) => (
                     <option key={type} value={type}>
                       {TAX_ID_TYPE_LABELS[type]}
@@ -421,9 +458,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
               </FormField>
               <FormField
                 id="my-info-tax-id-number"
-                label="ID number"
+                label={t("taxIdNumberLabel")}
                 error={fieldErrors.tax_id_number}
-                description="Leave blank to remove it. We'll ask again at your next checkout."
+                description={t("taxIdNumberHint")}
               >
                 <Input
                   name="tax-id-number"
@@ -441,30 +478,36 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                 (#103): a Customer who never gives one loses nothing, and one
                 who empties the field withdraws the number entirely. */}
             <div className="grid gap-4 sm:grid-cols-[minmax(0,11rem)_1fr]">
-              <FormField id="my-info-phone-country" label="Country code">
+              <FormField id="my-info-phone-country" label={t("phoneCountryLabel")}>
                 <select
                   name="phone-country"
                   className={SELECT_CLASS}
                   value={phoneDiallingCode}
                   onChange={(event) => setPhoneDiallingCode(event.target.value)}
                 >
-                  {/* Keyed by name, valued by dialling code: the codes are not
-                      unique (+1 covers the US, Canada and twenty more), so a
-                      stored +1 number shows under the first country listed
-                      under it. The accepted cosmetic imperfection from #103 —
-                      the number stored and sent is identical either way. */}
-                  {COUNTRIES.map((country) => (
-                    <option key={country.name} value={country.diallingCode}>
-                      {country.name} ({country.diallingCode})
+                  {/* Keyed by region code, valued by dialling code: the region
+                      is the row's identity and its name is only a rendering of
+                      it, so the key survives a change of language. The dialling
+                      codes are not unique (+1 covers the US, Canada and twenty
+                      more), so a stored +1 number shows under the first country
+                      listed under it. The accepted cosmetic imperfection from
+                      #103 — the number stored and sent is identical either
+                      way. */}
+                  {countryRows.map((country) => (
+                    <option key={country.regionCode} value={country.diallingCode}>
+                      {t("countryOption", {
+                        country: country.name,
+                        diallingCode: country.diallingCode,
+                      })}
                     </option>
                   ))}
                 </select>
               </FormField>
               <FormField
                 id="my-info-phone"
-                label="Phone (optional)"
+                label={t("phoneFieldLabel")}
                 error={fieldErrors.phone}
-                description="Leave blank to remove it. We'll fill it in at your next checkout."
+                description={t("phoneHint")}
               >
                 <Input
                   name="tel-national"
@@ -477,14 +520,11 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
               </FormField>
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              Your email is how we find your tickets, so it can&apos;t be changed here. Past
-              purchases keep the details they were bought with.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("emailNote")}</p>
 
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={saving} aria-busy={saving}>
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? t("saving") : t("save")}
               </Button>
               <Button
                 type="button"
@@ -492,7 +532,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
                 disabled={saving}
                 onClick={() => setEditing(false)}
               >
-                Cancel
+                {t("cancel")}
               </Button>
             </div>
           </form>

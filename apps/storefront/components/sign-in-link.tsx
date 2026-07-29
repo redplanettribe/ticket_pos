@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@ticket-pos/ui";
+import { useTranslations } from "next-intl";
 
 import { Link, usePathname } from "@/i18n/navigation";
 
@@ -21,6 +22,9 @@ import { Link, usePathname } from "@/i18n/navigation";
  */
 export function SignInLink() {
   const pathname = usePathname();
+  // Named by the page it opens, from that page's own key, so the way in and
+  // what it leads to cannot come to say two different things.
+  const t = useTranslations("signin");
   // "/tickets" is already where sign-in goes by default, and pointing back at
   // "/signin" would be a loop.
   const carryNext = pathname && pathname !== "/tickets" && !pathname.startsWith("/signin");
@@ -28,7 +32,7 @@ export function SignInLink() {
 
   return (
     <Button asChild variant="ghost" size="sm">
-      <Link href={href}>Sign in</Link>
+      <Link href={href}>{t("title")}</Link>
     </Button>
   );
 }

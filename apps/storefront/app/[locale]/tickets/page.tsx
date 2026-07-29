@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { Alert, AlertDescription, AlertTitle, Button, PageHeader } from "@ticket-pos/ui";
 
@@ -9,6 +9,7 @@ import { SignInOtherAddressButton } from "@/components/sign-in-other-address-but
 import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSaleCard } from "@/components/ticket-sale-card";
 import { Link, redirect } from "@/i18n/navigation";
+import { BRAND_NAME } from "@/lib/brand";
 import {
   customerSessionToken,
   getCustomerArea,
@@ -21,10 +22,27 @@ import {
 // uncached reads. There is no static output here to opt out of.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Your tickets · Multiticketing",
-  // The Customer Area is private; keep it out of search results entirely.
-  robots: { index: false, follow: false },
+/**
+ * A function rather than a constant now, because the tab has to be written in
+ * the language the page is served in. The `robots` line is unchanged and stays
+ * unconditional: the Customer Area is private in both languages.
+ */
+export async function generateMetadata({ params }: CustomerAreaPageProps): Promise<Metadata> {
+  const { locale } = await params;
+  // Metadata renders before the page declares its locale, so the namespace is
+  // asked for the locale off the URL explicitly rather than for the request's.
+  const t = await getTranslations({ locale, namespace: "customerArea" });
+  return {
+    // The brand is interpolated rather than written into the catalog, so a
+    // translator has a sentence to translate and not a name to render.
+    title: t("metaTitle", { brand: BRAND_NAME }),
+    // The Customer Area is private; keep it out of search results entirely.
+    robots: { index: false, follow: false },
+  };
+}
+
+type CustomerAreaPageProps = {
+  params: Promise<{ locale: string }>;
 };
 
 /**
@@ -35,11 +53,7 @@ export const metadata: Metadata = {
  * passes no identifier of any kind to the API, and there is no route parameter
  * here that could name a different Customer.
  */
-export default async function CustomerAreaPage({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
+export default async function CustomerAreaPage({ params }: CustomerAreaPageProps) {
   const { locale } = await params;
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
@@ -66,16 +80,14 @@ export default async function CustomerAreaPage({
     });
   }
 
+  const t = await getTranslations("customerArea");
+
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
       <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-10 sm:py-12">
         <PageHeader
-          title={fromConfirmationLink ? "Your purchase" : "Your tickets"}
-          description={
-            fromConfirmationLink
-              ? "This is the purchase your confirmation email links to."
-              : "Everything you've bought, from every organizer, in one place."
-          }
+          title={fromConfirmationLink ? t("linkedTitle") : t("title")}
+          description={fromConfirmationLink ? t("linkedDescription") : t("description")}
         />
 
         {fromConfirmationLink && area.status === "ok" && linkedSaleReversed(area.data) ? (
@@ -86,7 +98,9 @@ export default async function CustomerAreaPage({
 
         {area.status === "error" ? (
           <Alert variant="destructive">
-            <AlertTitle>We couldn&apos;t load your tickets</AlertTitle>
+            <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
+            {/* The API's own words, relayed verbatim: what went wrong is the
+                API's to say, and this page does not paraphrase it. */}
             <AlertDescription>{area.message}</AlertDescription>
           </Alert>
         ) : (
@@ -136,14 +150,12 @@ function linkedSaleReversed(area: CustomerAreaData): boolean {
  * this notice is read by someone who may have done it themselves an hour ago.
  * Asserting the wrong one would be worse than asserting neither.
  */
-function ReversedSaleNotice() {
+async function ReversedSaleNotice() {
+  const t = await getTranslations("customerArea");
   return (
     <Alert variant="destructive">
-      <AlertTitle>This purchase was reversed</AlertTitle>
-      <AlertDescription>
-        These tickets were released and are no longer valid for entry. Contact the organizer if you
-        believe that is a mistake.
-      </AlertDescription>
+      <AlertTitle>{t("reversedTitle")}</AlertTitle>
+      <AlertDescription>{t("reversedDescription")}</AlertDescription>
     </Alert>
   );
 }
@@ -156,24 +168,22 @@ function ReversedSaleNotice() {
  * only way to widen: a link proves possession of an email, a passcode proves
  * ownership of the address, and only the second earns the full history.
  */
-function ConfirmationLinkNotice() {
+async function ConfirmationLinkNotice() {
+  const t = await getTranslations("customerArea");
   return (
     <Alert>
-      <AlertTitle>You&apos;re viewing one purchase</AlertTitle>
+      <AlertTitle>{t("linkNoticeTitle")}</AlertTitle>
       <AlertDescription className="space-y-3">
-        <p>
-          You opened this from a confirmation email, so it shows that purchase only. Sign in with a
-          passcode to see everything else you&apos;ve bought.
-        </p>
+        <p>{t("linkNoticeDescription")}</p>
         <Button asChild size="sm">
-          <Link href="/signin?next=/tickets">Sign in with a passcode</Link>
+          <Link href="/signin?next=/tickets">{t("linkNoticeAction")}</Link>
         </Button>
       </AlertDescription>
     </Alert>
   );
 }
 
-function CustomerArea({
+async function CustomerArea({
   upcoming,
   past,
   viaConfirmationLink,
@@ -187,11 +197,12 @@ function CustomerArea({
   if (upcoming.length === 0 && past.length === 0) {
     return <NoPurchases />;
   }
+  const t = await getTranslations("customerArea");
 
   return (
     <>
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Upcoming</h2>
+        <h2 className="text-lg font-semibold tracking-tight">{t("upcomingHeading")}</h2>
         {upcoming.length > 0 ? (
           <ul className="space-y-4">
             {upcoming.map((sale) => (
@@ -205,12 +216,10 @@ function CustomerArea({
           </ul>
         ) : (
           <div className="rounded-lg border border-dashed p-8 text-center">
-            <p className="font-medium">Nothing coming up</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Your past tickets are below, and there&apos;s always something new to find.
-            </p>
+            <p className="font-medium">{t("nothingUpcomingTitle")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t("nothingUpcomingDescription")}</p>
             <Button asChild variant="secondary" className="mt-4">
-              <Link href="/">Discover events</Link>
+              <Link href="/">{t("discoverEvents")}</Link>
             </Button>
           </div>
         )}
@@ -218,7 +227,7 @@ function CustomerArea({
 
       {past.length > 0 ? (
         <section className="space-y-4">
-          <h2 className="text-lg font-semibold tracking-tight">Past</h2>
+          <h2 className="text-lg font-semibold tracking-tight">{t("pastHeading")}</h2>
           <ul className="space-y-4">
             {past.map((sale) => (
               <TicketSaleCard
@@ -252,19 +261,23 @@ function CustomerArea({
  * second line ends in a button rather than a link — see
  * SignInOtherAddressButton.
  */
-function NoPurchases() {
+async function NoPurchases() {
+  const t = await getTranslations("customerArea");
   return (
     <div className="rounded-lg border border-dashed p-10 text-center">
-      <p className="font-medium">No tickets yet</p>
-      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-        When you buy tickets, they&apos;ll show up here — from every organizer you buy from.
-      </p>
+      <p className="font-medium">{t("emptyTitle")}</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{t("emptyDescription")}</p>
       <Button asChild className="mt-6">
-        <Link href="/">Discover events</Link>
+        <Link href="/">{t("discoverEvents")}</Link>
       </Button>
       <p className="mx-auto mt-6 max-w-md text-sm text-muted-foreground">
-        Bought with a different email address? Tickets stay with the address they were bought
-        under. <SignInOtherAddressButton />.
+        {/* The button is a tag inside the sentence rather than a fragment glued
+            after it, so a language that opens with the offer and explains
+            afterwards can. Its own idle label is the tag's contents; the busy
+            one belongs to the button, which is the only thing that knows it. */}
+        {t.rich("otherAddress", {
+          action: (chunks) => <SignInOtherAddressButton label={chunks} />,
+        })}
       </p>
     </div>
   );

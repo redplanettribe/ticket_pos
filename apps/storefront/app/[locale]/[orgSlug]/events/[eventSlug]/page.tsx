@@ -13,7 +13,7 @@ import { Link } from "@/i18n/navigation";
 import { localeAlternates } from "@/lib/alternates";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
-import { localizedPath, toAppLocale } from "@/lib/locale";
+import { intlLocale, localizedPath, toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +25,48 @@ type EventPageProps = {
 export async function generateMetadata({ params }: EventPageProps): Promise<Metadata> {
   const { locale, orgSlug, eventSlug } = await params;
   const event = await getPublicEvent(orgSlug, eventSlug);
-  if (!event) return { title: "Event not found" };
+  // Metadata renders before the page declares its locale, so the namespace is
+  // asked for the locale off the URL explicitly rather than for the request's.
+  const t = await getTranslations({ locale, namespace: "event" });
+  if (!event) return { title: t("notFoundTitle") };
 
-  const title = `${event.name} · ${event.organization.name}`;
-  const description = event.description ?? `Get tickets for ${event.name}.`;
+  // The Event's and the Organization's names are theirs, and the Event's own
+  // description is the one the organizer wrote: none of the three is translated.
+  // Only the frame around them is.
+  const title = t("metaTitle", { event: event.name, organization: event.organization.name });
+  const description = event.description ?? t("metaDescription", { event: event.name });
+  // Cover URLs are already absolute (object storage), so previews render even
+  // when metadataBase is unset off-platform.
+  const images = event.cover_image_url ? [event.cover_image_url] : undefined;
+
+  // A non-Discoverable Event is kept out of the index, and is otherwise
+  // untouched.
+  //
+  // ADR 0002 splits reachability from discoverability: a published Event is
+  // always loadable by direct link, and Discoverable only decides whether the
+  // platform's own surfaces advertise it. That line was drawn for people and
+  // never for crawlers, so an unlisted Event whose URL leaked once — a forward,
+  // a referrer, a link in a public thread — ends up advertising itself from the
+  // search results, which is the one thing the organizer switched off. `follow`
+  // stays on: the pages this one links to are public and are not being hidden.
+  //
+  // It gets no canonical and no hreflang set, because both are instructions
+  // about how to index a page: which address to file it under, and which
+  // translation to file beside it. Stated on a page asking not to be filed at
+  // all, they are at best noise and at worst an invitation to reconcile the
+  // contradiction the other way — indexing the Spanish twin that the annotation
+  // itself just pointed at. og:url goes with them; the share preview needs
+  // nothing but the title, the words and the picture.
+  if (!event.discoverable) {
+    return {
+      title,
+      description,
+      robots: { index: false, follow: true },
+      openGraph: { title, description, type: "website", images },
+      twitter: { card: "summary_large_image", title, description, images },
+    };
+  }
+
   // The canonical address is the one being served, locale and all: /en and /es
   // are two pages, and a canonical that named neither would ask a crawler to
   // pick one for us. The languages map pairs them (lib/alternates.ts).
@@ -37,9 +75,6 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
     toAppLocale(locale),
     storefrontBaseUrl(),
   );
-  // Cover URLs are already absolute (object storage), so previews render even
-  // when metadataBase is unset off-platform.
-  const images = event.cover_image_url ? [event.cover_image_url] : undefined;
   return {
     title,
     description,
@@ -73,8 +108,11 @@ export default async function EventPage({ params }: EventPageProps) {
     notFound();
   }
 
-  const dateLabel = formatEventDateTime(event.starts_at, event.timezone);
-  const t = await getTranslations("shell");
+  // The words are the visitor's language; the clock stays the Event's own.
+  const dateLabel = formatEventDateTime(event.starts_at, event.timezone, intlLocale(appLocale));
+  const t = await getTranslations("event");
+  const shell = await getTranslations("shell");
+  const explorer = await getTranslations("explorer");
 
   return (
     <StorefrontShell
@@ -85,11 +123,11 @@ export default async function EventPage({ params }: EventPageProps) {
       <article className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <Breadcrumb
           className="mb-6"
-          label={t("breadcrumbLabel")}
+          label={shell("breadcrumbLabel")}
           items={[
             // Plain anchors in the shared UI package, so these carry the
             // locale explicitly rather than through the navigation helpers.
-            { label: "Discover events", href: localizedPath(appLocale, "/") },
+            { label: explorer("title"), href: localizedPath(appLocale, "/") },
             {
               label: event.organization.name,
               href: localizedPath(appLocale, `/${event.organization.slug}`),
@@ -119,7 +157,7 @@ export default async function EventPage({ params }: EventPageProps) {
         </div>
 
         <header className="mt-6 space-y-2">
-          {event.has_ended ? <Badge variant="secondary">This event has ended</Badge> : null}
+          {event.has_ended ? <Badge variant="secondary">{t("ended")}</Badge> : null}
           <h1 className="text-3xl font-semibold tracking-tight">{event.name}</h1>
           {dateLabel ? <p className="text-muted-foreground">{dateLabel}</p> : null}
           {event.venue_name ? (
@@ -129,13 +167,20 @@ export default async function EventPage({ params }: EventPageProps) {
             </p>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            Presented by{" "}
-            <Link
-              href={`/${event.organization.slug}`}
-              className="font-medium text-foreground underline-offset-4 hover:underline"
-            >
-              {event.organization.name}
-            </Link>
+            {/* The link is a tag inside the sentence rather than a fragment
+                glued after it: which side of the Organization's name the words
+                fall on is the translator's to decide. */}
+            {t.rich("presentedBy", {
+              organization: event.organization.name,
+              organizer: (chunks) => (
+                <Link
+                  href={`/${event.organization.slug}`}
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  {chunks}
+                </Link>
+              ),
+            })}
           </p>
           {event.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 pt-1">
@@ -156,7 +201,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
         <section className="mt-8 space-y-4" aria-labelledby="tickets-heading">
           <h2 id="tickets-heading" className="text-lg font-semibold tracking-tight">
-            Tickets
+            {t("ticketsHeading")}
           </h2>
           {event.has_ended ? (
             // An ended Event stays reachable but is no longer sellable: the
@@ -170,7 +215,7 @@ export default async function EventPage({ params }: EventPageProps) {
                 />
               ))}
               {event.price_includes_fee ? (
-                <p className="text-xs text-muted-foreground">Prices include the service fee.</p>
+                <p className="text-xs text-muted-foreground">{t("feeIncluded")}</p>
               ) : null}
             </div>
           ) : (

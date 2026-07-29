@@ -66,10 +66,10 @@ export function UndoPurchase({
   paidLabel = null,
 }: UndoPurchaseProps) {
   const router = useRouter();
-  // The dialog's own copy is still English in the source and comes across in a
-  // later pass; the close affordance belongs to the chrome the shell owns, so
-  // it reads from the same namespace every other dismiss control does.
-  const t = useTranslations("shell");
+  const t = useTranslations("customerArea");
+  // The close affordance belongs to the chrome the shell owns, so it reads from
+  // the same namespace every other dismiss control does.
+  const shell = useTranslations("shell");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +92,7 @@ export function UndoPurchase({
         return;
       }
       setOpen(false);
-      toast.success("Your purchase is undone.");
+      toast.success(t("undoneToast"));
       // The card, the badge and the ticket lists are all server-rendered from
       // the Customer Area read, so the page is asked for the new truth rather
       // than being patched locally into a state the API never confirmed.
@@ -114,7 +114,7 @@ export function UndoPurchase({
           setOpen(true);
         }}
       >
-        Undo this purchase
+        {t("undo")}
       </Button>
 
       <Dialog
@@ -126,24 +126,31 @@ export function UndoPurchase({
           setOpen(next);
         }}
       >
-        <DialogContent className="sm:max-w-md" closeLabel={t("closeLabel")}>
+        <DialogContent className="sm:max-w-md" closeLabel={shell("closeLabel")}>
           <DialogHeader>
-            <DialogTitle>Undo this purchase?</DialogTitle>
+            <DialogTitle>{t("undoTitle")}</DialogTitle>
             <DialogDescription>
-              Your tickets for {eventName} will be released and this purchase will be marked
-              reversed.{" "}
-              {/* No claim about how or when the money arrives: that is the
+              {/* Two whole paragraphs rather than one with a sentence spliced
+                  into the middle of it. The refunded amount lands mid-paragraph
+                  in English and need not anywhere else, and a translator handed
+                  three fragments to glue cannot move it.
+
+                  No claim about how or when the money arrives: that is the
                   Payment Provider's and the bank's business, and this dialog
                   promises only what the platform itself does. */}
-              {paidLabel ? `Your ${paidLabel} payment will be returned. ` : null}
-              You can&apos;t take this back — if the tickets sell out, you won&apos;t be able to get
-              them again.
+              {paidLabel
+                ? t("undoBodyPaid", { event: eventName, amount: paidLabel })
+                : t("undoBody", { event: eventName })}
             </DialogDescription>
           </DialogHeader>
 
           <p className="text-sm text-muted-foreground">
-            Confirmation{" "}
-            <span className="font-mono font-medium text-foreground">{confirmationRef}</span>
+            {t.rich("confirmation", {
+              reference: confirmationRef,
+              value: (chunks) => (
+                <span className="font-mono font-medium text-foreground">{chunks}</span>
+              ),
+            })}
           </p>
 
           {error ? (
@@ -154,10 +161,10 @@ export function UndoPurchase({
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-              Keep my tickets
+              {t("undoKeep")}
             </Button>
             <Button variant="destructive" onClick={handleUndo} disabled={busy} aria-busy={busy}>
-              {busy ? "Undoing…" : "Undo this purchase"}
+              {busy ? t("undoing") : t("undo")}
             </Button>
           </DialogFooter>
         </DialogContent>
