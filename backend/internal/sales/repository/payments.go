@@ -90,7 +90,13 @@ type CreatePaymentInput struct {
 	// all.
 	Customer platform.SaleCustomer
 	Lines    []PaymentLine
-	Now      time.Time
+	// AffiliateLinkID is the Affiliate Link this checkout was resolved to at
+	// begin, or empty for the ordinary unattributed checkout. Snapshotted here
+	// for the same reason the buyer is: confirm arrives on the provider's return
+	// redirect carrying nothing but a transaction id, so an attribution not on
+	// this row is an attribution lost.
+	AffiliateLinkID string
+	Now             time.Time
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -108,14 +114,14 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			event_id, organization_id, provider, client_transaction_id,
 			status, amount_cents, customer_email, customer_first_name, customer_last_name,
 			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
-			customer_phone, created_at, updated_at
+			customer_phone, affiliate_link_id, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $9, $9)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
 		nullString(in.Customer.TaxID.Type), nullString(in.Customer.TaxID.Number), in.Customer.SelfAsserted,
-		nullString(in.Customer.Phone)).Scan(&paymentID)
+		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -298,14 +304,20 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// so a phone not stored on the Payment is a phone lost (#106, #107).
 	var phone sql.NullString
 	var sessionAuthorized bool
+	// The Affiliate Link this checkout was begun under, NULL for the ordinary
+	// unattributed one. Read here and written onto the sale below, inside the one
+	// transaction that records it: every Online Sale — paid or free — passes
+	// through this spine, so attribution needs no second path (ADR 0017, #146).
+	var affiliateLinkID sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
-		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized
+		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized,
+		       affiliate_link_id
 		FROM payments
 		WHERE client_transaction_id = $1
 		FOR UPDATE
 	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
-		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized)
+		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +393,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 			PaymentMethod:   in.PaymentMethod,
 			SoldAt:          in.Now,
 			ConfirmationRef: in.ConfirmationRef,
+			AffiliateLinkID: affiliateLinkID.String,
 			Lines:           lines,
 		}},
 		Now:            in.Now,

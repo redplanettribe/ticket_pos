@@ -21,6 +21,14 @@ const docTemplate = `{
             },
             "handler.beginCheckoutBody": {
                 "properties": {
+                    "affiliate_codes": {
+                        "description": "AffiliateCodes are the Affiliate Link codes the Storefront remembered from\nthe buyer's recent clicks on this Event, NEWEST FIRST, OPTIONAL and never\nvalidated as a field: the service credits the first that resolves to a live\nlink and records the sale unattributed when none does. A checkout is never\nrefused over a ref (#146).\n\nA list rather than one code because liveness is unknowable at click time\n(ADR 0022): a click on a since-deactivated code must not erase the live\nclick before it. Anything past maxAffiliateCodes is dropped unread — a\nbrowser sends at most three.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "customer_email": {
                         "type": "string"
                     },
@@ -106,6 +114,14 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "file_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.createAffiliateLinkBody": {
+                "properties": {
+                    "name": {
                         "type": "string"
                     }
                 },
@@ -262,6 +278,17 @@ const docTemplate = `{
                 "properties": {
                     "notify_buyers": {
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.updateAffiliateLinkBody": {
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -517,6 +544,38 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/service.CustomerSessionView"
                     },
                     "session_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeAffiliateLink": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AffiliateLinkView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeAffiliateLinkList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AffiliateLinkView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
                         "type": "string"
                     }
                 },
@@ -1109,6 +1168,41 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "role": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AffiliateLinkView": {
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "clicks": {
+                        "description": "Clicks is how many times the Event page was reached through this link —\nraw visits, counted again every time, which is what makes a bad link\nreadable next to a bad audience.",
+                        "type": "integer"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "net_proceeds_cents": {
+                        "type": "integer"
+                    },
+                    "sales_count": {
+                        "description": "SalesCount and NetProceedsCents are the link's Affiliate Attribution\nfigures: how many ACTIVE Ticket Sales it drove, and what they left the\nOrganization after the Platform Fee and its Fee IVA. Display-only — no\ncommission is computed from either — and a reversed sale drops out of both\nhowever it was reversed. A link that drove only free claims shows its count\nwith zero beside it.",
+                        "type": "integer"
+                    },
+                    "url": {
+                        "description": "URL is the whole thing an organizer copies: the Storefront Event page with\nthe code as its ref. Derived at read time from the Storefront origin this\nprocess is configured with, never stored, so moving the Storefront moves\nevery link with it.",
                         "type": "string"
                     }
                 },
@@ -3952,9 +4046,59 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click": {
+            "post": {
+                "description": "Counts one visit to an Event page reached through an Affiliate Link's code (?ref=CODE). Public and unauthenticated: the Storefront calls it fire-and-forget while rendering the page. Raw counting — repeat visits count again, with no dedup and no visitor identification. A code that matches nothing live (unknown, mistyped, belonging to another Event, or deactivated) is accepted and counts nothing, so a dead ref in a URL never becomes an error a buyer can see.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Event slug",
+                        "in": "path",
+                        "name": "eventSlug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Affiliate link code",
+                        "in": "path",
+                        "name": "code",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    }
+                },
+                "summary": "Record affiliate link click",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
+                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -4446,6 +4590,358 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Update event",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/affiliate-links": {
+            "get": {
+                "description": "Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAffiliateLinkList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List affiliate links",
+                "tags": [
+                    "staff"
+                ]
+            },
+            "post": {
+                "description": "Creates a named Affiliate Link on an Event and returns it with its system-generated, immutable code and the full copyable Storefront URL ({storefrontBase}/{orgSlug}/events/{eventSlug}?ref=CODE). The code is never client-settable; any code in the request body is ignored. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.createAffiliateLinkBody",
+                                        "summary": "body",
+                                        "description": "Affiliate link name"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Affiliate link name",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAffiliateLink"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create affiliate link",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/affiliate-links/{linkId}": {
+            "delete": {
+                "description": "Deletes an Affiliate Link, but only while it has zero clicks, no attributed sales, and no checkout in progress under it — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it, and a pending Payment blocks the delete because it may still become such a sale. A checkout that was abandoned or declined does not block it: nobody bought anything, and the Payment simply stops naming the link. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Affiliate link ID",
+                        "in": "path",
+                        "name": "linkId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeMessage"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Delete affiliate link",
+                "tags": [
+                    "staff"
+                ]
+            },
+            "patch": {
+                "description": "Renames an Affiliate Link and/or takes it out of circulation. Both body fields are optional: an absent field is left unchanged, so a rename never disturbs the link's active state and vice versa. The code and URL are immutable and never change. A deactivated link's code is dead everywhere a buyer could carry it — the click counter ignores it and a checkout begun with it records the sale unattributed — while its historical clicks, attributed sales and Net Proceeds stay on the staff list, marked inactive; reactivating resumes both under the same code. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Affiliate link ID",
+                        "in": "path",
+                        "name": "linkId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.updateAffiliateLinkBody",
+                                        "summary": "body",
+                                        "description": "Fields to change"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to change",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAffiliateLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Update affiliate link",
                 "tags": [
                     "staff"
                 ]

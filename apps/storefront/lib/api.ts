@@ -370,6 +370,15 @@ export type BeginCheckoutRequest = {
    * PayPhone's rules prohibit. Never an empty string, never a placeholder.
    */
   customer_phone?: string;
+  /**
+   * The Affiliate Link codes this buyer's recent clicks on this Event left
+   * behind, newest first, read out of the attribution cookie by the
+   * begin-checkout route (ADR 0022). Omitted entirely when nothing is
+   * remembered, and never validated here: the API credits the first code that
+   * still names a live link and records the sale unattributed when none does —
+   * which is why the order, not just the newest code, is what travels.
+   */
+  affiliate_codes?: string[];
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

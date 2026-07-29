@@ -236,6 +236,24 @@ _Avoid_: Withdrawal, transfer, disbursement, settlement run
 The money an Organization can currently be paid: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. Signed, not clamped — a sale reversed after it was paid out leaves the Organization owing the platform, and the figure says so. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what can be withdrawn."
 _Avoid_: Available funds, wallet, account balance
 
+**Affiliate Link**:
+A named, trackable link to an Event's page that an Org Admin or Event Owner creates to attribute Online Sales to whoever is promoting the Event — a person, a channel, or a campaign ("María's Instagram", "Radio spot").
+The link itself is the whole concept: there is no affiliate person entity, no commission, and no payout — the stats are informational only.
+Belongs to one Event. Carries an editable display name and an immutable system-generated code; can be deactivated (it stops attributing but keeps its history) and reactivated, and deleted only while it has attributed nothing.
+Shows its clicks, attributed active-sale count, and attributed Net Proceeds — a reversed sale drops out of the figures like it does everywhere else.
+A dead or deactivated code in a URL never gets in the buyer's way: the Event page renders normally and nothing is counted.
+_Avoid_: Referral link, promo link, tracking link, UTM, campaign, affiliate (as a person)
+
+**Affiliate Attribution**:
+The tie between an Online Sale and the Affiliate Link that drove it, decided last-click within the Attribution Window: landing on the Event page through a live Affiliate Link remembers that link for that buyer, the newest click wins, and the checkout that follows records the remembered link on the sale.
+Only Online Sales are ever attributed — in-person and imported sales never travel through a link. A sale with no remembered link is simply unattributed.
+_Avoid_: Conversion tracking, referral credit, source tagging
+
+**Attribution Window**:
+How long a buyer's click on an Affiliate Link is remembered for Affiliate Attribution: 7 days, per Event, newest click winning.
+A platform rule chosen for display-only stats — generous enough to credit "clicked on the bus, bought at home", accepted cost that the buyer might have returned anyway.
+_Avoid_: Cookie lifetime, lookback window, click validity period
+
 **External Platform**:
 A third-party ticketing service through which tickets may be sold outside this system.
 Distinct from an Integration Partner, which manages this system programmatically rather than supplying sales to import.
