@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
+import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { Breadcrumb, PageHeader, StorefrontShell } from "@ticket-pos/ui";
+import { Breadcrumb, PageHeader } from "@ticket-pos/ui";
 
 import { EmptyState, EventGrid } from "@/components/event-grid";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { StorefrontShell } from "@/components/storefront-shell";
 import { getOrganizationEvents } from "@/lib/api";
+import { localizedPath, toAppLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
 
 type OrganizationPageProps = {
-  params: Promise<{ orgSlug: string }>;
+  params: Promise<{ locale: string; orgSlug: string }>;
 };
 
 export async function generateMetadata({ params }: OrganizationPageProps): Promise<Metadata> {
@@ -24,7 +27,9 @@ export async function generateMetadata({ params }: OrganizationPageProps): Promi
 }
 
 export default async function OrganizationPage({ params }: OrganizationPageProps) {
-  const { orgSlug } = await params;
+  const { locale, orgSlug } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
   const data = await getOrganizationEvents(orgSlug);
 
   if (!data) {
@@ -41,7 +46,13 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
     >
       <div className="mx-auto w-full max-w-6xl space-y-10 px-4 py-10 sm:py-12">
         <Breadcrumb
-          items={[{ label: "Discover events", href: "/" }, { label: organization.name }]}
+          // The crumbs are plain anchors in the shared UI package, so their
+          // addresses carry the locale explicitly rather than through the
+          // navigation helpers.
+          items={[
+            { label: "Discover events", href: localizedPath(toAppLocale(locale), "/") },
+            { label: organization.name },
+          ]}
         />
         <PageHeader
           title={organization.name}

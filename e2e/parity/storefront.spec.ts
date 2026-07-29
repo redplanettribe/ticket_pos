@@ -9,7 +9,13 @@ import { expect, test, type Page } from "@playwright/test";
 //
 // Requires the parity stack: `make prod` (see README).
 
-const EVENT_LINK = /^\/[^/]+\/events\/[^/]+$/;
+// Every Storefront page is served under a Locale carried in the URL, so a card's
+// href names one too. This spec reads the English Storefront by name; that an
+// address naming no language is redirected into one is asserted separately
+// below, because the middleware that does it has to survive file tracing into
+// the standalone image like everything else here.
+const LOCALE = "en";
+const EVENT_LINK = new RegExp(`^/${LOCALE}/[^/]+/events/[^/]+$`);
 
 // Event cards on the explorer are links wrapping the Event name in an h3.
 function eventCards(page: Page) {
@@ -17,7 +23,7 @@ function eventCards(page: Page) {
 }
 
 test("Storefront serves the Event listing from the parity stack", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
 
   await expect(page.getByRole("heading", { name: "Discover events" })).toBeVisible();
 
@@ -38,7 +44,7 @@ test("Storefront client bundle hydrates in the parity stack", async ({ page }) =
     }
   });
 
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
 
   // The date presets are a client component from @ticket-pos/ui; clicking one
   // only changes the URL if the traced client chunks were served and executed.
@@ -53,7 +59,7 @@ test("Storefront client bundle hydrates in the parity stack", async ({ page }) =
 });
 
 test("Storefront renders an Event detail page from the parity stack", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
 
   const card = eventCards(page).first();
   const name = (await card.locator("h3").innerText()).trim();
@@ -64,7 +70,7 @@ test("Storefront renders an Event detail page from the parity stack", async ({ p
 });
 
 test("Storefront explorer tab is product-led with a favicon", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
 
   await expect(page).toHaveTitle("Multiticketing — Discover events");
   expect(await page.locator('link[rel="icon"]').count()).toBeGreaterThan(0);
@@ -74,22 +80,33 @@ test("Storefront keeps Organization-led titles (no product-name leak)", async ({
   // The Organization page must own its tab: its title is Organization-led and
   // must not carry "Multiticketing" (which would happen if a title template
   // were ever added at the layout).
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
   const href = await eventCards(page).first().getAttribute("href");
-  const orgSlug = (href ?? "").split("/").filter(Boolean)[0];
+  // "/{locale}/{orgSlug}/events/{eventSlug}": the Organization is the second
+  // segment now that every page carries its Locale.
+  const orgSlug = (href ?? "").split("/").filter(Boolean)[1];
   expect(orgSlug, "explorer should link into an Organization").toBeTruthy();
 
-  await page.goto(`/${orgSlug}`);
+  await page.goto(`/${LOCALE}/${orgSlug}`);
   await expect(page).toHaveTitle(/· Events$/);
   await expect(page).not.toHaveTitle(/Multiticketing/);
 });
 
 test("Storefront shows a subtle Powered by Multiticketing footer", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(`/${LOCALE}`);
 
   const link = page.getByRole("link", { name: "Powered by Multiticketing" });
   await expect(link).toBeVisible();
   await expect(link).toHaveAttribute("href", /multiticketing/i);
+});
+
+test("Storefront sends an address naming no language into a Locale", async ({ page }) => {
+  // The middleware is a separate bundle in the standalone image, and an image
+  // shipped without it serves "/" as a 404 rather than as the explorer. A 200
+  // on "/{locale}" alone would not notice.
+  await page.goto("/");
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}$`));
+  await expect(page.getByRole("heading", { name: "Discover events" })).toBeVisible();
 });
 
 test("Storefront reaches the API from inside the parity network", async ({ request }) => {

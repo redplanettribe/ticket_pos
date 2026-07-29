@@ -1,9 +1,8 @@
-import Link from "next/link";
-
 import { Badge } from "@ticket-pos/ui";
 
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
+import { Link } from "@/i18n/navigation";
 import type { TicketSale } from "@/lib/customer-session";
 import { ticketSaleAnchorId } from "@/lib/destination";
 import { formatEventDateTime, formatPrice } from "@/lib/format";

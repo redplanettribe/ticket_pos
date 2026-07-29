@@ -1,23 +1,29 @@
-import { PageHeader, StorefrontShell } from "@ticket-pos/ui";
+import { PageHeader } from "@ticket-pos/ui";
+import { setRequestLocale } from "next-intl/server";
 
 import { ExplorerFilters } from "@/components/explorer-filters";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { ExplorerResults } from "@/components/explorer-results";
+import { StorefrontShell } from "@/components/storefront-shell";
 import { EXPLORER_PAGE_SIZE, listPublicEvents, listPublicTags } from "@/lib/api";
 import { isWhenPreset, whenToRange } from "@/lib/when";
 
 export const dynamic = "force-dynamic";
 
 type HomePageProps = {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ q?: string; when?: string; tags?: string }>;
 };
 
-export default async function HomePage({ searchParams }: HomePageProps) {
-  const params = await searchParams;
-  const q = params.q?.trim() || undefined;
-  const preset = isWhenPreset(params.when) ? params.when : "all";
+export default async function HomePage({ params, searchParams }: HomePageProps) {
+  const { locale } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
+  const filters = await searchParams;
+  const q = filters.q?.trim() || undefined;
+  const preset = isWhenPreset(filters.when) ? filters.when : "all";
   const range = whenToRange(preset);
-  const selectedTags = (params.tags ?? "")
+  const selectedTags = (filters.tags ?? "")
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);

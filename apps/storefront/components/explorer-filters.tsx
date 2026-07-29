@@ -1,10 +1,11 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button, Input, cn } from "@ticket-pos/ui";
 
+import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
 import { WHEN_PRESETS, type WhenPreset } from "@/lib/when";
 

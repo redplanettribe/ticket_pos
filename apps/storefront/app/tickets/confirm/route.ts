@@ -9,6 +9,8 @@ import {
   customerSessionToken,
   type CustomerVerifyResult,
 } from "@/lib/customer-session";
+import { localizedPath, type AppLocale } from "@/lib/locale";
+import { redirectLocale } from "@/lib/redirect-locale";
 
 // Redeeming touches a cookie and must never be cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -27,6 +29,12 @@ export const dynamic = "force-dynamic";
  * this process, and what comes back is written straight into an httpOnly cookie.
  */
 export async function GET(request: Request) {
+  // A Confirmation Link is a fixed address that has been sitting in an inbox
+  // since the sale, so it carries no locale of its own and this handler has to
+  // choose one for the page it hands the Customer on to.
+  const locale = await redirectLocale();
+  const redirectTo = (path: string) => localizedRedirect(locale, path);
+
   const token = new URL(request.url).searchParams.get("token");
   if (!token) {
     return redirectTo("/signin?link=invalid");
@@ -72,14 +80,18 @@ export async function GET(request: Request) {
 }
 
 /**
- * Redirects within this Storefront using a relative Location.
+ * Redirects into a localized page within this Storefront, using a relative
+ * Location.
  *
  * Deliberately not NextResponse.redirect, which needs an absolute URL and would
  * have to reconstruct the origin from the incoming request — behind a proxy or
  * a container bind address that is the wrong host, and the Customer would be sent
  * somewhere unreachable. A relative Location is resolved by the browser against
  * the URL it actually asked for, which is by definition the right one.
+ *
+ * The path is written locale-free at every call site and gains the prefix here,
+ * so this handler reads the same as the pages do.
  */
-function redirectTo(path: string): NextResponse {
-  return new NextResponse(null, { status: 303, headers: { Location: path } });
+function localizedRedirect(locale: AppLocale, path: string): NextResponse {
+  return new NextResponse(null, { status: 303, headers: { Location: localizedPath(locale, path) } });
 }

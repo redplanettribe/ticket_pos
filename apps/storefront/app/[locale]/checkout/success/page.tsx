@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { Button, Card, CardContent, StorefrontShell } from "@ticket-pos/ui";
+import { Button, Card, CardContent } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { StorefrontShell } from "@/components/storefront-shell";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
+import { Link } from "@/i18n/navigation";
 import { getCheckoutReversal } from "@/lib/api";
 import { readCheckoutContext } from "@/lib/checkout-context";
 import { getCustomerSession } from "@/lib/customer-session";
@@ -19,6 +21,7 @@ export const metadata: Metadata = {
 };
 
 type SuccessPageProps = {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ ref?: string }>;
 };
 
@@ -29,7 +32,10 @@ type SuccessPageProps = {
  * this page re-renders the same confirmation — and re-walking the return leg
  * lands here again without touching the sale (confirm is idempotent).
  */
-export default async function CheckoutSuccessPage({ searchParams }: SuccessPageProps) {
+export default async function CheckoutSuccessPage({ params, searchParams }: SuccessPageProps) {
+  const { locale } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
   const { ref } = await searchParams;
   const reference = ref?.trim();
   if (!reference) {

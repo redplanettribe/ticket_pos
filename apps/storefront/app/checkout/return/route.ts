@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { APIError, confirmCheckout } from "@/lib/api";
 import { parseProviderReturn } from "@/lib/checkout";
+import { localizedPath, type AppLocale } from "@/lib/locale";
+import { redirectLocale } from "@/lib/redirect-locale";
 
 // Confirms a Payment; never cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -22,6 +24,12 @@ export const dynamic = "force-dynamic";
  * sale.
  */
 export async function GET(request: Request) {
+  // The Payment Provider built this URL from a constant it was handed when the
+  // Payment began, so it names no language and this handler chooses one for the
+  // terminal page.
+  const locale = await redirectLocale();
+  const redirectTo = (path: string) => localizedRedirect(locale, path);
+
   const { clientTransactionId, providerParams } = parseProviderReturn(
     new URL(request.url).searchParams,
   );
@@ -51,6 +59,6 @@ export async function GET(request: Request) {
 }
 
 /** Relative Location, resolved by the browser against the URL it asked for (see tickets/confirm). */
-function redirectTo(path: string): NextResponse {
-  return new NextResponse(null, { status: 303, headers: { Location: path } });
+function localizedRedirect(locale: AppLocale, path: string): NextResponse {
+  return new NextResponse(null, { status: 303, headers: { Location: localizedPath(locale, path) } });
 }

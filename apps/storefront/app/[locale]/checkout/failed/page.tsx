@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { setRequestLocale } from "next-intl/server";
 
-import { Alert, AlertDescription, AlertTitle, Button, StorefrontShell } from "@ticket-pos/ui";
+import { Alert, AlertDescription, AlertTitle, Button } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { StorefrontShell } from "@/components/storefront-shell";
+import { Link } from "@/i18n/navigation";
 import { readCheckoutContext } from "@/lib/checkout-context";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,7 @@ export const metadata: Metadata = {
 };
 
 type FailedPageProps = {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ issue?: string }>;
 };
 
@@ -27,7 +30,10 @@ type FailedPageProps = {
  * the sale could not be recorded. Trying again there could charge twice, so
  * the copy sends the Customer to the organizer instead.
  */
-export default async function CheckoutFailedPage({ searchParams }: FailedPageProps) {
+export default async function CheckoutFailedPage({ params, searchParams }: FailedPageProps) {
+  const { locale } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
   const { issue } = await searchParams;
   const context = await readCheckoutContext();
   const retryHref = context?.eventPath ?? "/";

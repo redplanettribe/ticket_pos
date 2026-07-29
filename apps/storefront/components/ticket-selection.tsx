@@ -17,6 +17,7 @@ import {
   FormField,
   Input,
 } from "@ticket-pos/ui";
+import { useLocale } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
@@ -29,6 +30,7 @@ import {
   totalQuantity,
 } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
+import { localizedPath, toAppLocale } from "@/lib/locale";
 import {
   COUNTRIES,
   ECUADOR_DIALLING_CODE,
@@ -149,7 +151,10 @@ export function TicketSelection({
   priceIncludesFee,
   timezone,
 }: TicketSelectionProps) {
+  // next/navigation's router, deliberately: the only thing asked of it here is
+  // refresh(), which has no address to localize.
   const router = useRouter();
+  const locale = toAppLocale(useLocale());
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -336,7 +341,14 @@ export function TicketSelection({
       // Full-page navigation: to the provider's hosted payment page, or straight
       // to the confirmation when there was nothing to pay. submitting stays true
       // so the button cannot fire a second Payment while the browser unloads.
-      window.location.assign(destination);
+      //
+      // The two destinations are told apart by their shape, because only one of
+      // them is ours to localize: an absolute provider URL is left exactly as
+      // the API sent it, while the confirmation page is a path on this
+      // Storefront and gains the language the buyer is reading in.
+      window.location.assign(
+        destination.startsWith("/") ? localizedPath(locale, destination) : destination,
+      );
     } catch {
       setError({
         code: null,

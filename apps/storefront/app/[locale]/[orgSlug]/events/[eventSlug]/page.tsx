@@ -1,30 +1,36 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
+import { Badge, Breadcrumb } from "@ticket-pos/ui";
 
 import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
+import { Link } from "@/i18n/navigation";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
+import { localizedPath, toAppLocale } from "@/lib/locale";
 
 export const dynamic = "force-dynamic";
 
 type EventPageProps = {
-  params: Promise<{ orgSlug: string; eventSlug: string }>;
+  params: Promise<{ locale: string; orgSlug: string; eventSlug: string }>;
 };
 
 export async function generateMetadata({ params }: EventPageProps): Promise<Metadata> {
-  const { orgSlug, eventSlug } = await params;
+  const { locale, orgSlug, eventSlug } = await params;
   const event = await getPublicEvent(orgSlug, eventSlug);
   if (!event) return { title: "Event not found" };
 
   const title = `${event.name} · ${event.organization.name}`;
   const description = event.description ?? `Get tickets for ${event.name}.`;
-  const path = `/${orgSlug}/events/${eventSlug}`;
+  // The canonical address is the one being served, locale and all: /en and /es
+  // are two pages, and a canonical that named neither would ask a crawler to
+  // pick one for us.
+  const path = localizedPath(toAppLocale(locale), `/${orgSlug}/events/${eventSlug}`);
   // Cover URLs are already absolute (object storage), so previews render even
   // when metadataBase is unset off-platform.
   const images = event.cover_image_url ? [event.cover_image_url] : undefined;
@@ -49,7 +55,10 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
 }
 
 export default async function EventPage({ params }: EventPageProps) {
-  const { orgSlug, eventSlug } = await params;
+  const { locale, orgSlug, eventSlug } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
+  const appLocale = toAppLocale(locale);
   const event = await getPublicEvent(orgSlug, eventSlug);
 
   if (!event) {
@@ -68,8 +77,13 @@ export default async function EventPage({ params }: EventPageProps) {
         <Breadcrumb
           className="mb-6"
           items={[
-            { label: "Discover events", href: "/" },
-            { label: event.organization.name, href: `/${event.organization.slug}` },
+            // Plain anchors in the shared UI package, so these carry the
+            // locale explicitly rather than through the navigation helpers.
+            { label: "Discover events", href: localizedPath(appLocale, "/") },
+            {
+              label: event.organization.name,
+              href: localizedPath(appLocale, `/${event.organization.slug}`),
+            },
             { label: event.name },
           ]}
         />

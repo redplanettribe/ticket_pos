@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { redirect } from "next/navigation";
+import { setRequestLocale } from "next-intl/server";
 
-import { Alert, AlertDescription, AlertTitle, Button, PageHeader, StorefrontShell } from "@ticket-pos/ui";
+import { Alert, AlertDescription, AlertTitle, Button, PageHeader } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { MyInfo } from "@/components/my-info";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
+import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSaleCard } from "@/components/ticket-sale-card";
+import { Link, redirect } from "@/i18n/navigation";
 import {
   customerSessionToken,
   getCustomerArea,
@@ -34,7 +35,14 @@ export const metadata: Metadata = {
  * passes no identifier of any kind to the API, and there is no route parameter
  * here that could name a different Customer.
  */
-export default async function CustomerAreaPage() {
+export default async function CustomerAreaPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
   const [area, session] = await Promise.all([getCustomerArea(), getCustomerSession()]);
 
   // A Confirmation Link session names the one Ticket Sale it was minted for.
@@ -49,7 +57,13 @@ export default async function CustomerAreaPage() {
     // "your session ended" from "you were never signed in", so the sign-in page
     // can explain what happened and clear the dead cookie.
     const hadSession = Boolean(await customerSessionToken());
-    redirect(hadSession ? "/signin?expired=1&next=/tickets" : "/signin?next=/tickets");
+    // The paths stay locale-free; the redirect carries the language this page
+    // was read in, so a Customer whose session ran out is not also moved into
+    // another language on the way to the sign-in form.
+    return redirect({
+      href: hadSession ? "/signin?expired=1&next=/tickets" : "/signin?next=/tickets",
+      locale,
+    });
   }
 
   return (

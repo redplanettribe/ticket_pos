@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+
+import { Link, useRouter } from "@/i18n/navigation";
 
 import { CustomerAvatar } from "./customer-avatar";
 

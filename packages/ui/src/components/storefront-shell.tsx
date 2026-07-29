@@ -27,6 +27,13 @@ type StorefrontShellProps = {
    */
   homeLinkLabel?: string;
   poweredByLabel?: string;
+  /**
+   * Where the mark links. Defaults to the app root, which is what a shell that
+   * knows nothing about locales should point at; the Storefront passes a path
+   * carrying the language the visitor is reading in, so the logo cannot drop
+   * them out of it.
+   */
+  homeHref?: string;
   /** Alt text for an Organization's logo when it has no name to interpolate. */
   organizationLogoAlt?: string;
 };
@@ -40,6 +47,7 @@ export function StorefrontShell({
   homeLinkLabel = "Multiticketing",
   poweredByLabel = "Powered by Multiticketing",
   organizationLogoAlt,
+  homeHref = "/",
 }: StorefrontShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -58,7 +66,7 @@ export function StorefrontShell({
           ) : (
             // Global explorer: just the Multiticketing mark (no wordmark),
             // linked home. The organizer owns the visible name on org pages.
-            <a href="/" aria-label={homeLinkLabel} className="inline-flex">
+            <a href={homeHref} aria-label={homeLinkLabel} className="inline-flex">
               <LogoMark aria-hidden className="size-8 text-primary" />
             </a>
           )}

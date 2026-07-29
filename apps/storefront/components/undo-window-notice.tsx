@@ -1,8 +1,8 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Button } from "@ticket-pos/ui";
 
+import { Link } from "@/i18n/navigation";
 import { customerAreaSaleHref } from "@/lib/destination";
 import { signInToUndoHref } from "@/lib/undo-window";
 

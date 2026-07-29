@@ -1,8 +1,9 @@
 "use client";
 
 import { Button } from "@ticket-pos/ui";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+
+import { useRouter } from "@/i18n/navigation";
 
 /**
  * Leaves the current Customer Session and lands on a usable sign-in form, for

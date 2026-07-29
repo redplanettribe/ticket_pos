@@ -14,8 +14,9 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+
+import { useRouter } from "@/i18n/navigation";
 
 type Step = "email" | "code";
 

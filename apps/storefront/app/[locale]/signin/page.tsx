@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { setRequestLocale } from "next-intl/server";
 
-import { StorefrontShell } from "@ticket-pos/ui";
-
+import { StorefrontShell } from "@/components/storefront-shell";
+import { redirect } from "@/i18n/navigation";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
@@ -15,9 +15,10 @@ import { SignInForm } from "./signin-form";
 export const dynamic = "force-dynamic";
 
 // "/signin" and "/tickets" are static segments and therefore shadow the
-// "/{orgSlug}" Organization page for those two slugs, exactly as the existing
-// "/api" route folder already does. Nothing reserves slugs server-side today;
-// noted here so it is a known trade rather than a surprise.
+// "/{locale}/{orgSlug}" Organization page for those two slugs, exactly as the
+// existing "/api" route folder already does — as do the locale tokens
+// themselves, one segment up. Nothing reserves slugs server-side today; noted
+// here so it is a known trade rather than a surprise.
 
 export const metadata: Metadata = {
   title: "Sign in · Multiticketing",
@@ -25,6 +26,7 @@ export const metadata: Metadata = {
 };
 
 type SignInPageProps = {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{
     next?: string;
     expired?: string;
@@ -43,7 +45,10 @@ type SignInPageProps = {
 // applies the same guard to the destination it reads back out of its state
 // cookie. One copy, one behaviour.
 
-export default async function SignInPage({ searchParams }: SignInPageProps) {
+export default async function SignInPage({ params, searchParams }: SignInPageProps) {
+  const { locale } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
   const { next, expired, link, google, email } = await searchParams;
   const destination = safeNext(next);
 
@@ -55,7 +60,10 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   // back would make that impossible.
   const session = await getCustomerSession();
   if (session.status === "ok" && session.data.ticket_sale_id === null) {
-    redirect(destination);
+    // The locale-aware redirect: `destination` is a locale-free path — it comes
+    // from `?next=`, which the header's sign-in link writes without a prefix —
+    // and gains the language this page is being read in.
+    return redirect({ href: destination, locale });
   }
 
   return (

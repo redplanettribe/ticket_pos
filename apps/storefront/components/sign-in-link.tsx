@@ -1,8 +1,8 @@
 "use client";
 
 import { Button } from "@ticket-pos/ui";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+
+import { Link, usePathname } from "@/i18n/navigation";
 
 /**
  * The header's way in, carrying where the visitor already is.
@@ -14,6 +14,10 @@ import { usePathname } from "next/navigation";
  *
  * A client component only because the current path is not available to a server
  * component. It renders the same link it always did otherwise.
+ *
+ * The path it carries is locale-free — next-intl's usePathname strips the
+ * prefix and its Link puts one back — so a `next` written here means the same
+ * page in whichever language the visitor finishes signing in under.
  */
 export function SignInLink() {
   const pathname = usePathname();

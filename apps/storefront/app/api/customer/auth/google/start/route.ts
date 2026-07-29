@@ -11,6 +11,8 @@ import {
   googleStateCookieOptions,
   newPendingSignIn,
 } from "@/lib/google-signin";
+import { localizedPath } from "@/lib/locale";
+import { redirectLocale } from "@/lib/redirect-locale";
 
 // Mints a nonce and writes a cookie on every request. Nothing about it may be
 // cached or prerendered.
@@ -38,7 +40,11 @@ export async function GET(request: Request) {
   // either a stale bookmark or a hand-typed URL. It is not an error worth a page
   // — send them to the passcode form, which works with no Google account at all.
   if (!config) {
-    return redirectTo(`/signin?next=${encodeURIComponent(destination)}`);
+    // A page, so it needs a language; this route has none of its own to pass on.
+    const locale = await redirectLocale();
+    return redirectTo(
+      localizedPath(locale, `/signin?next=${encodeURIComponent(destination)}`),
+    );
   }
 
   const pending = newPendingSignIn(destination);

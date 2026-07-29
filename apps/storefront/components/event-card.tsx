@@ -1,7 +1,6 @@
-import Link from "next/link";
-
 import { Badge, Card, CardContent } from "@ticket-pos/ui";
 
+import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
 import { formatEventDateShort, formatPriceFrom } from "@/lib/format";
 

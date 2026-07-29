@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, buttonVariants, cn } from "@ticket-pos/ui";
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
 };
 
 type StubPageProps = {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{
     client_transaction_id?: string;
     amount_cents?: string;
@@ -35,7 +37,11 @@ type StubPageProps = {
  * build without the explicit STOREFRONT_STUB_PAYMENTS=1 opt-in, this route is
  * a 404 and the interstitial does not exist.
  */
-export default async function StubPaymentPage({ searchParams }: StubPageProps) {
+export default async function StubPaymentPage({ params, searchParams }: StubPageProps) {
+  const { locale } = await params;
+  // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
+  setRequestLocale(locale);
+
   if (!stubPaymentsActive()) {
     notFound();
   }
