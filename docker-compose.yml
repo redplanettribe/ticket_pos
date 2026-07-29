@@ -126,6 +126,14 @@ services:
     environment:
       API_URL: http://backend:8080
       NEXT_PUBLIC_API_URL: http://localhost:64080
+      # The PUBLISHED origin again, for the same reason the redirect URI below
+      # uses it: this is the address a browser is at. Without it the SEO surface
+      # is half-off in dev and silently so — /sitemap.xml is a valid, empty
+      # document and robots.txt drops its Sitemap line, because neither may
+      # publish a relative address (apps/storefront/lib/site.ts). The parity
+      # stack already sets it; dev was the one place a crawler-facing route
+      # could not be looked at.
+      STOREFRONT_BASE_URL: http://localhost:64300
       # The public half of the dev OAuth client. The redirect URI is the
       # PUBLISHED port (64300), not the container port — it is what the browser
       # follows, and it must match the Console registration byte for byte.
