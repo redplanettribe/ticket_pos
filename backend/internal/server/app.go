@@ -12,6 +12,9 @@ import (
 
 	httpSwagger "github.com/swaggo/http-swagger"
 
+	affiliateshandler "github.com/peter/ticket_pos/backend/internal/affiliates/handler"
+	affiliatesrepo "github.com/peter/ticket_pos/backend/internal/affiliates/repository"
+	affiliatessvc "github.com/peter/ticket_pos/backend/internal/affiliates/service"
 	cataloghandler "github.com/peter/ticket_pos/backend/internal/catalog/handler"
 	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
@@ -36,23 +39,26 @@ import (
 
 // App holds wired application dependencies.
 type App struct {
-	Config           platform.Config
-	Logger           *slog.Logger
-	DB               *platform.DB
-	EmailSender      platform.EmailSender
-	OTPService       *otp.Service
-	IdentityRepo     *identityrepo.Repository
-	IdentityService  *identitysvc.Service
-	IdentityHandler  *identityhandler.Handler
-	CatalogRepo      *catalogrepo.Repository
-	CatalogService   *catalogsvc.Service
-	CatalogHandler   *cataloghandler.Handler
-	SalesRepo        *salesrepo.Repository
-	SalesService     *salessvc.Service
-	SalesHandler     *saleshandler.Handler
-	CustomersRepo    *customersrepo.Repository
-	CustomersService *customerssvc.Service
-	CustomersHandler *customershandler.Handler
+	Config            platform.Config
+	Logger            *slog.Logger
+	DB                *platform.DB
+	EmailSender       platform.EmailSender
+	OTPService        *otp.Service
+	IdentityRepo      *identityrepo.Repository
+	IdentityService   *identitysvc.Service
+	IdentityHandler   *identityhandler.Handler
+	AffiliatesRepo    *affiliatesrepo.Repository
+	AffiliatesService *affiliatessvc.Service
+	AffiliatesHandler *affiliateshandler.Handler
+	CatalogRepo       *catalogrepo.Repository
+	CatalogService    *catalogsvc.Service
+	CatalogHandler    *cataloghandler.Handler
+	SalesRepo         *salesrepo.Repository
+	SalesService      *salessvc.Service
+	SalesHandler      *saleshandler.Handler
+	CustomersRepo     *customersrepo.Repository
+	CustomersService  *customerssvc.Service
+	CustomersHandler  *customershandler.Handler
 	// The operator surface owns no repository: it composes the three modules
 	// that own the data it shows (ADR 0015).
 	OperatorService *operatorsvc.Service
@@ -215,6 +221,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	salesHandler := saleshandler.New(salesService)
 
+	// Affiliate Links hang off an Event and point at the Storefront, so the
+	// module needs the Storefront origin for the same reason Confirmation Links
+	// do: the copyable URL is derived at read time, never stored.
+	affiliatesRepo := affiliatesrepo.New(db)
+	affiliatesService := affiliatessvc.New(affiliatesRepo, cfg.StorefrontBaseURL, platformLogger)
+	affiliatesHandler := affiliateshandler.New(affiliatesService)
+
 	// The Operator Dashboard is composed from the modules that own its data:
 	// identity for Organizations, catalog for Events, sales for money. It is
 	// wired last because it depends on all three and none of them on it.
@@ -222,25 +235,28 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	operatorHandler := operatorhandler.New(operatorService)
 
 	return &App{
-		Config:           cfg,
-		Logger:           logger,
-		DB:               db,
-		EmailSender:      emailSender,
-		OTPService:       otpService,
-		IdentityRepo:     identityRepo,
-		IdentityService:  identityService,
-		IdentityHandler:  identityHandler,
-		CatalogRepo:      catalogRepo,
-		CatalogService:   catalogService,
-		CatalogHandler:   catalogHandler,
-		SalesRepo:        salesRepo,
-		SalesService:     salesService,
-		SalesHandler:     salesHandler,
-		CustomersRepo:    customersRepo,
-		CustomersService: customersService,
-		CustomersHandler: customersHandler,
-		OperatorService:  operatorService,
-		OperatorHandler:  operatorHandler,
+		Config:            cfg,
+		Logger:            logger,
+		DB:                db,
+		EmailSender:       emailSender,
+		OTPService:        otpService,
+		IdentityRepo:      identityRepo,
+		IdentityService:   identityService,
+		IdentityHandler:   identityHandler,
+		AffiliatesRepo:    affiliatesRepo,
+		AffiliatesService: affiliatesService,
+		AffiliatesHandler: affiliatesHandler,
+		CatalogRepo:       catalogRepo,
+		CatalogService:    catalogService,
+		CatalogHandler:    catalogHandler,
+		SalesRepo:         salesRepo,
+		SalesService:      salesService,
+		SalesHandler:      salesHandler,
+		CustomersRepo:     customersRepo,
+		CustomersService:  customersService,
+		CustomersHandler:  customersHandler,
+		OperatorService:   operatorService,
+		OperatorHandler:   operatorHandler,
 	}, nil
 }
 

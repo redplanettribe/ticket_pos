@@ -264,6 +264,14 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// strip above that list is Org Admin and Event Owner only.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales/summary", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesSummary)))
 
+	// Affiliate Links: the Event's promotion surface. Full-access only — an
+	// Event Staff hired for the door has no business minting links that credit
+	// somebody with the Event's sales, so they are refused both the read and the
+	// write and see no nav entry (#145).
+	ah := app.AffiliatesHandler
+	mux.Handle("GET /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.ListAffiliateLinks)))
+	mux.Handle("POST /api/v1/staff/events/{id}/affiliate-links", eventOwnerOrAdmin(http.HandlerFunc(ah.CreateAffiliateLink)))
+
 	mux.Handle("GET /api/v1/staff/events/{eventID}/assignments", orgAdmin(http.HandlerFunc(h.ListEventAssignments)))
 	mux.Handle("PUT /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.UpsertEventAssignment)))
 	mux.Handle("DELETE /api/v1/staff/events/{eventID}/assignments/{memberID}", orgAdmin(http.HandlerFunc(h.RemoveEventAssignment)))

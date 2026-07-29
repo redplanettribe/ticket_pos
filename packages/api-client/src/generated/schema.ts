@@ -2211,6 +2211,142 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/affiliate-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List affiliate links
+         * @description Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, and when it was created. Org Admin and Event Owner only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAffiliateLinkList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create affiliate link
+         * @description Creates a named Affiliate Link on an Event and returns it with its system-generated, immutable code and the full copyable Storefront URL ({storefrontBase}/{orgSlug}/events/{eventSlug}?ref=CODE). The code is never client-settable; any code in the request body is ignored. Org Admin and Event Owner only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Affiliate link name */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.createAffiliateLinkBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAffiliateLink"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/cancel": {
         parameters: {
             query?: never;
@@ -4135,6 +4271,9 @@ export interface components {
             content_type?: string;
             file_name?: string;
         };
+        "handler.createAffiliateLinkBody": {
+            name?: string;
+        };
         "handler.createEventBody": {
             name?: string;
             slug?: string;
@@ -4291,6 +4430,16 @@ export interface components {
         "openapi.CustomerVerifyOTPData": {
             session?: components["schemas"]["service.CustomerSessionView"];
             session_id?: string;
+        };
+        "openapi.EnvelopeAffiliateLink": {
+            data?: components["schemas"]["service.AffiliateLinkView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeAffiliateLinkList": {
+            data?: components["schemas"]["service.AffiliateLinkView"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
         };
         "openapi.EnvelopeBeginCheckout": {
             data?: components["schemas"]["service.BeginCheckoutResult"];
@@ -4498,6 +4647,20 @@ export interface components {
             organization_name?: string;
             organization_slug?: string;
             role?: string;
+        };
+        "service.AffiliateLinkView": {
+            active?: boolean;
+            code?: string;
+            created_at?: string;
+            id?: string;
+            name?: string;
+            /**
+             * @description URL is the whole thing an organizer copies: the Storefront Event page with
+             *     the code as its ref. Derived at read time from the Storefront origin this
+             *     process is configured with, never stored, so moving the Storefront moves
+             *     every link with it.
+             */
+            url?: string;
         };
         "service.BeginCheckoutResult": {
             amount_cents?: number;

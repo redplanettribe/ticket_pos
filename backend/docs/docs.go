@@ -111,6 +111,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.createAffiliateLinkBody": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.createEventBody": {
                 "properties": {
                     "name": {
@@ -503,6 +511,38 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/service.CustomerSessionView"
                     },
                     "session_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeAffiliateLink": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AffiliateLinkView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeAffiliateLinkList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.AffiliateLinkView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
                         "type": "string"
                     }
                 },
@@ -1095,6 +1135,30 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "role": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AffiliateLinkView": {
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "description": "URL is the whole thing an organizer copies: the Storefront Event page with\nthe code as its ref. Derived at read time from the Storefront origin this\nprocess is configured with, never stored, so moving the Storefront moves\nevery link with it.",
                         "type": "string"
                     }
                 },
@@ -4397,6 +4461,168 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Update event",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/affiliate-links": {
+            "get": {
+                "description": "Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, and when it was created. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAffiliateLinkList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List affiliate links",
+                "tags": [
+                    "staff"
+                ]
+            },
+            "post": {
+                "description": "Creates a named Affiliate Link on an Event and returns it with its system-generated, immutable code and the full copyable Storefront URL ({storefrontBase}/{orgSlug}/events/{eventSlug}?ref=CODE). The code is never client-settable; any code in the request body is ignored. Org Admin and Event Owner only.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.createAffiliateLinkBody",
+                                        "summary": "body",
+                                        "description": "Affiliate link name"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Affiliate link name",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAffiliateLink"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Create affiliate link",
                 "tags": [
                     "staff"
                 ]
