@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 
 import { Badge, Breadcrumb, StorefrontShell } from "@ticket-pos/ui";
 
@@ -8,6 +9,7 @@ import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
+import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
 
@@ -15,6 +17,8 @@ export const dynamic = "force-dynamic";
 
 type EventPageProps = {
   params: Promise<{ orgSlug: string; eventSlug: string }>;
+  /** `?ref=CODE` — the Affiliate Link this page was reached through, if any. */
+  searchParams: Promise<{ ref?: string | string[] }>;
 };
 
 export async function generateMetadata({ params }: EventPageProps): Promise<Metadata> {
@@ -48,12 +52,22 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
   };
 }
 
-export default async function EventPage({ params }: EventPageProps) {
+export default async function EventPage({ params, searchParams }: EventPageProps) {
   const { orgSlug, eventSlug } = await params;
   const event = await getPublicEvent(orgSlug, eventSlug);
 
   if (!event) {
     notFound();
+  }
+
+  // The Affiliate Link this visitor arrived through, counted after the response
+  // is on its way: the click is display-only stats for an organizer, so it may
+  // never sit between a buyer and the page. The code is not checked first — the
+  // API accepts and ignores a dead one, and asking would be a round trip spent
+  // on nothing.
+  const code = affiliateCodeFromRef((await searchParams).ref);
+  if (code) {
+    after(() => recordAffiliateClick(orgSlug, eventSlug, code));
   }
 
   const dateLabel = formatEventDateTime(event.starts_at, event.timezone);

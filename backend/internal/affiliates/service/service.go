@@ -39,9 +39,9 @@ type ActorContext struct {
 
 // AffiliateLinkView is one Affiliate Link as the staff section shows it.
 //
-// The shape is additive by design: clicks, attributed sales and Net Proceeds
-// join these fields in later tickets, so clients read fields by name rather than
-// expecting this exact set.
+// The shape is additive by design: attributed sales and Net Proceeds join these
+// fields in later tickets, so clients read fields by name rather than expecting
+// this exact set.
 type AffiliateLinkView struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -51,7 +51,11 @@ type AffiliateLinkView struct {
 	// the code as its ref. Derived at read time from the Storefront origin this
 	// process is configured with, never stored, so moving the Storefront moves
 	// every link with it.
-	URL       string    `json:"url"`
+	URL string `json:"url"`
+	// Clicks is how many times the Event page was reached through this link —
+	// raw visits, counted again every time, which is what makes a bad link
+	// readable next to a bad audience.
+	Clicks    int64     `json:"clicks"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -130,6 +134,25 @@ func (s *Service) ListAffiliateLinks(ctx context.Context, actor ActorContext, ev
 	return views, nil
 }
 
+// RecordClick counts one visit to an Event page reached through an Affiliate
+// Link's code. Repeat visits count again: this is a raw click counter, with no
+// dedup and no visitor identification.
+//
+// A code that matches nothing live is a no-op, not an error. The caller is a
+// buyer's page load, and there is nothing a buyer could do about a dead code in
+// a URL somebody else published — the page renders and nothing is counted. A
+// database failure is returned so it can be logged, never shown.
+func (s *Service) RecordClick(ctx context.Context, organizationSlug, eventSlug, code string) error {
+	if organizationSlug == "" || eventSlug == "" || code == "" {
+		return nil
+	}
+	if err := s.repo.RecordClick(ctx, organizationSlug, eventSlug, code); err != nil {
+		s.logger.Error("affiliate link click not recorded", "code", code, "error", err)
+		return err
+	}
+	return nil
+}
+
 // NormalizeName trims an Affiliate Link's display name and reports whether what
 // is left is usable. Exported so the handler can refuse a blank or overlong name
 // with a field-level validation error before the service is entered.
@@ -151,6 +174,7 @@ func (s *Service) toView(link repository.AffiliateLink, target repository.LinkTa
 		Code:      link.Code,
 		Active:    link.Active,
 		URL:       s.storefrontURL(target, link.Code),
+		Clicks:    link.ClickCount,
 		CreatedAt: link.CreatedAt,
 	}
 }

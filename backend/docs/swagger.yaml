@@ -758,6 +758,12 @@ components:
       properties:
         active:
           type: boolean
+        clicks:
+          description: |-
+            Clicks is how many times the Event page was reached through this link —
+            raw visits, counted again every time, which is what makes a bad link
+            readable next to a bad audience.
+          type: integer
         code:
           type: string
         created_at:
@@ -2839,6 +2845,44 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Not Found
       summary: Get public event
+      tags:
+      - public
+  /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click:
+    post:
+      description: 'Counts one visit to an Event page reached through an Affiliate
+        Link''s code (?ref=CODE). Public and unauthenticated: the Storefront calls
+        it fire-and-forget while rendering the page. Raw counting — repeat visits
+        count again, with no dedup and no visitor identification. A code that matches
+        nothing live (unknown, mistyped, belonging to another Event, or deactivated)
+        is accepted and counts nothing, so a dead ref in a URL never becomes an error
+        a buyer can see.'
+      parameters:
+      - description: Organization slug
+        in: path
+        name: slug
+        required: true
+        schema:
+          type: string
+      - description: Event slug
+        in: path
+        name: eventSlug
+        required: true
+        schema:
+          type: string
+      - description: Affiliate link code
+        in: path
+        name: code
+        required: true
+        schema:
+          type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Accepted
+      summary: Record affiliate link click
       tags:
       - public
   /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout:

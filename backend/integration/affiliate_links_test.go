@@ -16,6 +16,7 @@ type affiliateLinkView struct {
 	Code      string `json:"code"`
 	Active    bool   `json:"active"`
 	URL       string `json:"url"`
+	Clicks    int64  `json:"clicks"`
 	CreatedAt string `json:"created_at"`
 }
 

@@ -153,6 +153,13 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// email and gets forwarded; this route reveals a deadline and never an
 	// action, so nothing here is triggerable by whoever ends up holding the URL.
 	mux.HandleFunc("GET /api/v1/public/checkout/{clientTransactionId}/reversal", app.CustomersHandler.GetCheckoutReversal)
+	// The Affiliate Link click counter, reported by the Storefront while it
+	// renders an Event page carrying a ref. Public and unauthenticated because
+	// the caller is a page load by whoever followed the link, and shaped like the
+	// checkout route above because it identifies the same thing: an Event by its
+	// two Storefront slugs. It answers 202 to everything — see the handler.
+	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click",
+		app.AffiliatesHandler.RecordAffiliateLinkClick)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

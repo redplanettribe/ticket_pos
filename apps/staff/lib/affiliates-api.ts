@@ -6,8 +6,8 @@ import { fetchEventsJSON } from "./events-api";
  * copies — the API derives it from the Storefront origin it is configured with,
  * so this app never assembles a Storefront URL itself.
  *
- * Later tickets add clicks, attributed sales, and Net Proceeds to the same rows;
- * read fields by name rather than assuming this is the full set.
+ * Later tickets add attributed sales and Net Proceeds to the same rows; read
+ * fields by name rather than assuming this is the full set.
  */
 export type AffiliateLink = {
   id: string;
@@ -15,6 +15,8 @@ export type AffiliateLink = {
   code: string;
   active: boolean;
   url: string;
+  /** Raw visits to the Event page through this link — repeat visits included. */
+  clicks: number;
   created_at: string;
 };
 

@@ -20,8 +20,8 @@ type AffiliateLink struct {
 	Name           string
 	Code           string
 	Active         bool
-	// ClickCount is carried from the row so later tickets can show it without
-	// reshaping the read; nothing counts into it yet.
+	// ClickCount is the raw number of visits to the Event page through this link:
+	// no dedup and no visitor identification, so a buyer returning counts again.
 	ClickCount int64
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -119,6 +119,29 @@ func (r *Repository) ListByEventID(ctx context.Context, eventID string) ([]Affil
 		links = append(links, link)
 	}
 	return links, rows.Err()
+}
+
+// RecordClick counts one visit to an Event page reached through the given code,
+// resolved by the two Storefront slugs the visitor's URL carries.
+//
+// One statement, no read first: clicks arrive concurrently from every visitor a
+// promoter reaches, and a read-modify-write would lose them. A code that matches
+// nothing live — unknown, mistyped, on the wrong Event, or deactivated — updates
+// no row and is not an error; the caller has nothing to tell the buyer either
+// way.
+func (r *Repository) RecordClick(ctx context.Context, organizationSlug, eventSlug, code string) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE affiliate_links al
+		SET click_count = al.click_count + 1, updated_at = NOW()
+		FROM events e
+		JOIN organizations o ON o.id = e.organization_id
+		WHERE al.event_id = e.id
+		  AND al.active
+		  AND al.code = $3
+		  AND e.slug = $2
+		  AND o.slug = $1
+	`, organizationSlug, eventSlug, code)
+	return err
 }
 
 func isUniqueViolation(err error) bool {
