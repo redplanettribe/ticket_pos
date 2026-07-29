@@ -564,12 +564,14 @@ func (s *Service) UpdateTicketType(ctx context.Context, actor ActorContext, even
 
 	// The List Price side of the Promotion invariant: an edit that would leave
 	// the Promotional Price at or above the List Price is refused, and staff
-	// adjust or remove the Promotion first (ADR 0021).
+	// adjust or remove the Promotion first (ADR 0021). Only a Promotion that
+	// has not yet ended has that claim — an ended one is a spent record, not a
+	// standing veto on every future price cut.
 	promotion, err := s.repo.GetPromotionByTicketTypeID(ctx, ticketTypeID)
 	if err != nil {
 		return nil, err
 	}
-	if promotion != nil && input.PriceCents <= promotion.PromotionalPriceCents {
+	if toPromotion(promotion).ConstrainsListPriceAt(s.now()) && input.PriceCents <= promotion.PromotionalPriceCents {
 		return nil, catalog.ErrListPriceNotAbovePromotionalPrice(input.PriceCents, promotion.PromotionalPriceCents)
 	}
 

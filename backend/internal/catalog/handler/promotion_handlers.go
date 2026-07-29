@@ -155,7 +155,7 @@ func promotionPathValues(w http.ResponseWriter, r *http.Request, reqID string) (
 	return eventID, ticketTypeID, true
 }
 
-// decodePromotion validates everything a Promotion can be judged on without the
+// parsePromotion validates everything a Promotion can be judged on without the
 // catalog: the price is present and non-negative, the end is present and
 // parseable, and the window opens before it closes. Whether the price is below
 // the List Price needs the Ticket Type, so it stays a domain rule.

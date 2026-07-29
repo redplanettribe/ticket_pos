@@ -528,3 +528,60 @@ func TestTicketTypeDetailCarriesPromotion(t *testing.T) {
 		}
 	}
 }
+
+// TestListPriceEditAllowedOnceThePromotionHasEnded: the List Price invariant
+// guards the Promotion's own window, not the row that outlives it. An ended
+// Promotion constrains nothing, so a later price cut below its old Promotional
+// Price goes through without staff having to clear a dead record first.
+func TestListPriceEditAllowedOnceThePromotionHasEnded(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Ended Guard", "ended-guard")
+	ticketTypeID := createTicketTypePriced(t, env, sessionID, eventID, 5000)
+
+	setPromotion(t, env, sessionID, eventID, ticketTypeID, 2500, nil, env.fixedClock.Add(2*time.Hour))
+
+	// While it is live the cut is refused, as ever.
+	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID+"/ticket-types/"+ticketTypeID, map[string]any{
+		"name": "GA", "price_cents": 2000, "capacity": 50, "sort_order": 0,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("live promotion: expected 409, got %d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// Past the end the same edit is the Organization's business alone.
+	holdClocksAt(env.fixedClock.Add(3 * time.Hour))
+	resp, body = env.patch(t, "/api/v1/staff/events/"+eventID+"/ticket-types/"+ticketTypeID, map[string]any{
+		"name": "GA", "price_cents": 2000, "capacity": 50, "sort_order": 0,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ended promotion: expected 200, got %d error=%+v", resp.StatusCode, body.Error)
+	}
+	if updated := decodeTicketTypeWithPromotion(t, body.Data); updated.PriceCents != 2000 {
+		t.Fatalf("price_cents=%d; want the cut to land", updated.PriceCents)
+	}
+}
+
+// TestListPriceEditRefusedByAScheduledPromotion: a Promotion that has not yet
+// started still constrains the List Price — it is a discount the Organization
+// has already committed to, and letting the List Price fall under it would
+// invert the discount before it ever opened.
+func TestListPriceEditRefusedByAScheduledPromotion(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Scheduled Guard", "scheduled-guard")
+	ticketTypeID := createTicketTypePriced(t, env, sessionID, eventID, 5000)
+
+	startsAt := env.fixedClock.Add(24 * time.Hour)
+	setPromotion(t, env, sessionID, eventID, ticketTypeID, 2500, &startsAt, env.fixedClock.Add(48*time.Hour))
+
+	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID+"/ticket-types/"+ticketTypeID, map[string]any{
+		"name": "GA", "price_cents": 2000, "capacity": 50, "sort_order": 0,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE" {
+		t.Fatalf("expected LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE, got %+v", body.Error)
+	}
+}

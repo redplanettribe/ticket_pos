@@ -212,6 +212,8 @@ func TestZeroPromotionalPriceSettlesThroughTheFreePath(t *testing.T) {
 		t.Fatalf("amount = %d; want nothing to collect", result.AmountCents)
 	}
 
+	// SQL because no API surfaces which Payment Provider settled a checkout —
+	// and "none was asked" is the whole claim of this test.
 	var provider string
 	if err := env.db.QueryRow(`
 		SELECT provider FROM payments WHERE client_transaction_id = $1

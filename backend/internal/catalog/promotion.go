@@ -26,6 +26,23 @@ func (p *Promotion) LiveAt(at time.Time) bool {
 	return at.Before(p.EndsAt)
 }
 
+// ConstrainsListPriceAt reports whether the Promotion still has a claim on the
+// List Price at the given instant — true until it ends, so a Promotion that has
+// not started yet binds just as a live one does: it is a discount the
+// Organization has already committed to, and a List Price falling under it
+// would invert the discount before it ever opened. Once the window has closed
+// the row constrains nothing, and the List Price is the Organization's business
+// alone again.
+//
+// Wider than LiveAt on purpose: LiveAt answers what a Customer pays, this
+// answers what staff may set.
+func (p *Promotion) ConstrainsListPriceAt(at time.Time) bool {
+	if p == nil {
+		return false
+	}
+	return at.Before(p.EndsAt)
+}
+
 // EffectiveBasePriceCents answers what a Ticket Type costs at instant `at`
 // before any Fee Handling arithmetic: the Promotional Price while the Promotion
 // is live, the List Price otherwise. It is the single place that question is
