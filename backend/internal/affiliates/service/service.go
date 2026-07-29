@@ -204,11 +204,16 @@ func (s *Service) UpdateAffiliateLink(ctx context.Context, actor ActorContext, e
 
 // DeleteAffiliateLink removes an Affiliate Link that has done nothing.
 //
-// A link is deletable only while it has zero clicks and no attributed row of any
-// status: a mistyped link created a minute ago can be taken back, and anything
-// that has actually happened is kept. A reversed attributed sale counts as
-// history like any other — it still names the link that drove it — so the way to
-// retire a link that worked is to deactivate it, which is what the refusal says.
+// A link is deletable only while it has zero clicks, no attributed Ticket Sale
+// of any status, and no pending checkout that could still become one: a mistyped
+// link created a minute ago can be taken back, and anything that actually
+// happened is kept. A reversed attributed sale counts as history like any other
+// — it still names the link that drove it — so the way to retire a link that
+// worked is to deactivate it, which is what the refusal says.
+//
+// A checkout that was abandoned or declined is not history: nobody bought
+// anything, and the Payment stops naming the link when it goes
+// (repository.DeleteIfNoHistory).
 func (s *Service) DeleteAffiliateLink(ctx context.Context, actor ActorContext, eventID, linkID string) error {
 	target, err := s.repo.GetLinkTarget(ctx, actor.OrganizationID, eventID)
 	if err != nil {
@@ -266,7 +271,13 @@ func (s *Service) ResolveLiveCode(ctx context.Context, eventID, code string) (st
 // buyer's page load, and there is nothing a buyer could do about a dead code in
 // a URL somebody else published — the page renders and nothing is counted. A
 // database failure is returned so it can be logged, never shown.
+//
+// The code is normalized exactly as ResolveLiveCode normalizes it, and for the
+// same reason: one visit through one ref must count a click on the link it
+// later attributes the sale to. A ref retyped in lower case is a real visit
+// through a real link, and the two verdicts may never disagree about it.
 func (s *Service) RecordClick(ctx context.Context, organizationSlug, eventSlug, code string) error {
+	code = strings.ToUpper(strings.TrimSpace(code))
 	if organizationSlug == "" || eventSlug == "" || code == "" {
 		return nil
 	}

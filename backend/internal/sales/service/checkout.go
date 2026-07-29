@@ -82,13 +82,17 @@ type BeginCheckoutInput struct {
 	// in the case of the session, can no longer establish it at all.
 	Customer platform.SaleCustomer
 	Lines    []CheckoutLineInput
-	// AffiliateCode is the Affiliate Link code the buyer's last click left
-	// behind, forwarded by the Storefront from the cookie it kept for the
-	// Attribution Window. Optional and untrusted: it is resolved against this
-	// Event's live links, and an unknown, mistyped or deactivated code simply
-	// records the sale unattributed. It never refuses a checkout, and the buyer
-	// is never told which of the two happened (#146).
-	AffiliateCode string
+	// AffiliateCodes are the Affiliate Link codes the buyer's recent clicks on
+	// this Event left behind, NEWEST FIRST, forwarded by the Storefront from the
+	// cookie it kept for the Attribution Window. Optional and untrusted: the
+	// first that resolves to a live link is credited, and a history of unknown,
+	// mistyped or deactivated codes simply records the sale unattributed. It
+	// never refuses a checkout, and the buyer is never told which of the two
+	// happened (#146).
+	//
+	// The order carries last-click attribution; liveness decides which click the
+	// buyer's last LIVE click was, and only this side can answer that (ADR 0021).
+	AffiliateCodes []string
 }
 
 // BeginCheckoutResult is what the Storefront needs to finish the checkout: our
@@ -228,7 +232,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	// settlements below carry it without either of them knowing it exists. What
 	// the code resolved to now is what the sale records, whatever happens to the
 	// link afterwards — the same reasoning that freezes the prices above.
-	affiliateLinkID := s.resolveAffiliateLink(ctx, event.ID, in.AffiliateCode)
+	affiliateLinkID := s.resolveAffiliateLink(ctx, event.ID, in.AffiliateCodes)
 
 	clientTransactionID := uuid.NewString()
 	if _, err := s.repo.CreatePayment(ctx, repository.CreatePaymentInput{
@@ -294,24 +298,39 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	}, nil
 }
 
-// resolveAffiliateLink turns the code a checkout arrived with into the id of the
-// Affiliate Link to credit, or "" for none.
+// resolveAffiliateLink turns the click history a checkout arrived with into the
+// id of the Affiliate Link to credit, or "" for none.
 //
-// Nothing here can fail a checkout. No resolver wired, no code, no live link, or
-// a database that would not answer all end the same way: the sale is
+// The codes come newest click first and the FIRST that still names a live link
+// wins: that is last-click attribution once liveness — the one part of the rule
+// the Storefront cannot evaluate at click time (ADR 0021) — is applied. A code
+// clicked after it but since deactivated resolves to nobody and falls through,
+// so a dead click never costs a live link its credit (#142, #148).
+//
+// Nothing here can fail a checkout. No resolver wired, no codes, no live link,
+// or a database that would not answer all end the same way: the sale is
 // unattributed. A display-only statistic is not worth refusing a purchase over,
-// so the error is logged and the checkout goes on (#146).
-func (s *Service) resolveAffiliateLink(ctx context.Context, eventID, code string) string {
-	if s.affiliates == nil || strings.TrimSpace(code) == "" {
+// so the error is logged and the checkout goes on (#146). The list is already
+// bounded by the handler, so this is a handful of indexed lookups at most.
+func (s *Service) resolveAffiliateLink(ctx context.Context, eventID string, codes []string) string {
+	if s.affiliates == nil {
 		return ""
 	}
-	linkID, err := s.affiliates.ResolveLiveCode(ctx, eventID, code)
-	if err != nil {
-		s.logger.Warn("affiliate attribution: could not resolve the code; the sale is recorded unattributed",
-			"event_id", eventID, "error", err)
-		return ""
+	for _, code := range codes {
+		if strings.TrimSpace(code) == "" {
+			continue
+		}
+		linkID, err := s.affiliates.ResolveLiveCode(ctx, eventID, code)
+		if err != nil {
+			s.logger.Warn("affiliate attribution: could not resolve a code; the sale is recorded unattributed",
+				"event_id", eventID, "error", err)
+			return ""
+		}
+		if linkID != "" {
+			return linkID
+		}
 	}
-	return linkID
+	return ""
 }
 
 // settleFreeCheckout finishes a checkout that has nothing to collect: it

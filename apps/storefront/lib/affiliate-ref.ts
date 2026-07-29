@@ -1,20 +1,27 @@
 /**
- * The Storefront's memory of Affiliate Link clicks: which live code last brought
- * this visitor to which Event, so the checkout that follows — minutes or days
- * later — can name the link that drove it (ADR 0021).
+ * The Storefront's memory of Affiliate Link clicks: which codes brought this
+ * visitor to which Event, so the checkout that follows — minutes or days later
+ * — can name the link that drove it (ADR 0021).
  *
  * Affiliate Attribution is last-click within the Attribution Window: 7 days, per
  * Event, newest click winning. All three rules live here, in one first-party
- * cookie, and the Go API never sees any of them — it is handed a code at
- * begin-checkout and validates that code against the Event's live links. Moving
- * the window is therefore a change to this file and nothing else: no migration,
- * no API change.
+ * cookie, and the Go API never sees any of them — it is handed the codes at
+ * begin-checkout and picks the first one that still names a live link.
+ *
+ * Why a short history per Event rather than one remembered code: liveness is
+ * not knowable at click time (validating would mean an API call on every page
+ * view, ADR 0021), so a click on a code that has since been deactivated would
+ * otherwise erase the live click before it and cost that link its credit. The
+ * list keeps the order — newest first — and the API applies the liveness rule
+ * it alone can answer.
  *
  * Framework-free on purpose, like checkout.ts: the I/O (setting the cookie when
  * an Event page is served with a ref, reading it in the begin-checkout route)
  * belongs to the middleware and the route handler, and the decisions belong
  * here where node:test can reach them.
  */
+
+import { normalizeAffiliateCode } from "./affiliate-code.ts";
 
 /** Name of the first-party cookie holding the remembered clicks. */
 export const AFFILIATE_REF_COOKIE = "ticket_pos_affiliate_ref";
@@ -36,30 +43,29 @@ export const ATTRIBUTION_WINDOW_MS = ATTRIBUTION_WINDOW_DAYS * DAY_MS;
 export const ATTRIBUTION_WINDOW_SECONDS = ATTRIBUTION_WINDOW_MS / 1000;
 
 /**
- * A code as an Affiliate Link issues it: unambiguous uppercase base32, eight
- * characters today. Matched loosely on length because the generator's width is
- * the backend's business, and strictly on alphabet because this value arrives
- * from a URL a stranger wrote — a ref is browser input like any other.
- *
- * Nothing here decides whether a code is LIVE. That is the API's verdict at
- * checkout, and asking it now would mean an API call on every Event page view
- * to answer a question whose answer can change before the buyer pays.
- */
-const CODE_PATTERN = /^[0-9A-Z]{4,32}$/;
-
-/**
  * How many Events' clicks are kept. A visitor browsing a lot of Events must not
  * grow a cookie that eventually gets rejected wholesale; the oldest clicks are
  * dropped first, which is the same last-click rule applied to the memory itself.
  */
 const MAX_REMEMBERED_EVENTS = 20;
 
-/** One Event's remembered click: the code, and when it stops counting. */
+/**
+ * How many codes are kept per Event. Three is enough for the case the history
+ * exists for — a live click followed by a dead one, and one more — and small
+ * enough that the API's resolution stays a handful of indexed lookups. The
+ * oldest click on the Event falls off first.
+ */
+const MAX_CODES_PER_EVENT = 3;
+
+/** One remembered click: the code, and when it stops counting. */
 type RememberedClick = {
   code: string;
   /** Epoch milliseconds; the entry is gone from this moment on. */
   expiresAt: number;
 };
+
+/** One Event's remembered clicks, newest first. */
+type RememberedClicks = RememberedClick[];
 
 /**
  * The per-Event key. Both slugs, because an Event is only unique within its
@@ -70,20 +76,34 @@ function eventKey(orgSlug: string, eventSlug: string): string {
   return `${orgSlug.trim().toLowerCase()}/${eventSlug.trim().toLowerCase()}`;
 }
 
-/** Normalizes a ref from a URL into a code, or null when it could not be one. */
-function normalizeCode(raw: string | null | undefined): string | null {
-  if (typeof raw !== "string") return null;
-  const code = raw.trim().toUpperCase();
-  return CODE_PATTERN.test(code) ? code : null;
+/**
+ * Parses one Event's entry, dropping anything that is not a live remembered
+ * click: entries of the wrong shape, codes that could not be codes, and clicks
+ * whose own window has passed. Newest first, however the cookie was ordered.
+ */
+function parseClicks(value: unknown, now: number): RememberedClicks {
+  if (!Array.isArray(value)) return [];
+  const clicks: RememberedClicks = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { code: rawCode, expiresAt } = entry as Record<string, unknown>;
+    const code = normalizeAffiliateCode(typeof rawCode === "string" ? rawCode : null);
+    if (!code || typeof expiresAt !== "number" || !Number.isFinite(expiresAt) || expiresAt <= now) {
+      continue;
+    }
+    // A code the cookie somehow lists twice is one memory, kept at its newest.
+    if (clicks.some((click) => click.code === code)) continue;
+    clicks.push({ code, expiresAt });
+  }
+  return clicks.sort((a, b) => b.expiresAt - a.expiresAt).slice(0, MAX_CODES_PER_EVENT);
 }
 
 /**
- * Parses the cookie, dropping anything that is not a live remembered click:
- * malformed JSON, entries of the wrong shape, and entries whose window has
- * passed. A cookie is caller-controlled storage, so nothing in it is trusted on
- * the way out.
+ * Parses the cookie, dropping anything that is not a live remembered click. A
+ * cookie is caller-controlled storage, so nothing in it is trusted on the way
+ * out.
  */
-function parseJar(raw: string | null | undefined, now: number): Record<string, RememberedClick> {
+function parseJar(raw: string | null | undefined, now: number): Record<string, RememberedClicks> {
   if (typeof raw !== "string" || raw === "") return {};
   let parsed: unknown;
   try {
@@ -93,14 +113,10 @@ function parseJar(raw: string | null | undefined, now: number): Record<string, R
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
 
-  const jar: Record<string, RememberedClick> = {};
+  const jar: Record<string, RememberedClicks> = {};
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof value !== "object" || value === null) continue;
-    const entry = value as Record<string, unknown>;
-    const code = normalizeCode(typeof entry.code === "string" ? entry.code : null);
-    const expiresAt = typeof entry.expiresAt === "number" ? entry.expiresAt : 0;
-    if (!code || !Number.isFinite(expiresAt) || expiresAt <= now) continue;
-    jar[key] = { code, expiresAt };
+    const clicks = parseClicks(value, now);
+    if (clicks.length > 0) jar[key] = clicks;
   }
   return jar;
 }
@@ -111,8 +127,9 @@ function parseJar(raw: string | null | undefined, now: number): Record<string, R
  * could not be a code. A null answer means "leave the cookie alone": a junk ref
  * must not erase the real click that came before it.
  *
- * The newest click wins outright, including over itself: clicking the same link
- * again restarts that Event's window.
+ * The newest click goes to the front, including a repeat of one already
+ * remembered: clicking the same link again moves it back to the front and
+ * restarts its own window, rather than filling the history with itself.
  */
 export function rememberAffiliateClick(
   raw: string | null | undefined,
@@ -121,32 +138,42 @@ export function rememberAffiliateClick(
   ref: string | null | undefined,
   now: number,
 ): string | null {
-  const code = normalizeCode(ref);
+  const code = normalizeAffiliateCode(ref);
   if (!code) return null;
 
   const jar = parseJar(raw, now);
-  jar[eventKey(orgSlug, eventSlug)] = { code, expiresAt: now + ATTRIBUTION_WINDOW_MS };
+  const key = eventKey(orgSlug, eventSlug);
+  const previous = (jar[key] ?? []).filter((click) => click.code !== code);
+  jar[key] = [{ code, expiresAt: now + ATTRIBUTION_WINDOW_MS }, ...previous].slice(
+    0,
+    MAX_CODES_PER_EVENT,
+  );
 
   // Newest first, then trimmed: what a visitor clicked most recently is what is
-  // worth keeping when the jar is full.
+  // worth keeping when the jar is full. An Event's freshness is its newest
+  // click, which is the entry at the front of its own list.
   const kept = Object.entries(jar)
-    .sort(([, a], [, b]) => b.expiresAt - a.expiresAt)
+    .sort(([, a], [, b]) => b[0].expiresAt - a[0].expiresAt)
     .slice(0, MAX_REMEMBERED_EVENTS);
   return JSON.stringify(Object.fromEntries(kept));
 }
 
 /**
- * The code to carry into this Event's checkout, or null when no live click is
- * remembered. Never throws and never explains itself: an unattributed checkout
- * is the ordinary case.
+ * The codes to carry into this Event's checkout, newest click first, or an
+ * empty list when nothing live is remembered. Never throws and never explains
+ * itself: an unattributed checkout is the ordinary case.
+ *
+ * The order is the whole message. The API credits the first code that still
+ * names a live Affiliate Link, so "newest first" is last-click attribution and
+ * a dead code simply falls through to the click before it.
  */
-export function readAffiliateCode(
+export function readAffiliateCodes(
   raw: string | null | undefined,
   orgSlug: string,
   eventSlug: string,
   now: number,
-): string | null {
-  return parseJar(raw, now)[eventKey(orgSlug, eventSlug)]?.code ?? null;
+): string[] {
+  return (parseJar(raw, now)[eventKey(orgSlug, eventSlug)] ?? []).map((click) => click.code);
 }
 
 /**
@@ -157,9 +184,9 @@ export function readAffiliateCode(
  * routes.
  *
  * Max-Age is the Attribution Window itself. The browser therefore drops the
- * whole cookie a week after the LAST click, while each Event's entry carries its
- * own expiry inside — so an old click is forgotten on schedule even when newer
- * ones keep the cookie alive.
+ * whole cookie a week after the LAST click, while each remembered click carries
+ * its own expiry inside — so an old click is forgotten on schedule even when
+ * newer ones keep the cookie alive.
  */
 export function affiliateRefCookieOptions() {
   return {

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,23 @@ func TestAffiliateLinkClickOnALiveCodeCountsEveryVisit(t *testing.T) {
 	}
 	if clicks := affiliateLinkClicks(t, env, sessionID, eventID, code); clicks != 3 {
 		t.Fatalf("clicks=%d after three visits, want 3", clicks)
+	}
+}
+
+// Codes are issued in upper case, but a buyer who retyped one off a poster in
+// lower case followed a real link — and attribution already reads it that way.
+// The counter must agree, or the same visit attributes a sale it never counted.
+func TestAffiliateLinkClickOnALowercaseCodeCountsTheVisit(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, _ := publishCheckoutEvent(t, env, sessionID, "Click Fest", "click-fest", 1000, 10)
+	code := newAffiliateLink(t, env, sessionID, eventID, "María's Instagram")
+
+	if resp, body := clickAffiliateLink(t, env, "test-org", "click-fest", strings.ToLower(code)); resp.StatusCode < 200 || resp.StatusCode > 299 {
+		t.Fatalf("lowercase click status=%d, want 2xx; error=%+v", resp.StatusCode, body.Error)
+	}
+	if clicks := affiliateLinkClicks(t, env, sessionID, eventID, code); clicks != 1 {
+		t.Fatalf("clicks=%d after a visit through the lowercase code, want 1", clicks)
 	}
 }
 

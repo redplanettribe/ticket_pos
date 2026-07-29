@@ -62,13 +62,17 @@ func newAffiliateLink(t *testing.T, env *testEnv, sessionID, eventID, name strin
 	return decodeAffiliateLink(t, body.Data).Code
 }
 
-// affiliateCheckoutBody is a begin-checkout body carrying the code the buyer's
-// last click left behind, exactly as the Storefront BFF forwards it.
-func affiliateCheckoutBody(email, code string, lines ...map[string]any) map[string]any {
+// affiliateCheckoutBody is a begin-checkout body carrying the codes the buyer's
+// recent clicks left behind, newest first, exactly as the Storefront BFF
+// forwards them.
+func affiliateCheckoutBody(email string, codes []string, lines ...map[string]any) map[string]any {
 	body := checkoutBody(email, "Ana", "Buyer", lines...)
-	body["affiliate_code"] = code
+	body["affiliate_codes"] = codes
 	return body
 }
+
+// lastClick is the ordinary case: one remembered click, one code.
+func lastClick(code string) []string { return []string{code} }
 
 func TestOnlineSaleBegunWithAnAffiliateCodeIsAttributedToThatLink(t *testing.T) {
 	env := setupTest(t)
@@ -77,7 +81,7 @@ func TestOnlineSaleBegunWithAnAffiliateCodeIsAttributedToThatLink(t *testing.T) 
 	code := newAffiliateLink(t, env, sessionID, eventID, "María's Instagram")
 
 	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("ana@example.com", code, cartLine(ticketTypeID, 2)))
+		affiliateCheckoutBody("ana@example.com", lastClick(code), cartLine(ticketTypeID, 2)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 
 	link := affiliateLinkStatsByCode(t, env, sessionID, eventID, code)
@@ -108,7 +112,7 @@ func TestFreeOnlineSaleBegunWithAnAffiliateCodeIsAttributedWithNoNetProceeds(t *
 	code := newAffiliateLink(t, env, sessionID, eventID, "Community board")
 
 	result := beginCheckoutSettled(t, env, "test-org", "free-fest", "",
-		affiliateCheckoutBody("ana@example.com", code, cartLine(freeID, 1)))
+		affiliateCheckoutBody("ana@example.com", lastClick(code), cartLine(freeID, 1)))
 	approvedRef(t, result)
 
 	link := affiliateLinkStatsByCode(t, env, sessionID, eventID, code)
@@ -139,7 +143,7 @@ func TestCheckoutWithAnUnknownOrDeadAffiliateCodeSucceedsUnattributed(t *testing
 	// deactivated: three ways of naming nobody, all of which sell a ticket.
 	for i, code := range []string{"NOSUCHCODE", "M4RIAS-1NSTAGRAM", deadCode} {
 		begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-			affiliateCheckoutBody(fmt.Sprintf("buyer%d@example.com", i), code, cartLine(ticketTypeID, 1)))
+			affiliateCheckoutBody(fmt.Sprintf("buyer%d@example.com", i), lastClick(code), cartLine(ticketTypeID, 1)))
 		confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	}
 
@@ -155,10 +159,102 @@ func TestCheckoutWithAnUnknownOrDeadAffiliateCodeSucceedsUnattributed(t *testing
 	}
 	// The live code is untouched by any of it: it still attributes.
 	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("ana@example.com", liveCode, cartLine(ticketTypeID, 1)))
+		affiliateCheckoutBody("ana@example.com", lastClick(liveCode), cartLine(ticketTypeID, 1)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	if link := affiliateLinkStatsByCode(t, env, sessionID, eventID, liveCode); link.SalesCount != 1 {
 		t.Fatalf("sales_count=%d on the live link, want the sale it drove", link.SalesCount)
+	}
+}
+
+// Last click means last LIVE click (#142, #148). The Storefront cannot know
+// whether a code is live when it is clicked — validating on a page view was
+// rejected outright (ADR 0021) — so it carries the buyer's recent clicks newest
+// first and the API, which alone can answer, credits the first that still names
+// a live link. A promoter whose link is clicked before a dead one keeps the
+// credit rather than losing it to a URL nobody could have known was dead.
+func TestCheckoutCarryingAClickHistoryAttributesTheNewestLiveCode(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, ticketTypeID := publishCheckoutEvent(t, env, sessionID, "Ref Fest", "ref-fest", 1000, 10)
+	liveCode := newAffiliateLink(t, env, sessionID, eventID, "María's Instagram")
+	dead := newAffiliateLinkView(t, env, sessionID, eventID, "Last year's flyer")
+
+	if resp, body := updateAffiliateLink(t, env, sessionID, eventID, dead.ID, map[string]any{"active": false}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("deactivate affiliate link status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// The buyer clicked María's link, then the dead flyer's: the newest click is
+	// first in the list, and it names nobody.
+	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("ana@example.com", []string{dead.Code, liveCode}, cartLine(ticketTypeID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	if link := affiliateLinkStatsByCode(t, env, sessionID, eventID, liveCode); link.SalesCount != 1 {
+		t.Fatalf("sales_count=%d on the live link, want the sale a dead click must not have taken from it", link.SalesCount)
+	}
+	if link := affiliateLinkStatsByCode(t, env, sessionID, eventID, dead.Code); link.SalesCount != 0 {
+		t.Fatalf("sales_count=%d on the deactivated link, want none: it stopped attributing", link.SalesCount)
+	}
+
+	// And the newest live click still wins over an older live one: the order is
+	// what carries last-click, not the liveness.
+	second := newAffiliateLink(t, env, sessionID, eventID, "Radio spot")
+	begun = beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("bea@example.com", []string{second, liveCode}, cartLine(ticketTypeID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	if link := affiliateLinkStatsByCode(t, env, sessionID, eventID, second); link.SalesCount != 1 {
+		t.Fatalf("sales_count=%d on the newest live click, want the sale it drove", link.SalesCount)
+	}
+	if link := affiliateLinkStatsByCode(t, env, sessionID, eventID, liveCode); link.SalesCount != 1 {
+		t.Fatalf("sales_count=%d on the older live link, want only its own earlier sale", link.SalesCount)
+	}
+}
+
+// Every code dead is the same answer as no code at all: the sale is recorded,
+// unattributed, and nobody is told.
+func TestCheckoutWhoseWholeClickHistoryIsDeadIsUnattributed(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, ticketTypeID := publishCheckoutEvent(t, env, sessionID, "Ref Fest", "ref-fest", 1000, 10)
+	dead := newAffiliateLinkView(t, env, sessionID, eventID, "Last year's flyer")
+	if resp, body := updateAffiliateLink(t, env, sessionID, eventID, dead.ID, map[string]any{"active": false}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("deactivate affiliate link status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("ana@example.com", []string{dead.Code, "NOSUCHCODE"}, cartLine(ticketTypeID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	if summary := salesSummaryOK(t, env, sessionID, eventID); summary.SalesCount != 1 {
+		t.Fatalf("the Event recorded %d sales, want the 1 that checked out", summary.SalesCount)
+	}
+	for _, link := range affiliateLinkStatsList(t, env, sessionID, eventID) {
+		if link.SalesCount != 0 {
+			t.Fatalf("%q was credited a sale by a history of dead codes: %+v", link.Name, link)
+		}
+	}
+}
+
+// The cookie keeps three codes per Event; the API accepts five and stops
+// reading. A longer list is a hand-crafted request, not a browser, and it is
+// truncated rather than refused — no ref may ever cost a buyer their purchase.
+func TestCheckoutWithMoreAffiliateCodesThanAreReadIgnoresTheRest(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, ticketTypeID := publishCheckoutEvent(t, env, sessionID, "Ref Fest", "ref-fest", 1000, 10)
+	liveCode := newAffiliateLink(t, env, sessionID, eventID, "María's Instagram")
+
+	// The live code sits sixth, past where the API stops looking.
+	codes := []string{"N0CODE01", "N0CODE02", "N0CODE03", "N0CODE04", "N0CODE05", liveCode}
+	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("ana@example.com", codes, cartLine(ticketTypeID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	if summary := salesSummaryOK(t, env, sessionID, eventID); summary.SalesCount != 1 {
+		t.Fatalf("the Event recorded %d sales, want the 1 that checked out", summary.SalesCount)
+	}
+	if link := affiliateLinkStatsByCode(t, env, sessionID, eventID, liveCode); link.SalesCount != 0 {
+		t.Fatalf("sales_count=%d, want 0: the code was past the accepted length", link.SalesCount)
 	}
 }
 
@@ -175,7 +271,7 @@ func TestReversedAttributedSaleDropsOutOfTheAffiliateLinksFigures(t *testing.T) 
 	var refs []string
 	for i := 0; i < 2; i++ {
 		begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-			affiliateCheckoutBody(fmt.Sprintf("buyer%d@example.com", i), code, cartLine(ticketTypeID, 1)))
+			affiliateCheckoutBody(fmt.Sprintf("buyer%d@example.com", i), lastClick(code), cartLine(ticketTypeID, 1)))
 		refs = append(refs, confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved").ConfirmationRef)
 	}
 
@@ -235,5 +331,44 @@ func TestImportedSalesCarryNoAffiliateAttribution(t *testing.T) {
 	link := affiliateLinkStatsByCode(t, env, sessionID, eventID, code)
 	if link.SalesCount != 0 || link.NetProceedsCents != 0 {
 		t.Fatalf("an imported sale credited the Affiliate Link: %+v", link)
+	}
+}
+
+// The other half of the same rule (#146): an In-Person Sale is made at a
+// physical point of sale, with no click and no ref anywhere in it, so it can
+// never credit an Affiliate Link either.
+//
+// The platform has no In-Person Sale route yet — the channel exists on
+// ticket_sales and in the Sales list filter, and nothing can create one — so the
+// sale here is an attributed Online Sale moved onto the in-person channel in
+// SQL. That is a stronger statement of the invariant than a route would make,
+// not a weaker one: the row keeps the affiliate_link_id that no in-person path
+// could even supply, and the figures still refuse to count it. Whatever records
+// In-Person Sales later cannot attribute by accident.
+func TestInPersonSalesCarryNoAffiliateAttribution(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, ticketTypeID := publishCheckoutEvent(t, env, sessionID, "Ref Fest", "ref-fest", 1000, 10)
+	link := newAffiliateLinkView(t, env, sessionID, eventID, "María's Instagram")
+
+	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("ana@example.com", lastClick(link.Code), cartLine(ticketTypeID, 2)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	if stats := affiliateLinkStatsByCode(t, env, sessionID, eventID, link.Code); stats.SalesCount != 1 {
+		t.Fatalf("the fixture's Online Sale was not attributed: %+v", stats)
+	}
+
+	// The same sale, sold at the door instead: same link id on the row, and the
+	// Sales Channel is what decides.
+	if _, err := env.db.Exec(`
+		UPDATE ticket_sales SET channel = 'in_person', payment_method = NULL
+		WHERE event_id = $1
+	`, eventID); err != nil {
+		t.Fatalf("move the sale onto the in-person channel: %v", err)
+	}
+
+	stats := affiliateLinkStatsByCode(t, env, sessionID, eventID, link.Code)
+	if stats.SalesCount != 0 || stats.NetProceedsCents != 0 {
+		t.Fatalf("an In-Person Sale credited the Affiliate Link: %+v", stats)
 	}
 }

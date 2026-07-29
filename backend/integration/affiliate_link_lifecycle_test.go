@@ -62,7 +62,7 @@ func TestAffiliateLinkRenameChangesOnlyTheDisplayName(t *testing.T) {
 		t.Fatalf("click status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("ana@example.com", created.Code, cartLine(ticketTypeID, 1)))
+		affiliateCheckoutBody("ana@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	before := affiliateLinkStatsByCode(t, env, sessionID, eventID, created.Code)
 
@@ -135,7 +135,7 @@ func TestDeactivatedAffiliateLinkStopsCountingAndAttributingButKeepsItsHistory(t
 		t.Fatalf("click status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("ana@example.com", created.Code, cartLine(ticketTypeID, 1)))
+		affiliateCheckoutBody("ana@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	before := affiliateLinkStatsByCode(t, env, sessionID, eventID, created.Code)
 	if before.SalesCount != 1 || before.NetProceedsCents <= 0 {
@@ -157,7 +157,7 @@ func TestDeactivatedAffiliateLinkStopsCountingAndAttributingButKeepsItsHistory(t
 
 	// And a checkout carrying it sells a ticket, unattributed.
 	begun = beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("bea@example.com", created.Code, cartLine(ticketTypeID, 1)))
+		affiliateCheckoutBody("bea@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	if summary := salesSummaryOK(t, env, sessionID, eventID); summary.SalesCount != 2 {
 		t.Fatalf("the Event recorded %d sales, want the 2 that checked out", summary.SalesCount)
@@ -202,7 +202,7 @@ func TestReactivatedAffiliateLinkResumesClicksAndAttributionUnderTheSameCode(t *
 		t.Fatalf("click status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("ana@example.com", created.Code, cartLine(ticketTypeID, 1)))
+		affiliateCheckoutBody("ana@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 
 	if row := affiliateLinkRow(t, env, sessionID, eventID, created.ID); row.Clicks != 1 {
@@ -283,7 +283,7 @@ func TestAffiliateLinkDeleteIsRefusedOnceItHasAnAttributedSaleEvenAReversedOne(t
 	created := newAffiliateLinkView(t, env, sessionID, eventID, "María's Instagram")
 
 	begun := beginCheckoutOK(t, env, "test-org", "ref-fest",
-		affiliateCheckoutBody("ana@example.com", created.Code, cartLine(ticketTypeID, 1)))
+		affiliateCheckoutBody("ana@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
 	confirmed := confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 
 	resp, body := deleteAffiliateLink(t, env, sessionID, eventID, created.ID)
@@ -319,6 +319,74 @@ func TestAffiliateLinkDeleteIsRefusedOnceItHasAnAttributedSaleEvenAReversedOne(t
 	}
 	if attributed != 1 {
 		t.Fatalf("attributed sales pointing at the link=%d, want the 1 that was never orphaned", attributed)
+	}
+}
+
+// A checkout that was begun under the link and never paid for is not history.
+// Abandoned carts are the commonest thing on the internet, and a link that only
+// ever collected them drove nothing an organizer would want kept — so once the
+// Payment can no longer become a sale, the link is deletable again.
+func TestAffiliateLinkDeleteSucceedsWhenItsOnlyHistoryIsAnAbandonedCheckout(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, ticketTypeID := publishCheckoutEvent(t, env, sessionID, "Ref Fest", "ref-fest", 1000, 10)
+	created := newAffiliateLinkView(t, env, sessionID, eventID, "María's Instagram")
+
+	// One buyer walks away from the payment page, another is declined.
+	abandoned := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("ana@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
+	declined := beginCheckoutOK(t, env, "test-org", "ref-fest",
+		affiliateCheckoutBody("bea@example.com", lastClick(created.Code), cartLine(ticketTypeID, 1)))
+	confirmCheckoutOK(t, env, declined.ClientTransactionID, "declined")
+
+	// While the abandoned Payment is still pending it may yet become a sale, so
+	// the link may not be deleted out from under it.
+	resp, body := deleteAffiliateLink(t, env, sessionID, eventID, created.ID)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete with a pending Payment status=%d, want 409; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "AFFILIATE_LINK_HAS_HISTORY" {
+		t.Fatalf("delete with a pending Payment error=%+v, want AFFILIATE_LINK_HAS_HISTORY", body.Error)
+	}
+
+	// Past the hold window the abandoned checkout lapses — the next begin marks
+	// it expired, exactly as it does for capacity (ADR 0013).
+	holdClocksAt(afterHoldWindow())
+	beginCheckoutOK(t, env, "test-org", "ref-fest",
+		checkoutBody("cara@example.com", "Cara", "Buyer", cartLine(ticketTypeID, 1)))
+	if got := paymentStatus(t, env, abandoned.ClientTransactionID); got != "expired" {
+		t.Fatalf("abandoned payment status=%q, want expired", got)
+	}
+
+	// Nothing that could become a sale is left pointing at the link, so it goes.
+	resp, body = deleteAffiliateLink(t, env, sessionID, eventID, created.ID)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete with only lapsed Payments behind it status=%d, want 200; error=%+v", resp.StatusCode, body.Error)
+	}
+	if body.Error != nil {
+		t.Fatalf("delete error=%+v, want none", body.Error)
+	}
+
+	// The Payments outlive the link and simply stop naming it: the FK is
+	// ON DELETE SET NULL (migration 037), so nothing is orphaned and no
+	// abandoned checkout is deleted along with a marketing link.
+	var referencing int
+	if err := env.db.QueryRow(
+		`SELECT COUNT(*) FROM payments WHERE affiliate_link_id = $1`, created.ID,
+	).Scan(&referencing); err != nil {
+		t.Fatalf("count payments pointing at the deleted link: %v", err)
+	}
+	if referencing != 0 {
+		t.Fatalf("%d Payments still name the deleted link", referencing)
+	}
+	var payments int
+	if err := env.db.QueryRow(
+		`SELECT COUNT(*) FROM payments WHERE event_id = $1`, eventID,
+	).Scan(&payments); err != nil {
+		t.Fatalf("count the Event's payments: %v", err)
+	}
+	if payments != 3 {
+		t.Fatalf("the Event has %d Payments after the delete, want the 3 that were begun", payments)
 	}
 }
 

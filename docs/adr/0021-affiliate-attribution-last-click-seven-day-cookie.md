@@ -24,20 +24,20 @@ begin-checkout request and never returns at all (ADR 0017).
 **Affiliate Attribution is last click within a 7-day Attribution Window, per Event.**
 
 The Storefront remembers clicks in one first-party, httpOnly cookie. Middleware writes it when an
-Event page is served with a `?ref=`: the code is stored under a key made of both slugs, so a
-click on one Event never displaces another's, with its own expiry seven days out. The newest
-click on an Event overwrites whatever that Event remembered, including a fresh click on the same
-link, which restarts its window. Nothing is validated at click time — a live code, a mistyped one
-and one that never existed all set the same cookie and render the same page, because validating
-would mean an API call on every page view to answer a question whose answer can change before the
-buyer pays.
+Event page is served with a `?ref=`: the code is stored under a key made of both slugs, so a click
+on one Event never displaces another's, with its own expiry seven days out. The newest click on an
+Event goes to the front of that Event's short click history (see the addendum below), including a
+fresh click on a link already there, which restarts its window. Nothing is validated at click time
+— a live code, a mistyped one and one that never existed all set the same cookie and render the
+same page, because validating would mean an API call on every page view to answer a question whose
+answer can change before the buyer pays.
 
-The begin-checkout BFF route reads the remembered code for the Event being bought and forwards it
-as `affiliate_code`. **The API is cookie-agnostic**: it receives a code, resolves it against that
-Event's ACTIVE Affiliate Links, and snapshots the resulting id on the `payments` row. An unknown,
-mistyped or deactivated code resolves to nobody — the checkout proceeds normally and the sale is
-recorded unattributed. A ref never refuses a purchase, and the buyer is never told which of the
-two happened.
+The begin-checkout BFF route reads the remembered codes for the Event being bought and forwards
+them, newest first, as `affiliate_codes`. **The API is cookie-agnostic**: it receives codes,
+resolves the first that names one of that Event's ACTIVE Affiliate Links, and snapshots the
+resulting id on the `payments` row. An unknown, mistyped or deactivated code resolves to nobody —
+the checkout proceeds normally and the sale is recorded unattributed. A ref never refuses a
+purchase, and the buyer is never told which of the two happened.
 
 The snapshot is copied onto the Ticket Sale inside the single sale-commit chokepoint, so the free
 zero-total path carries attribution by construction rather than by a second implementation
@@ -94,11 +94,32 @@ months ago. The blast radius is a display-only number on the organizer's own Eve
 alternative — a server-side click ledger — was rejected above for costing more than the figure is
 worth.
 
-**One cookie, bounded.** All remembered clicks share a single cookie holding at most twenty
-Events, oldest dropped first; each entry expires on its own seven-day schedule even while newer
-clicks keep the cookie alive. httpOnly, so no page script can read a promoter's code or forge an
-attribution.
+**One cookie, bounded.** All remembered clicks share a single cookie holding at most twenty Events,
+oldest dropped first, and at most three codes per Event; each remembered click expires on its own
+seven-day schedule even while newer clicks keep the cookie alive. httpOnly, so no page script can
+read a promoter's code or forge an attribution.
 
 `payments` and `ticket_sales` each gain a nullable `affiliate_link_id` (migration 036). Nullable
 is the ordinary case: every in-person sale, every imported sale, and every buyer who arrived
 directly.
+
+## Addendum: the cookie remembers a short history, not one code
+
+Last click means last **live** click, and the Storefront cannot tell which clicks are live —
+that is this ADR's deliberate trade-off, and it stands. With one remembered code per Event, the
+consequence was a bug rather than an approximation: a click on a deactivated or deleted code
+overwrote the live click before it, and the link that genuinely drove the sale lost the credit to
+a URL nobody could have known was dead. A dead code must not displace a live click's credit.
+
+So each Event's entry is a **short newest-first history**: at most three codes, deduplicated
+(re-clicking a remembered code moves it back to the front and restarts its window), each with its
+own seven-day expiry. Begin-checkout forwards the list as `affiliate_codes`, and the API — which
+alone knows what is live — credits the **first code in the list that resolves to a live link**,
+recording the sale unattributed when none does. The order carries last-click; liveness picks which
+click that was.
+
+Nothing about the write path changed: still no validation at click time, still no API call on a
+page view, still no ref that can refuse or delay a purchase. The cost is a slightly larger cookie
+and up to three indexed lookups at begin-checkout, both bounded — the API reads at most five codes
+and ignores the rest rather than erroring, because a malformed ref may never cost a buyer their
+tickets.

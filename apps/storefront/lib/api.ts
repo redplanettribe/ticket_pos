@@ -354,13 +354,14 @@ export type BeginCheckoutRequest = {
    */
   customer_phone?: string;
   /**
-   * The Affiliate Link code this buyer's last click on this Event left behind,
-   * read out of the attribution cookie by the begin-checkout route (ADR 0021).
-   * Omitted entirely when nothing is remembered, and never validated here: the
-   * API resolves it against the Event's live links and records the sale
-   * unattributed when it names nobody.
+   * The Affiliate Link codes this buyer's recent clicks on this Event left
+   * behind, newest first, read out of the attribution cookie by the
+   * begin-checkout route (ADR 0021). Omitted entirely when nothing is
+   * remembered, and never validated here: the API credits the first code that
+   * still names a live link and records the sale unattributed when none does —
+   * which is why the order, not just the newest code, is what travels.
    */
-  affiliate_code?: string;
+  affiliate_codes?: string[];
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

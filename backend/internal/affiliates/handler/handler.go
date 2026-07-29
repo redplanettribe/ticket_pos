@@ -178,7 +178,7 @@ func (h *Handler) UpdateAffiliateLink(w http.ResponseWriter, r *http.Request) {
 // DeleteAffiliateLink removes an Affiliate Link that has no history.
 //
 // @Summary      Delete affiliate link
-// @Description  Deletes an Affiliate Link, but only while it has zero clicks and no attributed sales — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.
+// @Description  Deletes an Affiliate Link, but only while it has zero clicks, no attributed sales, and no checkout in progress under it — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it, and a pending Payment blocks the delete because it may still become such a sale. A checkout that was abandoned or declined does not block it: nobody bought anything, and the Payment simply stops naming the link. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -219,7 +219,7 @@ func lifecyclePathValues(w http.ResponseWriter, r *http.Request, reqID string) (
 	}
 	if linkID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "link_id", Message: "is required"},
+			{Field: "linkId", Message: "is required"},
 		})
 		return "", "", false
 	}

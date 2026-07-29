@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   ATTRIBUTION_WINDOW_DAYS,
-  readAffiliateCode,
+  readAffiliateCodes,
   rememberAffiliateClick,
 } from "./affiliate-ref.ts";
 
@@ -28,57 +28,95 @@ function click(
   return written;
 }
 
+/** The codes an Event's checkout would carry, newest first. */
+function codes(
+  jar: string | null,
+  event: { orgSlug: string; eventSlug: string },
+  at: number,
+): string[] {
+  return readAffiliateCodes(jar, event.orgSlug, event.eventSlug, at);
+}
+
 test("a click on a live Affiliate Link is remembered for that Event's checkout", () => {
   const jar = click(null, RAVE, "M4R1A222", CLICKED_AT);
-  assert.equal(readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT), "M4R1A222");
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT), ["M4R1A222"]);
 });
 
-test("the newest click wins: last-click Affiliate Attribution", () => {
+test("the newest click comes first: last-click Affiliate Attribution", () => {
   let jar = click(null, RAVE, "M4R1A222", CLICKED_AT);
   jar = click(jar, RAVE, "R4D10SP0", CLICKED_AT + DAY_MS);
-  assert.equal(
-    readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT + DAY_MS),
-    "R4D10SP0",
-  );
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + DAY_MS), ["R4D10SP0", "M4R1A222"]);
 });
 
-test("a click is forgotten once the Attribution Window has passed", () => {
-  const jar = click(null, RAVE, "M4R1A222", CLICKED_AT);
+// The reason the history exists at all (#142, #148). Liveness is not knowable
+// at click time, so a click on a code that has since been deactivated must not
+// erase the live one clicked before it — the API picks the first live code out
+// of the list, and the order says which click was the newest.
+test("a dead click does not displace the live one clicked before it", () => {
+  let jar = click(null, RAVE, "L1VECODE", CLICKED_AT);
+  jar = click(jar, RAVE, "DEADC0DE", CLICKED_AT + DAY_MS);
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + DAY_MS), ["DEADC0DE", "L1VECODE"]);
+});
+
+test("a live click after a dead one still wins, because it is newest", () => {
+  let jar = click(null, RAVE, "DEADC0DE", CLICKED_AT);
+  jar = click(jar, RAVE, "L1VECODE", CLICKED_AT + DAY_MS);
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + DAY_MS), ["L1VECODE", "DEADC0DE"]);
+});
+
+test("only the last few clicks on an Event are kept", () => {
+  let jar: string | null = null;
+  const clicked = ["C0DE0001", "C0DE0002", "C0DE0003", "C0DE0004", "C0DE0005"];
+  clicked.forEach((code, i) => {
+    jar = click(jar, RAVE, code, CLICKED_AT + i);
+  });
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + clicked.length), [
+    "C0DE0005",
+    "C0DE0004",
+    "C0DE0003",
+  ]);
+});
+
+test("re-clicking a remembered code moves it to the front and restarts its window", () => {
+  let jar = click(null, RAVE, "M4R1A222", CLICKED_AT);
+  jar = click(jar, RAVE, "R4D10SP0", CLICKED_AT + DAY_MS);
+  const returned = CLICKED_AT + 2 * DAY_MS;
+  jar = click(jar, RAVE, "M4R1A222", returned);
+
+  // Once, not twice: the same code is one memory however often it is clicked.
+  assert.deepEqual(codes(jar, RAVE, returned), ["M4R1A222", "R4D10SP0"]);
+  // And its own window runs from the newest click, so it outlives the other.
+  const windowMs = ATTRIBUTION_WINDOW_DAYS * DAY_MS;
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + DAY_MS + windowMs + 1), ["M4R1A222"]);
+});
+
+test("each remembered click expires on its own schedule", () => {
+  let jar = click(null, RAVE, "0LDC0DE1", CLICKED_AT);
+  jar = click(jar, RAVE, "N3WC0DE1", CLICKED_AT + 3 * DAY_MS);
   const windowMs = ATTRIBUTION_WINDOW_DAYS * DAY_MS;
 
-  // Bought on the last day of the window: still credited.
-  assert.equal(
-    readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT + windowMs - 1),
-    "M4R1A222",
-  );
-  // A minute past it: the click is gone and the sale is unattributed.
-  assert.equal(
-    readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT + windowMs + 60_000),
-    null,
-  );
-});
-
-test("a later click restarts the Attribution Window on that Event", () => {
-  let jar = click(null, RAVE, "M4R1A222", CLICKED_AT);
-  const returned = CLICKED_AT + 6 * DAY_MS;
-  jar = click(jar, RAVE, "M4R1A222", returned);
-  assert.equal(readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, returned + 5 * DAY_MS), "M4R1A222");
+  // Both alive while both windows are open.
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + windowMs - 1), ["N3WC0DE1", "0LDC0DE1"]);
+  // The older one drops out on its own day, and the newer one stays.
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + windowMs + 1), ["N3WC0DE1"]);
+  // Past the newest click's window, the Event is unattributed again.
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT + 3 * DAY_MS + windowMs + 1), []);
 });
 
 test("Affiliate Links are remembered per Event, so one Event never clobbers another", () => {
   let jar = click(null, RAVE, "M4R1A222", CLICKED_AT);
   jar = click(jar, GIG, "R4D10SP0", CLICKED_AT);
 
-  assert.equal(readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT), "M4R1A222");
-  assert.equal(readAffiliateCode(jar, GIG.orgSlug, GIG.eventSlug, CLICKED_AT), "R4D10SP0");
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT), ["M4R1A222"]);
+  assert.deepEqual(codes(jar, GIG, CLICKED_AT), ["R4D10SP0"]);
   // An Event nobody clicked through to is unattributed, whatever else is
   // remembered.
-  assert.equal(readAffiliateCode(jar, "other-org", "party", CLICKED_AT), null);
+  assert.deepEqual(readAffiliateCodes(jar, "other-org", "party", CLICKED_AT), []);
 });
 
 test("codes are remembered in the case the Affiliate Link issues them in", () => {
   const jar = click(null, RAVE, "  m4r1a222 ", CLICKED_AT);
-  assert.equal(readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT), "M4R1A222");
+  assert.deepEqual(codes(jar, RAVE, CLICKED_AT), ["M4R1A222"]);
 });
 
 test("a ref that could not be a code is not remembered at all", () => {
@@ -93,11 +131,11 @@ test("a ref that could not be a code is not remembered at all", () => {
 
 test("an unreadable cookie is treated as no click at all", () => {
   for (const jar of [null, "", "{not json", "[]", '{"demo-venue/rave":"M4R1A222"}']) {
-    assert.equal(readAffiliateCode(jar, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT), null);
+    assert.deepEqual(codes(jar, RAVE, CLICKED_AT), []);
   }
   // And a click after one still lands: nothing here throws.
   const repaired = click("{not json", RAVE, "M4R1A222", CLICKED_AT);
-  assert.equal(readAffiliateCode(repaired, RAVE.orgSlug, RAVE.eventSlug, CLICKED_AT), "M4R1A222");
+  assert.deepEqual(codes(repaired, RAVE, CLICKED_AT), ["M4R1A222"]);
 });
 
 test("the jar does not grow without bound as a visitor browses", () => {
@@ -109,5 +147,8 @@ test("the jar does not grow without bound as a visitor browses", () => {
   assert.ok(remembered.length <= 24, `remembered ${remembered.length} Events`);
   // What survives is what was clicked most recently — last click is the whole
   // rule, including which memory is worth keeping.
-  assert.equal(readAffiliateCode(jar, "demo-venue", "event-59", CLICKED_AT + 59), "M4R1A222");
+  assert.deepEqual(
+    readAffiliateCodes(jar, "demo-venue", "event-59", CLICKED_AT + 59),
+    ["M4R1A222"],
+  );
 });

@@ -10,30 +10,23 @@
 
 // Extensioned so the node:test runner, which loads this module for the pure
 // helper below, can resolve it — the same reason the other tested helpers do.
+import { normalizeAffiliateCode } from "./affiliate-code.ts";
 import { callBackend } from "./api.ts";
-
-/**
- * The longest a ref may be and still be worth reporting. Generated codes are
- * eight characters; this leaves room for a format change and still refuses the
- * arbitrary junk anyone can put in a query string, before it becomes a request.
- */
-const MAX_REF_LENGTH = 64;
 
 /**
  * affiliateCodeFromRef reads the Affiliate Link code out of an Event page's
  * `?ref=` value, or null when there is nothing worth reporting.
  *
+ * The rule is the attribution cookie's rule, imported rather than restated: the
+ * click this counts and the click that cookie remembers are the same click, so
+ * a ref the two disagreed about would credit a sale to a link whose counter
+ * never moved.
+ *
  * It never decides whether the code is live — dead codes are the endpoint's
  * business, and asking first would make the buyer's page wait on the answer.
  */
 export function affiliateCodeFromRef(ref: string | string[] | undefined): string | null {
-  // A repeated ref arrives as an array; the first one is the link that was
-  // followed.
-  const raw = Array.isArray(ref) ? ref[0] : ref;
-  if (typeof raw !== "string") return null;
-  const code = raw.trim();
-  if (code === "" || code.length > MAX_REF_LENGTH) return null;
-  return code;
+  return normalizeAffiliateCode(ref);
 }
 
 /**

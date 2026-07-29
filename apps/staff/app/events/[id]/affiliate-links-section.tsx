@@ -3,6 +3,9 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Card,
@@ -18,6 +21,7 @@ import {
   DialogTitle,
   FormField,
   Input,
+  Skeleton,
   toast,
 } from "@ticket-pos/ui";
 
@@ -38,6 +42,10 @@ type AffiliateLinksSectionProps = {
 
 export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   const [loading, setLoading] = useState(true);
+  // Why the section itself is empty, when it is. A section that will not load is
+  // a page-level failure and gets the banner every other one gets — toasts are
+  // for the mutations below, which leave the list on screen behind them.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [links, setLinks] = useState<AffiliateLink[]>([]);
@@ -52,16 +60,19 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   // The Event's currency, for the attributed Net Proceeds figures. It is read
   // from the sales summary — the same figure's own surface, behind the same
-  // Org-Admin/Event-Owner gate — rather than kept a second time here. A summary
-  // that will not load leaves the counts on screen and the money unlabelled.
+  // Org-Admin/Event-Owner gate — rather than kept a second time here. Money is
+  // formatted the way the summary strip formats it (formatPriceCents) and shown
+  // as an em dash until the currency is known: a bare number would read as a
+  // figure in whatever currency the reader assumed.
   const [currency, setCurrency] = useState<string | null>(null);
 
   const loadLinks = useCallback(async () => {
     setLoading(true);
     try {
       setLinks(await listAffiliateLinks(eventId));
-    } catch (loadError) {
-      toast.error(loadError instanceof Error ? loadError.message : "Failed to load affiliate links");
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Failed to load affiliate links");
     } finally {
       setLoading(false);
     }
@@ -205,13 +216,26 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
               />
             </FormField>
           </div>
-          <Button type="submit" disabled={creating || name.trim() === ""}>
-            {creating ? "Creating..." : "Create affiliate link"}
+          <Button
+            type="submit"
+            disabled={creating || name.trim() === ""}
+            aria-busy={creating}
+          >
+            {creating ? "Creating…" : "Create affiliate link"}
           </Button>
         </form>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading affiliate links...</p>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={index} className="h-24 w-full" />
+            ))}
+          </div>
+        ) : loadError ? (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load affiliate links</AlertTitle>
+            <AlertDescription>{loadError}</AlertDescription>
+          </Alert>
         ) : links.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No affiliate links yet. Create one to give a promoter their own link to this Event.
@@ -235,9 +259,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                     {link.sales_count === 1 ? "sale" : "sales"}
                     {" · "}
                     <span className="font-medium text-foreground">
-                      {currency
-                        ? formatPriceCents(link.net_proceeds_cents, currency)
-                        : (link.net_proceeds_cents / 100).toFixed(2)}
+                      {currency ? formatPriceCents(link.net_proceeds_cents, currency) : "—"}
                     </span>{" "}
                     net proceeds
                   </p>
@@ -260,6 +282,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                     variant="outline"
                     size="sm"
                     disabled={busyId === link.id}
+                    aria-busy={busyId === link.id}
                     onClick={() => openRenameDialog(link)}
                   >
                     Rename
@@ -272,15 +295,23 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                     variant="outline"
                     size="sm"
                     disabled={busyId === link.id}
+                    aria-busy={busyId === link.id}
                     onClick={() => void toggleActive(link)}
                   >
-                    {link.active ? "Deactivate" : "Reactivate"}
+                    {busyId === link.id
+                      ? link.active
+                        ? "Deactivating…"
+                        : "Reactivating…"
+                      : link.active
+                        ? "Deactivate"
+                        : "Reactivate"}
                   </Button>
                   <Button
                     type="button"
                     variant="destructive"
                     size="sm"
                     disabled={busyId === link.id}
+                    aria-busy={busyId === link.id}
                     onClick={() => setDeleteTarget(link)}
                   >
                     Delete
@@ -315,8 +346,12 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
               <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busyId !== null || renameValue.trim() === ""}>
-                Save name
+              <Button
+                type="submit"
+                disabled={busyId !== null || renameValue.trim() === ""}
+                aria-busy={busyId !== null}
+              >
+                {busyId !== null ? "Saving…" : "Save name"}
               </Button>
             </DialogFooter>
           </form>
@@ -341,9 +376,10 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
               type="button"
               variant="destructive"
               disabled={busyId !== null}
+              aria-busy={busyId !== null}
               onClick={() => void handleDelete()}
             >
-              Delete affiliate link
+              {busyId !== null ? "Deleting…" : "Delete affiliate link"}
             </Button>
           </DialogFooter>
         </DialogContent>

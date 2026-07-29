@@ -21,9 +21,13 @@ const docTemplate = `{
             },
             "handler.beginCheckoutBody": {
                 "properties": {
-                    "affiliate_code": {
-                        "description": "AffiliateCode is the Affiliate Link code the Storefront remembered from the\nbuyer's last click on this Event, OPTIONAL and never validated as a field:\nthe service resolves it against the Event's live links and records the sale\nunattributed when nothing matches. A checkout is never refused over a ref\n(#146).",
-                        "type": "string"
+                    "affiliate_codes": {
+                        "description": "AffiliateCodes are the Affiliate Link codes the Storefront remembered from\nthe buyer's recent clicks on this Event, NEWEST FIRST, OPTIONAL and never\nvalidated as a field: the service credits the first that resolves to a live\nlink and records the sale unattributed when none does. A checkout is never\nrefused over a ref (#146).\n\nA list rather than one code because liveness is unknowable at click time\n(ADR 0021): a click on a since-deactivated code must not erase the live\nclick before it. Anything past maxAffiliateCodes is dropped unread — a\nbrowser sends at most three.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "customer_email": {
                         "type": "string"
@@ -4045,7 +4049,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_code is optional and carries the Affiliate Link the buyer's last click left behind: matched against this Event's live links it credits the Ticket Sale, and an unknown, mistyped or deactivated code simply records the sale unattributed — it never refuses a checkout. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
+                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -4706,7 +4710,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/affiliate-links/{linkId}": {
             "delete": {
-                "description": "Deletes an Affiliate Link, but only while it has zero clicks and no attributed sales — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.",
+                "description": "Deletes an Affiliate Link, but only while it has zero clicks, no attributed sales, and no checkout in progress under it — so a link created by mistake can be taken back and one that has actually promoted anything cannot. An attributed Ticket Sale of any status counts as history, a reversed one included, because it still names the link that drove it, and a pending Payment blocks the delete because it may still become such a sale. A checkout that was abandoned or declined does not block it: nobody bought anything, and the Payment simply stops naming the link. A link with history is refused with AFFILIATE_LINK_HAS_HISTORY; deactivate it instead. Org Admin and Event Owner only.",
                 "parameters": [
                     {
                         "description": "Event ID",

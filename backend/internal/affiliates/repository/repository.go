@@ -236,10 +236,27 @@ func (r *Repository) UpdateNameAndActive(ctx context.Context, eventID, linkID, n
 //
 // The history test lives inside the DELETE rather than in a read before it, so a
 // click or a checkout landing between the two cannot slip a link out from under
-// its own past. History is any click at all and any attributed row of any status
-// — a reversed Ticket Sale still names the link that drove it, and a Payment
-// carries the same snapshot — which is also what keeps the delete FK-safe:
-// nothing that could be orphaned survives the WHERE clause.
+// its own past. History is any click at all, any attributed Ticket Sale of any
+// status — a reversed one still names the link that drove it — and any PENDING
+// Payment, which is not history yet but may still become some: a checkout begun
+// under the link can be approved a minute from now, and the delete must not race
+// the sale it would produce.
+//
+// A Payment that never became a sale is deliberately NOT history. Abandoned and
+// declined checkouts are the commonest thing on the internet, and a link that
+// collected only those drove nothing worth keeping it for — the earlier "any
+// Payment at all" test left every such link undeletable forever, which is
+// broader than the rule the feature promises (#148).
+//
+// The FK is what makes that safe rather than orphaning: payments.affiliate_link_id
+// is ON DELETE SET NULL (migration 037), so an expired or failed Payment outlives
+// the link and simply stops naming it. That matters for one real case — an
+// expired Payment can still be confirmed into a sale if the provider approved it
+// late (ApprovePaymentAndCommitSale accepts 'expired' as well as 'pending', ADR
+// 0013) — and the honest outcome there is a sale recorded unattributed, never a
+// dangling id. ticket_sales keeps its RESTRICT-by-default FK: an actual sale's
+// attribution is never rewritten, and the clause above is what guarantees no
+// such row exists when the DELETE lands.
 func (r *Repository) DeleteIfNoHistory(ctx context.Context, eventID, linkID string) (bool, error) {
 	result, err := r.db.Pool.ExecContext(ctx, `
 		DELETE FROM affiliate_links al
@@ -247,7 +264,10 @@ func (r *Repository) DeleteIfNoHistory(ctx context.Context, eventID, linkID stri
 		  AND al.event_id = $1
 		  AND al.click_count = 0
 		  AND NOT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.affiliate_link_id = al.id)
-		  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.affiliate_link_id = al.id)
+		  AND NOT EXISTS (
+			SELECT 1 FROM payments p
+			WHERE p.affiliate_link_id = al.id AND p.status = 'pending'
+		  )
 	`, eventID, linkID)
 	if err != nil {
 		return false, err
