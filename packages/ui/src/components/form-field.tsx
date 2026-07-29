@@ -26,15 +26,18 @@ export function FormField({ id, label, children, error, description, className }
       })
     : children;
 
+  // The description reads under the control, not between the label and it: the
+  // label stays attached to the field it names, and fields laid out side by
+  // side keep their inputs on one line however long each hint runs.
   return (
     <div className={cn("space-y-2", className)}>
       <Label htmlFor={id}>{label}</Label>
+      {control}
       {description ? (
         <p id={descriptionId} className="text-sm text-muted-foreground">
           {description}
         </p>
       ) : null}
-      {control}
       {error ? (
         <p id={errorId} role="alert" className="text-sm text-destructive">
           {error}

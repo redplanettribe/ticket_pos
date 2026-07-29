@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -18,6 +17,7 @@ import {
   DialogTitle,
   FormField,
   Input,
+  Skeleton,
   Textarea,
   toast,
 } from "@ticket-pos/ui";
@@ -26,19 +26,15 @@ import {
   ApiError,
   dateTimeLocalToISO,
   fetchEventsJSON,
-  formatEventStartDate,
   formatPriceCents,
   isoToDateTimeLocal,
   parsePriceToCents,
   type TicketType,
 } from "@/lib/events-api";
 import { buyerUnitPriceCents, netProceedsUnitCents, type FeeHandling, type FeeRates } from "@/lib/fees";
-import {
-  promotionErrorMessage,
-  promotionState,
-  promotionStateBadgeVariant,
-  PROMOTION_STATE_LABELS,
-} from "@/lib/promotions";
+import { promotionErrorMessage, promotionState } from "@/lib/promotions";
+
+import { TicketTypeCard } from "./ticket-type-card";
 
 type TicketTypesSectionProps = {
   eventId: string;
@@ -103,6 +99,9 @@ export function TicketTypesSection({
   const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
   const [organizationCurrency, setOrganizationCurrency] = useState("USD");
+  // A completed reorder, for the live region: the rows re-render in place, so
+  // nothing else says it worked.
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
 
   const canDelete = eventStatus === "draft";
   // Promotion windows are typed and read in the Event's timezone. A draft that
@@ -391,6 +390,7 @@ export function TicketTypesSection({
         }),
       ]);
       await loadTicketTypes();
+      setReorderAnnouncement(`Moved ${ticketType.name} ${direction}`);
     } catch (reorderError) {
       toast.error(reorderError instanceof Error ? reorderError.message : "Failed to reorder ticket types");
     }
@@ -411,7 +411,11 @@ export function TicketTypesSection({
       : `You'll receive ${formatPriceCents(netProceedsUnitCents("absorb", priceCents, feeRates), currency)} per ticket`;
   }
 
-  function ticketTypeForm(idPrefix: string, onSubmit: (event: FormEvent<HTMLFormElement>) => void) {
+  function ticketTypeForm(
+    idPrefix: string,
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+    onCancel: () => void,
+  ) {
     const derivedLine = derivedPriceLine(parsePriceToCents(form.price));
 
     return (
@@ -465,33 +469,28 @@ export function TicketTypesSection({
             {ticketTypeError}
           </p>
         ) : null}
-        <Button type="submit" disabled={saving}>
-          {saving ? "Saving..." : "Save ticket type"}
-        </Button>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving} aria-busy={saving}>
+            {saving ? "Saving..." : "Save ticket type"}
+          </Button>
+        </DialogFooter>
       </form>
     );
   }
 
-  function promotionSummary(ticketType: TicketType) {
+  // What the card's effective price means under the fee handling. The
+  // Promotional Price is the base while its window holds, so the line follows
+  // whichever price the buyer would actually be charged.
+  function cardPriceLine(ticketType: TicketType): string | null {
     const promotion = ticketType.promotion;
-    if (promotion === null) {
-      return null;
-    }
-    const state = promotionState(promotion, new Date());
-    return (
-      <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <Badge variant={promotionStateBadgeVariant(state)}>
-          Promotion · {PROMOTION_STATE_LABELS[state]}
-        </Badge>
-        <span>
-          {formatPriceCents(promotion.promotional_price_cents, ticketType.currency)}
-          {promotion.starts_at
-            ? ` · From ${formatEventStartDate(promotion.starts_at, timezone)}`
-            : ""}{" "}
-          · Until {formatEventStartDate(promotion.ends_at, timezone)}
-        </span>
-      </p>
-    );
+    const effectiveCents =
+      promotion !== null && promotionState(promotion, new Date()) === "live"
+        ? promotion.promotional_price_cents
+        : ticketType.price_cents;
+    return derivedPriceLine(effectiveCents);
   }
 
   const promotionDerivedLine = derivedPriceLine(parsePriceToCents(promotionForm.price));
@@ -511,74 +510,49 @@ export function TicketTypesSection({
       </CardHeader>
       <CardContent>
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading ticket types...</p>
-        ) : ticketTypes.length === 0 ? (
-          <p className={`text-sm ${missingWarning ? "text-destructive" : "text-muted-foreground"}`} role={missingWarning ? "alert" : undefined}>
-            No ticket types yet. Add at least one before publishing this Event.
-          </p>
-        ) : (
           <div className="space-y-3">
-            {ticketTypes.map((ticketType, index) => (
-              <div
-                key={ticketType.id}
-                className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium">{ticketType.name}</p>
-                  {ticketType.description ? (
-                    <p className="text-sm text-muted-foreground">{ticketType.description}</p>
-                  ) : null}
-                  <p className="text-sm text-muted-foreground">
-                    {formatPriceCents(ticketType.price_cents, ticketType.currency)} · Capacity{" "}
-                    {ticketType.capacity} · Sold {ticketType.sold_count}
-                  </p>
-                  {promotionSummary(ticketType)}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={index === 0}
-                    onClick={() => void moveTicketType(ticketType, "up")}
-                  >
-                    Move up
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={index === ticketTypes.length - 1}
-                    onClick={() => void moveTicketType(ticketType, "down")}
-                  >
-                    Move down
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(ticketType)}>
-                    Edit
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openPromotionDialog(ticketType)}
-                  >
-                    {ticketType.promotion === null ? "Add promotion" : "Edit promotion"}
-                  </Button>
-                  {canDelete ? (
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => setDeleteTarget(ticketType)}
-                    >
-                      Delete
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+            {[0, 1, 2].map((row) => (
+              <Skeleton key={row} className="h-32 w-full rounded-md" />
             ))}
           </div>
+        ) : ticketTypes.length === 0 ? (
+          <div
+            className={`rounded-md border border-dashed p-8 text-center ${missingWarning ? "border-destructive" : ""}`}
+            role={missingWarning ? "alert" : undefined}
+          >
+            <p className={`text-sm ${missingWarning ? "text-destructive" : "text-muted-foreground"}`}>
+              No ticket types yet. Add at least one before publishing this Event.
+            </p>
+            <Button type="button" className="mt-4" onClick={openAddDialog}>
+              Add ticket type
+            </Button>
+          </div>
+        ) : (
+          <ul className="space-y-3">
+            {ticketTypes.map((ticketType, index) => (
+              <TicketTypeCard
+                key={ticketType.id}
+                ticketType={ticketType}
+                eventStatus={eventStatus}
+                timezone={timezone}
+                buyerPriceLine={cardPriceLine(ticketType)}
+                isFirst={index === 0}
+                isLast={index === ticketTypes.length - 1}
+                canDelete={canDelete}
+                onMoveUp={() => void moveTicketType(ticketType, "up")}
+                onMoveDown={() => void moveTicketType(ticketType, "down")}
+                onEdit={() => openEditDialog(ticketType)}
+                onPromotion={() => openPromotionDialog(ticketType)}
+                onDelete={() => setDeleteTarget(ticketType)}
+              />
+            ))}
+          </ul>
         )}
+        {/* A reorder swaps two rows and refetches; without this the change is
+            silent to assistive tech. */}
+        <p aria-live="polite" className="sr-only">
+          {reorderAnnouncement}
+        </p>
       </CardContent>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -587,7 +561,7 @@ export function TicketTypesSection({
             <DialogTitle>Add ticket type</DialogTitle>
             <DialogDescription>Create a purchasable ticket category for this Event.</DialogDescription>
           </DialogHeader>
-          {ticketTypeForm("add", handleCreate)}
+          {ticketTypeForm("add", handleCreate, () => setAddOpen(false))}
         </DialogContent>
       </Dialog>
 
@@ -597,7 +571,7 @@ export function TicketTypesSection({
             <DialogTitle>Edit ticket type</DialogTitle>
             <DialogDescription>Update name, price, and capacity for this ticket category.</DialogDescription>
           </DialogHeader>
-          {ticketTypeForm("edit", handleUpdate)}
+          {ticketTypeForm("edit", handleUpdate, () => setEditTarget(null))}
         </DialogContent>
       </Dialog>
 
@@ -634,7 +608,7 @@ export function TicketTypesSection({
                 required
               />
             </FormField>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 id="promotion-starts-at"
                 label={`Starts at (${timezone})`}
@@ -652,7 +626,11 @@ export function TicketTypesSection({
                   }
                 />
               </FormField>
-              <FormField id="promotion-ends-at" label={`Ends at (${timezone})`}>
+              <FormField
+                id="promotion-ends-at"
+                label={`Ends at (${timezone})`}
+                description="Required. The list price applies again from this moment."
+              >
                 <Input
                   id="promotion-ends-at"
                   type="datetime-local"
@@ -677,21 +655,33 @@ export function TicketTypesSection({
                 {promotionError}
               </p>
             ) : null}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={savingPromotion}>
-                {savingPromotion ? "Saving..." : "Save promotion"}
-              </Button>
+            {/* Removing a Promotion sits at the far edge, away from Save: the
+                two are opposite intents and a mis-click on the wrong one costs
+                the organizer the whole window they just typed. */}
+            <DialogFooter className="gap-2 sm:justify-between">
               {promotionTarget?.promotion ? (
                 <Button
                   type="button"
-                  variant="destructive"
+                  variant="ghost"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive sm:mr-auto"
                   disabled={savingPromotion}
                   onClick={() => void handleRemovePromotion()}
                 >
                   Remove promotion
                 </Button>
               ) : null}
-            </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={savingPromotion}
+                onClick={() => setPromotionTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingPromotion} aria-busy={savingPromotion}>
+                {savingPromotion ? "Saving..." : "Save promotion"}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
