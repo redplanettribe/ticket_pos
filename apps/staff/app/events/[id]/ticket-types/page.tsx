@@ -11,11 +11,13 @@ type TicketTypesPageProps = {
   params: Promise<{ id: string }>;
 };
 
-// What the ticket type form needs from the Event: its lifecycle status, and the
-// Fee Handling plus fee schedule behind the derived "Buyers will pay" line.
+// What the ticket type form needs from the Event: its lifecycle status, the
+// Fee Handling plus fee schedule behind the derived "Buyers will pay" line, and
+// the timezone Promotion windows are typed and read in (ADR 0021).
 type EventSummary = {
   id: string;
   status: string;
+  timezone: string | null;
   fee_handling: FeeHandling;
   fee_basis_points: number;
   fee_iva_basis_points: number;
@@ -50,6 +52,7 @@ export default async function TicketTypesPage({ params }: TicketTypesPageProps) 
     <TicketTypesSection
       eventId={id}
       eventStatus={event.status}
+      eventTimezone={event.timezone}
       feeHandling={event.fee_handling}
       feeRates={{
         fee_basis_points: event.fee_basis_points,

@@ -63,6 +63,51 @@ func ErrTicketTypeDeleteForbidden() apperror.DomainError {
 	return apperror.New("TICKET_TYPE_DELETE_FORBIDDEN", "Ticket types can only be deleted while the event is a draft.", nil)
 }
 
+// ErrPromotionNotFound is returned when a Ticket Type has no Promotion to update or remove.
+func ErrPromotionNotFound() apperror.DomainError {
+	return apperror.New("PROMOTION_NOT_FOUND", "This ticket type has no promotion.", nil)
+}
+
+// ErrPromotionAlreadyExists is returned when a Promotion is set on a Ticket Type
+// that already has one: there is one slot per Ticket Type (ADR 0021), so the
+// existing Promotion is edited or removed rather than joined by a second.
+func ErrPromotionAlreadyExists() apperror.DomainError {
+	return apperror.New(
+		"PROMOTION_ALREADY_EXISTS",
+		"This ticket type already has a promotion. Edit or remove it first.",
+		nil,
+	)
+}
+
+// ErrPromotionalPriceNotBelowListPrice is returned when a Promotional Price is
+// not strictly below the Ticket Type's List Price. Zero is allowed; equal is not
+// — a Promotion that changes nothing is a Promotion in name only.
+func ErrPromotionalPriceNotBelowListPrice(promotionalPriceCents, listPriceCents int) apperror.DomainError {
+	return apperror.New(
+		"PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE",
+		"The promotional price must be lower than the ticket type's price.",
+		map[string]any{
+			"promotional_price_cents": promotionalPriceCents,
+			"list_price_cents":        listPriceCents,
+		},
+	)
+}
+
+// ErrListPriceNotAbovePromotionalPrice is returned when a List Price edit would
+// leave an existing Promotion at or above it. The same invariant as
+// ErrPromotionalPriceNotBelowListPrice seen from the other write, and a distinct
+// code because the fix is a different one: adjust or remove the Promotion.
+func ErrListPriceNotAbovePromotionalPrice(listPriceCents, promotionalPriceCents int) apperror.DomainError {
+	return apperror.New(
+		"LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE",
+		"This price is not above the ticket type's promotional price. Adjust or remove the promotion first.",
+		map[string]any{
+			"list_price_cents":        listPriceCents,
+			"promotional_price_cents": promotionalPriceCents,
+		},
+	)
+}
+
 // ErrCurrencyLocked is returned when Organization currency change is attempted after Ticket Types exist.
 func ErrCurrencyLocked() apperror.DomainError {
 	return apperror.New("CURRENCY_LOCKED", "Currency cannot be changed after ticket types have been created.", nil)

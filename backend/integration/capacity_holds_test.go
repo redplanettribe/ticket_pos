@@ -31,9 +31,11 @@ func afterHoldWindow() time.Time {
 }
 
 type publicTicketTypeView struct {
-	Name      string `json:"name"`
-	Remaining int    `json:"remaining"`
-	SoldOut   bool   `json:"sold_out"`
+	Name       string               `json:"name"`
+	PriceCents int                  `json:"price_cents"`
+	Remaining  int                  `json:"remaining"`
+	SoldOut    bool                 `json:"sold_out"`
+	Promotion  *publicPromotionView `json:"promotion"`
 }
 
 // publicTicketTypes reads the Storefront event page and returns its Ticket

@@ -38,6 +38,11 @@ type TicketTypeDetail struct {
 	SortOrder   int       `json:"sort_order"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Promotion is the Ticket Type's one Promotion slot, or null when it is
+	// empty. It travels with the Ticket Type so the editor can render the
+	// Promotion's state without a second request; PriceCents above stays the
+	// List Price whether or not a Promotion is live (ADR 0021).
+	Promotion *PromotionView `json:"promotion"`
 }
 
 // EventDetail is the full Event record for detail views.
@@ -482,9 +487,18 @@ func (s *Service) ListTicketTypes(ctx context.Context, actor ActorContext, event
 		return nil, err
 	}
 
+	promotions, err := s.repo.ListPromotionsByEventID(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]TicketTypeDetail, 0, len(types))
 	for _, tt := range types {
-		items = append(items, toTicketTypeDetail(&tt, currency))
+		var promotion *repository.TicketTypePromotion
+		if p, ok := promotions[tt.ID]; ok {
+			promotion = &p
+		}
+		items = append(items, toTicketTypeDetail(&tt, currency, promotion))
 	}
 	return items, nil
 }
@@ -520,7 +534,8 @@ func (s *Service) CreateTicketType(ctx context.Context, actor ActorContext, even
 		return nil, err
 	}
 
-	detail := toTicketTypeDetail(created, currency)
+	// A brand new Ticket Type has an empty Promotion slot.
+	detail := toTicketTypeDetail(created, currency, nil)
 	return &detail, nil
 }
 
@@ -547,6 +562,17 @@ func (s *Service) UpdateTicketType(ctx context.Context, actor ActorContext, even
 		return nil, err
 	}
 
+	// The List Price side of the Promotion invariant: an edit that would leave
+	// the Promotional Price at or above the List Price is refused, and staff
+	// adjust or remove the Promotion first (ADR 0021).
+	promotion, err := s.repo.GetPromotionByTicketTypeID(ctx, ticketTypeID)
+	if err != nil {
+		return nil, err
+	}
+	if promotion != nil && input.PriceCents <= promotion.PromotionalPriceCents {
+		return nil, catalog.ErrListPriceNotAbovePromotionalPrice(input.PriceCents, promotion.PromotionalPriceCents)
+	}
+
 	updated, err := s.repo.UpdateTicketType(ctx, actor.OrganizationID, eventID, ticketTypeID, repository.UpdateTicketTypeParams{
 		Name:        strings.TrimSpace(input.Name),
 		Description: nullStringFromPtr(input.Description),
@@ -561,7 +587,7 @@ func (s *Service) UpdateTicketType(ctx context.Context, actor ActorContext, even
 		return nil, catalog.ErrTicketTypeNotFound()
 	}
 
-	detail := toTicketTypeDetail(updated, currency)
+	detail := toTicketTypeDetail(updated, currency, promotion)
 	return &detail, nil
 }
 
@@ -595,8 +621,9 @@ func (s *Service) DeleteTicketType(ctx context.Context, actor ActorContext, even
 	return nil
 }
 
-func toTicketTypeDetail(tt *repository.TicketType, currency string) TicketTypeDetail {
+func toTicketTypeDetail(tt *repository.TicketType, currency string, promotion *repository.TicketTypePromotion) TicketTypeDetail {
 	detail := TicketTypeDetail{
+		Promotion:  toPromotionView(promotion),
 		ID:         tt.ID,
 		EventID:    tt.EventID,
 		Name:       tt.Name,

@@ -735,7 +735,7 @@ func (s *Service) loadImportContext(ctx context.Context, orgID, eventID string) 
 		return nil, nil, nil, sales.ErrEventNotFound()
 	}
 
-	rows, err := s.repo.ListTicketTypesForImport(ctx, orgID, eventID)
+	rows, err := s.repo.ListEventTicketTypes(ctx, orgID, eventID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
