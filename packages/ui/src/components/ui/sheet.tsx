@@ -31,20 +31,17 @@ const sheetVariants = cva("fixed inset-y-0 z-50 flex h-full w-3/4 max-w-sm flex-
 });
 
 type SheetContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> &
-  VariantProps<typeof sheetVariants> & {
-    /** Screen-reader name for the close affordance. Defaults to the English "Close". */
-    closeLabel?: string;
-  };
+  VariantProps<typeof sheetVariants>;
 
 const SheetContent = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Content>, SheetContentProps>(
-  ({ side, className, children, closeLabel = "Close", ...props }, ref) => (
+  ({ side, className, children, ...props }, ref) => (
     <SheetPortal>
       <SheetOverlay />
       <DialogPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
         <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
           <X className="size-4" />
-          <span className="sr-only">{closeLabel}</span>
+          <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </SheetPortal>

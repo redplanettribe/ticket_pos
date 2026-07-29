@@ -366,6 +366,30 @@ export async function listPublicEvents(
   return fetchData<PublicEventPage>(`/api/v1/public/events${suffix}`, cache);
 }
 
+/** How long the sitemap's Event walk may be reused; see listSitemapEvents. */
+export const SITEMAP_READ_REVALIDATE_SECONDS = 3600;
+
+/**
+ * One page of the sitemap's Event walk — the single read in this app that opts
+ * into the Data Cache (see ReadCache above).
+ *
+ * The opt-in lives here rather than at the call site in app/sitemap.ts because
+ * dropping it there would cost nothing visible: the sitemap would still be
+ * correct, still be served, and quietly walk the whole catalog again on every
+ * crawler hit. A `{ revalidate }` written inside a function is one a unit test
+ * can assert (lib/api.test.ts); one written at a call site inside a route is
+ * one that has to be trusted.
+ *
+ * The page size stays with the walk that chose it (SITEMAP_PAGE_SIZE) and is
+ * passed in, so this function owns the caching decision and nothing else.
+ */
+export async function listSitemapEvents(
+  cursor: string | undefined,
+  limit: number,
+): Promise<PublicEventPage | null> {
+  return listPublicEvents({ cursor, limit }, { revalidate: SITEMAP_READ_REVALIDATE_SECONDS });
+}
+
 // listPublicTags returns the preset filter chips for the explorer. The backend
 // derives this from the full discoverable-upcoming pool, so the bar is stable
 // regardless of the active q/date/tag selection.

@@ -98,7 +98,16 @@ export async function GET(request: Request) {
  *
  * The path is written locale-free at every call site and gains the prefix here,
  * so this handler reads the same as the pages do.
+ *
+ * Vary names both inputs redirectLocale read — the switcher's cookie and the
+ * browser's languages — exactly as middleware.ts does for the same chain. This
+ * address is a constant sitting in every Confirmation Link ever sent, so a cache
+ * keyed on the URL alone would answer one Customer's link with the language, and
+ * the session cookie, of whoever opened one before them.
  */
 function localizedRedirect(locale: AppLocale, path: string): NextResponse {
-  return new NextResponse(null, { status: 303, headers: { Location: localizedPath(locale, path) } });
+  return new NextResponse(null, {
+    status: 303,
+    headers: { Location: localizedPath(locale, path), Vary: "Accept-Language, Cookie" },
+  });
 }

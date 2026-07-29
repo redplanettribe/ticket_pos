@@ -26,14 +26,6 @@ type SidebarShellProps = {
   activePath?: string;
   userMenu?: ReactNode;
   children: ReactNode;
-  /**
-   * Copy overrides. Defaults are the English strings, so a caller that passes
-   * none renders today's markup byte for byte.
-   */
-  skipToContentLabel?: string;
-  primaryNavLabel?: string;
-  navigationMenuTitle?: string;
-  openNavigationMenuLabel?: string;
 };
 
 type SidebarContentProps = {
@@ -43,23 +35,14 @@ type SidebarContentProps = {
   activePath?: string;
   userMenu?: ReactNode;
   onNavigate?: () => void;
-  primaryNavLabel: string;
 };
 
-function SidebarContent({
-  header,
-  brand,
-  navItems,
-  activePath,
-  userMenu,
-  onNavigate,
-  primaryNavLabel,
-}: SidebarContentProps) {
+function SidebarContent({ header, brand, navItems, activePath, userMenu, onNavigate }: SidebarContentProps) {
   return (
     <>
       {brand ? <div className="flex items-center border-b px-4 py-4">{brand}</div> : null}
       {typeof header === "function" ? header({ onNavigate }) : header}
-      <nav className="flex flex-1 flex-col gap-1 p-3" aria-label={primaryNavLabel}>
+      <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary">
         {navItems.map((item) => (
           <a
             key={item.href}
@@ -88,10 +71,6 @@ export function SidebarShell({
   activePath,
   userMenu,
   children,
-  skipToContentLabel = "Skip to main content",
-  primaryNavLabel = "Primary",
-  navigationMenuTitle = "Navigation menu",
-  openNavigationMenuLabel = "Open navigation menu",
 }: SidebarShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -101,7 +80,7 @@ export function SidebarShell({
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:shadow"
       >
-        {skipToContentLabel}
+        Skip to main content
       </a>
       <aside className="hidden w-60 shrink-0 border-r bg-card md:flex md:flex-col">
         <SidebarContent
@@ -110,19 +89,17 @@ export function SidebarShell({
           navItems={navItems}
           activePath={activePath}
           userMenu={userMenu}
-          primaryNavLabel={primaryNavLabel}
         />
       </aside>
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent side="left" className="w-60 p-0">
-          <SheetTitle className="sr-only">{navigationMenuTitle}</SheetTitle>
+          <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <SidebarContent
             header={header}
             brand={brand}
             navItems={navItems}
             activePath={activePath}
             userMenu={userMenu}
-            primaryNavLabel={primaryNavLabel}
             onNavigate={() => setMobileNavOpen(false)}
           />
         </SheetContent>
@@ -132,7 +109,7 @@ export function SidebarShell({
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            aria-label={openNavigationMenuLabel}
+            aria-label="Open navigation menu"
             className="flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Menu className="size-5" />

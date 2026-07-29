@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-import { listPublicEvents } from "@/lib/api";
+import { listSitemapEvents } from "@/lib/api";
 import { storefrontBaseUrl } from "@/lib/site";
 import {
   SITEMAP_PAGE_SIZE,
@@ -27,17 +27,15 @@ import {
  * The hourly reuse lives on the fetch instead of on the route, where it was
  * already doing the real work: `export const revalidate` alone was never what
  * made the walk cheap, because an uncached fetch inside the render pins the
- * route to request time anyway. The `{ revalidate }` below is what a second
- * crawler hit actually reads (lib/api.ts, ReadCache), and an explicit
- * `next.revalidate` on a fetch outranks the no-store default `force-dynamic`
- * would otherwise impose — so the 100-page walk still happens at most once an
- * hour, while the document that walk produces is built against the origin this
- * process is really running under.
+ * route to request time anyway. listSitemapEvents is what a second crawler hit
+ * actually reads (lib/api.ts, ReadCache), and the explicit `next.revalidate` it
+ * carries outranks the no-store default `force-dynamic` would otherwise impose
+ * — so the 100-page walk still happens at most once an hour, while the document
+ * that walk produces is built against the origin this process is really running
+ * under. That opt-in sits in lib/api.ts, and is asserted there, because losing
+ * it is invisible from the output.
  */
 export const dynamic = "force-dynamic";
-
-/** How long the Event walk may be reused; see the note above. */
-const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = storefrontBaseUrl();
@@ -50,10 +48,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   const walk = await collectSitemapEvents(async (cursor) => {
-    const page = await listPublicEvents(
-      { cursor, limit: SITEMAP_PAGE_SIZE },
-      { revalidate },
-    );
+    const page = await listSitemapEvents(cursor, SITEMAP_PAGE_SIZE);
     if (!page) return null;
     return {
       // Organization URLs are derived from this: nothing lists Organizations,

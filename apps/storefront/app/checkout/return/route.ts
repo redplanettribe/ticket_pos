@@ -62,7 +62,23 @@ export async function GET(request: Request) {
   }
 }
 
-/** Relative Location, resolved by the browser against the URL it asked for (see tickets/confirm). */
+/**
+ * Relative Location, resolved by the browser against the URL it asked for (see tickets/confirm).
+ *
+ * Vary names both inputs the language above was chosen from, for the reason
+ * middleware.ts sets the same header: a cache keyed on this URL alone would hand
+ * the next buyer the previous buyer's language, and here that happens on the leg
+ * that lands after a real payment.
+ *
+ * Both are named even though the checkout context cookie usually decides alone.
+ * The tempting narrower answer — Cookie, since the buyer's own language came
+ * back with them — is correct only while that cookie survives; when it is gone,
+ * damaged, or older than the field, Accept-Language picks the page, and a Vary
+ * that omits it is wrong in exactly the case the fallback exists for.
+ */
 function localizedRedirect(locale: AppLocale, path: string): NextResponse {
-  return new NextResponse(null, { status: 303, headers: { Location: localizedPath(locale, path) } });
+  return new NextResponse(null, {
+    status: 303,
+    headers: { Location: localizedPath(locale, path), Vary: "Accept-Language, Cookie" },
+  });
 }

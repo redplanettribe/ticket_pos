@@ -29,7 +29,7 @@
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically.
 import type { FieldErrorCode } from "./api-errors.ts";
-import { DEFAULT_LOCALE, type Locale } from "./format.ts";
+import { DEFAULT_LOCALE, type IntlLocale } from "./format.ts";
 
 /**
  * A row of the country selector as it is rendered: the region it stands for, the
@@ -309,9 +309,9 @@ const DIALLING_CODES: readonly { regionCode: string; diallingCode: string }[] = 
  * expensive part — it loads a locale's whole region table — and both pickers
  * rebuild their list on every keystroke that re-renders the form.
  */
-const DISPLAY_NAMES = new Map<Locale, Intl.DisplayNames>();
+const DISPLAY_NAMES = new Map<IntlLocale, Intl.DisplayNames>();
 
-function displayNames(locale: Locale): Intl.DisplayNames {
+function displayNames(locale: IntlLocale): Intl.DisplayNames {
   let names = DISPLAY_NAMES.get(locale);
   if (!names) {
     // "none" rather than the default "code": a missing name must come back as
@@ -323,7 +323,7 @@ function displayNames(locale: Locale): Intl.DisplayNames {
   return names;
 }
 
-function lookupName(regionCode: string, locale: Locale): string | undefined {
+function lookupName(regionCode: string, locale: IntlLocale): string | undefined {
   try {
     // `of` throws on anything that is not a well-formed region subtag, which a
     // typo in the table above would be. A selector row is not worth a crashed
@@ -344,12 +344,12 @@ function lookupName(regionCode: string, locale: Locale): string | undefined {
  * can pick. The code is the last resort for a region CLDR has never heard of; no
  * row in the table above reaches it, and phone.test.ts holds that line.
  */
-export function countryName(regionCode: string, locale: Locale = DEFAULT_LOCALE): string {
+export function countryName(regionCode: string, locale: IntlLocale = DEFAULT_LOCALE): string {
   return lookupName(regionCode, locale) ?? lookupName(regionCode, DEFAULT_LOCALE) ?? regionCode;
 }
 
 /** Built lists, per Locale. Two hundred lookups and a collation sort. */
-const COUNTRY_LISTS = new Map<Locale, readonly Country[]>();
+const COUNTRY_LISTS = new Map<IntlLocale, readonly Country[]>();
 
 /**
  * The selector's rows, named and ordered for one Locale.
@@ -369,7 +369,7 @@ const COUNTRY_LISTS = new Map<Locale, readonly Country[]>();
  * sure the two agree, since a browser's CLDR and the server's are different
  * builds and can disagree on a name ("Turkey" became "Türkiye" in CLDR 42).
  */
-export function countries(locale: Locale = DEFAULT_LOCALE): readonly Country[] {
+export function countries(locale: IntlLocale = DEFAULT_LOCALE): readonly Country[] {
   const cached = COUNTRY_LISTS.get(locale);
   if (cached) return cached;
 

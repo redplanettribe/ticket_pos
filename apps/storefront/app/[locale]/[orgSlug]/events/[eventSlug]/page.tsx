@@ -9,11 +9,12 @@ import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
+import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
 import { localeAlternates } from "@/lib/alternates";
 import { getPublicEvent } from "@/lib/api";
 import { formatEventDateTime } from "@/lib/format";
-import { intlLocale, localizedPath, toAppLocale } from "@/lib/locale";
+import { localizedPath, toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -109,7 +110,7 @@ export default async function EventPage({ params }: EventPageProps) {
   }
 
   // The words are the visitor's language; the clock stays the Event's own.
-  const dateLabel = formatEventDateTime(event.starts_at, event.timezone, intlLocale(appLocale));
+  const dateLabel = formatEventDateTime(event.starts_at, event.timezone, await getFormatLocale());
   const t = await getTranslations("event");
   const shell = await getTranslations("shell");
   const explorer = await getTranslations("explorer");

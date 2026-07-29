@@ -1,13 +1,13 @@
 "use client";
 
 import { Alert, AlertDescription, Button, FormField, Input, toast } from "@ticket-pos/ui";
-import { useLocale, useMessages, useTranslations } from "next-intl";
+import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { CustomerAvatar } from "@/components/customer-avatar";
+import { useFormatLocale } from "@/i18n/format-locale";
 import { apiErrorMessage } from "@/lib/api-errors";
-import { intlLocale, toAppLocale } from "@/lib/locale";
 import { countries } from "@/lib/phone";
 import {
   profileDraftPhone,
@@ -103,7 +103,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
    * cannot tell them apart; the surface can (ADR 0022).
    */
   const errorCopy = useMessages().errors;
-  const locale = toAppLocale(useLocale());
+  const formatLocale = useFormatLocale();
   // The saved profile is held here as well as on the server so the panel shows
   // the new values the instant the API confirms them, without waiting for the
   // page to be re-rendered.
@@ -131,7 +131,7 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Two hundred region names and a collation sort, held across the keystrokes
   // that re-render the form around the selector.
-  const countryRows = useMemo(() => countries(intlLocale(locale)), [locale]);
+  const countryRows = useMemo(() => countries(formatLocale), [formatLocale]);
 
   /**
    * The photo flow is three hops the person sees as one: mint a presigned URL,

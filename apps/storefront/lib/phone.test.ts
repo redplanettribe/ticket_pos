@@ -11,9 +11,9 @@ import {
   splitPhone,
   validatePhone,
 } from "./phone.ts";
-import { type Locale } from "./format.ts";
+import { type IntlLocale } from "./format.ts";
 
-const LOCALES: Locale[] = ["en-US", "es-EC"];
+const LOCALES: IntlLocale[] = ["en-US", "es-EC"];
 
 // The mirror validator (#105). Its job is instant feedback, and its one hard
 // requirement is agreeing with backend/internal/platform/phone.go — a number

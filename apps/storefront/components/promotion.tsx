@@ -1,9 +1,9 @@
 import { Badge } from "@ticket-pos/ui";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
+import { useFormatLocale } from "@/i18n/format-locale";
 import type { PublicTicketType } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
-import { intlLocale, toAppLocale } from "@/lib/locale";
 import { formatPromotionDeadline, promotionSavingsPercent } from "@/lib/promotion";
 
 /**
@@ -48,7 +48,7 @@ export function PromotionDeadline({
   timezone: string | null;
 }) {
   const t = useTranslations("event");
-  const locale = intlLocale(toAppLocale(useLocale()));
+  const locale = useFormatLocale();
   const deadline = ticketType.promotion
     ? formatPromotionDeadline(ticketType.promotion, timezone, locale)
     : null;
@@ -76,7 +76,7 @@ export function PromotionDeadline({
  */
 export function TicketTypePrice({ ticketType }: { ticketType: PublicTicketType }) {
   const t = useTranslations("event");
-  const locale = intlLocale(toAppLocale(useLocale()));
+  const locale = useFormatLocale();
   const listPriceCents = ticketType.promotion?.list_price_cents ?? null;
   const listPrice =
     listPriceCents === null ? null : formatPrice(listPriceCents, ticketType.currency, locale);

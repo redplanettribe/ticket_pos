@@ -13,14 +13,24 @@
 // Event's own timezone for Event times, Ecuador for the Reversal Window (ADR
 // 0018) — and no locale may reach it.
 
-export type Locale = "en-US" | "es-EC";
+/**
+ * The Intl language-and-region tag a value is rendered under.
+ *
+ * Named for Intl and not for the domain, because the domain's Locale is the URL
+ * token in lib/locale.ts — "en", "es" — and there is only one of those. This is
+ * the other vocabulary: the tag `Intl.NumberFormat` and `Intl.DateTimeFormat`
+ * are handed, which carries a region because a decimal mark and a currency
+ * symbol's position are regional facts. lib/locale.ts owns the mapping between
+ * the two, and nothing else should be holding both at once.
+ */
+export type IntlLocale = "en-US" | "es-EC";
 
-export const DEFAULT_LOCALE: Locale = "en-US";
+export const DEFAULT_LOCALE: IntlLocale = "en-US";
 
 export function formatPrice(
   cents: number,
   currency: string,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): string {
   const hasFraction = cents % 100 !== 0;
   return new Intl.NumberFormat(locale, {
@@ -46,7 +56,7 @@ export type PriceFrom = { kind: "free" } | { kind: "from"; price: string };
 export function priceFrom(
   cents: number | null,
   currency: string,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): PriceFrom | null {
   if (cents === null) return null;
   if (cents === 0) return { kind: "free" };
@@ -61,7 +71,7 @@ function timeZoneOrUndefined(timezone: string | null): string | undefined {
 export function formatEventDateTime(
   startsAt: string | null,
   timezone: string | null,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): string | null {
   if (!startsAt) return null;
   const date = new Date(startsAt);
@@ -107,7 +117,7 @@ export const ECUADOR_TIME_ZONE = "America/Guayaquil";
  */
 export function formatReversalDeadline(
   closesAt: string,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): string | null {
   return formatEventDateShort(closesAt, ECUADOR_TIME_ZONE, locale);
 }
@@ -160,7 +170,7 @@ const SHORT_DATE_SLOTS: Partial<Record<Intl.DateTimeFormatPartTypes, "weekday" |
 export function formatEventDateShort(
   startsAt: string | null,
   timezone: string | null,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): string | null {
   if (!startsAt) return null;
   const date = new Date(startsAt);

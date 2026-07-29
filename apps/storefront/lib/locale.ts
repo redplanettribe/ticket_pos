@@ -22,7 +22,7 @@
 // The ".ts" is written out because the unit tests run this module directly
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically.
-import { type Locale as IntlLocale } from "./format.ts";
+import { type IntlLocale } from "./format.ts";
 
 /**
  * The languages the Storefront speaks, as they appear in a URL.

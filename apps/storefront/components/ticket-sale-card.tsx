@@ -1,14 +1,14 @@
-import { getLocale, getTranslations } from "next-intl/server";
+import { getTranslations } from "next-intl/server";
 
 import { Badge } from "@ticket-pos/ui";
 
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
+import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
 import type { TicketSale } from "@/lib/customer-session";
 import { ticketSaleAnchorId } from "@/lib/destination";
 import { formatEventDateTime, formatPrice } from "@/lib/format";
-import { intlLocale, toAppLocale } from "@/lib/locale";
 import { formatTaxId } from "@/lib/tax-id";
 import { undoDeadline } from "@/lib/undo-window";
 
@@ -46,7 +46,7 @@ export async function TicketSaleCard({
   // where they are written rather than restated here: a purchase and the Event
   // it is for must not credit the same Organization two different ways.
   const eventCopy = await getTranslations("event");
-  const formatLocale = intlLocale(toAppLocale(await getLocale()));
+  const formatLocale = await getFormatLocale();
   // The words of a date are the Customer's language; the clock behind them
   // stays the Event's own timezone, which is a fact about the Event.
   const dateLabel = formatEventDateTime(sale.event.starts_at, sale.event.timezone, formatLocale);

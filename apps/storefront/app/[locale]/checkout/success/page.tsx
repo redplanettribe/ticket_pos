@@ -7,11 +7,11 @@ import { Button, Card, CardContent } from "@ticket-pos/ui";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
+import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
 import { getCheckoutReversal } from "@/lib/api";
 import { readCheckoutContext } from "@/lib/checkout-context";
 import { getCustomerSession } from "@/lib/customer-session";
-import { intlLocale, toAppLocale } from "@/lib/locale";
 import { undoDeadline } from "@/lib/undo-window";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +80,7 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
   const reversal = context ? await getCheckoutReversal(context.clientTransactionId) : null;
   // The words of the deadline are the buyer's language; the clock behind it
   // stays Ecuador's, which is the rule's own (ADR 0018).
-  const reversalDeadline = undoDeadline(reversal, intlLocale(toAppLocale(locale)));
+  const reversalDeadline = undoDeadline(reversal, await getFormatLocale());
   const t = await getTranslations("checkout.success");
 
   return (

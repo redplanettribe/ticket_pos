@@ -21,6 +21,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
+import { useFormatLocale } from "@/i18n/format-locale";
 import type { BeginCheckoutResult, PublicTicketType } from "@/lib/api";
 import {
   apiErrorMessage,
@@ -36,7 +37,7 @@ import {
   totalQuantity,
 } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
-import { intlLocale, localizedPath, toAppLocale } from "@/lib/locale";
+import { localizedPath, toAppLocale } from "@/lib/locale";
 import {
   ECUADOR_DIALLING_CODE,
   composePhone,
@@ -214,7 +215,7 @@ export function TicketSelection({
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
   const currency = ticketTypes[0]?.currency ?? "USD";
-  const formatLocale = intlLocale(locale);
+  const formatLocale = useFormatLocale();
   // Two hundred region names and a collation sort, held across the keystrokes
   // that re-render the form around the selector.
   const countryRows = useMemo(() => countries(formatLocale), [formatLocale]);

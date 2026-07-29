@@ -1,10 +1,10 @@
 import { Badge, Card, CardContent } from "@ticket-pos/ui";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
+import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
 import { formatEventDateShort, priceFrom } from "@/lib/format";
-import { intlLocale, toAppLocale } from "@/lib/locale";
 
 type EventCardProps = {
   event: PublicEventCard;
@@ -16,7 +16,7 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
   // and says them identically on the explorer and on an Organization's page, so
   // it reads the Event's namespace rather than either surface's.
   const t = useTranslations("event");
-  const locale = intlLocale(toAppLocale(useLocale()));
+  const locale = useFormatLocale();
   const href = `/${event.organization.slug}/events/${event.slug}`;
   const dateLabel = formatEventDateShort(event.starts_at, event.timezone, locale);
   const price = priceFrom(event.price_from_cents, event.currency, locale);

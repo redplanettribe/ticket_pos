@@ -4,9 +4,9 @@ import { notFound } from "next/navigation";
 
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, buttonVariants, cn } from "@ticket-pos/ui";
 
+import { getFormatLocale } from "@/i18n/format-locale.server";
 import { parseStubPaymentRequest, stubOutcomeURL } from "@/lib/checkout";
 import { formatPrice } from "@/lib/format";
-import { intlLocale, toAppLocale } from "@/lib/locale";
 import { stubPaymentsActive } from "@/lib/stub-payments";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +59,7 @@ export default async function StubPaymentPage({ params, searchParams }: StubPage
   }
 
   const t = await getTranslations("checkout.stub");
+  const formatLocale = await getFormatLocale();
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
@@ -74,7 +75,7 @@ export default async function StubPaymentPage({ params, searchParams }: StubPage
           <div>
             <p className="text-sm text-muted-foreground">{t("amountLabel")}</p>
             <p className="text-3xl font-semibold" data-testid="stub-amount">
-              {formatPrice(request.amountCents, request.currency, intlLocale(toAppLocale(locale)))}
+              {formatPrice(request.amountCents, request.currency, formatLocale)}
             </p>
           </div>
           <div className="space-y-2">

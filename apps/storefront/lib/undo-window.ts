@@ -18,7 +18,7 @@
  */
 
 import { customerAreaSaleHref } from "./destination.ts";
-import { DEFAULT_LOCALE, formatReversalDeadline, type Locale } from "./format.ts";
+import { DEFAULT_LOCALE, formatReversalDeadline, type IntlLocale } from "./format.ts";
 
 /**
  * What the API says about undoing one Ticket Sale. The Customer Area's cards and
@@ -61,7 +61,7 @@ export type ReversalOffer = {
  */
 export function undoDeadline(
   offer: ReversalOffer | null | undefined,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: IntlLocale = DEFAULT_LOCALE,
 ): string | null {
   if (!offer?.reversible || !offer.reversible_until) {
     return null;
