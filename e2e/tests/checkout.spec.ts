@@ -85,6 +85,19 @@ test("a Customer buys a ticket through the stub provider and lands on the confir
     "href",
     EVENT_PATH,
   );
+
+  // Signing in from here must not cost the buyer their confirmation. The
+  // reference lives in this URL and in no cookie, session or API the Storefront
+  // could ask, so a `next` built from the path alone sent them back to a
+  // confirmation with nothing to confirm — a 404 until the page learned to go
+  // home instead. Asserted on the link rather than by signing in, because the
+  // passcode needs a mailbox this suite does not have.
+  const signIn = page.getByRole("link", { name: "Sign in" });
+  const next = new URL(
+    (await signIn.getAttribute("href")) ?? "",
+    "http://localhost",
+  ).searchParams.get("next");
+  expect(next).toBe(`/checkout/success?ref=${ref}`);
 });
 
 test("a declined payment lands on the failure page and retry returns to the Event", async ({

@@ -1,56 +1,20 @@
 /**
- * The two facts the language switcher needs, as pure functions over strings.
+ * What a deliberate choice of language is written down as.
  *
  * The switcher itself is a client component — it has to be, because only the
  * browser's router knows which page it is on — and a client component is the
- * one place in this app a unit test cannot reach. So the parts that can be
- * wrong live here instead: where the other language's copy of THIS page is, and
- * what a deliberate choice of language is written down as.
+ * one place in this app a unit test cannot reach. So the part that can be wrong
+ * lives here instead.
  *
- * Neither function touches `document`, a request, or a locale prefix. The
- * prefix is added afterwards by next-intl's `Link` (i18n/navigation.ts), which
- * is the same code path every other internal link goes through, so the switcher
- * cannot drift from the rest of the Storefront's linking.
+ * Where the switcher POINTS is decided by lib/current-path.ts, which the
+ * header's sign-in link needs on the same terms; this module keeps only the
+ * half that is about language.
  */
 
 // The ".ts" is written out because the unit tests run this module directly
 // under `node --experimental-strip-types`, which resolves specifiers exactly.
 // Next resolves it identically.
 import { LOCALE_COOKIE, type AppLocale } from "./locale.ts";
-
-/**
- * The address the visitor is at, language stripped off, query kept.
- *
- * Both halves matter. `pathname` arrives from next-intl's `usePathname`, which
- * has already removed the locale token, and it is handed straight back to
- * next-intl's `Link` with a different one — so switching language on
- * /es/acme/events/gala lands on the same Event in English rather than at the
- * explorer, which is where "switch language" that forgets the path always ends
- * up.
- *
- * The query is carried because on this Storefront it IS the page: the explorer's
- * filters live in it, and a visitor who searched, filtered, then asked for
- * English would otherwise get an unfiltered explorer and have to start again.
- *
- * The fragment is not carried, because it cannot be: a fragment never leaves the
- * browser, so the server rendering this link has no way to know one exists and
- * writing it in on the client alone would make the markup differ between the two
- * renders.
- */
-export function pathWithQuery(pathname: string, search?: string | null): string {
-  // A path is normalized rather than trusted: `usePathname` returns "" before
-  // the router has a route on some renders, and a href that is not root-relative
-  // would be resolved against the current directory — silently producing
-  // /es/acme/en/acme.
-  const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
-  // `useSearchParams().toString()` returns a bare query with no "?", while
-  // `location.search` includes one. Accepting both means the caller never has to
-  // remember which it is holding.
-  const query = (search ?? "").replace(/^\?/, "");
-  // The lone slash is kept: "/" plus a query is "/?q=x", and next-intl's
-  // prefixer is what collapses that to "/es?q=x" (shared/utils prefixPathname).
-  return query ? `${path}?${query}` : path;
-}
 
 /**
  * How long a chosen language is remembered.
