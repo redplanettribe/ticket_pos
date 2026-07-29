@@ -106,3 +106,22 @@ test("a declined payment lands on the failure page and retry returns to the Even
   await expect(page.getByRole("heading", { level: 1, name: EVENT_NAME })).toBeVisible();
   await expect(page.getByRole("button", { name: "Get tickets" })).toBeDisabled();
 });
+
+test("the confirmation page without a reference sends the visitor home, not to a 404", async ({
+  page,
+}) => {
+  // The Sale Confirmation reference lives in this URL and nowhere else the page
+  // can reach, so an address arriving without one has nothing to show. It used
+  // to answer 404 — a dead end handed to somebody who has usually just paid.
+  //
+  // Asserted through the browser rather than the lib seam because there is no
+  // lib seam: the decision is three lines inside a Server Component, and what
+  // could break it is the wiring around it — a redirect helper that emits an
+  // unprefixed path, or a middleware matcher that never admits the address.
+  const response = await page.goto(`/${LOCALE}/checkout/success`);
+
+  // The final answer is the home page, in the Locale that was asked for: the
+  // redirect must not drop the language on the way.
+  expect(response?.status()).toBe(200);
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}$`));
+});
