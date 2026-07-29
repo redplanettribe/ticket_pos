@@ -4,7 +4,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 
 import { Link, usePathname } from "@/i18n/navigation";
-import { localeChoiceCookie, pathWithQuery } from "@/lib/language-switch";
+import { pathWithQuery } from "@/lib/current-path";
+import { localeChoiceCookie } from "@/lib/language-switch";
 import { LOCALES, toAppLocale, type AppLocale } from "@/lib/locale";
 
 /**

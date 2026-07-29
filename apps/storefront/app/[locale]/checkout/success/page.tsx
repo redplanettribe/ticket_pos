@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { notFound } from "next/navigation";
 
 import { Button, Card, CardContent } from "@ticket-pos/ui";
 
@@ -8,7 +7,7 @@ import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import { getFormatLocale } from "@/i18n/format-locale.server";
-import { Link } from "@/i18n/navigation";
+import { Link, redirect } from "@/i18n/navigation";
 import { getCheckoutReversal } from "@/lib/api";
 import { readCheckoutContext } from "@/lib/checkout-context";
 import { getCustomerSession } from "@/lib/customer-session";
@@ -47,8 +46,22 @@ export default async function CheckoutSuccessPage({ params, searchParams }: Succ
   setRequestLocale(locale);
   const { ref } = await searchParams;
   const reference = ref?.trim();
+  // No reference, no confirmation to show. The address is a stale bookmark, a
+  // link whose query a scanner stripped, or one typed by hand — in every case
+  // somebody arriving here has nothing to read, and the page has nothing to
+  // recover it from: the reference lives in this URL and nowhere else on the
+  // buyer's side.
+  //
+  // Home rather than a 404, which is the answer the leg before this one already
+  // gives the same situation: /checkout/return sends a caller with no client
+  // transaction id to "/" for exactly this reason. A hard 404 is defensible as
+  // an address that names nothing, but the person reading it is usually a buyer
+  // mid-purchase, and a dead end is the worst thing to hand them; the front door
+  // at least leads somewhere. Their tickets are safe either way — the sale was
+  // recorded before this page was ever reached, and the receipt carries the
+  // reference by email.
   if (!reference) {
-    notFound();
+    redirect({ href: "/", locale });
   }
 
   const [context, session] = await Promise.all([readCheckoutContext(), getCustomerSession()]);

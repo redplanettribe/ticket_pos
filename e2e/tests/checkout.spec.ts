@@ -85,6 +85,19 @@ test("a Customer buys a ticket through the stub provider and lands on the confir
     "href",
     EVENT_PATH,
   );
+
+  // Signing in from here must not cost the buyer their confirmation. The
+  // reference lives in this URL and in no cookie, session or API the Storefront
+  // could ask, so a `next` built from the path alone sent them back to a
+  // confirmation with nothing to confirm — a 404 until the page learned to go
+  // home instead. Asserted on the link rather than by signing in, because the
+  // passcode needs a mailbox this suite does not have.
+  const signIn = page.getByRole("link", { name: "Sign in" });
+  const next = new URL(
+    (await signIn.getAttribute("href")) ?? "",
+    "http://localhost",
+  ).searchParams.get("next");
+  expect(next).toBe(`/checkout/success?ref=${ref}`);
 });
 
 test("a declined payment lands on the failure page and retry returns to the Event", async ({
@@ -105,4 +118,23 @@ test("a declined payment lands on the failure page and retry returns to the Even
   await expect(page).toHaveURL(EVENT_PATH);
   await expect(page.getByRole("heading", { level: 1, name: EVENT_NAME })).toBeVisible();
   await expect(page.getByRole("button", { name: "Get tickets" })).toBeDisabled();
+});
+
+test("the confirmation page without a reference sends the visitor home, not to a 404", async ({
+  page,
+}) => {
+  // The Sale Confirmation reference lives in this URL and nowhere else the page
+  // can reach, so an address arriving without one has nothing to show. It used
+  // to answer 404 — a dead end handed to somebody who has usually just paid.
+  //
+  // Asserted through the browser rather than the lib seam because there is no
+  // lib seam: the decision is three lines inside a Server Component, and what
+  // could break it is the wiring around it — a redirect helper that emits an
+  // unprefixed path, or a middleware matcher that never admits the address.
+  const response = await page.goto(`/${LOCALE}/checkout/success`);
+
+  // The final answer is the home page, in the Locale that was asked for: the
+  // redirect must not drop the language on the way.
+  expect(response?.status()).toBe(200);
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}$`));
 });
