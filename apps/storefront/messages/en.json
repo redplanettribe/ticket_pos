@@ -177,6 +177,10 @@
     "undoKeep": "Keep my tickets",
     "undoing": "Undoing…",
     "undoneToast": "Your purchase is undone.",
+    "undoPendingToast": "We're processing your refund.",
+    "refundPendingBadge": "Refund in progress",
+    "refundPendingNote": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through — check back in a few minutes.",
+    "refundPendingNoteLink": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through.",
     "undoFailed": "This purchase could not be undone. Try again.",
     "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again."
   },

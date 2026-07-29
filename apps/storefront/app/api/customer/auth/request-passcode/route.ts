@@ -17,7 +17,7 @@ import { clientIpHeaders } from "@/lib/client-ip";
  * never exhaust the allowance (ADR 0008).
  *
  * The API answers identically whether or not the email is known, so this route
- * has nothing to hide and simply relays the envelope.
+ * has nothing to hide and relays the envelope's own three fields.
  */
 export async function POST(request: Request) {
   try {
@@ -30,7 +30,11 @@ export async function POST(request: Request) {
         headers: clientIpHeaders(request.headers),
       },
     );
-    return NextResponse.json(envelope);
+    return NextResponse.json({
+      data: envelope.data,
+      error: envelope.error,
+      request_id: envelope.request_id,
+    });
   } catch (error) {
     return apiErrorResponse(error);
   }

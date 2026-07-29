@@ -2112,11 +2112,16 @@
                     "confirmation_ref": {
                         "type": "string"
                     },
+                    "requested_at": {
+                        "description": "RequestedAt is when the Customer pressed Undo, RFC3339 in UTC. Present only\non \"pending\", and it is the instant of the ORIGINAL ask: a buyer who\npresses again while the platform is still finding out is told when their\none request was made, not when they pressed the second time.",
+                        "type": "string"
+                    },
                     "reversed_at": {
+                        "description": "ReversedAt is when the reversal committed, RFC3339 in UTC. Present only on\n\"reversed\".",
                         "type": "string"
                     },
                     "status": {
-                        "description": "Status is always \"reversed\"; a reversal that did not happen is an error,\nnever a result carrying some other word.",
+                        "description": "Status is \"reversed\" when the purchase is undone, and \"pending\" while a\nReversal Request is still in flight (ADR 0024).\n\n\"pending\" is NOT a softer failure. It says the platform is still finding\nout what the Payment Provider did, so the Ticket Sale is still active and\nthe buyer's tickets are still valid — a reversal that was definitely\nrefused is an error, never a result carrying a word.",
                         "type": "string"
                     },
                     "ticket_sale_id": {
@@ -2212,6 +2217,10 @@
                     },
                     "organization": {
                         "$ref": "#/components/schemas/internal_customers_service.OrganizationView"
+                    },
+                    "reversal_pending": {
+                        "description": "ReversalPending is true exactly while a reversal of this sale is in\nprogress: the Customer asked to undo it and the platform has not finished\n(ADR 0024). See repository.TicketSaleRow.ReversalPending for what counts.\n\nIt is not a status and must never be drawn as one. The sale's own Status is\nstill \"active\" and its tickets are still valid, because no money is known to\nhave moved — what this field says is that the platform is finding out, and\nthe honest thing to show is \"we're processing your refund\" beside tickets\nthat still work.\n\nIt sits beside Reversible rather than folding into it, because the two\nanswer different questions: whether this sale MAY be undone, and whether it\nalready HAS been asked about. Reversible stays the eligibility rule alone,\nshared verbatim with the guest surfaces and the endpoint, so that it keeps\nmeaning one thing. A surface withdraws its Undo action on either — pressing\nwhile a request is in flight makes nothing new happen — and that composing\nis the surface's job, not this rule's.",
+                        "type": "boolean"
                     },
                     "reversible": {
                         "description": "Reversible reports whether the Customer could undo this Ticket Sale right\nnow (ADR 0018) — and it is the exact question the reversal endpoint asks\nitself, so a true here is an offer the API will honour if taken promptly.\n\nIt is an answer about this instant and nothing more. It is not a promise:\nthe window is offered, not guaranteed, and a true read a minute ago may be\na refusal a minute from now.\n\nThree things must all hold. The sale is an active Online Sale — an\nIn-Person Sale or an imported one was never collected by the platform, so\nthe platform has nothing to give back, and a sale already reversed cannot\nbe reversed again. Its Reversal Window is open. And its Payment can in fact\nbe undone: a free claim always can, since there is nothing to return, while\na paid one can only when the Payment Provider that collected it supports\nreversal. That last clause is why a paid purchase inside its window can\nreport false — the alternative is an Undo button that fails when pressed.",
@@ -3213,7 +3222,7 @@
         },
         "/api/v1/customer/ticket-sales/{ticketSaleId}/reverse": {
             "post": {
-                "description": "Reverses one of the signed-in Customer's own Ticket Sales within its Reversal Window (ADR 0018). The Ticket Sale becomes reversed, every line's quantity returns to its Ticket Type's capacity, and the void notice is emailed to the Customer once the reversal has committed. The sale is not deleted: it keeps its Sale Confirmation reference and stays visible in the Customer Area with a reversed status. Authorization is the Customer Session and nothing else — a Customer may only reverse a Ticket Sale they own, and a Confirmation Link session is not a credential for this. The Reversal Window is enforced here on the server whatever the client believed. The Payment Provider is asked to reverse the payment BEFORE anything local is written, and only its agreement commits the reversal (ADR 0018); a free claim has no provider to ask. Refused, with nothing changed, when the sale is already reversed (SALE_ALREADY_REVERSED), is not an Online Sale or was settled by a Payment Provider this deployment cannot ask (SALE_NOT_REVERSIBLE), or its window has closed (REVERSAL_WINDOW_CLOSED). Refused with 502 SALE_REVERSAL_FAILED, again with nothing changed, when the provider was asked and would not reverse it: the response carries the Sale Confirmation reference and makes no claim about the cause, because the provider publishes no code meaning the deadline passed, and the provider's own error code goes to the log only. Pressing twice reverses once, whether the presses are sequential or simultaneous: attempts on one Ticket Sale are serialised for the whole attempt including the call to the Payment Provider, so the second is refused as already reversed (SALE_ALREADY_REVERSED), the provider is asked exactly once, and capacity is never restored twice.",
+                "description": "Reverses one of the signed-in Customer's own Ticket Sales within its Reversal Window (ADR 0018), or records the ask as a Reversal Request when the Payment Provider does not answer in time (ADR 0024). Authorization is the Customer Session and nothing else — a Customer may only reverse a Ticket Sale they own, and a Confirmation Link session is not a credential for this. The Reversal Window is enforced here on the server whatever the client believed, and it is evaluated once, when the Reversal Request is created; a request already made stays authorised however long the answer takes. **200 OK — undone.** The Ticket Sale becomes reversed with status `reversed` and `reversed_at`, every line's quantity returns to its Ticket Type's capacity, and the void notice is emailed to the Customer once the reversal has committed. The sale is not deleted: it keeps its Sale Confirmation reference and stays visible in the Customer Area with a reversed status. **202 Accepted — pending.** The Payment Provider gave no definite answer (a timeout, a 5xx, a body this integration cannot place), so the money may or may not have moved: the body carries status `pending` and `requested_at`, and a Reversal Request is in flight. Nothing about the money or the tickets has changed — the Ticket Sale stays active, its capacity stays held, and the tickets are still valid — and the platform asks the provider again, including whenever the Customer loads their Customer Area. A client must never render a 202 as a completed refund. Pressing Undo again while a request is in flight returns 202 with the original request's `requested_at`: no second Reversal Request, and no second call to the Payment Provider. Refused, with nothing changed, when the sale is already reversed (SALE_ALREADY_REVERSED), is not an Online Sale or was settled by a Payment Provider this deployment cannot ask (SALE_NOT_REVERSIBLE), or its window has closed (REVERSAL_WINDOW_CLOSED). Refused with 502 SALE_REVERSAL_FAILED, again with nothing changed, when the provider was asked and definitely declined: nothing happened, the response carries the Sale Confirmation reference and makes no claim about the cause, because the provider publishes no code meaning the deadline passed, and the provider's own error code goes to the log only. Two simultaneous presses reverse once: attempts on one Ticket Sale are serialised for the whole attempt including the call to the Payment Provider, so the second is refused as already reversed (SALE_ALREADY_REVERSED), the provider is asked exactly once, and capacity is never restored twice. A free Online Sale has no provider to ask, creates no Reversal Request, and is always answered synchronously.",
                 "parameters": [
                     {
                         "description": "Ticket Sale id",
@@ -3235,6 +3244,16 @@
                             }
                         },
                         "description": "OK"
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeSaleReversal"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
                     },
                     "400": {
                         "content": {
@@ -3687,6 +3706,16 @@
                             }
                         },
                         "description": "Conflict"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
                     }
                 },
                 "security": [

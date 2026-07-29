@@ -204,6 +204,24 @@ func ErrSaleReversalFailed(confirmationRef string) apperror.DomainError {
 	)
 }
 
+// ErrSaleReversalInProgress is returned to a Platform Operator whose Operator
+// Reversal contended with a reversal already in flight on the same Ticket Sale —
+// the buyer's own undo, or the Reversal Reconciler mid-probe (ADR 0024).
+//
+// It is deliberately not ErrSaleAlreadyReversed. The contending attempt may yet
+// be refused by the Payment Provider, in which case the sale is still active and
+// "already reversed" would have been false; and unlike a buyer, who has one
+// reversal happening and no second one to make, an operator is asserting a
+// refund that already happened off-platform and whose claim is just as true a
+// moment later. Retrying is the right advice and the only honest one.
+func ErrSaleReversalInProgress(confirmationRef string) apperror.DomainError {
+	return apperror.New(
+		"SALE_REVERSAL_IN_PROGRESS",
+		"A reversal of this sale is already being processed. Try again in a moment.",
+		map[string]any{"confirmation_ref": confirmationRef},
+	)
+}
+
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
 // parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
 // contents). The reason is a human-readable sentence produced by the importfile

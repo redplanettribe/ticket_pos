@@ -91,6 +91,24 @@ type TicketSaleView struct {
 	// nobody may reverse means nothing, and a client that cannot draw one cannot
 	// mislead somebody with it.
 	ReversibleUntil *string `json:"reversible_until"`
+	// ReversalPending is true exactly while a reversal of this sale is in
+	// progress: the Customer asked to undo it and the platform has not finished
+	// (ADR 0024). See repository.TicketSaleRow.ReversalPending for what counts.
+	//
+	// It is not a status and must never be drawn as one. The sale's own Status is
+	// still "active" and its tickets are still valid, because no money is known to
+	// have moved — what this field says is that the platform is finding out, and
+	// the honest thing to show is "we're processing your refund" beside tickets
+	// that still work.
+	//
+	// It sits beside Reversible rather than folding into it, because the two
+	// answer different questions: whether this sale MAY be undone, and whether it
+	// already HAS been asked about. Reversible stays the eligibility rule alone,
+	// shared verbatim with the guest surfaces and the endpoint, so that it keeps
+	// meaning one thing. A surface withdraws its Undo action on either — pressing
+	// while a request is in flight makes nothing new happen — and that composing
+	// is the surface's job, not this rule's.
+	ReversalPending bool `json:"reversal_pending"`
 }
 
 // CustomerAreaView is the signed-in Customer's purchases, split into what is
@@ -114,6 +132,34 @@ func (s *Service) GetCustomerArea(ctx context.Context, token string) (*CustomerA
 	actor, err := s.Authenticate(ctx, token)
 	if err != nil {
 		return nil, err
+	}
+
+	// Loading the Area is what makes the platform ask the Payment Provider again
+	// about this Customer's own stuck reversal (ADR 0024). It runs BEFORE the read
+	// below, so a request that resolves on this visit is rendered as the reversal
+	// it became rather than as pending for one more page load.
+	//
+	// It is the opportunistic drain and not the whole recovery: the Reversal
+	// Reconciler that pursues a request nobody comes back to look at is #158.
+	// Until then this is what stops the pending state from being a regression —
+	// before ADR 0024 the recovery mechanism was the buyer pressing Undo again,
+	// and a second press is now answered from the request row.
+	//
+	// Only a full session drives it. A Confirmation Link session is a read
+	// credential scoped to one sale — it cannot ask for a reversal in the first
+	// place — and letting it act on every request the Customer has open would
+	// widen a forwarded email beyond the one purchase it names.
+	//
+	// A failure is logged and swallowed. The provider being unwell is exactly the
+	// situation that created these requests, and it must not also stop somebody
+	// reading their own tickets.
+	if actor.TicketSaleID == "" && s.reversals != nil {
+		if err := s.reversals.ResolveInFlightReversalRequests(ctx, actor.CustomerID); err != nil {
+			s.logger.Warn("could not resolve this Customer's in-flight Reversal Requests while loading their Area; any pending reversal stays pending",
+				"customer_id", actor.CustomerID,
+				"error", err,
+			)
+		}
 	}
 
 	// actor.TicketSaleID is empty for a full session and can only narrow the
@@ -315,6 +361,7 @@ func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platf
 		TaxIDNumber:     stringPtr(sale.TaxIDNumber.Valid, sale.TaxIDNumber.String),
 		Reversible:      offer.Reversible,
 		ReversibleUntil: offer.ReversibleUntil,
+		ReversalPending: sale.ReversalPending,
 	}
 }
 

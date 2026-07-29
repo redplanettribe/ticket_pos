@@ -148,6 +148,13 @@ func domainHTTPStatus(code string) int {
 	// nothing, which is what separates them from a 400 the caller could fix.
 	case "SALE_ALREADY_REVERSED", "SALE_NOT_REVERSIBLE", "REVERSAL_WINDOW_CLOSED":
 		return http.StatusConflict
+	// An Operator Reversal that contended with a reversal already in flight on the
+	// same Ticket Sale (ADR 0024). 503 with a retry rather than 409: unlike the
+	// three above, this says nothing about the sale's state — it is the platform
+	// asking for a moment while it finds out what the Payment Provider did, and
+	// retrying is exactly the right response.
+	case "SALE_REVERSAL_IN_PROGRESS":
+		return http.StatusServiceUnavailable
 	// The three refusals about an Operator Reversal's money memo: a refund larger
 	// than the Ticket Sale ever collected (#125), money stated about a sale that
 	// collected none, and money left out of a sale that collected some (#126).

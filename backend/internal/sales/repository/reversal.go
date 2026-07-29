@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // CustomerTicketSale is one Ticket Sale as the Customer-initiated Sale Reversal
@@ -204,4 +205,243 @@ func (r *Repository) GetCustomerTicketSale(ctx context.Context, customerID, sale
 	}
 	out.ClientTransactionID = clientTransactionID.String
 	return &out, nil
+}
+
+// ReversalRequest is one Customer's ask to undo their own paid Online Sale, as
+// recorded before the Payment Provider was called (ADR 0024).
+//
+// It is a record with a lifecycle rather than an audit line: the same row is
+// mutated as the platform keeps asking, one row per reversal and not one per
+// attempt, because every probe asks the same question about the same money.
+type ReversalRequest struct {
+	ID           string
+	TicketSaleID string
+	// ClientTransactionID is the Payment this request is about, snapshotted at
+	// the moment of the ask. Every probe presents this same id: re-deriving it
+	// later could name a different Payment, and that is somebody's money.
+	ClientTransactionID string
+	// RequestedAt is when the Customer pressed Undo, and is what the buyer is
+	// shown while the request is pending. Never ticket_sales.reversed_at; see the
+	// column comment in migration 039.
+	RequestedAt time.Time
+	// Status is one of the sales.ReversalRequest* values.
+	Status       string
+	AttemptCount int
+	// NextAttemptAt is the earliest instant the platform may ask the provider
+	// again about this request. It is what makes the drain a throttle rather than
+	// a loop; see ListDueReversalRequestsForCustomer.
+	NextAttemptAt time.Time
+	LastError     sql.NullString
+}
+
+// CreateReversalRequestInput records the ask: which sale, which Payment, and
+// when the Customer pressed.
+type CreateReversalRequestInput struct {
+	TicketSaleID        string
+	ClientTransactionID string
+	RequestedAt         time.Time
+}
+
+// CreateReversalRequest writes a Reversal Request in flight. It is called BEFORE
+// the Payment Provider is asked anything (ADR 0024); the call site in
+// service.ReverseOwnSale is where that order is enacted and explained.
+//
+// The caller holds the advisory lock and has already established that this sale
+// has no live request, so the partial unique index is not expected to fire here;
+// if it ever does — a hash collision on the lock key, say — the error surfaces
+// rather than being swallowed, because quietly proceeding would mean two open
+// asks about one payment.
+func (r *Repository) CreateReversalRequest(ctx context.Context, in CreateReversalRequestInput) (*ReversalRequest, error) {
+	out := ReversalRequest{
+		TicketSaleID:        in.TicketSaleID,
+		ClientTransactionID: in.ClientTransactionID,
+		RequestedAt:         in.RequestedAt,
+		Status:              sales.ReversalRequestInFlight,
+	}
+	// next_attempt_at starts at the ask itself: the provider is called immediately
+	// after this row lands, so the request is due from the instant it exists.
+	err := r.db.Pool.QueryRowContext(ctx, `
+		INSERT INTO sale_reversals (
+			ticket_sale_id, client_transaction_id, requested_at,
+			status, attempt_count, next_attempt_at
+		)
+		VALUES ($1, $2, $3, 'in_flight', 0, $3)
+		RETURNING id, attempt_count, next_attempt_at
+	`, in.TicketSaleID, in.ClientTransactionID, in.RequestedAt).Scan(
+		&out.ID, &out.AttemptCount, &out.NextAttemptAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetLiveReversalRequest returns the LIVE Reversal Request for one Ticket Sale,
+// or nil when there is none.
+//
+// Live means `status <> 'refused'`, which is the definition the partial unique
+// index `sale_reversals_live_per_sale_key` enforces, and it is deliberately the
+// same words here. There is exactly one notion of "this sale already has an ask"
+// in the system, and the database owns it: a reader using a narrower one — only
+// `in_flight`, say — concludes there is no request where the index will refuse
+// to let it write one, and the buyer gets a unique violation instead of an
+// answer. That is not hypothetical. A `succeeded` request whose local commit
+// failed is exactly SALE_REVERSAL_NOT_COMMITTED (#162), and a `needs_attention`
+// one is an Unresolved Reversal awaiting a Platform Operator; both are live rows
+// about money that has very possibly already moved, and neither may read as
+// absent.
+//
+// `refused` is the one status that is not live, for the reason the index
+// excludes it: a refusal means nothing happened, so a buyer still inside their
+// Reversal Window is entitled to a genuinely new ask.
+//
+// It is what makes a second press a READ. A buyer who presses Undo again while
+// the platform is still finding out gets the state of the ask they already made
+// — no second row, and above all no second call to the Payment Provider, which
+// could return their money twice.
+func (r *Repository) GetLiveReversalRequest(ctx context.Context, ticketSaleID string) (*ReversalRequest, error) {
+	var out ReversalRequest
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT id, ticket_sale_id, client_transaction_id, requested_at,
+		       status, attempt_count, next_attempt_at, last_error
+		FROM sale_reversals
+		WHERE ticket_sale_id = $1 AND status <> 'refused'
+	`, ticketSaleID).Scan(
+		&out.ID, &out.TicketSaleID, &out.ClientTransactionID, &out.RequestedAt,
+		&out.Status, &out.AttemptCount, &out.NextAttemptAt, &out.LastError,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListDueReversalRequestsForCustomer returns the in-flight Reversal Requests
+// belonging to one Customer's own Ticket Sales that are DUE to be asked about
+// again, oldest ask first, at most limit of them.
+//
+// customerID is the sole scope and it comes from the Customer Session. This is
+// the opportunistic drain: a buyer loading the Customer Area makes the platform
+// ask the Payment Provider again about their own stuck reversal, which is what
+// makes the common case resolve in seconds rather than waiting for a Reversal
+// Reconciler tick (#158).
+//
+// DUE is what keeps that from being an attack the buyer performs on themselves.
+// A probe costs a ten-second provider timeout and they run serially, so without
+// `next_attempt_at` a Customer refreshing their purchases during a provider
+// outage re-posts Reverse on every render and hangs their own page doing it.
+// The column has always been written on every attempt; reading it here is what
+// makes it mean something. The SCHEDULE that spaces the retries out — 10s, 30s,
+// 2m, 5m, 15m, then every 30m — is the Reversal Reconciler's (#158); what this
+// query owns is only that a request asked about a moment ago is not asked about
+// again now.
+//
+// `now` is the caller's clock rather than the database's, for the same reason
+// every other decision in this module takes one: the instant a reversal is
+// judged against must be the instant the service is reasoning about, and a test
+// that cannot move it cannot prove a throttle throttles.
+//
+// limit bounds what a single page load may spend on somebody else's provider.
+// The requests beyond it are not lost: the ordering is oldest-ask-first, so what
+// the limit leaves behind are the NEWER asks, and the next render or the
+// Reconciler takes them up.
+//
+// It deliberately cannot reach anybody else's request. The unscoped claim query
+// a Reconciler needs is a different query, and giving this one an optional
+// customer filter is how it would become one by accident.
+func (r *Repository) ListDueReversalRequestsForCustomer(ctx context.Context, customerID string, now time.Time, limit int) ([]ReversalRequest, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT sr.id, sr.ticket_sale_id, sr.client_transaction_id, sr.requested_at,
+		       sr.status, sr.attempt_count, sr.next_attempt_at, sr.last_error
+		FROM sale_reversals sr
+		JOIN ticket_sales ts ON ts.id = sr.ticket_sale_id
+		WHERE ts.customer_id = $1
+		  AND sr.status = 'in_flight'
+		  AND sr.next_attempt_at <= $2
+		ORDER BY sr.requested_at
+		LIMIT $3
+	`, customerID, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ReversalRequest, 0)
+	for rows.Next() {
+		var req ReversalRequest
+		if err := rows.Scan(
+			&req.ID, &req.TicketSaleID, &req.ClientTransactionID, &req.RequestedAt,
+			&req.Status, &req.AttemptCount, &req.NextAttemptAt, &req.LastError,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, req)
+	}
+	return out, rows.Err()
+}
+
+// ReversalRequestAttempt is what one probe of the Payment Provider learned: the
+// status the request now stands in, and what the provider said if it was not a
+// success.
+type ReversalRequestAttempt struct {
+	ID string
+	// Status is where the ask now stands — one of the sales.ReversalRequest*
+	// values. Passing in_flight again is the ordinary unknown outcome: the
+	// attempt is counted and the error kept, and the request stays open.
+	Status string
+	// LastError is the provider's own words, for the operator reading the queue
+	// during an incident. Empty on success.
+	LastError string
+	Now       time.Time
+	// NextAttemptAt is the earliest instant the platform may ask again, and it is
+	// READ — the drain pursues only requests that are due. On an unknown outcome
+	// it is what stops the next page load re-posting Reverse; once the status is
+	// definite it is meaningless, and written anyway so the column never carries
+	// a stale due date.
+	NextAttemptAt time.Time
+}
+
+// RecordReversalRequestAttempt applies the outcome of one probe: the attempt is
+// counted whatever it answered, and the status moves — or deliberately does not.
+//
+// Counting the attempt on every path is what makes the row an account of what
+// the platform actually did rather than of what it concluded. An unknown outcome
+// leaves the status in_flight and is the case the whole table exists for: the
+// question is still open, so it stays open.
+//
+// The write is guarded on the row still being in_flight, so a probe that raced
+// another actor to a definite answer cannot overwrite it. Two actors can only
+// reach one request through a lock hash collision, and the answer that landed
+// first is the one that acted on the money.
+func (r *Repository) RecordReversalRequestAttempt(ctx context.Context, in ReversalRequestAttempt) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE sale_reversals
+		SET status = $2,
+		    attempt_count = attempt_count + 1,
+		    next_attempt_at = $3,
+		    last_error = NULLIF($4, ''),
+		    updated_at = $5
+		WHERE id = $1 AND status = 'in_flight'
+	`, in.ID, in.Status, in.NextAttemptAt, truncateReversalError(in.LastError), in.Now)
+	return err
+}
+
+// reversalErrorLimit is what `sale_reversals.last_error` accepts (migration
+// 039). A provider error is a line; the constraint refuses a pasted stack trace,
+// and a Reversal Request must never fail to record its outcome because the
+// message that came back was long.
+const reversalErrorLimit = 500
+
+// truncateReversalError bounds a provider's message to what the column holds,
+// counting runes rather than bytes so a Spanish refusal cannot be cut mid-
+// character — PayPhone's messages are Spanish, and char_length counts characters.
+func truncateReversalError(msg string) string {
+	runes := []rune(msg)
+	if len(runes) <= reversalErrorLimit {
+		return msg
+	}
+	return string(runes[:reversalErrorLimit])
 }

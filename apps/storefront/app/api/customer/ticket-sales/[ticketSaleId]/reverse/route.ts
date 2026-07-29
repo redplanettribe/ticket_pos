@@ -27,6 +27,14 @@ export const dynamic = "force-dynamic";
  * at all. This handler decides none of them and relays the API's own `error.code`
  * and `error.message`, so the card can say which refusal it was in the language
  * the buyer is reading (ADR 0023).
+ *
+ * Success is relayed with the API's own status code, because since ADR 0024 there
+ * are two of them and they mean opposite things to a buyer: 200 is a Sale
+ * Reversal that is done, 202 is a Reversal Request in flight with nobody yet
+ * knowing whether the money moved. Both are `response.ok`, so a hop that
+ * normalised them to 200 would leave the browser holding the more reassuring of
+ * the two — and the dialog would tell a Customer their purchase is undone on the
+ * strength of an answer PayPhone never gave.
  */
 export async function POST(
   _request: Request,
@@ -40,11 +48,14 @@ export async function POST(
   const { ticketSaleId } = await params;
 
   try {
-    const envelope = await callBackend<TicketSaleReversal>(
+    const backend = await callBackend<TicketSaleReversal>(
       `/api/v1/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}/reverse`,
       { method: "POST", sessionToken: token },
     );
-    return NextResponse.json({ data: envelope.data, error: null, request_id: crypto.randomUUID() });
+    return NextResponse.json(
+      { data: backend.data, error: null, request_id: crypto.randomUUID() },
+      { status: backend.status },
+    );
   } catch (error) {
     return apiErrorResponse(error);
   }

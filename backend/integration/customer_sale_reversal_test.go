@@ -57,12 +57,17 @@ func undoOwnSale(t *testing.T, env *testEnv, email, confirmationRef string) {
 	reverseSaleOK(t, env, token, sale.ID)
 }
 
-// saleReversalResult is the endpoint's success body.
+// saleReversalResult is the endpoint's success body, in both its shapes: the
+// completed reversal (200, status "reversed", carrying reversed_at) and the
+// Reversal Request still in flight (202, status "pending", carrying
+// requested_at). Each timestamp is absent on the other's path, because only one
+// of the two has happened (ADR 0024).
 type saleReversalResult struct {
 	TicketSaleID    string `json:"ticket_sale_id"`
 	ConfirmationRef string `json:"confirmation_ref"`
 	Status          string `json:"status"`
 	ReversedAt      string `json:"reversed_at"`
+	RequestedAt     string `json:"requested_at"`
 }
 
 func reverseSaleOK(t *testing.T, env *testEnv, token, saleID string) saleReversalResult {
@@ -75,7 +80,90 @@ func reverseSaleOK(t *testing.T, env *testEnv, token, saleID string) saleReversa
 	if err := json.Unmarshal(body.Data, &out); err != nil {
 		t.Fatalf("decode undo result: %v", err)
 	}
+	if out.Status != "reversed" || out.ReversedAt == "" || out.RequestedAt != "" {
+		t.Fatalf("undo 200 body = %+v, want status reversed with reversed_at and no requested_at", out)
+	}
 	return out
+}
+
+// reverseSalePending asserts the undo was accepted rather than completed: 202
+// with a pending status and the instant the Customer asked.
+//
+// The status code is asserted as hard as the body is. A client that checks only
+// "did this succeed" reads a 2xx as a completed refund, and telling a buyer
+// their money is back when the platform does not know is the one thing this
+// endpoint must never do.
+func reverseSalePending(t *testing.T, env *testEnv, token, saleID string) saleReversalResult {
+	t.Helper()
+	resp, body := reverseSaleRequest(t, env, token, saleID)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("undo status=%d error=%+v, want 202 — an unanswered reversal is pending, not done and not failed", resp.StatusCode, body.Error)
+	}
+	var out saleReversalResult
+	if err := json.Unmarshal(body.Data, &out); err != nil {
+		t.Fatalf("decode undo result: %v", err)
+	}
+	if out.Status != "pending" || out.RequestedAt == "" || out.ReversedAt != "" {
+		t.Fatalf("undo 202 body = %+v, want status pending with requested_at and no reversed_at", out)
+	}
+	return out
+}
+
+// reversalRequests reads every Reversal Request recorded for one Ticket Sale,
+// newest ask last. SQL because a Reversal Request is machinery the Customer is
+// never shown: what they see is a pending card, and what the platform keeps is
+// the row it will go back to.
+//
+// The order is by created_at and not by requested_at, which would be the obvious
+// column and is useless here: the suite runs on a frozen clock, so every ask a
+// test makes claims the same instant. created_at is the database's own wall
+// clock and does distinguish them.
+func reversalRequests(t *testing.T, env *testEnv, ref string) []reversalRequestRow {
+	t.Helper()
+	rows, err := env.db.Query(`
+		SELECT sr.status, sr.attempt_count, sr.client_transaction_id, sr.requested_at, sr.last_error
+		FROM sale_reversals sr
+		JOIN ticket_sales ts ON ts.id = sr.ticket_sale_id
+		WHERE ts.confirmation_ref = $1
+		ORDER BY sr.created_at, sr.id
+	`, ref)
+	if err != nil {
+		t.Fatalf("read Reversal Requests for %q: %v", ref, err)
+	}
+	defer rows.Close()
+
+	var out []reversalRequestRow
+	for rows.Next() {
+		var r reversalRequestRow
+		if err := rows.Scan(&r.status, &r.attempts, &r.clientTransactionID, &r.requestedAt, &r.lastError); err != nil {
+			t.Fatalf("scan Reversal Request: %v", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read Reversal Requests for %q: %v", ref, err)
+	}
+	return out
+}
+
+type reversalRequestRow struct {
+	status              string
+	attempts            int
+	clientTransactionID string
+	requestedAt         time.Time
+	lastError           sql.NullString
+}
+
+// theOnlyReversalRequest asserts a Ticket Sale has exactly one Reversal Request
+// and returns it. One row per reversal and never one per attempt: a buyer
+// pressing again, and the platform asking again, are the same ask being pursued.
+func theOnlyReversalRequest(t *testing.T, env *testEnv, ref string) reversalRequestRow {
+	t.Helper()
+	requests := reversalRequests(t, env, ref)
+	if len(requests) != 1 {
+		t.Fatalf("sale %q has %d Reversal Requests, want exactly 1", ref, len(requests))
+	}
+	return requests[0]
 }
 
 // assertRefused asserts an undo was refused with a given status and error code,

@@ -66,6 +66,33 @@ type TicketSaleRow struct {
 	// a later purchase leaves what an old sale shows untouched.
 	TaxIDType   sql.NullString
 	TaxIDNumber sql.NullString
+	// ReversalPending is true exactly while a reversal of this sale is in
+	// progress: the Customer asked to undo it, and the platform has not finished
+	// (ADR 0024). "In progress" is a LIVE Reversal Request — the same
+	// `status <> 'refused'` the live-per-sale index enforces and the sales module
+	// reads — over a sale that is still active.
+	//
+	// Both halves are needed and neither is redundant. A live request alone would
+	// still be true of a reversal that completed, since a `succeeded` request
+	// stands over its now-reversed sale forever; an active sale alone says
+	// nothing. Together they name the one situation a card must draw differently:
+	// the tickets still work, and we are still working on the refund. A
+	// `succeeded` request over an ACTIVE sale is SALE_REVERSAL_NOT_COMMITTED
+	// (#162) and belongs here too — the buyer is owed a refund that has not
+	// finished landing, which is precisely what this flag says.
+	//
+	// It changes nothing about the sale itself, and the row above shows exactly
+	// that: the status is still `active`, the capacity is still held, and the
+	// tickets are still valid, because no money is known to have moved. The only
+	// thing this flag entitles a surface to do is withdraw the Undo action and
+	// say a refund is being processed.
+	//
+	// It is read from `sale_reversals`, which the sales module owns, for the same
+	// reason this file already reads `payments`: the Customer Area is a
+	// composition of what a buyer's purchase looks like across the system, and a
+	// second round trip through another module to colour one card would buy
+	// nothing.
+	ReversalPending bool
 }
 
 // ReversalFacts narrows a Customer Area row to the reversal rule's inputs, so the
@@ -168,7 +195,19 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			org.currency,
 			e.id, e.name, e.slug, e.starts_at, e.ends_at, e.timezone, e.venue_name,
 			org.id, org.name, org.slug,
-			ts.customer_tax_id_type, ts.customer_tax_id_number
+			ts.customer_tax_id_type, ts.customer_tax_id_number,
+			-- Whether a reversal of this sale is in progress (ADR 0024): a live
+			-- Reversal Request over a sale that still stands. The status test is
+			-- the live-per-sale index's own predicate, quoted rather than
+			-- narrowed — see ReversalPending above.
+			--
+			-- EXISTS rather than a join: that index makes at most one live row
+			-- possible per sale, and the question asked here is only whether there
+			-- is one — none of its columns are shown to a buyer.
+			(ts.status = 'active' AND EXISTS (
+				SELECT 1 FROM sale_reversals sr
+				WHERE sr.ticket_sale_id = ts.id AND sr.status <> 'refused'
+			))
 		FROM ticket_sales ts
 		JOIN events e ON e.id = ts.event_id
 		JOIN organizations org ON org.id = ts.organization_id
@@ -216,6 +255,7 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			&s.EventID, &s.EventName, &s.EventSlug, &s.EventStartsAt, &s.EventEndsAt, &s.EventTimezone, &s.EventVenueName,
 			&s.OrganizationID, &s.OrganizationName, &s.OrganizationSlug,
 			&s.TaxIDType, &s.TaxIDNumber,
+			&s.ReversalPending,
 		); err != nil {
 			return nil, err
 		}

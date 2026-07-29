@@ -81,6 +81,10 @@ type customerAreaSale struct {
 	// currently reversible — see customer_reversal_window_test.go.
 	Reversible      bool    `json:"reversible"`
 	ReversibleUntil *string `json:"reversible_until"`
+	// Whether a Reversal Request for this sale is still in flight (#157): the
+	// buyer asked, and the Payment Provider has not yet said what became of it.
+	// The sale is still active and its tickets still valid while it is true.
+	ReversalPending bool `json:"reversal_pending"`
 }
 
 type customerAreaView struct {
