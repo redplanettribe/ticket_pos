@@ -28,17 +28,22 @@ type EventListItem struct {
 
 // TicketTypeDetail is a Ticket Type with organization currency for display.
 type TicketTypeDetail struct {
-	ID          string    `json:"id"`
-	EventID     string    `json:"event_id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description"`
-	PriceCents  int       `json:"price_cents"`
-	Currency    string    `json:"currency"`
-	Capacity    int       `json:"capacity"`
-	SoldCount   int       `json:"sold_count"`
-	SortOrder   int       `json:"sort_order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string  `json:"id"`
+	EventID     string  `json:"event_id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	PriceCents  int     `json:"price_cents"`
+	Currency    string  `json:"currency"`
+	Capacity    int     `json:"capacity"`
+	SoldCount   int     `json:"sold_count"`
+	SortOrder   int     `json:"sort_order"`
+	// MaxPerCustomer is the Purchase Limit — the most of this Ticket Type one
+	// Customer may hold at once — or null when the Ticket Type is unrestricted,
+	// which is most of them. A count of tickets, not money: unlike PriceCents it
+	// is untouched by Promotion or fee arithmetic (ADR 0025).
+	MaxPerCustomer *int      `json:"max_per_customer"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 	// Promotion is the Ticket Type's one Promotion slot, or null when it is
 	// empty. It travels with the Ticket Type so the editor can render the
 	// Promotion's state without a second request; PriceCents above stays the
@@ -94,6 +99,8 @@ type CreateTicketTypeInput struct {
 	Description *string
 	PriceCents  int
 	Capacity    int
+	// MaxPerCustomer is the Purchase Limit, nil for an unrestricted Ticket Type.
+	MaxPerCustomer *int
 }
 
 // UpdateTicketTypeInput updates Ticket Type fields.
@@ -103,6 +110,10 @@ type UpdateTicketTypeInput struct {
 	PriceCents  int
 	Capacity    int
 	SortOrder   int
+	// MaxPerCustomer is the Purchase Limit. Nil clears it, because this endpoint
+	// is a full restatement of the Ticket Type rather than a patch — the same
+	// rule Description already follows.
+	MaxPerCustomer *int
 }
 
 // UpdateEventInput updates Event fields on the detail form.
@@ -552,6 +563,17 @@ func nullStringFromPtr(s *string) sql.NullString {
 	return sql.NullString{String: trimmed, Valid: true}
 }
 
+// nullInt64FromPtr is nullStringFromPtr's integer sibling. Nil means the caller
+// said "no value" — for a Purchase Limit, that is the unrestricted state (ADR
+// 0024). It does no range checking: a non-positive value is a validation
+// failure the handler has already refused, not something to silently drop.
+func nullInt64FromPtr(v *int) sql.NullInt64 {
+	if v == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*v), Valid: true}
+}
+
 func toEventListItem(e *repository.Event) EventListItem {
 	item := EventListItem{
 		ID:           e.ID,
@@ -629,11 +651,12 @@ func (s *Service) CreateTicketType(ctx context.Context, actor ActorContext, even
 	}
 
 	created, err := s.repo.CreateTicketType(ctx, actor.OrganizationID, eventID, repository.CreateTicketTypeParams{
-		Name:        strings.TrimSpace(input.Name),
-		Description: nullStringFromPtr(input.Description),
-		PriceCents:  input.PriceCents,
-		Capacity:    input.Capacity,
-		SortOrder:   sortOrder,
+		Name:           strings.TrimSpace(input.Name),
+		Description:    nullStringFromPtr(input.Description),
+		PriceCents:     input.PriceCents,
+		Capacity:       input.Capacity,
+		SortOrder:      sortOrder,
+		MaxPerCustomer: nullInt64FromPtr(input.MaxPerCustomer),
 	}, s.now())
 	if err != nil {
 		return nil, err
@@ -681,11 +704,12 @@ func (s *Service) UpdateTicketType(ctx context.Context, actor ActorContext, even
 	}
 
 	updated, err := s.repo.UpdateTicketType(ctx, actor.OrganizationID, eventID, ticketTypeID, repository.UpdateTicketTypeParams{
-		Name:        strings.TrimSpace(input.Name),
-		Description: nullStringFromPtr(input.Description),
-		PriceCents:  input.PriceCents,
-		Capacity:    input.Capacity,
-		SortOrder:   input.SortOrder,
+		Name:           strings.TrimSpace(input.Name),
+		Description:    nullStringFromPtr(input.Description),
+		PriceCents:     input.PriceCents,
+		Capacity:       input.Capacity,
+		SortOrder:      input.SortOrder,
+		MaxPerCustomer: nullInt64FromPtr(input.MaxPerCustomer),
 	}, s.now())
 	if err != nil {
 		return nil, err
@@ -746,6 +770,7 @@ func toTicketTypeDetail(tt *repository.TicketType, currency string, promotion *r
 		s := tt.Description.String
 		detail.Description = &s
 	}
+	detail.MaxPerCustomer = nullIntPtr(tt.MaxPerCustomer)
 	return detail
 }
 

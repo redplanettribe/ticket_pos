@@ -57,6 +57,15 @@ type PublicTicketType struct {
 	Remaining   int              `json:"remaining"`
 	SoldOut     bool             `json:"sold_out"`
 	Promotion   *PublicPromotion `json:"promotion"`
+	// MaxPerCustomer is the Purchase Limit, or null when this Ticket Type is
+	// unrestricted. The Storefront bounds its quantity picker by it so a buyer is
+	// never invited to choose a quantity that will be refused (ADR 0025).
+	//
+	// Unlike PriceCents it is a raw count, untouched by Fee Handling or Promotion
+	// arithmetic — it counts tickets, not money. It states the Ticket Type's rule
+	// and nothing about any Customer's holdings: an anonymous reader learns the
+	// limit, never who has already used theirs up.
+	MaxPerCustomer *int `json:"max_per_customer"`
 }
 
 // PublicPromotion is a live Promotion as the Storefront shows it (ADR 0021):
@@ -319,6 +328,8 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 			Remaining:   remaining,
 			SoldOut:     remaining == 0,
 			Promotion:   s.toPublicPromotion(handling, tt.PriceCents, promotion, now),
+
+			MaxPerCustomer: nullIntPtr(tt.MaxPerCustomer),
 		})
 	}
 	return detail, nil
@@ -447,6 +458,17 @@ func nullStringPtr(v sql.NullString) *string {
 	}
 	s := v.String
 	return &s
+}
+
+// nullIntPtr is nullStringPtr's integer sibling, so a nullable count reaches JSON
+// as null rather than zero. For a Purchase Limit the difference is the whole
+// meaning: null is "unrestricted", and 0 is a value the column forbids.
+func nullIntPtr(v sql.NullInt64) *int {
+	if !v.Valid {
+		return nil
+	}
+	n := int(v.Int64)
+	return &n
 }
 
 func encodeCursor(t time.Time, id string) string {

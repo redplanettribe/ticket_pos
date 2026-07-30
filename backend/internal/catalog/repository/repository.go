@@ -259,6 +259,17 @@ func nullString(v sql.NullString) any {
 	return nil
 }
 
+// nullInt is nullString's integer sibling: it hands the driver a real NULL for
+// an unset value rather than a zero, which for a Purchase Limit is the whole
+// distinction — 0 is a value the CHECK constraint rejects, and NULL is
+// "unrestricted" (ADR 0025).
+func nullInt(v sql.NullInt64) any {
+	if v.Valid {
+		return v.Int64
+	}
+	return nil
+}
+
 // TicketType is a purchasable ticket category belonging to an Event.
 type TicketType struct {
 	ID             string
@@ -270,31 +281,37 @@ type TicketType struct {
 	Capacity       int
 	SoldCount      int
 	SortOrder      int
+	// MaxPerCustomer is the Purchase Limit, invalid when the Ticket Type is
+	// unrestricted — which is most of them (ADR 0025).
+	MaxPerCustomer sql.NullInt64
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
 // CreateTicketTypeParams holds values for a new Ticket Type.
 type CreateTicketTypeParams struct {
-	Name        string
-	Description sql.NullString
-	PriceCents  int
-	Capacity    int
-	SortOrder   int
+	Name           string
+	Description    sql.NullString
+	PriceCents     int
+	Capacity       int
+	SortOrder      int
+	MaxPerCustomer sql.NullInt64
 }
 
 // UpdateTicketTypeParams holds mutable Ticket Type fields.
 type UpdateTicketTypeParams struct {
-	Name        string
-	Description sql.NullString
-	PriceCents  int
-	Capacity    int
-	SortOrder   int
+	Name           string
+	Description    sql.NullString
+	PriceCents     int
+	Capacity       int
+	SortOrder      int
+	MaxPerCustomer sql.NullInt64
 }
 
 const ticketTypeColumns = `
 	id, event_id, organization_id, name, description,
-	price_cents, capacity, sold_count, sort_order, created_at, updated_at
+	price_cents, capacity, sold_count, sort_order, max_per_customer,
+	created_at, updated_at
 `
 
 func scanTicketType(row interface {
@@ -303,7 +320,8 @@ func scanTicketType(row interface {
 	var tt TicketType
 	if err := row.Scan(
 		&tt.ID, &tt.EventID, &tt.OrganizationID, &tt.Name, &tt.Description,
-		&tt.PriceCents, &tt.Capacity, &tt.SoldCount, &tt.SortOrder, &tt.CreatedAt, &tt.UpdatedAt,
+		&tt.PriceCents, &tt.Capacity, &tt.SoldCount, &tt.SortOrder, &tt.MaxPerCustomer,
+		&tt.CreatedAt, &tt.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -364,7 +382,8 @@ func (r *Repository) ListTicketTypesByEventID(ctx context.Context, orgID, eventI
 		var tt TicketType
 		if err := rows.Scan(
 			&tt.ID, &tt.EventID, &tt.OrganizationID, &tt.Name, &tt.Description,
-			&tt.PriceCents, &tt.Capacity, &tt.SoldCount, &tt.SortOrder, &tt.CreatedAt, &tt.UpdatedAt,
+			&tt.PriceCents, &tt.Capacity, &tt.SoldCount, &tt.SortOrder, &tt.MaxPerCustomer,
+			&tt.CreatedAt, &tt.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -383,12 +402,13 @@ func (r *Repository) CreateTicketType(
 	row := r.db.Pool.QueryRowContext(ctx, `
 		INSERT INTO ticket_types (
 			event_id, organization_id, name, description,
-			price_cents, capacity, sort_order, created_at, updated_at
+			price_cents, capacity, sort_order, max_per_customer, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
 		RETURNING `+ticketTypeColumns+`
 	`, eventID, orgID, params.Name, nullString(params.Description),
-		params.PriceCents, params.Capacity, params.SortOrder, now)
+		params.PriceCents, params.Capacity, params.SortOrder,
+		nullInt(params.MaxPerCustomer), now)
 	return scanTicketType(row)
 }
 
@@ -417,12 +437,14 @@ func (r *Repository) UpdateTicketType(
 			price_cents = $6,
 			capacity = $7,
 			sort_order = $8,
-			updated_at = $9
+			max_per_customer = $9,
+			updated_at = $10
 		WHERE id = $1 AND event_id = $2 AND organization_id = $3
 		RETURNING `+ticketTypeColumns+`
 	`, ticketTypeID, eventID, orgID,
 		params.Name, nullString(params.Description),
-		params.PriceCents, params.Capacity, params.SortOrder, now)
+		params.PriceCents, params.Capacity, params.SortOrder,
+		nullInt(params.MaxPerCustomer), now)
 	return scanTicketType(row)
 }
 

@@ -128,6 +128,12 @@ The price a Promotion charges while it is live — an absolute amount, not a per
 Takes the List Price's place in all fee arithmetic, so the Platform Fee is a share of what the Customer actually paid; any "X% off" shown is derived for display.
 _Avoid_: Discounted price, sale price, special price, offer price
 
+**Purchase Limit**:
+The most of one Ticket Type a single Customer may hold at once — unset on most Ticket Types, and the reason a Free Ticket Type is not handed out a hundred at a time.
+Counted the way capacity is: a Customer's active Ticket Sales plus their live Capacity Holds, so a Sale Reversal returns it and an abandoned Payment releases it. Keyed on the Customer, which makes it a deterrent against taking too many rather than a defence against someone minting identities.
+Governs future checkouts only: lowering it never unmakes a Ticket Sale, so a Customer may hold more than the current limit. Distinct from capacity, which is the Event-wide stock rather than one person's share of it.
+_Avoid_: Quota, cap, max quantity, rate limit, one-per-person, purchase restriction
+
 **Tag**:
 A discovery facet an Event can wear, describing what kind of Event it is (e.g. "Music", "Workshop", "Techno"). An Event may carry several Tags, and Tags live in one system-wide shared pool reused across all Organizations. Aids Storefront discovery. Distinct from Ticket Type, which is a purchasable category within a single Event.
 _Avoid_: Category, genre, label, keyword

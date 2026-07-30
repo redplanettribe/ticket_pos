@@ -157,6 +157,10 @@ const docTemplate = `{
                     "description": {
                         "type": "string"
                     },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit. Absent or null means the Ticket Type\nis unrestricted, which is the default and the state of every Ticket Type\nthat predates ADR 0025.",
+                        "type": "integer"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -369,6 +373,10 @@ const docTemplate = `{
                     },
                     "description": {
                         "type": "string"
+                    },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit. This endpoint is a full restatement\nof the Ticket Type rather than a patch — every scalar above lands as its\nzero value when omitted — so absent and explicit null both clear the\nPurchase Limit, exactly as they clear Description.",
+                        "type": "integer"
                     },
                     "name": {
                         "type": "string"
@@ -1966,6 +1974,10 @@ const docTemplate = `{
                     "id": {
                         "type": "string"
                     },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit, or null when this Ticket Type is\nunrestricted. The Storefront bounds its quantity picker by it so a buyer is\nnever invited to choose a quantity that will be refused (ADR 0025).\n\nUnlike PriceCents it is a raw count, untouched by Fee Handling or Promotion\narithmetic — it counts tickets, not money. It states the Ticket Type's rule\nand nothing about any Customer's holdings: an anonymous reader learns the\nlimit, never who has already used theirs up.",
+                        "type": "integer"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -2340,6 +2352,10 @@ const docTemplate = `{
                     },
                     "id": {
                         "type": "string"
+                    },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit — the most of this Ticket Type one\nCustomer may hold at once — or null when the Ticket Type is unrestricted,\nwhich is most of them. A count of tickets, not money: unlike PriceCents it\nis untouched by Promotion or fee arithmetic (ADR 0025).",
+                        "type": "integer"
                     },
                     "name": {
                         "type": "string"

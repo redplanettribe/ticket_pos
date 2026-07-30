@@ -4786,6 +4786,12 @@ export interface components {
         "handler.createTicketTypeBody": {
             capacity?: number;
             description?: string;
+            /**
+             * @description MaxPerCustomer is the Purchase Limit. Absent or null means the Ticket Type
+             *     is unrestricted, which is the default and the state of every Ticket Type
+             *     that predates ADR 0025.
+             */
+            max_per_customer?: number;
             name?: string;
             price_cents?: number;
         };
@@ -4872,6 +4878,13 @@ export interface components {
         "handler.updateTicketTypeBody": {
             capacity?: number;
             description?: string;
+            /**
+             * @description MaxPerCustomer is the Purchase Limit. This endpoint is a full restatement
+             *     of the Ticket Type rather than a patch — every scalar above lands as its
+             *     zero value when omitted — so absent and explicit null both clear the
+             *     Purchase Limit, exactly as they clear Description.
+             */
+            max_per_customer?: number;
             name?: string;
             price_cents?: number;
             sort_order?: number;
@@ -5560,6 +5573,17 @@ export interface components {
             currency?: string;
             description?: string;
             id?: string;
+            /**
+             * @description MaxPerCustomer is the Purchase Limit, or null when this Ticket Type is
+             *     unrestricted. The Storefront bounds its quantity picker by it so a buyer is
+             *     never invited to choose a quantity that will be refused (ADR 0025).
+             *
+             *     Unlike PriceCents it is a raw count, untouched by Fee Handling or Promotion
+             *     arithmetic — it counts tickets, not money. It states the Ticket Type's rule
+             *     and nothing about any Customer's holdings: an anonymous reader learns the
+             *     limit, never who has already used theirs up.
+             */
+            max_per_customer?: number;
             name?: string;
             price_cents?: number;
             promotion?: components["schemas"]["service.PublicPromotion"];
@@ -5872,6 +5896,13 @@ export interface components {
             description?: string;
             event_id?: string;
             id?: string;
+            /**
+             * @description MaxPerCustomer is the Purchase Limit — the most of this Ticket Type one
+             *     Customer may hold at once — or null when the Ticket Type is unrestricted,
+             *     which is most of them. A count of tickets, not money: unlike PriceCents it
+             *     is untouched by Promotion or fee arithmetic (ADR 0025).
+             */
+            max_per_customer?: number;
             name?: string;
             price_cents?: number;
             promotion?: components["schemas"]["service.PromotionView"];
