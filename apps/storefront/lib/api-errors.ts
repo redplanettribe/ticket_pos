@@ -50,8 +50,20 @@ export type ErrorCatalog = Readonly<Record<string, Readonly<Record<string, strin
  */
 export type ErrorSurface = "undo" | "myInfo";
 
-/** As much of a failed envelope's `error` as choosing copy needs. */
-export type ApiError = { code?: string | null; message?: string | null } | null | undefined;
+/**
+ * As much of a failed envelope's `error` as choosing copy needs.
+ *
+ * `details` is here because a few refusals are only useful with the numbers the
+ * API refused over. PURCHASE_LIMIT_EXCEEDED is the first: a Customer told they
+ * are at a Ticket Type's Purchase Limit needs to read what that limit is and how
+ * many they already hold, or the sentence is indistinguishable from being told
+ * the Event is full (ADR 0025). The catalog states the sentence; the API states
+ * the facts it is about, and neither borrows the other's job.
+ */
+export type ApiError =
+  | { code?: string | null; message?: string | null; details?: unknown }
+  | null
+  | undefined;
 
 /**
  * The field codes the client-side mirror validators answer with — lib/tax-id.ts,
@@ -115,6 +127,45 @@ function usableMessage(message: unknown): string | null {
 }
 
 /**
+ * fillDetails substitutes `{name}` in a catalog sentence with the value the
+ * API's `details` gave under that name, and answers null the moment one of them
+ * has no value to substitute.
+ *
+ * Null is what routes an under-supplied sentence back to the API's own message
+ * at the call site below, which is the same degradation ADR 0023 chose for an
+ * unknown code: a Customer reads an English sentence that is true rather than a
+ * Spanish one with a literal "{limit}" in it. The trigger is a details payload
+ * that changed shape — a key renamed on the API side — and that is precisely the
+ * silent drift the ADR records as this scheme's known gap.
+ *
+ * Only strings and finite numbers substitute. An object or an array has no
+ * reading a sentence could want, and `details.fields[]` must never be flattened
+ * into prose. Numbers go in with String(): these are small counts of tickets,
+ * where every Locale this app serves writes the same digits, and reaching for
+ * Intl here would make the one module the ADR requires to be framework-free
+ * carry a formatter.
+ *
+ * Catalog copy without a placeholder comes back untouched and complete, so every
+ * entry that predates this reads exactly as it read before. The pattern is built
+ * per call rather than shared: a global RegExp carries `lastIndex` between uses,
+ * which is a resolver that answers differently on its second call.
+ */
+function fillDetails(copy: string, details: unknown): string | null {
+  const placeholder = /\{(\w+)\}/g;
+  const values =
+    typeof details === "object" && details !== null ? (details as Record<string, unknown>) : {};
+  let complete = true;
+  const filled = copy.replace(placeholder, (match, name: string) => {
+    const value = values[name];
+    if (typeof value === "string" && value !== "") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    complete = false;
+    return match;
+  });
+  return complete ? filled : null;
+}
+
+/**
  * apiErrorMessage returns the sentence to show for a failed envelope: this
  * app's copy for the code when it has some, the API's own message otherwise,
  * and null when there is nothing to show at all.
@@ -133,7 +184,10 @@ export function apiErrorMessage(
   const code = typeof error.code === "string" ? error.code : null;
   if (code !== null) {
     const copy = (surface ? catalog[surface]?.[code] : undefined) ?? catalog.envelope?.[code];
-    if (copy) return copy;
+    // A sentence that names facts it was not given is worse than the API's own
+    // words, so fillDetails answering null falls through to them (see above).
+    const filled = copy ? fillDetails(copy, error.details) : null;
+    if (filled) return filled;
   }
   return usableMessage(error.message);
 }

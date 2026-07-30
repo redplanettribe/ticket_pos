@@ -26,6 +26,10 @@ import (
 // sales.CapacityHoldWindow (ADR 0013) — so a Customer on the provider's payment
 // page cannot lose their tickets to a faster buyer. The under-lock check at
 // commit remains the one that cannot be raced past.
+//
+// The Purchase Limit is counted the same two ways — the buyer's active Ticket
+// Sales plus their live Capacity Holds — but only at begin, and never again at
+// commit (ADR 0025). See refusePurchaseLimitBreach.
 
 // checkoutReturnPath is the Storefront route the Payment Provider sends the
 // Customer back to when its payment page is done with them. A Storefront URL,
@@ -189,6 +193,21 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		requested[tt.ID] += line.Quantity
 	}
 
+	// The Purchase Limit is enforced here, on the aggregated request, and NOWHERE
+	// else — see refusePurchaseLimitBreach for why the commit path deliberately
+	// does not re-check it.
+	//
+	// It runs BEFORE the capacity check below, so a request breaching both is
+	// told about its own allowance rather than about the Event being full. That
+	// order is deliberate: a Purchase Limit refusal is terminal for that buyer,
+	// while CAPACITY_EXCEEDED names an `available` figure and invites a smaller
+	// retry the limit would refuse just the same. Telling a Customer who already
+	// holds their allowance that the Event is sold out is exactly the confusion
+	// ADR 0025 gave this refusal its own code to avoid.
+	if err := s.refusePurchaseLimitBreach(ctx, event.ID, byID, requested, order, customer.Email, cutoff); err != nil {
+		return nil, err
+	}
+
 	// The Event's Fee Handling is read once, here, and frozen into the lines
 	// below: a flip while this Payment is pending must not move what the
 	// Customer is already paying (ADR 0014).
@@ -308,6 +327,77 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		AmountCents:         amountCents,
 		Currency:            event.Currency,
 	}, nil
+}
+
+// refusePurchaseLimitBreach refuses a checkout that would take the buyer past a
+// requested Ticket Type's Purchase Limit: what they already hold plus what this
+// cart asks for may not exceed it (ADR 0025).
+//
+// It is handed the request ALREADY AGGREGATED per Ticket Type, for the same
+// reason the capacity check is: a cart naming one Ticket Type on three lines is
+// one buyer asking for the sum, and judging the lines separately would let three
+// requests of one slip past a limit of one.
+//
+// The buyer is resolved through the customers seam rather than by looking a row
+// up here, because who an email is, is that module's rule (ADR 0010). A first
+// checkout resolves to no Customer at all — the record is upserted only when a
+// sale commits — and that buyer holds zero, which is not a special case but the
+// ordinary one.
+//
+// Both reads are skipped entirely when no requested Ticket Type is rationed,
+// which is nearly every checkout on the platform: an unrestricted Ticket Type is
+// the state every one of them starts in, and an unconditional pair of queries
+// would make the whole Event's checkout pay for a feature it does not use.
+//
+// It is checked HERE AND NOWHERE ELSE. The commit path re-checks capacity under
+// row locks and deliberately does not re-check this: overselling a venue is a
+// physical failure, while one Customer holding limit+1 after a pathological
+// interleaving is harmless, and a refusal at commit would mean the Payment
+// Provider has the buyer's money for a sale the platform then declines — the
+// PAYMENT_APPROVED_WITHOUT_SALE incident a Platform Operator resolves by hand.
+// The asymmetry is the decision, not an omission (ADR 0025).
+func (s *Service) refusePurchaseLimitBreach(
+	ctx context.Context,
+	eventID string,
+	byID map[string]repository.EventTicketType,
+	requested map[string]int,
+	order []string,
+	email string,
+	cutoff time.Time,
+) error {
+	rationed := false
+	for _, id := range order {
+		if byID[id].MaxPerCustomer != nil {
+			rationed = true
+			break
+		}
+	}
+	if !rationed {
+		return nil
+	}
+
+	customerID, normalizedEmail, err := s.customers.ResolveByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+	held, err := s.repo.CustomerEventHoldings(ctx, eventID, repository.BuyerHoldings{
+		CustomerID:      customerID,
+		NormalizedEmail: normalizedEmail,
+	}, cutoff)
+	if err != nil {
+		return err
+	}
+
+	for _, id := range order {
+		limit := byID[id].MaxPerCustomer
+		if limit == nil {
+			continue
+		}
+		if held[id]+requested[id] > *limit {
+			return sales.ErrPurchaseLimitExceeded(id, *limit, held[id], requested[id])
+		}
+	}
+	return nil
 }
 
 // resolveAffiliateLink turns the click history a checkout arrived with into the

@@ -80,6 +80,18 @@ type CustomerService interface {
 	// which is what the far side needs to tell a person correcting their own
 	// record from a stranger typing a known email.
 	UpsertForSale(ctx context.Context, tx *sql.Tx, customer platform.SaleCustomer, now time.Time) (string, error)
+	// ResolveByEmail says which Customer a typed email is, without creating one:
+	// the Customer id, or "" when no record exists yet. It is how the Purchase
+	// Limit finds whose holdings to count (ADR 0025), and "" is an ordinary
+	// answer — the Customer record is upserted only when a sale commits, so a
+	// first-time buyer has none and holds nothing by definition.
+	//
+	// It also hands back the normalised email, because normalisation is the far
+	// side's rule (ADR 0010) and this module must not restate it. Sales needs the
+	// value for the one record that snapshots an email verbatim and has no
+	// Customer to point at: a pending Payment, which is the Purchase Limit's
+	// Capacity Hold arm.
+	ResolveByEmail(ctx context.Context, email string) (customerID, normalizedEmail string, err error)
 	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
 	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
 	// when it has no schedule; how long the link then lives is the customers

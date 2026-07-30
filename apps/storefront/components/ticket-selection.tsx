@@ -32,6 +32,7 @@ import {
 import {
   checkoutDestination,
   clampQuantity,
+  offerableQuantity,
   selectionLines,
   totalCents,
   totalQuantity,
@@ -150,10 +151,16 @@ function fieldErrorsFromDetails(catalog: ErrorCatalog, details: unknown): FieldE
  * names which of this app's own two failures to say instead when the API said
  * nothing at all. Nothing here is a sentence: the words are looked up at render,
  * so state never holds copy that a language switch would strand.
+ *
+ * `details` is carried for the same reason and under the same rule — they are the
+ * facts the API refused over, never words. A Purchase Limit refusal is only
+ * meaningful with them: the sentence has to state the limit and how many the
+ * Customer already holds, or it reads as the Event being full (ADR 0025).
  */
 type CheckoutError = {
   code: string | null;
   message: string | null;
+  details: unknown;
   fallback: "startFailed" | "networkFailed";
 };
 
@@ -366,6 +373,7 @@ export function TicketSelection({
         setError({
           code: apiError?.code ?? null,
           message: apiError?.message ?? null,
+          details: apiError?.details,
           fallback: "startFailed",
         });
         setSubmitting(false);
@@ -376,7 +384,7 @@ export function TicketSelection({
         // The API accepted the checkout but named nowhere to go, so there is
         // nothing truthful to navigate to. Say so rather than assign a missing
         // redirect_url, which the browser would resolve against this event page.
-        setError({ code: null, message: null, fallback: "startFailed" });
+        setError({ code: null, message: null, details: undefined, fallback: "startFailed" });
         setSubmitting(false);
         return;
       }
@@ -392,12 +400,15 @@ export function TicketSelection({
         destination.startsWith("/") ? localizedPath(locale, destination) : destination,
       );
     } catch {
-      setError({ code: null, message: null, fallback: "networkFailed" });
+      setError({ code: null, message: null, details: undefined, fallback: "networkFailed" });
       setSubmitting(false);
     }
   }
 
-  /** Sold-out mid-checkout: back to the steppers with fresh remaining counts. */
+  /**
+   * Refused over what was in the cart: back to the steppers with fresh remaining
+   * counts and Purchase Limits, and nothing selected.
+   */
   function backToTickets() {
     setCheckoutOpen(false);
     setQuantities({});
@@ -405,12 +416,39 @@ export function TicketSelection({
   }
 
   const capacityExceeded = error?.code === "CAPACITY_EXCEEDED";
+  // A Purchase Limit refusal is about the Customer, not the Event (ADR 0025), so
+  // it gets its own title — "you already have yours" against "not enough tickets
+  // left". The two share this 409's handling because the remedy is the same one:
+  // the cart cannot be paid for as it stands, and no field on the form is what is
+  // wrong with it. Filling the form in again would be refused identically.
+  //
+  const purchaseLimitExceeded = error?.code === "PURCHASE_LIMIT_EXCEEDED";
+  const cartRefused = capacityExceeded || purchaseLimitExceeded;
+
+  // Neither the title nor the body claims the Customer already HOLDS any of
+  // these tickets, though this refusal usually means they do. The API refuses
+  // whenever held + requested exceeds the Purchase Limit, so `already_held` is 0
+  // when the REQUEST alone was too large — unreachable through this page, whose
+  // steppers never offer more than offerableQuantity, but well within the API's
+  // contract and reachable by a caller that is not this page. One sentence has
+  // to be true of both, so it states the two numbers and lets the buyer read
+  // them, rather than asserting a possession that may be zero.
+  //
+  // Selecting between two sentences on `already_held` was the alternative, and
+  // ADR 0023 forecloses it: copy resolves on `error.code` and "nothing else
+  // selects" it, the interception list there being closed rather than an
+  // invitation.
 
   return (
     <>
       <div className="space-y-3">
         {ticketTypes.map((ticketType) => {
           const quantity = quantities[ticketType.id] ?? 0;
+          // The most this stepper may offer: remaining capacity, narrowed by the
+          // Purchase Limit where the Ticket Type has one (ADR 0025). Recomputed
+          // per render rather than memoized because it is two comparisons on
+          // numbers already in hand.
+          const offerable = offerableQuantity(ticketType);
           return (
             <Card key={ticketType.id} className={ticketType.sold_out ? "opacity-70" : undefined}>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
@@ -460,7 +498,7 @@ export function TicketSelection({
                         size="icon"
                         className="size-11"
                         aria-label={t("increaseQuantity", { ticketType: ticketType.name })}
-                        disabled={quantity >= ticketType.remaining}
+                        disabled={quantity >= offerable}
                         onClick={() => adjust(ticketType, 1)}
                       >
                         +
@@ -536,6 +574,7 @@ export function TicketSelection({
           {error ? (
             <Alert variant="destructive">
               {capacityExceeded ? <AlertTitle>{t("capacityTitle")}</AlertTitle> : null}
+              {purchaseLimitExceeded ? <AlertTitle>{t("purchaseLimitTitle")}</AlertTitle> : null}
               {/* The API decided which failure this is; the catalog decides how
                   to say it, in this page's language, falling back to the API's
                   own message for a code it does not know. This app's own two
@@ -546,7 +585,7 @@ export function TicketSelection({
             </Alert>
           ) : null}
 
-          {capacityExceeded ? (
+          {cartRefused ? (
             <DialogFooter>
               <Button type="button" variant="secondary" className="h-11 w-full" onClick={backToTickets}>
                 {t("backToSelection")}

@@ -19,11 +19,39 @@ export type SellableTicketType = {
   price_cents: number;
   remaining: number;
   sold_out: boolean;
+  // The Purchase Limit, or null/absent when this Ticket Type is unrestricted
+  // (ADR 0025). Optional rather than required so a caller that predates the
+  // limit reads as unrestricted instead of as a bound of zero: "not rationed"
+  // is a statement, not a number to do arithmetic on.
+  max_per_customer?: number | null;
 };
 
 /**
+ * offerableQuantity is the largest quantity the steppers may offer for one
+ * Ticket Type: the smaller of what remains of the Event's stock and the
+ * Ticket Type's Purchase Limit (ADR 0025). An absent Purchase Limit contributes
+ * no bound at all, so an unrestricted Ticket Type offers exactly what remaining
+ * capacity allows — the behaviour every Ticket Type had before limits existed.
+ *
+ * This is the Storefront's courtesy, not the rule: the API refuses a breach at
+ * begin-checkout and is what actually holds it. Bounding here only spares an
+ * honest buyer from meeting that refusal, so it deliberately knows nothing
+ * about what the Customer already holds — the anonymous Event read discloses no
+ * holdings, and this page is served to anonymous readers.
+ *
+ * A limit higher than remaining capacity is not a licence to oversell, hence
+ * min rather than either figure alone.
+ */
+export function offerableQuantity(ticketType: SellableTicketType): number {
+  const capacityBound = Math.max(ticketType.remaining, 0);
+  const limit = ticketType.max_per_customer;
+  if (limit === null || limit === undefined) return capacityBound;
+  return Math.min(capacityBound, Math.max(limit, 0));
+}
+
+/**
  * clampQuantity keeps a stepper's value honest: an integer between zero and
- * what remains of the Ticket Type. Anything unparseable is zero, and a sold-out
+ * what the Ticket Type may offer. Anything unparseable is zero, and a sold-out
  * type can never hold a quantity at all.
  */
 export function clampQuantity(raw: number, ticketType: SellableTicketType): number {
@@ -31,7 +59,7 @@ export function clampQuantity(raw: number, ticketType: SellableTicketType): numb
   if (!Number.isFinite(raw)) return 0;
   const whole = Math.trunc(raw);
   if (whole <= 0) return 0;
-  return Math.min(whole, Math.max(ticketType.remaining, 0));
+  return Math.min(whole, offerableQuantity(ticketType));
 }
 
 /** Total number of tickets selected across every Ticket Type. */

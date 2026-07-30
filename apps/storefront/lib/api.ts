@@ -267,6 +267,14 @@ export type PublicTicketType = {
   remaining: number;
   sold_out: boolean;
   promotion: PublicPromotion | null;
+  // The Purchase Limit: the most of this Ticket Type one Customer may hold at
+  // once, or null when it is unrestricted (ADR 0025). A raw count of tickets,
+  // untouched by the fee and Promotion arithmetic price_cents carries.
+  //
+  // It states the Ticket Type's rule and nothing about any Customer's holdings,
+  // which is why the anonymous Event page can be bounded by it at all. The
+  // quantity steppers bound at min(remaining, this) via offerableQuantity.
+  max_per_customer: number | null;
 };
 
 export type PublicEventDetail = {

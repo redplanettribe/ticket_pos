@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   checkoutDestination,
   clampQuantity,
+  offerableQuantity,
   parseProviderReturn,
   parseStubPaymentRequest,
   safeEventPath,
@@ -49,6 +50,41 @@ test("clampQuantity floors at zero and rejects nonsense", () => {
 
 test("clampQuantity never lets a sold-out Ticket Type hold a quantity", () => {
   assert.equal(clampQuantity(1, soldOut), 0);
+});
+
+// --- Purchase Limit (ADR 0025) ---------------------------------------------
+
+test("a Ticket Type with no Purchase Limit is bounded by remaining capacity alone", () => {
+  // The regression that matters: unrestricted Ticket Types must offer exactly
+  // what they offered before Purchase Limits existed. Absent and explicitly
+  // null are the same statement.
+  assert.equal(offerableQuantity(generalAdmission), 5);
+  assert.equal(offerableQuantity({ ...generalAdmission, max_per_customer: null }), 5);
+  assert.equal(clampQuantity(99, { ...generalAdmission, max_per_customer: null }), 5);
+});
+
+test("the Purchase Limit bounds the stepper below remaining capacity", () => {
+  const rationed: SellableTicketType = { ...generalAdmission, max_per_customer: 1 };
+  assert.equal(offerableQuantity(rationed), 1);
+  assert.equal(clampQuantity(100, rationed), 1);
+  assert.equal(clampQuantity(1, rationed), 1);
+});
+
+test("a Purchase Limit above remaining capacity is still bounded by capacity", () => {
+  // A limit is not a licence to oversell: two tickets remain, so two is the
+  // offer however generous the limit.
+  const generous: SellableTicketType = { ...vip, max_per_customer: 10 };
+  assert.equal(offerableQuantity(generous), 2);
+  assert.equal(clampQuantity(10, generous), 2);
+});
+
+test("a Purchase Limit equal to remaining capacity offers all of it", () => {
+  assert.equal(offerableQuantity({ ...vip, max_per_customer: 2 }), 2);
+});
+
+test("a sold-out rationed Ticket Type still offers nothing", () => {
+  assert.equal(offerableQuantity({ ...soldOut, max_per_customer: 5 }), 0);
+  assert.equal(clampQuantity(1, { ...soldOut, max_per_customer: 5 }), 0);
 });
 
 test("running total prices the selection per Ticket Type", () => {

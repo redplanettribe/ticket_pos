@@ -30,6 +30,30 @@ func ErrCapacityExceeded(ticketTypeID string, requested, available int) apperror
 	})
 }
 
+// ErrPurchaseLimitExceeded is returned when a checkout would take one Customer
+// past a Ticket Type's Purchase Limit: what they already hold plus what they are
+// asking for exceeds it (ADR 0025).
+//
+// It is deliberately NOT CAPACITY_EXCEEDED, though it shares its shape and its
+// 409. The two say different things to the buyer — the Event is full, versus you
+// already have yours — and a Customer must never be told a Ticket Type is sold
+// out when the only thing spent is their own allowance. The Storefront keys its
+// copy on the code (ADR 0023), so the distinction has to live here.
+//
+// alreadyHeld is what the Customer holds at the moment of the check: active
+// Ticket Sales plus live Capacity Holds. It may legitimately be at or above the
+// limit, because lowering a Purchase Limit is never retroactive — a buyer holding
+// three under a limit since dropped to one is a normal state, not a corruption,
+// and this error is how they are told so.
+func ErrPurchaseLimitExceeded(ticketTypeID string, limit, alreadyHeld, requested int) apperror.DomainError {
+	return apperror.New("PURCHASE_LIMIT_EXCEEDED", "You already have the maximum number of these tickets.", map[string]any{
+		"ticket_type_id": ticketTypeID,
+		"limit":          limit,
+		"already_held":   alreadyHeld,
+		"requested":      requested,
+	})
+}
+
 // ErrPaymentNotFound is returned when no Payment carries the given client
 // transaction id.
 func ErrPaymentNotFound() apperror.DomainError {
