@@ -28,17 +28,22 @@ type EventListItem struct {
 
 // TicketTypeDetail is a Ticket Type with organization currency for display.
 type TicketTypeDetail struct {
-	ID          string    `json:"id"`
-	EventID     string    `json:"event_id"`
-	Name        string    `json:"name"`
-	Description *string   `json:"description"`
-	PriceCents  int       `json:"price_cents"`
-	Currency    string    `json:"currency"`
-	Capacity    int       `json:"capacity"`
-	SoldCount   int       `json:"sold_count"`
-	SortOrder   int       `json:"sort_order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string  `json:"id"`
+	EventID     string  `json:"event_id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description"`
+	PriceCents  int     `json:"price_cents"`
+	Currency    string  `json:"currency"`
+	Capacity    int     `json:"capacity"`
+	SoldCount   int     `json:"sold_count"`
+	SortOrder   int     `json:"sort_order"`
+	// MaxPerCustomer is the Purchase Limit — the most of this Ticket Type one
+	// Customer may hold at once — or null when the Ticket Type is unrestricted,
+	// which is most of them. A count of tickets, not money: unlike PriceCents it
+	// is untouched by Promotion or fee arithmetic (ADR 0025).
+	MaxPerCustomer *int      `json:"max_per_customer"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 	// Promotion is the Ticket Type's one Promotion slot, or null when it is
 	// empty. It travels with the Ticket Type so the editor can render the
 	// Promotion's state without a second request; PriceCents above stays the
@@ -94,6 +99,8 @@ type CreateTicketTypeInput struct {
 	Description *string
 	PriceCents  int
 	Capacity    int
+	// MaxPerCustomer is the Purchase Limit, nil for an unrestricted Ticket Type.
+	MaxPerCustomer *int
 }
 
 // UpdateTicketTypeInput updates Ticket Type fields.
@@ -103,6 +110,10 @@ type UpdateTicketTypeInput struct {
 	PriceCents  int
 	Capacity    int
 	SortOrder   int
+	// MaxPerCustomer is the Purchase Limit. Nil clears it, because this endpoint
+	// is a full restatement of the Ticket Type rather than a patch — the same
+	// rule Description already follows.
+	MaxPerCustomer *int
 }
 
 // UpdateEventInput updates Event fields on the detail form.
@@ -136,12 +147,34 @@ type CreateVideoUploadURLInput struct {
 	ContentType string
 }
 
+// CustomerHoldings is what catalog needs from sales to tell a signed-in Customer
+// how much of each Ticket Type they already hold, which is the only thing the
+// Storefront needs to bound its quantity picker by the Purchase Limit before the
+// buyer types anything (ADR 0025, #168).
+//
+// It is a service seam, not a repository one: the count is a sales rule with two
+// arms — active Ticket Sales and live Capacity Holds — and catalog must never
+// grow a second spelling of it, or the Event page and the checkout's refusal
+// would drift apart. Catalog already borrows sales.LiveHoldsSQL for the Event's
+// remaining figures, and that is as far into sales' storage as this module is
+// allowed to reach: that one is a shared derivation with no identity in it,
+// whereas this one resolves a person.
+//
+// The email handed across MUST be one the caller has proven the requester owns.
+// See the implementation for why nothing on this side can check that.
+type CustomerHoldings interface {
+	CustomerEventHoldings(ctx context.Context, eventID, email string) (map[string]int, error)
+}
+
 // Service implements catalog business rules.
 type Service struct {
 	repo    *repository.Repository
 	storage storage.ObjectStorage
 	fees    sales.FeeRates
 	now     func() time.Time
+	// holdings answers what a signed-in Customer already holds of an Event's
+	// Ticket Types, for the public Event read only.
+	holdings CustomerHoldings
 	// logger is where a failed media cleanup goes to be seen. The organizer
 	// never hears about it (ADR 0020), so the log line is the only record that
 	// an object outlived the Event that referenced it.
@@ -151,13 +184,22 @@ type Service struct {
 // New returns a catalog service. The fee rates are the platform's configured
 // Platform Fee schedule, surfaced on Event payloads so the staff forms derive
 // buyer and take-home figures with the checkout arithmetic (ADR 0014).
-func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates, logger platform.Logger) *Service {
+//
+// The holdings seam is a constructor argument rather than a later WithX because
+// an unwired one would not degrade gracefully: a signed-in Customer would be
+// told they hold nothing, which is a false statement about them rather than an
+// absent one. Sales imports the catalog ROOT package for shared pricing types
+// but never catalog/service, so satisfying this interface from the sales service
+// closes no cycle — there is nothing to unpick, and no reason to tie the knot
+// after construction.
+func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates, holdings CustomerHoldings, logger platform.Logger) *Service {
 	return &Service{
-		repo:    repo,
-		storage: objectStorage,
-		fees:    fees,
-		now:     time.Now,
-		logger:  logger,
+		repo:     repo,
+		storage:  objectStorage,
+		fees:     fees,
+		now:      time.Now,
+		holdings: holdings,
+		logger:   logger,
 	}
 }
 
@@ -552,6 +594,17 @@ func nullStringFromPtr(s *string) sql.NullString {
 	return sql.NullString{String: trimmed, Valid: true}
 }
 
+// nullInt64FromPtr is nullStringFromPtr's integer sibling. Nil means the caller
+// said "no value" — for a Purchase Limit, that is the unrestricted state (ADR
+// 0024). It does no range checking: a non-positive value is a validation
+// failure the handler has already refused, not something to silently drop.
+func nullInt64FromPtr(v *int) sql.NullInt64 {
+	if v == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*v), Valid: true}
+}
+
 func toEventListItem(e *repository.Event) EventListItem {
 	item := EventListItem{
 		ID:           e.ID,
@@ -629,11 +682,12 @@ func (s *Service) CreateTicketType(ctx context.Context, actor ActorContext, even
 	}
 
 	created, err := s.repo.CreateTicketType(ctx, actor.OrganizationID, eventID, repository.CreateTicketTypeParams{
-		Name:        strings.TrimSpace(input.Name),
-		Description: nullStringFromPtr(input.Description),
-		PriceCents:  input.PriceCents,
-		Capacity:    input.Capacity,
-		SortOrder:   sortOrder,
+		Name:           strings.TrimSpace(input.Name),
+		Description:    nullStringFromPtr(input.Description),
+		PriceCents:     input.PriceCents,
+		Capacity:       input.Capacity,
+		SortOrder:      sortOrder,
+		MaxPerCustomer: nullInt64FromPtr(input.MaxPerCustomer),
 	}, s.now())
 	if err != nil {
 		return nil, err
@@ -681,11 +735,12 @@ func (s *Service) UpdateTicketType(ctx context.Context, actor ActorContext, even
 	}
 
 	updated, err := s.repo.UpdateTicketType(ctx, actor.OrganizationID, eventID, ticketTypeID, repository.UpdateTicketTypeParams{
-		Name:        strings.TrimSpace(input.Name),
-		Description: nullStringFromPtr(input.Description),
-		PriceCents:  input.PriceCents,
-		Capacity:    input.Capacity,
-		SortOrder:   input.SortOrder,
+		Name:           strings.TrimSpace(input.Name),
+		Description:    nullStringFromPtr(input.Description),
+		PriceCents:     input.PriceCents,
+		Capacity:       input.Capacity,
+		SortOrder:      input.SortOrder,
+		MaxPerCustomer: nullInt64FromPtr(input.MaxPerCustomer),
 	}, s.now())
 	if err != nil {
 		return nil, err
@@ -746,6 +801,7 @@ func toTicketTypeDetail(tt *repository.TicketType, currency string, promotion *r
 		s := tt.Description.String
 		detail.Description = &s
 	}
+	detail.MaxPerCustomer = nullIntPtr(tt.MaxPerCustomer)
 	return detail
 }
 

@@ -86,7 +86,7 @@ func publicEventFrom(cutoffExpr, nowExpr string) string {
 			COUNT(*) AS ticket_count
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
-		LEFT JOIN (` + sales.LiveHoldsSQL(cutoffExpr, "", "") + `) h ON h.ticket_type_id = tt.id
+		LEFT JOIN (` + sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: cutoffExpr}) + `) h ON h.ticket_type_id = tt.id
 		WHERE tt.event_id = e.id
 	) tt ON TRUE
 `
@@ -130,7 +130,7 @@ func collectPublicEventRows(rows *sql.Rows) ([]PublicEventRow, error) {
 // the payments table directly, as the ADR prescribes, so the hold semantics
 // stay defined in exactly one place.
 func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, cutoff time.Time) (map[string]int, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, cutoff)
+	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: "$2", EventExpr: "$1"}), eventID, cutoff)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package importfile
 
 import (
 	"errors"
+	"fmt"
 	"net/mail"
 	"strconv"
 	"strings"
@@ -21,6 +22,14 @@ type TicketTypeRef struct {
 	PriceCents int
 	Capacity   int
 	SoldCount  int
+	// MaxPerCustomer is the Ticket Type's Purchase Limit — the most of it one
+	// Customer may hold at once — nil being the unrestricted state (ADR 0025).
+	//
+	// The validation core carries it without reading it. Judging a row against it
+	// needs what that Customer already holds, which is a database read this
+	// package deliberately has no way to make, so the sales service decides the
+	// refusal from this snapshot and reports it back through RejectRow.
+	MaxPerCustomer *int
 }
 
 // ValidateInput is everything the validation core needs: the parsed rows, the
@@ -109,6 +118,76 @@ type ValidateResult struct {
 // Valid reports whether every parsed row passed validation.
 func (v ValidateResult) Valid() bool { return v.ValidRows == v.TotalRows }
 
+// anyOversold reports whether any Ticket Type the file touches is asked for more
+// than it has left.
+func (v ValidateResult) anyOversold() bool {
+	for _, impact := range v.CapacityImpact {
+		if impact.Oversold {
+			return true
+		}
+	}
+	return false
+}
+
+// RejectRow turns a row that passed field validation into a rejected one,
+// attaching the complaint and restating the counters so Valid, ValidRows and
+// Committable can never disagree with the rows themselves.
+//
+// It exists so a check that needs the database — the Purchase Limit, whose count
+// of what a Customer already holds cannot be made in this package (ADR 0025) —
+// reports through the very channel the spreadsheet's own problems use. The
+// preview panel already renders a per-row complaint beside the offending cell, so
+// the refusal needs no second response concept and no warnings channel: it is
+// blocking, exactly like a malformed email.
+//
+// Rejecting an already-invalid row only appends the complaint; it was never
+// counted valid, so the counters do not move.
+func (v *ValidateResult) RejectRow(index int, complaint RowError) {
+	if index < 0 || index >= len(v.Rows) {
+		panic(fmt.Sprintf("importfile: RejectRow index %d out of range for %d rows", index, len(v.Rows)))
+	}
+	row := &v.Rows[index]
+	row.Errors = append(row.Errors, complaint)
+	if !row.Valid {
+		// Already refused for some other reason, and its quantity was never
+		// counted into CapacityImpact — so there is nothing to take back.
+		return
+	}
+	row.Valid = false
+	v.ValidRows--
+	// The row's quantity leaves the capacity figures with it. Validate counts a
+	// row's quantity into CapacityImpact only while the row is valid, so a
+	// rejected row that stayed in Requested would tell the organizer this import
+	// wants tickets no longer being asked for — and could report the whole batch
+	// oversold on the strength of rows it has just refused.
+	v.withdrawFromCapacityImpact(row.TicketTypeID, row.Quantity)
+	v.Committable = v.Valid() && !v.anyOversold()
+}
+
+// withdrawFromCapacityImpact takes a refused row's quantity back out of the
+// per-Ticket-Type figures, restating Overage and Oversold from what is left.
+func (v *ValidateResult) withdrawFromCapacityImpact(ticketTypeID string, quantity int) {
+	if ticketTypeID == "" || quantity <= 0 {
+		return
+	}
+	for i := range v.CapacityImpact {
+		impact := &v.CapacityImpact[i]
+		if impact.TicketTypeID != ticketTypeID {
+			continue
+		}
+		impact.Requested -= quantity
+		if impact.Requested < 0 {
+			impact.Requested = 0
+		}
+		impact.Overage = impact.Requested - impact.Remaining
+		if impact.Overage < 0 {
+			impact.Overage = 0
+		}
+		impact.Oversold = impact.Overage > 0
+		return
+	}
+}
+
 // Validate checks every row, reporting all problems at once, and computes the
 // capacity impact per Ticket Type. It performs no writes.
 func Validate(in ValidateInput) ValidateResult {
@@ -143,7 +222,6 @@ func Validate(in ValidateInput) ValidateResult {
 		result.Rows = append(result.Rows, row)
 	}
 
-	anyOversold := false
 	for _, tt := range in.Types {
 		req, ok := requested[tt.ID]
 		if !ok {
@@ -153,9 +231,6 @@ func Validate(in ValidateInput) ValidateResult {
 		overage := req - remaining
 		if overage < 0 {
 			overage = 0
-		}
-		if overage > 0 {
-			anyOversold = true
 		}
 		result.CapacityImpact = append(result.CapacityImpact, CapacityImpact{
 			TicketTypeID:   tt.ID,
@@ -171,7 +246,7 @@ func Validate(in ValidateInput) ValidateResult {
 
 	// A batch may be committed only when every row is valid and nothing is
 	// oversold. Possible-duplicate flags are a soft signal and never block.
-	result.Committable = result.Valid() && !anyOversold
+	result.Committable = result.Valid() && !result.anyOversold()
 
 	return result
 }

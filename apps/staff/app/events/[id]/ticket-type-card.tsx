@@ -8,6 +8,7 @@ import {
   promotionState,
   promotionStateBadgeVariant,
 } from "@/lib/promotions";
+import { purchaseLimitSummary } from "@/lib/purchase-limit";
 import {
   AVAILABILITY_LABELS,
   availabilityBadgeVariant,
@@ -60,6 +61,10 @@ export function TicketTypeCard({
   // scheduled and ended ones read as a note under the price that still applies.
   const promotionLive = state === "live";
   const share = soldShare(ticketType);
+  // A Purchase Limit is unset on most Ticket Types, so the line appears only
+  // when one is actually set: null here means the card stays silent rather than
+  // claiming anything about how many a Customer may hold.
+  const purchaseLimitLine = purchaseLimitSummary(ticketType.max_per_customer);
 
   const listPrice = formatPriceCents(ticketType.price_cents, ticketType.currency);
   const promotionPrice = promotion
@@ -132,6 +137,9 @@ export function TicketTypeCard({
           />
         </div>
         <p className="text-sm text-muted-foreground tabular-nums">{capacitySummary(ticketType)}</p>
+        {purchaseLimitLine ? (
+          <p className="text-sm text-muted-foreground tabular-nums">{purchaseLimitLine}</p>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-end gap-2">

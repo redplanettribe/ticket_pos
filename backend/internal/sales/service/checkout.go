@@ -26,6 +26,10 @@ import (
 // sales.CapacityHoldWindow (ADR 0013) — so a Customer on the provider's payment
 // page cannot lose their tickets to a faster buyer. The under-lock check at
 // commit remains the one that cannot be raced past.
+//
+// The Purchase Limit is counted the same two ways — the buyer's active Ticket
+// Sales plus their live Capacity Holds — but only at begin, and never again at
+// commit (ADR 0025). See refusePurchaseLimitBreach.
 
 // checkoutReturnPath is the Storefront route the Payment Provider sends the
 // Customer back to when its payment page is done with them. A Storefront URL,
@@ -189,6 +193,21 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		requested[tt.ID] += line.Quantity
 	}
 
+	// The Purchase Limit is enforced here, on the aggregated request, and NOWHERE
+	// else — see refusePurchaseLimitBreach for why the commit path deliberately
+	// does not re-check it.
+	//
+	// It runs BEFORE the capacity check below, so a request breaching both is
+	// told about its own allowance rather than about the Event being full. That
+	// order is deliberate: a Purchase Limit refusal is terminal for that buyer,
+	// while CAPACITY_EXCEEDED names an `available` figure and invites a smaller
+	// retry the limit would refuse just the same. Telling a Customer who already
+	// holds their allowance that the Event is sold out is exactly the confusion
+	// ADR 0025 gave this refusal its own code to avoid.
+	if err := s.refusePurchaseLimitBreach(ctx, event.ID, byID, requested, order, customer.Email, cutoff); err != nil {
+		return nil, err
+	}
+
 	// The Event's Fee Handling is read once, here, and frozen into the lines
 	// below: a flip while this Payment is pending must not move what the
 	// Customer is already paying (ADR 0014).
@@ -308,6 +327,134 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		AmountCents:         amountCents,
 		Currency:            event.Currency,
 	}, nil
+}
+
+// refusePurchaseLimitBreach refuses a checkout that would take the buyer past a
+// requested Ticket Type's Purchase Limit: what they already hold plus what this
+// cart asks for may not exceed it (ADR 0025).
+//
+// It is handed the request ALREADY AGGREGATED per Ticket Type, for the same
+// reason the capacity check is: a cart naming one Ticket Type on three lines is
+// one buyer asking for the sum, and judging the lines separately would let three
+// requests of one slip past a limit of one.
+//
+// The buyer is resolved through the customers seam rather than by looking a row
+// up here, because who an email is, is that module's rule (ADR 0010). A first
+// checkout resolves to no Customer at all — the record is upserted only when a
+// sale commits — and that buyer holds zero, which is not a special case but the
+// ordinary one.
+//
+// Both reads are skipped entirely when no requested Ticket Type is rationed,
+// which is nearly every checkout on the platform: an unrestricted Ticket Type is
+// the state every one of them starts in, and an unconditional pair of queries
+// would make the whole Event's checkout pay for a feature it does not use.
+//
+// It is checked HERE AND NOWHERE ELSE. The commit path re-checks capacity under
+// row locks and deliberately does not re-check this: overselling a venue is a
+// physical failure, while one Customer holding limit+1 after a pathological
+// interleaving is harmless, and a refusal at commit would mean the Payment
+// Provider has the buyer's money for a sale the platform then declines — the
+// PAYMENT_APPROVED_WITHOUT_SALE incident a Platform Operator resolves by hand.
+// The asymmetry is the decision, not an omission (ADR 0025).
+func (s *Service) refusePurchaseLimitBreach(
+	ctx context.Context,
+	eventID string,
+	byID map[string]repository.EventTicketType,
+	requested map[string]int,
+	order []string,
+	email string,
+	cutoff time.Time,
+) error {
+	rationed := false
+	for _, id := range order {
+		if byID[id].MaxPerCustomer != nil {
+			rationed = true
+			break
+		}
+	}
+	if !rationed {
+		return nil
+	}
+
+	held, err := s.customerEventHoldings(ctx, eventID, email, cutoff)
+	if err != nil {
+		return err
+	}
+
+	for _, id := range order {
+		limit := byID[id].MaxPerCustomer
+		if limit == nil {
+			continue
+		}
+		if held[id]+requested[id] > *limit {
+			return sales.ErrPurchaseLimitExceeded(id, *limit, held[id], requested[id])
+		}
+	}
+	return nil
+}
+
+// CustomerEventHoldings reports how much of each of an Event's Ticket Types the
+// person at this email already holds — their active Ticket Sales plus their live
+// Capacity Holds, which is exactly what a Purchase Limit is measured against
+// (ADR 0025). Ticket Types they hold none of are absent from the map.
+//
+// It exists for one caller outside this module: the public Event read, which
+// tells a SIGNED-IN Customer their own holdings so the Storefront can bound its
+// quantity picker before they type anything, and can say "you have yours"
+// instead of "sold out" (#168). Catalog asks sales through this seam rather than
+// reaching into the sales repository or restating the two-armed count in a
+// second query of its own — one definition of "how many does this person hold"
+// is what keeps the page and the refusal agreeing.
+//
+// THE EMAIL MUST BE ONE THE CALLER HAS PROVEN THE REQUESTER OWNS. Nothing here
+// checks that and nothing here can: this is a service method, and the privacy
+// property rests entirely on no route ever letting a caller name an address they
+// have not proven. An endpoint that took an arbitrary email would be an oracle
+// revealing whether a given address had bought a given Ticket Type, which
+// ADR 0025 refuses outright.
+//
+// The hold window is read off this service's own clock, because a page read is
+// its own moment and has no other cutoff to be consistent with — unlike
+// begin-checkout, which shares one cutoff with its capacity check.
+func (s *Service) CustomerEventHoldings(ctx context.Context, eventID, email string) (map[string]int, error) {
+	return s.customerEventHoldings(ctx, eventID, email, sales.HoldCutoff(s.now()))
+}
+
+// customerEventHoldings is the count itself: resolve the email to a Customer
+// through the customers seam — never lower-casing it here, since normalisation
+// is that module's rule (ADR 0010) — then read both arms in the one query that
+// defines them.
+func (s *Service) customerEventHoldings(ctx context.Context, eventID, email string, cutoff time.Time) (map[string]int, error) {
+	_, holdings, err := s.resolveCustomerEventHoldings(ctx, eventID, email, cutoff)
+	return holdings, err
+}
+
+// resolveCustomerEventHoldings is the whole of that read, handing back the
+// normalised email alongside the holdings.
+//
+// The Sale Import needs both: the holdings to judge the row, and the normalised
+// address to key its running per-file tally on, so two spellings of one Customer
+// in the same spreadsheet spend one allowance. Callers that only want the
+// figures take customerEventHoldings above; nobody resolves an email and reads
+// the two arms themselves, or begin-checkout's refusal and the import's could
+// come to disagree about who a buyer is.
+func (s *Service) resolveCustomerEventHoldings(
+	ctx context.Context,
+	eventID, email string,
+	cutoff time.Time,
+) (string, map[string]int, error) {
+	customerID, normalizedEmail, err := s.customers.ResolveByEmail(ctx, email)
+	if err != nil {
+		return "", nil, err
+	}
+	holdings, err := s.repo.CustomerEventHoldings(ctx, eventID, repository.BuyerHoldings{
+		CustomerID:      customerID,
+		NormalizedEmail: normalizedEmail,
+	}, cutoff)
+	if err != nil {
+		return "", nil, err
+	}
+	return normalizedEmail, holdings, nil
 }
 
 // resolveAffiliateLink turns the click history a checkout arrived with into the

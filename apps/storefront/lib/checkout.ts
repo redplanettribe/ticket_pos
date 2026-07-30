@@ -19,11 +19,96 @@ export type SellableTicketType = {
   price_cents: number;
   remaining: number;
   sold_out: boolean;
+  // The Purchase Limit, or null/absent when this Ticket Type is unrestricted
+  // (ADR 0025). Optional rather than required so a caller that predates the
+  // limit reads as unrestricted instead of as a bound of zero: "not rationed"
+  // is a statement, not a number to do arithmetic on.
+  max_per_customer?: number | null;
+  // How many of this Ticket Type the Customer READING the page already holds —
+  // their active Ticket Sales plus their live Capacity Holds, the same count
+  // begin-checkout refuses on and under the same name the API gives it
+  // (ADR 0025, #168).
+  //
+  // Null or absent means we do not know who is asking, which is the anonymous
+  // Event read and is NOT the same statement as zero. Zero says "you hold none
+  // of these", and only a request that proved whose holdings it was asking about
+  // can say that. So an absent figure subtracts nothing and leaves the bound
+  // exactly where the Purchase Limit alone puts it — an anonymous visitor learns
+  // of their allowance at submit, which is the first moment they have told us
+  // who they are.
+  already_held?: number | null;
 };
 
 /**
+ * remainingAllowance is how many more of a Ticket Type one Customer may hold:
+ * their Purchase Limit less what they already hold, floored at zero (ADR 0025).
+ *
+ * The floor is load-bearing rather than defensive. Lowering a Purchase Limit is
+ * never retroactive — a Customer who bought five under a limit of five keeps all
+ * five when the organizer drops the limit to two — so held EXCEEDING the limit is
+ * a legitimate state, not a bug to assert against. Such a Customer is offered
+ * zero, never a negative quantity that would flow into a stepper's bound.
+ *
+ * An unknown holding (the anonymous read) subtracts nothing: see already_held.
+ */
+function remainingAllowance(limit: number, alreadyHeld: number | null | undefined): number {
+  if (alreadyHeld === null || alreadyHeld === undefined) return Math.max(limit, 0);
+  return Math.max(limit - alreadyHeld, 0);
+}
+
+/**
+ * offerableQuantity is the largest quantity the steppers may offer for one
+ * Ticket Type: the smaller of what remains of the Event's stock and what remains
+ * of this Customer's own allowance under the Purchase Limit (ADR 0025). An
+ * absent Purchase Limit contributes no bound at all, so an unrestricted Ticket
+ * Type offers exactly what remaining capacity allows — the behaviour every
+ * Ticket Type had before limits existed.
+ *
+ * This is the Storefront's courtesy, not the rule: the API refuses a breach at
+ * begin-checkout and is what actually holds it. Bounding here only spares an
+ * honest buyer from meeting that refusal — which is precisely why the allowance
+ * arm exists at all. Bounding at the bare limit offered a signed-in Customer
+ * their whole limit again however much of it they had spent, so the page's one
+ * job was undone the moment they had bought once (#165 left this open, #168
+ * closes it).
+ *
+ * A limit higher than remaining capacity is not a licence to oversell, hence
+ * min rather than either figure alone.
+ */
+export function offerableQuantity(ticketType: SellableTicketType): number {
+  const capacityBound = Math.max(ticketType.remaining, 0);
+  const limit = ticketType.max_per_customer;
+  if (limit === null || limit === undefined) return capacityBound;
+  return Math.min(capacityBound, remainingAllowance(limit, ticketType.already_held));
+}
+
+/**
+ * allowanceSpent is whether THIS Customer has used up their Purchase Limit on a
+ * Ticket Type that is otherwise still on sale — the one state the Event page has
+ * to word differently from sold out (ADR 0025, #168).
+ *
+ * It is deliberately not "offerableQuantity is zero": that is true of a sold-out
+ * Ticket Type too, and conflating them is the exact failure this exists to
+ * prevent — a Customer must never read their own spent allowance as the Event
+ * being full. Sold out is therefore excluded here and keeps its own wording,
+ * because it is a fact about the Event and everyone reading the page sees it.
+ *
+ * False whenever already_held is absent, which is every anonymous read: an
+ * unknown holding cannot have exhausted anything, and treating it as zero
+ * spent would tell a visitor something about themselves we do not know.
+ */
+export function allowanceSpent(ticketType: SellableTicketType): boolean {
+  if (ticketType.sold_out) return false;
+  const limit = ticketType.max_per_customer;
+  const alreadyHeld = ticketType.already_held;
+  if (limit === null || limit === undefined) return false;
+  if (alreadyHeld === null || alreadyHeld === undefined) return false;
+  return remainingAllowance(limit, alreadyHeld) === 0;
+}
+
+/**
  * clampQuantity keeps a stepper's value honest: an integer between zero and
- * what remains of the Ticket Type. Anything unparseable is zero, and a sold-out
+ * what the Ticket Type may offer. Anything unparseable is zero, and a sold-out
  * type can never hold a quantity at all.
  */
 export function clampQuantity(raw: number, ticketType: SellableTicketType): number {
@@ -31,7 +116,7 @@ export function clampQuantity(raw: number, ticketType: SellableTicketType): numb
   if (!Number.isFinite(raw)) return 0;
   const whole = Math.trunc(raw);
   if (whole <= 0) return 0;
-  return Math.min(whole, Math.max(ticketType.remaining, 0));
+  return Math.min(whole, offerableQuantity(ticketType));
 }
 
 /** Total number of tickets selected across every Ticket Type. */

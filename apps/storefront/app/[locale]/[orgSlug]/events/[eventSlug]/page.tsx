@@ -15,6 +15,7 @@ import { Link } from "@/i18n/navigation";
 import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
 import { getPublicEvent } from "@/lib/api";
+import { customerSessionToken } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
@@ -107,7 +108,18 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
   const appLocale = toAppLocale(locale);
-  const event = await getPublicEvent(orgSlug, eventSlug);
+  // Read as whoever is signed in, when somebody is. The token adds nothing but
+  // each Ticket Type's already_held — what THIS Customer already holds — which
+  // is what lets the steppers offer a real remaining allowance instead of the
+  // whole Purchase Limit over again, and lets a Ticket Type whose allowance is
+  // spent say so instead of looking sold out (ADR 0025, #168).
+  //
+  // An anonymous visitor passes no token and sees precisely the page they saw
+  // before: already_held comes back null, which means "we do not know who is
+  // asking" and never 0. The route is public, so a dead or garbage token is read
+  // as a guest rather than refused, and this page is force-dynamic anyway — the
+  // cookie read costs no cacheability that was ever on offer.
+  const event = await getPublicEvent(orgSlug, eventSlug, await customerSessionToken());
 
   if (!event) {
     notFound();

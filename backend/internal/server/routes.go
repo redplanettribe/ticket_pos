@@ -161,7 +161,19 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("GET /api/v1/public/events", ch.ListPublicEvents)
 	mux.HandleFunc("GET /api/v1/public/tags", ch.ListPublicTags)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events", ch.GetPublicOrganizationEvents)
-	mux.HandleFunc("GET /api/v1/public/organizations/{slug}/events/{eventSlug}", ch.GetPublicEvent)
+	// The Storefront event page. Public, and it stays public: the optional session
+	// middleware does not gate this route either — an absent, expired or garbage
+	// token reads the Event as an ordinary visitor and never a 401.
+	//
+	// It is here for the same shape of reason as on the checkout route below. A
+	// signed-in Customer is additionally told how many of each Ticket Type THEY
+	// already hold, so the quantity picker can bound itself by the Purchase Limit
+	// and a Ticket Type whose allowance is spent says so rather than claiming to
+	// be sold out (ADR 0025, #168). The session is the only way to name whose
+	// holdings those are, which is the point: no query parameter or header may
+	// ever ask about an address the caller has not proven they own.
+	mux.Handle("GET /api/v1/public/organizations/{slug}/events/{eventSlug}",
+		customersmiddleware.OptionalCustomerSession(app.CustomersService)(http.HandlerFunc(ch.GetPublicEvent)))
 	// Online checkout (ADR 0012). Guest by definition: no session is required to
 	// buy tickets, only an email, a name, and a Tax ID.
 	//

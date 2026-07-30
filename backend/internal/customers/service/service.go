@@ -176,3 +176,33 @@ func (s *Service) UpsertForSale(ctx context.Context, tx *sql.Tx, customer platfo
 		Now:      now,
 	})
 }
+
+// ResolveByEmail answers who a typed email is, for a caller that must count what
+// that person already has: the Customer id when a record exists and "" when none
+// does, plus the normalised form of the email either way.
+//
+// It is the read-only companion to UpsertForSale and exists so no other module
+// has to know how an email becomes a Customer. The Purchase Limit is the first
+// caller (ADR 0025): its count is keyed on the Customer, but the Customer record
+// is not created until a Ticket Sale commits, so a buyer part-way through their
+// first checkout legitimately resolves to no Customer at all. An empty id is
+// therefore an ordinary answer and never an error — that person holds nothing.
+//
+// The normalised email is returned alongside because callers must also match
+// records that snapshot an email VERBATIM — a pending Payment does, since it
+// predates the Customer — and they must do that against the same string this
+// module keys identity on. Handing it back is what keeps platform.NormalizeEmail
+// the one rule: a caller that had to normalise for itself would be a second
+// implementation of it, and a second implementation is how one person silently
+// becomes two Customers.
+func (s *Service) ResolveByEmail(ctx context.Context, email string) (customerID, normalizedEmail string, err error) {
+	normalizedEmail = platform.NormalizeEmail(email)
+	customer, err := s.repo.GetCustomerByEmail(ctx, normalizedEmail)
+	if err != nil {
+		return "", normalizedEmail, err
+	}
+	if customer == nil {
+		return "", normalizedEmail, nil
+	}
+	return customer.ID, normalizedEmail, nil
+}

@@ -112,6 +112,113 @@ test("a surface group is consulted first and falls through for everything else",
   );
 });
 
+test("a Purchase Limit refusal states the limit and what the Customer already holds", () => {
+  // The one refusal whose sentence is useless without the API's facts: a
+  // Customer at a Ticket Type's Purchase Limit has to read what the limit is and
+  // how many they hold, or they cannot tell this from the Event being full (ADR
+  // 0025). The sentence states the count rather than asserting possession,
+  // because already_held is 0 when the request alone was too large. Both
+  // catalogs, because a Spanish buyer reading an unfilled placeholder is the
+  // failure this guards.
+  const refusal = {
+    code: "PURCHASE_LIMIT_EXCEEDED",
+    message: "You already have the maximum number of these tickets.",
+    details: { ticket_type_id: "tt-1", limit: 2, already_held: 2, requested: 1 },
+  };
+  const english = apiErrorMessage(catalog, refusal);
+  assert.ok(english?.includes("limited to 2 per person"), english ?? "null");
+  assert.ok(english?.includes("you have 2"), english ?? "null");
+  const espanol = apiErrorMessage(spanish, refusal);
+  assert.ok(espanol?.includes("límite de 2 por persona"), espanol ?? "null");
+  assert.ok(espanol?.includes("usted tiene 2"), espanol ?? "null");
+});
+
+test("a Purchase Limit refusal claims no possession when the buyer holds none", () => {
+  // The API refuses whenever already_held + requested exceeds the Purchase
+  // Limit, so already_held is 0 when the REQUEST alone was too large. The
+  // Storefront's steppers make that unreachable, but the contract permits it and
+  // another client can produce it — so the one code-keyed sentence must be true
+  // of it too. This is why the copy states the count instead of asserting the
+  // buyer "already has theirs", which at zero would simply be a lie. ADR 0023
+  // rules out selecting a second sentence on details, so truth has to live in
+  // the wording.
+  const refusal = {
+    code: "PURCHASE_LIMIT_EXCEEDED",
+    message: "You already have the maximum number of these tickets.",
+    details: { ticket_type_id: "tt-1", limit: 1, already_held: 0, requested: 3 },
+  };
+  const english = apiErrorMessage(catalog, refusal);
+  assert.ok(english?.includes("limited to 1 per person"), english ?? "null");
+  assert.ok(english?.includes("you have 0"), english ?? "null");
+  assert.ok(!/already have/i.test(english ?? ""), english ?? "null");
+  const espanol = apiErrorMessage(spanish, refusal);
+  assert.ok(espanol?.includes("usted tiene 0"), espanol ?? "null");
+  assert.ok(!/ya tiene/i.test(espanol ?? ""), espanol ?? "null");
+});
+
+test("a Purchase Limit refusal never reads as the Event being sold out", () => {
+  // The distinction the code exists to carry: CAPACITY_EXCEEDED and
+  // PURCHASE_LIMIT_EXCEEDED share a 409 and a shape, and a Customer told the
+  // second must not conclude the first. Asserted as two different sentences in
+  // both languages rather than by matching wording, which a translation would
+  // rightly change.
+  const soldOut = { code: "CAPACITY_EXCEEDED", message: "Not enough tickets remaining." };
+  const limit = {
+    code: "PURCHASE_LIMIT_EXCEEDED",
+    message: "You already have the maximum number of these tickets.",
+    details: { ticket_type_id: "tt-1", limit: 1, already_held: 1, requested: 1 },
+  };
+  for (const errors of [catalog, spanish]) {
+    assert.notEqual(apiErrorMessage(errors, limit), apiErrorMessage(errors, soldOut));
+  }
+});
+
+test("a Purchase Limit already breached beyond the limit is stated, not sanitized", () => {
+  // Lowering a Purchase Limit is not retroactive, so holding more than the limit
+  // is a legitimate state (ADR 0025) and the sentence has to be able to say so.
+  // Nothing here compares the two numbers.
+  const message = apiErrorMessage(catalog, {
+    code: "PURCHASE_LIMIT_EXCEEDED",
+    message: "You already have the maximum number of these tickets.",
+    details: { ticket_type_id: "tt-1", limit: 1, already_held: 3, requested: 1 },
+  });
+  assert.ok(message?.includes("limited to 1 per person"), message ?? "null");
+  assert.ok(message?.includes("you have 3"), message ?? "null");
+});
+
+test("copy that names a fact the details do not carry falls back to the API's message", () => {
+  // The degradation for a details payload that changed shape — a key renamed on
+  // the API side. An English sentence that is true beats a Spanish one with a
+  // literal "{limit}" in it, which is the same trade ADR 0023 makes for a code
+  // the catalog has never heard of.
+  const message = "You already have the maximum number of these tickets.";
+  const code = "PURCHASE_LIMIT_EXCEEDED";
+  assert.equal(apiErrorMessage(spanish, { code, message, details: { limit: 2 } }), message);
+  assert.equal(apiErrorMessage(spanish, { code, message }), message);
+  assert.equal(
+    apiErrorMessage(spanish, { code, message, details: { limit: 2, already_held: null } }),
+    message,
+  );
+  // And with neither a usable fact nor a usable message, the caller's own
+  // sentence — never a half-filled one.
+  assert.equal(apiErrorMessage(spanish, { code, message: "", details: {} }), null);
+});
+
+test("copy with no placeholders is unaffected by whatever details arrive", () => {
+  // fillDetails runs over every entry, so the guard against it touching the
+  // twenty-odd sentences that predate it belongs here.
+  const soldOut = {
+    code: "CAPACITY_EXCEEDED",
+    message: "Not enough tickets remaining.",
+    details: { ticket_type_id: "tt-1", requested: 4, available: 1 },
+  };
+  assert.equal(apiErrorMessage(catalog, soldOut), "Not enough tickets remaining.");
+  assert.equal(
+    apiErrorMessage(catalog, { code: "OTP_EXPIRED", details: "nonsense" }),
+    "That passcode has expired. Request a new one.",
+  );
+});
+
 test("a field error carrying a code is answered in the catalog's words", () => {
   const errors = fieldErrorMessages(catalog, {
     fields: [
