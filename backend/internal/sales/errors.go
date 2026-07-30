@@ -204,6 +204,48 @@ func ErrSaleReversalFailed(confirmationRef string) apperror.DomainError {
 	)
 }
 
+// ErrReversalUnresolved is returned to a Customer pressing Undo on a sale whose
+// Reversal Request became an Unresolved Reversal: the platform asked the Payment
+// Provider and never learned what it did, and has stopped asking (ADR 0024).
+//
+// It is a refusal rather than a fresh ask, and that is the whole point. The
+// money's state is UNKNOWN — it may already be on its way back — so posting
+// another reversal is the double-refund this feature exists to avoid, and it is
+// exactly what a second press would otherwise do once the sale reads as
+// untouched again. Nothing here reaches the provider.
+//
+// It is not ErrSaleAlreadyReversed, which would claim their money is back, and
+// not the pending result, which would promise it is coming: both are guesses
+// about somebody's money, and the platform is in this state precisely because it
+// cannot make one. The message says what is true — somebody is looking into it —
+// and hands them the Sale Confirmation reference the operator settling it (ADR
+// 0019) works from.
+func ErrReversalUnresolved(confirmationRef string) apperror.DomainError {
+	return apperror.New(
+		"REVERSAL_UNRESOLVED",
+		"We're still checking with the payment provider what happened to this refund. Nothing has changed here — contact the organizer with your confirmation reference.",
+		map[string]any{"confirmation_ref": confirmationRef},
+	)
+}
+
+// ErrSaleReversalInProgress is returned to a Platform Operator whose Operator
+// Reversal contended with a reversal already in flight on the same Ticket Sale —
+// the buyer's own undo, or the Reversal Reconciler mid-probe (ADR 0024).
+//
+// It is deliberately not ErrSaleAlreadyReversed. The contending attempt may yet
+// be refused by the Payment Provider, in which case the sale is still active and
+// "already reversed" would have been false; and unlike a buyer, who has one
+// reversal happening and no second one to make, an operator is asserting a
+// refund that already happened off-platform and whose claim is just as true a
+// moment later. Retrying is the right advice and the only honest one.
+func ErrSaleReversalInProgress(confirmationRef string) apperror.DomainError {
+	return apperror.New(
+		"SALE_REVERSAL_IN_PROGRESS",
+		"A reversal of this sale is already being processed. Try again in a moment.",
+		map[string]any{"confirmation_ref": confirmationRef},
+	)
+}
+
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
 // parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
 // contents). The reason is a human-readable sentence produced by the importfile

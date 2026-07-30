@@ -3,8 +3,10 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
+	"sync"
 )
 
 // The Payment Provider boundary (ADR 0012): an external service that collects
@@ -102,6 +104,42 @@ type PaymentConfirmation struct {
 	Instrument            string
 }
 
+// ErrPaymentReverseRefused marks a failed Reverse as a DEFINITE REFUSAL: the
+// provider was asked, it answered, and it said no. Nothing happened — the money
+// is exactly where it was and the Payment is untouched — so there is nothing to
+// find out later and nothing to retry.
+//
+// It is a sentinel WRAPPED INTO the provider's own error rather than returned in
+// its place, so the error still carries what the provider actually said (which
+// is what the log line exists for) while errors.Is answers the one question
+// callers branch on. That is the boundary's existing idiom, next to
+// ErrPaymentReverseNotSupported below: an exported predicate alone would keep
+// the classification unreachable to a provider implemented outside this package.
+//
+// Only the refusal is marked, and that asymmetry is the safety property. An
+// unmarked failure — a timeout, a 5xx, an unrecognized body, or a provider that
+// has never been taught this distinction — is an UNKNOWN OUTCOME, which is the
+// answer that costs nothing to be wrong about: the platform asks the provider
+// again (ADR 0024). A default of "refused" would tell a buyer nothing happened
+// to money that may already have left them, which is the one thing this system
+// must never say.
+var ErrPaymentReverseRefused = errors.New("payment provider: reverse refused; nothing happened")
+
+// PaymentReverseOutcomeUnknown reports whether a Reverse failure left the
+// outcome genuinely unknown: the money may or may not have moved, so the
+// Reversal Request stays open and the platform asks again (ADR 0024).
+//
+// It stands beside the sentinel rather than instead of it because this is the
+// question callers actually ask, and spelling it as
+// `!errors.Is(err, ErrPaymentReverseRefused)` is both harder to read at a branch
+// and wrong for a nil error: a reversal that SUCCEEDED would answer "unknown"
+// through the bare negation, and a Reversal Request would be opened on money
+// already confirmed returned. Asking here makes nil what it is — not a failure
+// at all.
+func PaymentReverseOutcomeUnknown(err error) bool {
+	return err != nil && !errors.Is(err, ErrPaymentReverseRefused)
+}
+
 // ErrPaymentReverseNotSupported is returned by providers that cannot reverse a
 // payment programmatically; reversal is then a manual operation on the
 // provider's dashboard (ADR 0012).
@@ -111,7 +149,14 @@ type PaymentConfirmation struct {
 // the boundary for the next one, which may well not. Removing it would mean the
 // interface had no way to say "cannot", and a provider without a reversal API
 // would have to invent a failure instead of declaring an absence.
-var ErrPaymentReverseNotSupported = errors.New("payment provider: reverse is not supported")
+//
+// It is declared as a wrap of ErrPaymentReverseRefused because "this provider
+// has no reversal API" IS a definite refusal, and the strongest one there is:
+// nothing happened, and nothing ever could. Left unmarked it would classify as
+// an unknown outcome, and a Reversal Request would sit open re-asking a provider
+// that has nothing to be asked. It keeps its own identity for its own callers —
+// errors.Is against this value still answers only for this value.
+var ErrPaymentReverseNotSupported = fmt.Errorf("payment provider: reverse is not supported: %w", ErrPaymentReverseRefused)
 
 // PaymentProvider collects money for Online Sales behind a provider-agnostic
 // seam. PayPhone is the launch provider; a second provider requires only a new
@@ -136,6 +181,25 @@ type PaymentProvider interface {
 	//
 	// It must not retry. Re-posting a reversal into silence risks returning the
 	// money twice, the same reasoning ADR 0012 applies to Confirm.
+	//
+	// **A failure says which of two very different things happened**, because
+	// the caller does completely different things with them (ADR 0024):
+	//
+	//   - A DEFINITE REFUSAL — the provider answered and said no — means
+	//     NOTHING HAPPENED. The money never moved, the Payment is as it was, and
+	//     there is nothing to find out later. The provider wraps
+	//     ErrPaymentReverseRefused into the error to say so.
+	//   - An UNKNOWN OUTCOME — a timeout, a 5xx, an answer in a shape this
+	//     integration does not recognize — means THE MONEY MAY OR MAY NOT HAVE
+	//     MOVED. The provider may well have acted on a request whose answer never
+	//     came back, so the question is still open and the platform asks again
+	//     rather than reporting a failure. Any error the provider does not mark
+	//     is this, which is the safe default for a provider that has not been
+	//     taught the distinction. Callers ask through
+	//     PaymentReverseOutcomeUnknown.
+	//
+	// Neither is a success: on any error the caller reverses nothing locally.
+	// What the distinction decides is whether the ask is over or still open.
 	//
 	// A provider that cannot reverse programmatically returns
 	// ErrPaymentReverseNotSupported and says so through SupportsReverse below.
@@ -269,6 +333,44 @@ const (
 // credentials are configured. It never talks to any external service.
 type StubPaymentProvider struct {
 	storefrontBaseURL string
+
+	// mu guards reverseOutcome alone. The stub is one shared value serving every
+	// request, and a test that drives a reversal outcome does so while other
+	// requests may be in flight — the concurrent-undo case is one this system
+	// deliberately exercises.
+	mu             sync.Mutex
+	reverseOutcome StubReverseOutcome
+}
+
+// StubReverseOutcome is what the stub's Reverse answers, so a deployment with no
+// PayPhone credentials can exercise all three answers a real provider gives.
+//
+// The two failures are not one failure with two labels: a definite refusal ends
+// a Reversal Request on the spot because nothing happened, while an unknown
+// outcome leaves it open for the platform to ask again (ADR 0024). Both paths
+// have to be reachable locally for the same reason the stub agrees at all —
+// otherwise the first place they run is production.
+type StubReverseOutcome int
+
+const (
+	// StubReverseSucceeds is the zero value, and so the answer every stub gives
+	// until a test says otherwise. Constructing a stub can therefore never have
+	// changed what it does.
+	StubReverseSucceeds StubReverseOutcome = iota
+	// StubReverseRefuses is the provider definitely saying no: nothing happened.
+	StubReverseRefuses
+	// StubReverseOutcomeUnknown is the provider not answering at all: the money
+	// may or may not have moved.
+	StubReverseOutcomeUnknown
+)
+
+// SetReverseOutcome drives what Reverse answers from here on. It exists for
+// tests and for a human clicking through a dev deployment; nothing in the
+// serving path calls it.
+func (p *StubPaymentProvider) SetReverseOutcome(outcome StubReverseOutcome) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reverseOutcome = outcome
 }
 
 // NewStubPaymentProvider returns the stub provider, pointing its interstitial
@@ -312,16 +414,34 @@ func (p *StubPaymentProvider) Confirm(_ context.Context, in PaymentConfirmInput)
 	}, nil
 }
 
-// Reverse succeeds, unconditionally. There is no external service to ask and no
-// money to give back, so the stub's honest answer to "was the payment reversed?"
-// is yes — the same answer its Confirm gives the interstitial's Approve.
+// Reverse succeeds unless a test has driven it otherwise. There is no external
+// service to ask and no money to give back, so the stub's honest answer to "was
+// the payment reversed?" is yes — the same answer its Confirm gives the
+// interstitial's Approve.
 //
-// It succeeds rather than refusing because the alternative makes the whole
-// Customer-initiated Sale Reversal flow unreachable without PayPhone
+// It succeeds by default rather than refusing because the alternative makes the
+// whole Customer-initiated Sale Reversal flow unreachable without PayPhone
 // credentials: nobody could press Undo on a paid sale locally, and the first
-// place the feature would be exercised end to end is production.
+// place the feature would be exercised end to end is production. The driven
+// failures exist for exactly the same reason, one level down: the refusal and
+// the unknown outcome take a Reversal Request to two different places (ADR
+// 0024), and neither should first run in production either.
 func (p *StubPaymentProvider) Reverse(_ context.Context, _ string) error {
-	return nil
+	p.mu.Lock()
+	outcome := p.reverseOutcome
+	p.mu.Unlock()
+
+	switch outcome {
+	case StubReverseRefuses:
+		return fmt.Errorf("stub payment provider: %w", ErrPaymentReverseRefused)
+	case StubReverseOutcomeUnknown:
+		// Unmarked, exactly as a real provider's timeout is: the classification
+		// reads an absence of the refusal marker, and the stub must not reach the
+		// same answer by some special route the real path does not have.
+		return errors.New("stub payment provider: reversal outcome unknown")
+	default:
+		return nil
+	}
 }
 
 // SupportsReverse is true, in step with Reverse above (see the interface). The

@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 
 import { Badge } from "@ticket-pos/ui";
 
+import { ReversalWatch } from "@/components/reversal-watch";
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
 import { getFormatLocale } from "@/i18n/format-locale.server";
@@ -52,6 +53,18 @@ export async function TicketSaleCard({
   const dateLabel = formatEventDateTime(sale.event.starts_at, sale.event.timezone, formatLocale);
   const when = dateLabel ?? t("dateTbd");
   const reversed = sale.status === "reversed";
+  // A Reversal Request in flight: the Customer asked to undo this, the Payment
+  // Provider has not said what it did, and the platform is finding out (ADR
+  // 0024). Everything below it renders exactly as it does for any other active
+  // sale — the lines, the total, the tickets — because that is what it is. No
+  // money is known to have moved, the capacity is still held, and these tickets
+  // are still valid for entry; dimming them would be this card inventing an
+  // outcome the API pointedly declined to state.
+  //
+  // Guarded on `reversed` only so the two states can never be drawn at once: a
+  // resolved request leaves the sale reversed and the pending flag false, and if
+  // a read ever showed both, "Reversed" is the one that has actually happened.
+  const refundPending = sale.reversal_pending && !reversed;
   const eventHref = `/${sale.organization.slug}/events/${sale.event.slug}`;
   const totalTickets = sale.lines.reduce((sum, line) => sum + line.quantity, 0);
   // The Tax ID this sale was transacted under, so a Customer can tell a personal
@@ -144,6 +157,10 @@ export async function TicketSaleCard({
           {/* A reversed sale must say so plainly rather than sit in the list
               looking like tickets the Customer still holds. */}
           {reversed ? <Badge variant="destructive">{t("reversedBadge")}</Badge> : null}
+          {/* Not destructive, and deliberately: a destructive badge beside
+              tickets that are still good would say the purchase is gone. This
+              is work in progress on the money and nothing else. */}
+          {refundPending ? <Badge variant="warning">{t("refundPendingBadge")}</Badge> : null}
           <p className="font-medium">
             {/* One message, so the count's plural and the total it sits beside
                 cannot be assembled in an order English happens to like. */}
@@ -161,7 +178,28 @@ export async function TicketSaleCard({
           somebody who arrived by a forwarded Confirmation Link gets the way to
           prove the address is theirs. What a paid purchase's undo does to the
           money is said in the dialog, where the Customer is deciding. */}
-      {reversalDeadline ? (
+      {/* While a Reversal Request is in flight the deadline sentence and the
+          button give way to the state of the refund. The Undo action is
+          withdrawn rather than disabled: a second press is answered with the
+          same pending request — no second provider call, no second row — so a
+          button here would be one that visibly does nothing. The sentence that
+          replaces it is what stops that withdrawal reading as the offer having
+          silently expired.
+
+          Two sentences for the one state, because only one of these surfaces can
+          make the refund move. Loading a signed-in Customer Area is what asks the
+          Payment Provider again about this Customer's own in-flight request (ADR
+          0024), so there "check back in a few minutes" describes the mechanism. A
+          Confirmation Link session drives no such thing — it is a read credential
+          for one sale — so on that page the pending state sits unchanged however
+          often the reader reloads, and inviting them back would be this card
+          promising what the surface it is drawn on cannot deliver. It says what
+          is true and stops. */}
+      {refundPending ? (
+        <p className="mt-4 border-t pt-4 text-sm text-muted-foreground">
+          {viaConfirmationLink ? t("refundPendingNoteLink") : t("refundPendingNote")}
+        </p>
+      ) : reversalDeadline ? (
         <UndoWindowNotice deadline={reversalDeadline}>
           {viaConfirmationLink ? (
             <SignInToUndo signedIn={false} email={customerEmail} ticketSaleId={sale.id} />
@@ -179,6 +217,23 @@ export async function TicketSaleCard({
           )}
         </UndoWindowNotice>
       ) : null}
+
+      {/* And on the surface that can make it move, the Customer need not reload
+          to find out: the page re-asks itself while the answer is outstanding
+          (#160). It is left off the Confirmation Link surface by the same split
+          that decides the sentence above — the backend drains an in-flight
+          Reversal Request only for a full Customer Session, so a timer there
+          would be re-reading a state its own reads can never change.
+
+          It draws nothing, so it sits last rather than between the sentences
+          above and the comment that explains them. */}
+      {viaConfirmationLink ? null : (
+        <ReversalWatch
+          pending={refundPending}
+          reversed={reversed}
+          reversalStatus={sale.reversal_status}
+        />
+      )}
     </li>
   );
 }

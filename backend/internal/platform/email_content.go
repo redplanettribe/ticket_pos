@@ -68,6 +68,34 @@ func (v SaleVoided) Text() string {
 		v.CustomerName, v.EventName, v.Reference)
 }
 
+// Subject is the refused-reversal notice's subject line. It says what happened
+// in the subject itself, because a Customer who closed the tab may only ever
+// read this line.
+func (r SaleReversalRefused) Subject() string {
+	return fmt.Sprintf("We could not undo your %s purchase", r.EventName)
+}
+
+// Text is the refused-reversal notice's body: the correction to a promise the
+// platform made and could not keep.
+//
+// Three things are said and one is refused. What happened, that THE TICKETS ARE
+// STILL VALID — the sentence that decides whether this reader turns up at the
+// gate, and the reason it comes before anything else — and who to talk to, named
+// by the Sale Confirmation reference they can quote.
+//
+// What it refuses to say is WHY, for the reason ADR 0018 settled: there is no
+// provider answer that means "too late", so a refusal cannot be explained. It
+// offers no cause at all rather than a hedged one — "this can happen when…"
+// reads as a cause to the person it is guessed at.
+//
+// It also does not apologise for a delay or mention that anything was pending.
+// The reader may have pressed Undo a minute ago or a day ago, and the platform's
+// own timeline is not the thing they need from this email.
+func (r SaleReversalRefused) Text() string {
+	return fmt.Sprintf("Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid — nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
+		r.CustomerName, r.EventName, r.Reference)
+}
+
 // formatMoney renders integer cents for a receipt line: two decimals with the
 // currency code alongside, e.g. "17.82 USD". Deliberately plain — the email is
 // text, and a Customer reconciling against a card statement needs the number,

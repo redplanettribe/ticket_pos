@@ -131,7 +131,7 @@ output "storefront_service_url" {
 }
 
 output "staff_service_account_email" {
-  description = "Staff's runtime identity. This is one of exactly two principals holding run.invoker on the API."
+  description = "Staff's runtime identity. One of exactly three principals holding run.invoker on the API."
   value       = google_service_account.staff.email
 }
 
@@ -170,4 +170,16 @@ output "dns_records" {
       }
     ]
   }
+}
+
+# --- Reversal Reconciler ------------------------------------------------------
+
+output "reversal_reconciler_job_name" {
+  description = "Cloud Scheduler job driving the reversal drain. The name `gcloud scheduler jobs pause|resume|run <name> --location <region>` takes — the fastest way to stop the tick mid-incident, ahead of an apply."
+  value       = google_cloud_scheduler_job.reversal_reconciler.name
+}
+
+output "reversal_reconciler_service_account_email" {
+  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else; it is the third and last principal with that role."
+  value       = google_service_account.reversal_reconciler.email
 }

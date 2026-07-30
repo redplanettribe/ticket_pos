@@ -181,7 +181,51 @@ export type TicketSale = {
    */
   reversible: boolean;
   reversible_until: string | null;
+  /**
+   * Whether a Reversal Request for this sale is in flight: the Customer asked to
+   * undo it, the Payment Provider gave an answer nobody can act on, and the
+   * platform is still finding out what happened to the money (ADR 0024).
+   *
+   * It says nothing about the tickets, which is the whole point. The sale stays
+   * `active`, its capacity stays held and these tickets stay valid for entry,
+   * because no money is known to have moved — so the card that reads this must
+   * say a refund is being processed and must not dim, strike through or
+   * otherwise imply the purchase is gone.
+   *
+   * It is also what withdraws the Undo action while the answer is unknown; the
+   * card composes that (components/ticket-sale-card.tsx).
+   */
+  reversal_pending: boolean;
+  /**
+   * The state of the live Reversal Request over this sale, straight from
+   * `sale_reversals.status`, and null when the sale has none (ADR 0024).
+   *
+   * `reversal_pending` answers "is a refund being worked on"; this answers "how
+   * did it end", and the two questions are not the same one asked twice. A
+   * request that was refused and one that became an Unresolved Reversal both
+   * leave the sale `active` and `reversal_pending` false, so nothing but this
+   * field can tell them apart — and they are opposite things to say to a
+   * Customer: the first means their money never moved and is not coming, the
+   * second means nobody yet knows where it is.
+   *
+   * It is carried as the request's own four states rather than as a flag per
+   * outcome so that a surface which must say nothing for some of them can spell
+   * out which ones, instead of a new state arriving as the absence of every flag
+   * and inheriting whichever branch was written for "not the good one".
+   */
+  reversal_status: ReversalRequestStatus | null;
 };
+
+/**
+ * The four states a Reversal Request ends up in (ADR 0024), named here exactly as
+ * the API sends them.
+ *
+ * `needs_attention` is an Unresolved Reversal: the platform gave up with the
+ * money's fate unknown and a Platform Operator settles it. Nothing about it may
+ * be reported to the Customer, so it is spelled out rather than left to fall in
+ * with the rest.
+ */
+export type ReversalRequestStatus = "in_flight" | "succeeded" | "refused" | "needs_attention";
 
 /**
  * What the API returns when a purchase has been undone: the sale, still carrying
@@ -192,12 +236,40 @@ export type TicketSale = {
  * Reversed badge — so the thing someone would quote to an organizer reads the
  * same before and after.
  */
-export type TicketSaleReversal = {
+export type TicketSaleReversed = {
   ticket_sale_id: string;
   confirmation_ref: string;
-  status: string;
+  status: "reversed";
+  /** When the platform learned the reversal had succeeded. */
   reversed_at: string;
 };
+
+/**
+ * What the API returns when the undo could not be answered: a Reversal Request
+ * is in flight, the Payment Provider gave an outcome nobody can act on, and the
+ * platform will pursue it to a definite answer (ADR 0024).
+ *
+ * The timestamp is `requested_at` and not `reversed_at`, and the difference is
+ * the entire point of this type existing: it is when the Customer pressed, not
+ * when anything happened to their money — because whether anything did is
+ * exactly what is unknown. A second press while the request is in flight is a
+ * read of the same row and returns this same instant, not a new one.
+ */
+export type TicketSaleReversalPending = {
+  ticket_sale_id: string;
+  confirmation_ref: string;
+  status: "pending";
+  /** When the Customer asked, carried by the one live Reversal Request. */
+  requested_at: string;
+};
+
+/**
+ * The two ways an undo can succeed as an HTTP call, which are not the two ways
+ * it can end for the Customer. `status` is the discriminator and the only thing
+ * any surface may conclude "done" from: a body that is not `reversed` has not
+ * reversed anything, whatever status code carried it.
+ */
+export type TicketSaleReversal = TicketSaleReversed | TicketSaleReversalPending;
 
 /** The Customer Area read: purchases split into what is still to come and what has happened. */
 export type CustomerArea = {

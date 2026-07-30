@@ -57,4 +57,13 @@ module "ticket_pos" {
   # in production (see payphone.tf in the module).
   payphone_api_token = var.payphone_api_token
   payphone_store_id  = var.payphone_store_id
+
+  # The Reversal Reconciler tick (ADR 0024). Threaded through the root rather
+  # than left to the module default because turning it off is an incident move:
+  # declared here, pausing is `terraform apply -var reversal_reconciler_enabled=false`
+  # from this directory, and the state then agrees with reality instead of a
+  # console pause that the next apply silently undoes.
+  reversal_reconciler_enabled                  = var.reversal_reconciler_enabled
+  reversal_reconciler_schedule                 = var.reversal_reconciler_schedule
+  reversal_reconciler_attempt_deadline_seconds = var.reversal_reconciler_attempt_deadline_seconds
 }

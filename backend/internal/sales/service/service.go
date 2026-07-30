@@ -123,6 +123,9 @@ type Service struct {
 	affiliates AffiliateLinkResolver
 	logger     platform.Logger
 	now        func() time.Time
+	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
+	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
+	drainBatch int
 }
 
 // New returns a sales service. The customers service is required: every Ticket

@@ -18,6 +18,45 @@ func RegisterRoutes(mux *http.ServeMux, app *App) {
 	registerOperatorRoutes(mux, app)
 	registerPublicRoutes(mux, app)
 	registerCustomerRoutes(mux, app)
+	registerInternalRoutes(mux, app)
+}
+
+// registerInternalRoutes wires the namespace nothing outside the deployment
+// calls: work the platform drives for itself, on a schedule or by hand during an
+// incident.
+//
+// It is a fifth namespace beside staff, operator, customer and public, and it is
+// the first one whose gate is not in this process. Every route below is
+// authenticated exactly as service-to-service calls already are: the API runs
+// --no-allow-unauthenticated, so Cloud Run IAM requires a Google-signed OIDC ID
+// token and rejects everyone else before the container is reached (ADR 0008).
+// That is why there is no middleware here — not an omission, and not a gap to be
+// plugged with a shared secret. There is no application credential that grants
+// this: a Customer Session and a staff token authenticate nothing on these
+// routes because nothing on them reads either.
+//
+// THE TOKEN ARRIVES IN `Authorization`, which is worth knowing before the first
+// 403 rather than during it. The frontends present theirs in
+// `X-Serverless-Authorization` so as not to displace the end-user session token
+// (ADR 0008); Cloud Scheduler cannot set that header for an OIDC token and uses
+// `Authorization`. Cloud Run accepts either, so both work — but an operator
+// reproducing the cron's call with curl, or reading a rejected request, is
+// looking at `Authorization`. It displaces nothing here because these routes
+// read no session at all.
+//
+// What a route in here must therefore be is safe for its caller to invoke at any
+// time, with no arguments worth trusting. Nothing here takes a body or a path
+// parameter, so a caller cannot aim it: WHAT is worked on is a property of the
+// queue in the database, never of the request.
+func registerInternalRoutes(mux *http.ServeMux, app *App) {
+	// The Reversal Reconciler's tick (ADR 0024). Cloud Scheduler calls it (#159)
+	// and a Platform Operator can curl it, which is the order this shipped in:
+	// the runbook before the automation.
+	//
+	// Served by the SALES handler, like the Customer's own undo above it: this is
+	// the same Reversal Request being pursued by a different actor, through the
+	// same reversal primitive and the same per-sale lock.
+	mux.HandleFunc("POST /api/v1/internal/reversals/drain", app.SalesHandler.DrainReversalRequests)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.

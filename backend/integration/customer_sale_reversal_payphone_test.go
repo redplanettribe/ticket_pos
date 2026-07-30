@@ -145,18 +145,23 @@ func TestCustomerUndoesTheirOwnPaidOnlineSale(t *testing.T) {
 	}
 }
 
-// TestPayPhoneRefusalLeavesEverythingUntouched is the promise a refusal makes,
-// against every shape a refusal can arrive in.
+// TestPayPhoneRefusalLeavesEverythingUntouched is the promise a DEFINITE refusal
+// makes: PayPhone considered the reversal and declined it, so nothing happened,
+// the ask is over, and the buyer is told immediately.
 //
-// PayPhone documents exactly one success — a literal `true` — so a refusal
-// object, a `false`, a body that is not JSON, and a connection dropped mid-call
-// are all failures, and all of them must reverse nothing. The buyer is told 502
-// SALE_REVERSAL_FAILED with their Sale Confirmation reference and no claim about
-// the cause: the published catalogue has no "too late" code, so an explanation
-// would be a guess about somebody's money.
+// The refusal is answered 502 SALE_REVERSAL_FAILED with their Sale Confirmation
+// reference and no claim about the cause: the published catalogue has no "too
+// late" code, so an explanation would be a guess about somebody's money. The
+// Ticket Sale, its capacity and the buyer's inbox are asserted untouched after
+// each one, which is what the provider-first ordering buys.
 //
-// The Ticket Sale, its capacity and the buyer's inbox are asserted untouched
-// after each one, which is what the provider-first ordering buys.
+// Only the codes PayPhone publishes for this endpoint are here, and that is the
+// change ADR 0024 made. A `false`, a body that is not JSON, a refusal-shaped 200
+// and a dropped connection used to be refusals too, on the reasoning that
+// anything but `true` is a no. They are now UNKNOWN outcomes — each of them
+// leaves open that PayPhone acted on a request whose answer never reached us —
+// and they answer 202 with a Reversal Request in flight. See
+// customer_sale_reversal_pending_test.go, which owns that half.
 func TestPayPhoneRefusalLeavesEverythingUntouched(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
@@ -180,17 +185,10 @@ func TestPayPhoneRefusalLeavesEverythingUntouched(t *testing.T) {
 		{"transaction not found", func() {
 			payphoneStub.reverseRefuses(http.StatusNotFound, "Transacción no encontrada", 20)
 		}},
-		// A 200 whose body is the documented value's opposite: an answer, and a no.
-		{"literal false", func() { payphoneStub.reverseAnswers("false") }},
-		// A 200 carrying an object rather than the documented bare value. Not a
-		// success just because it parses.
-		{"200 with a refusal object", func() {
-			payphoneStub.reverseAnswers(`{"message":"no","errorCode":40}`)
+		// Not a reversal PayPhone will make.
+		{"not reversible", func() {
+			payphoneStub.reverseRefuses(http.StatusBadRequest, "La transacción no es un reverso", 40)
 		}},
-		{"malformed json", func() { payphoneStub.reverseAnswers("<html>maintenance</html>") }},
-		// PayPhone was never reached, or answered nothing: unknown outcome, and an
-		// unknown outcome may never void a Ticket Sale.
-		{"transport failure", func() { payphoneStub.reverseHangsUp() }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,76 +203,29 @@ func TestPayPhoneRefusalLeavesEverythingUntouched(t *testing.T) {
 				t.Fatalf("refusal details = %+v, want the Sale Confirmation reference %q", body.Error.Details, ref)
 			}
 			assertNothingChanged(t, env, ref, "refused-undo-fest", "GA", 7)
+
+			// The ask is recorded and closed. A refused request keeps no question
+			// open — nothing happened, so there is nothing to come back and ask
+			// about — and it must not block the buyer trying again below.
+			last := reversalRequests(t, env, ref)
+			if len(last) == 0 || last[len(last)-1].status != "refused" {
+				t.Fatalf("Reversal Requests after a definite refusal = %+v, want the last one refused", last)
+			}
 		})
 	}
 
 	// PayPhone recovers, and the same buyer's same request now goes through: the
-	// refusals above cost them the attempt and nothing else.
+	// refusals above cost them the attempt and nothing else. That a refused
+	// Reversal Request does not stand in the way of a new one is enforced by the
+	// database — the live-request index excludes `refused` precisely so a buyer
+	// still inside their Window may genuinely ask again.
 	payphoneStub.reset()
 	reverseSaleOK(t, payphoneEnv, token, saleID)
 	if got := remaining(t, env, "refused-undo-fest", "GA"); got != 10 {
 		t.Fatalf("remaining after the undo finally succeeded = %d, want 10", got)
 	}
-}
-
-// TestTimedOutReversalConvergesOnRetry is the production incident of 2026-07-28,
-// staged: the reversal POST times out, so the buyer is told it failed and the
-// Ticket Sale stays active — but PayPhone had in fact processed the reversal and
-// the money is already on its way back. The buyer presses undo again, and
-// PayPhone answers 400 errorCode 24, "La transacción ya se encuentra cancelada":
-// not a refusal but a receipt, proof the money already left. That answer must
-// complete the local reversal, because the alternative is a sale the system can
-// never reconcile — the Organization's dashboard showing revenue that no longer
-// exists, forever.
-//
-// Only errorCode 24 gets this reading. Every other refusal shape stays a
-// refusal (TestPayPhoneRefusalLeavesEverythingUntouched), because every other
-// shape says the money did NOT move.
-func TestTimedOutReversalConvergesOnRetry(t *testing.T) {
-	env := setupTest(t)
-	sessionID := orgAdminSession(t, env)
-	_, gaID := publishEventStarting(t, env, sessionID, "Timed Out Undo Fest", "timed-out-undo-fest",
-		env.fixedClock.Add(72*time.Hour), "America/Guayaquil", feeTestBaseCents, 10)
-
-	ref, _ := buyOnlineThroughPayPhone(t, "timed-out-undo-fest", gaID, "ana@example.com", 2)
-	token := customerSignIn(t, payphoneEnv, "ana@example.com")
-	saleID := saleByRef(t, readCustomerArea(t, payphoneEnv, token, ""), ref).ID
-	env.email.Reset()
-	payphoneStub.reset()
-	t.Cleanup(payphoneStub.reset)
-
-	// The first press: the connection dies before an answer arrives. Unknown
-	// outcome, so nothing local may move — this half is already proven in the
-	// refusal table and re-asserted here only to stage the incident faithfully.
-	payphoneStub.reverseHangsUp()
-	resp, body := reverseSaleRequest(t, payphoneEnv, token, saleID)
-	assertRefused(t, resp, body, http.StatusBadGateway, "SALE_REVERSAL_FAILED")
-	assertNothingChanged(t, env, ref, "timed-out-undo-fest", "GA", 8)
-
-	// The second press: PayPhone, which did act on the first request, now says
-	// the transaction is already cancelled. The money is with the buyer; the
-	// sale must follow it.
-	payphoneStub.reverseRefuses(http.StatusBadRequest, "La transacción ya se encuentra cancelada", 24)
-	result := reverseSaleOK(t, payphoneEnv, token, saleID)
-	if result.Status != "reversed" || result.ConfirmationRef != ref {
-		t.Fatalf("retry after the timed-out reversal = %+v, want the sale reversed under %q", result, ref)
-	}
-
-	// The ordinary aftermath of a reversal, in full: provenance, capacity, the
-	// void notice, and no further offer to undo.
-	status, reversedAt, reversedBy := saleProvenance(t, env, ref)
-	if status != "reversed" || !reversedAt.Valid || reversedBy.String != "customer" {
-		t.Fatalf("provenance = %s/%+v/%+v, want reversed by 'customer'", status, reversedAt, reversedBy)
-	}
-	if got := remaining(t, env, "timed-out-undo-fest", "GA"); got != 10 {
-		t.Fatalf("remaining = %d after the reconciled undo, want all 10 back on sale", got)
-	}
-	if voided := env.email.Voided(); len(voided) != 1 || voided[0].Reference != ref {
-		t.Fatalf("void notices = %+v, want exactly one quoting %q", voided, ref)
-	}
-	area := saleByRef(t, readCustomerArea(t, payphoneEnv, token, ""), ref)
-	if area.Status != "reversed" || area.Reversible {
-		t.Fatalf("Customer Area sale after the reconciled undo = %+v, want reversed with no offer", area)
+	if last := reversalRequests(t, env, ref); len(last) == 0 || last[len(last)-1].status != "succeeded" {
+		t.Fatalf("Reversal Requests after the undo finally succeeded = %+v, want the last one succeeded", last)
 	}
 }
 

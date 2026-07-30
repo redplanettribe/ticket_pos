@@ -220,6 +220,12 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		salesService = salesService.WithClock(options.clock)
 	}
 	salesHandler := saleshandler.New(salesService)
+	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
+	// platform ask the Payment Provider again about their own stuck reversal.
+	// Wired here rather than at construction because sales is built after
+	// customers and depends on it — the two modules point at each other, and this
+	// is the direction that has to be tied afterwards.
+	customersService = customersService.WithReversalRequests(salesService)
 
 	// Affiliate Links hang off an Event and point at the Storefront, so the
 	// module needs the Storefront origin for the same reason Confirmation Links

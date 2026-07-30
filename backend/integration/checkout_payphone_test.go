@@ -64,6 +64,16 @@ type payPhoneServerStub struct {
 	prepares    []*payPhoneRecordedRequest
 	lastConfirm *payPhoneRecordedRequest
 	reverses    []*payPhoneRecordedRequest
+	// reverseSuccesses counts the reversals this fake actually CARRIED OUT, as
+	// distinct from the ones it was asked for. The two differ exactly when an
+	// answer never reaches us, which is the case ADR 0024 exists for: a reversal
+	// that timed out was still performed, and the money still left.
+	//
+	// It is the counter that can see a double refund. A test that asks "was the
+	// buyer refunded once?" cannot answer it from reverseCount, since asking
+	// again after a timeout is correct and expected; only the number of
+	// reversals the provider performed says whether the money moved twice.
+	reverseSuccesses int
 }
 
 // payPhoneRecordedRequest is one request as the fake PayPhone server saw it.
@@ -104,7 +114,7 @@ func startPayPhoneStub() *payPhoneServerStub {
 			stub.reverses = append(stub.reverses, rec)
 			respond = stub.reverse
 			if respond == nil {
-				respond = payPhoneReverseSucceeds
+				respond = stub.reverseSucceeds
 			}
 		default:
 			respond = func(w http.ResponseWriter) { http.Error(w, "no such endpoint", http.StatusNotFound) }
@@ -148,11 +158,38 @@ func payPhoneConfirmVerdict(statusCode int, transactionStatus string) func(w htt
 	}
 }
 
-// payPhoneReverseSucceeds is PayPhone's documented answer to a completed
-// reversal: the literal value true, with no object around it.
-func payPhoneReverseSucceeds(w http.ResponseWriter) {
+// reverseSucceeds is PayPhone's documented answer to a completed reversal: the
+// literal value true, with no object around it. It counts the reversal as
+// CARRIED OUT before answering, because that is when the money leaves — whether
+// or not the answer ever reaches the caller.
+func (s *payPhoneServerStub) reverseSucceeds(w http.ResponseWriter) {
+	s.recordReverseSuccess()
+	payPhoneReverseAnswersTrue(w)
+}
+
+// recordReverseSuccess marks the money as having left, which happens when
+// PayPhone acts and not when the caller hears about it — the whole distinction
+// ADR 0024 turns on.
+func (s *payPhoneServerStub) recordReverseSuccess() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reverseSuccesses++
+}
+
+// payPhoneReverseAnswersTrue writes the documented answer and nothing else.
+func payPhoneReverseAnswersTrue(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte("true"))
+}
+
+// reverseSuccessCount is how many reversals this fake has actually performed
+// since the last reset — the buyer's money, moved. Exactly one is what a
+// correctly pursued Reversal Request must ever produce, however many times the
+// provider was asked.
+func (s *payPhoneServerStub) reverseSuccessCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reverseSuccesses
 }
 
 func (s *payPhoneServerStub) reset() {
@@ -164,6 +201,7 @@ func (s *payPhoneServerStub) reset() {
 	s.prepares = nil
 	s.lastConfirm = nil
 	s.reverses = nil
+	s.reverseSuccesses = 0
 }
 
 // reverseAnswers makes every reversal answer 200 with a raw body — the seam for
@@ -207,6 +245,47 @@ func (s *payPhoneServerStub) reverseHangsUp() {
 	}
 }
 
+// payPhoneReverseHang is how long reverseTimesOut holds a reversal open. It is
+// comfortably past the provider's own ten-second call timeout, so the client
+// gives up first and the test observes what production observes: a reversal we
+// have no answer to, from a PayPhone that may well have acted (ADR 0024).
+//
+// It is deliberately a real wait rather than a shortened one. The timeout being
+// exercised belongs to the PayPhone client, which takes no configuration, and a
+// seam invented to make this faster would be a seam that only tests use.
+const payPhoneReverseHang = 12 * time.Second
+
+// reverseTimesOut holds every reversal open past the provider's call timeout and
+// then answers the documented success — the 2026-07-28 incident exactly: PayPhone
+// DID reverse the payment, and the answer arrived after nobody was listening.
+//
+// It differs from reverseHangsUp in what it stages rather than in what the caller
+// sees. Both are unknown outcomes; this one additionally makes the fake's own
+// state say the money went back, so a later probe answering errorCode 24 is the
+// truthful continuation of the same story rather than a fixture.
+func (s *payPhoneServerStub) reverseTimesOut() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reverse = func(w http.ResponseWriter) {
+		// The reversal is carried out AT ONCE and only the answer is late, which is
+		// the shape of the incident: the money left, and the caller never heard so.
+		// Counting it before the sleep is also what lets a test assert on it
+		// without waiting out a hang nobody is listening to.
+		s.recordReverseSuccess()
+		time.Sleep(payPhoneReverseHang)
+		payPhoneReverseAnswersTrue(w)
+	}
+}
+
+// reverseAlreadyCancelled makes every reversal answer PayPhone's errorCode 24,
+// "La transacción ya se encuentra cancelada": the transaction is already
+// reversed at PayPhone, which is a receipt that the money has left rather than a
+// refusal. It is the answer a probe gets after a reversal that timed out on our
+// side had in fact been carried out.
+func (s *payPhoneServerStub) reverseAlreadyCancelled() {
+	s.reverseRefuses(http.StatusBadRequest, "La transacción ya se encuentra cancelada", 24)
+}
+
 // reverseBlocksFirst holds the FIRST reversal inside PayPhone until it is
 // released, then answers the documented success. Every later reversal is
 // answered immediately.
@@ -238,7 +317,7 @@ func (s *payPhoneServerStub) reverseBlocksFirst() (entered <-chan struct{}, rele
 			arrived <- struct{}{}
 			<-releaseCh
 		}
-		payPhoneReverseSucceeds(w)
+		s.reverseSucceeds(w)
 	}
 	return arrived, sync.OnceFunc(func() { close(releaseCh) })
 }

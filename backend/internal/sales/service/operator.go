@@ -380,10 +380,18 @@ type OperatorReversalResult struct {
 // The Payment Provider is not called and must never be. The money left our
 // account before this request was made — by hand in the provider's dashboard,
 // or by bank transfer that no provider ever saw — so calling anybody here could
-// only refund a second time. That absence is also why none of the customer
-// path's advisory-lock ceremony appears below: the lock exists to stop two
-// presses reaching a provider twice, and with no provider in the flow the
-// reversal primitive's own row lock is the whole of the serialisation needed.
+// only refund a second time.
+//
+// This path nevertheless takes the Sale Reversal advisory lock, which it did
+// not need before ADR 0024. The lock never guarded this operation's own writes —
+// the reversal primitive's row lock does that. It guards somebody else's: the
+// Reversal Reconciler holds it while it asks the Payment Provider what became of
+// an in-flight Reversal Request, and that ask can take as long as the provider
+// takes to answer. Committing here inside that window is the one way this
+// operation can still cost a buyer a second refund — the drain checks the sale
+// is active, this path reverses it a moment later, and the drain's probe lands
+// on a transaction nobody has cancelled. Taking the lock closes that window; an
+// operator who finds it held waits for an answer that is seconds away.
 //
 // The Reversal Window is not consulted, in either direction. Being past it is
 // the reason this operation exists, and being inside it is no reason to refuse
@@ -411,6 +419,48 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 	// for the same reason.
 	if row.Channel != platform.OnlineSalesChannel {
 		return nil, sales.ErrOperatorReversalNotAnOnlineSale(row.Channel)
+	}
+	if row.Status != platform.ActiveSaleStatus {
+		return nil, sales.ErrSaleAlreadyReversed()
+	}
+
+	// Serialised against the Reversal Reconciler and the buyer's own undo (see
+	// the doc above). Taken after the cheap refusals so a sale this operation was
+	// never going to touch does not contend for a lock at all.
+	//
+	// A contended lock is answered differently here than on the buyer's path. A
+	// buyer who double-presses has one reversal already happening and no second
+	// one to make, so they are told it is done; an operator asserting a refund
+	// they made by hand has made a claim that is still true a second later, and
+	// telling them "already reversed" would be a lie whenever the in-flight probe
+	// comes back refused. They are asked to try again instead.
+	release, locked, err := s.repo.LockTicketSaleForReversal(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !locked {
+		return nil, sales.ErrSaleReversalInProgress(confirmationRef)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			s.logger.Error("could not release the Sale Reversal lock after an Operator Reversal; further reversals of this Ticket Sale may be refused until the connection is recycled",
+				"ticket_sale_id", row.ID,
+				"confirmation_ref", confirmationRef,
+				"error", err,
+			)
+		}
+	}()
+
+	// Re-read under the lock. The status checked above was read before anybody
+	// could be excluded, so it may already be stale: the buyer's own undo, or a
+	// Reconciler probe that just came back succeeded, can have reversed this sale
+	// in between.
+	row, err = s.repo.GetSaleByConfirmationRef(ctx, confirmationRef)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, sales.ErrTicketSaleRefNotFound(confirmationRef)
 	}
 	if row.Status != platform.ActiveSaleStatus {
 		return nil, sales.ErrSaleAlreadyReversed()

@@ -48,6 +48,25 @@ type Service struct {
 	// and still allows a free claim, so a deployment that never wired one in
 	// under-offers rather than over-promises.
 	reversal platform.PaymentReversal
+	// reversals pursues a Reversal Request this Customer left in flight, and is
+	// consulted only when they load their own Area (ADR 0024). Optional: a
+	// service without one renders pending reversals as pending and resolves
+	// nothing, which is the correct behaviour for every surface that is not the
+	// Customer Area.
+	reversals ReversalRequestResolver
+}
+
+// ReversalRequestResolver asks the Payment Provider again about the Reversal
+// Requests one Customer has left in flight, and applies whatever it answers.
+//
+// It is declared here, on the side that calls it, and implemented by the sales
+// service — which owns Ticket Sales, the Payment Provider and the reversal
+// primitive. The customers module owns who is asking and when; it does not own
+// what is being pursued, and this interface is deliberately the narrowest
+// statement of that: one Customer's own asks, no return value to render, and no
+// way to name a sale or reach anybody else's.
+type ReversalRequestResolver interface {
+	ResolveInFlightReversalRequests(ctx context.Context, customerID string) error
 }
 
 // New returns a customers service.
@@ -89,6 +108,19 @@ func (s *Service) WithObjectStorage(store storage.ObjectStorage) *Service {
 // button and the API can never disagree about a given sale.
 func (s *Service) WithPaymentReversal(reversal platform.PaymentReversal) *Service {
 	s.reversal = reversal
+	return s
+}
+
+// WithReversalRequests attaches the resolver that pursues a Customer's own
+// in-flight Reversal Requests when they load their Area (ADR 0024). Same
+// chaining shape as WithPaymentReversal.
+//
+// Wired after construction because the sales service is built after this one and
+// takes this one as a dependency, and because it is additive: unwired, the Area
+// still renders a pending reversal as pending — it simply never resolves one,
+// which is what every deployment did before #157.
+func (s *Service) WithReversalRequests(resolver ReversalRequestResolver) *Service {
+	s.reversals = resolver
 	return s
 }
 

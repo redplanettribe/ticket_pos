@@ -383,6 +383,16 @@ type payPhoneReverseRequest struct {
 // issuing-bank refusal), so any explanation offered would be a guess about
 // somebody's money.
 //
+// Those same three codes are the only failures reported as DEFINITE REFUSALS
+// (see the interface, and ADR 0024's answer table). They are the answers where
+// PayPhone considered the reversal and declined it, so nothing happened and the
+// ask is over. Everything else is an UNKNOWN OUTCOME — a 5xx, a timeout, a
+// transport failure, an unfamiliar code, a body in a shape this integration does
+// not recognize — because every one of them leaves open that PayPhone acted on a
+// request whose answer never reached us. That is not pessimism: it is the exact
+// case the 2026-07-28 incident produced, and the case errorCode 24 lets the
+// platform resolve later by simply asking again.
+//
 // One 4xx is not a refusal: errorCode 24, "La transacción ya se encuentra
 // cancelada" — the transaction is already cancelled at PayPhone. That answer is
 // a receipt, not a no: the money has already left, most often because an
@@ -406,14 +416,23 @@ func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID stri
 			"client_transaction_id", clientTransactionID,
 			"error", err,
 		)
+		if payPhoneDefiniteRefusal(err) {
+			return fmt.Errorf("payphone reverse: %w: %w", ErrPaymentReverseRefused, err)
+		}
+		// Unmarked, and so an unknown outcome: a timeout, a 5xx or a body we
+		// cannot place all leave open the possibility that PayPhone acted.
 		return fmt.Errorf("payphone reverse: %w", err)
 	}
 	if !payPhoneReversed(body) {
-		p.logger.Error("payphone refused the reversal",
+		// Also unmarked. PayPhone documents its refusals as non-2xx, so a 2xx that
+		// is not the literal `true` — a `false`, a refusal-shaped object, a body
+		// that is not JSON — is an answer this integration does not recognize, and
+		// an unrecognized answer is not a licence to declare that nothing happened.
+		p.logger.Error("payphone answered the reversal with something other than its documented true",
 			"client_transaction_id", clientTransactionID,
 			"response", payPhoneBodySnippet(body),
 		)
-		return fmt.Errorf("payphone reverse: refused with %s", payPhoneBodySnippet(body))
+		return fmt.Errorf("payphone reverse: unrecognized answer %s", payPhoneBodySnippet(body))
 	}
 	return nil
 }
@@ -422,32 +441,85 @@ func (p *PayPhoneProvider) Reverse(ctx context.Context, clientTransactionID stri
 // encuentra cancelada": the reversal being requested has already happened.
 const payPhoneErrAlreadyCancelled = 24
 
+// payPhoneReverseRefusalCodes are the errorCodes that mean PayPhone considered
+// this reversal and declined it — 20 transaction-not-found, 40 not-a-reversal,
+// 42 an issuing-bank refusal. Each of them means NOTHING HAPPENED: the money
+// never moved, so the Customer's ask is over and there is nothing to ask again
+// about (ADR 0024).
+//
+// The set is closed on purpose. It is the codes PayPhone publishes for this
+// endpoint and that this system has seen, not a rule about 4xx in general: an
+// unfamiliar code is a body we cannot read, and reading one as "nothing
+// happened" would tell a buyer their money never moved on an answer we do not
+// understand. 24 is deliberately absent — it is a receipt, not a refusal, and it
+// returns success below.
+var payPhoneReverseRefusalCodes = map[int]bool{20: true, 40: true, 42: true}
+
 // payPhoneAlreadyCancelled reports whether a Reverse failure is PayPhone saying
 // the transaction is already cancelled — a 4xx whose body carries errorCode 24.
 // Only that exact shape qualifies: a 5xx never (PayPhone unwell says nothing
 // about the money), and a 4xx with any other code, or a body that does not
-// parse, stays the refusal it claims to be.
+// parse, stays the failure it is.
 func payPhoneAlreadyCancelled(err error) bool {
-	status, ok := payPhoneClientErrorStatus(err)
-	if !ok || status < 400 || status >= 500 {
-		return false
+	code, ok := payPhoneErrorCode(err)
+	return ok && code == payPhoneErrAlreadyCancelled
+}
+
+// payPhoneDefiniteRefusal reports whether a Reverse failure is PayPhone
+// definitely refusing — the answer that makes the failure final rather than a
+// question still open (ADR 0024).
+//
+// Everything it says no to becomes an unknown outcome, and that is the intended
+// reading of a 5xx (PayPhone is unwell and says nothing about the money), of a
+// transport failure or timeout (the request may never have arrived, or its
+// answer may never have come back), and of any 4xx whose body we cannot place.
+// Being wrong that way costs a reconciler cycle; being wrong the other way tells
+// a buyer nothing happened to money that may already have left them.
+func payPhoneDefiniteRefusal(err error) bool {
+	code, ok := payPhoneErrorCode(err)
+	return ok && payPhoneReverseRefusalCodes[code]
+}
+
+// payPhoneErrorCode returns the errorCode PayPhone put in the body of a 4xx —
+// the field every one of its refusals is identified by, and the only part of a
+// failure body this system reads.
+//
+// It answers for a 4xx alone. A 5xx carries no verdict about the request whether
+// or not it happens to include a code, and a transport failure carries no body
+// at all. A body that does not parse answers false rather than 0, so an
+// unreadable failure is never mistaken for a coded one.
+//
+// A body that parses but carries no errorCode answers 0, true. That is a
+// deliberate limit and not a distinction: this reads a field, not a schema, and
+// 0 is in neither the refusal set nor the already-cancelled receipt, so an
+// absent code lands on the unknown side exactly as an unreadable one does.
+// Should PayPhone ever publish 0 as a real code, this is the line to revisit.
+func payPhoneErrorCode(err error) (int, bool) {
+	if _, ok := payPhoneClientErrorStatus(err); !ok {
+		return 0, false
 	}
 	var statusErr *payPhoneStatusError
 	if !errors.As(err, &statusErr) {
-		return false
+		return 0, false
 	}
 	var refusal struct {
 		ErrorCode int `json:"errorCode"`
 	}
 	if json.Unmarshal([]byte(statusErr.body), &refusal) != nil {
-		return false
+		return 0, false
 	}
-	return refusal.ErrorCode == payPhoneErrAlreadyCancelled
+	return refusal.ErrorCode, true
 }
 
 // payPhoneReversed reports whether a 2xx body is PayPhone's literal `true`.
-// Anything else is a refusal, including `false`, which is a documented answer
-// and not an absence of one.
+//
+// Anything else fails, including `false` — but failing is not the same as
+// refusing. Since the boundary began telling a definite refusal from an unknown
+// outcome (ADR 0024), only a 4xx carrying one of PayPhone's documented refusal
+// codes is a refusal; a 2xx that is not `true` is an answer this integration
+// does not recognise, and an unrecognised answer is no licence to declare that
+// nothing happened to somebody's money. It therefore falls to the unknown side
+// and is asked again.
 func payPhoneReversed(body json.RawMessage) bool {
 	return strings.TrimSpace(string(body)) == "true"
 }

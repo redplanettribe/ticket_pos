@@ -366,8 +366,113 @@ func TestPayPhoneReverseFailsOnTransportFailure(t *testing.T) {
 	srv.Close()
 
 	p := NewPayPhoneProvider("token", "store-1", closed, discardLogger())
-	if err := p.Reverse(context.Background(), "ctid-123"); err == nil {
+	err := p.Reverse(context.Background(), "ctid-123")
+	if err == nil {
 		t.Fatal("reverse succeeded against an unreachable PayPhone; an unknown outcome must never reverse a Ticket Sale")
+	}
+	// The whole point of the classification: a request that never arrived cannot
+	// be a refusal. PayPhone may have acted on it, so the answer is still open
+	// and the platform has to ask again (ADR 0024).
+	if !PaymentReverseOutcomeUnknown(err) {
+		t.Fatalf("a transport failure classified as a definite refusal (%v); PayPhone was never reached and may yet have acted", err)
+	}
+}
+
+// TestPayPhoneReverseTellsARefusalFromAnUnknownOutcome pins the classification
+// every asynchronous Reversal Request turns on (ADR 0024): a definite refusal
+// ends the request immediately because nothing happened, while an unknown
+// outcome leaves it in flight for the Reversal Reconciler to ask again.
+//
+// The asymmetry below is deliberate and is the safety property. Only PayPhone's
+// three documented refusal codes are read as a definite no; every other failure
+// — a 5xx, an unrecognized code, a body that does not parse, a refusal shape
+// arriving on a 200 — stays unknown. Being wrong about "unknown" costs a
+// reconciler cycle and a later answer; being wrong about "refused" tells a buyer
+// nothing happened to money that may already have left them.
+func TestPayPhoneReverseTellsARefusalFromAnUnknownOutcome(t *testing.T) {
+	cases := map[string]struct {
+		handler http.HandlerFunc
+		refused bool
+	}{
+		"400 errorCode 42, the issuing bank refused": {
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"message":"El reverso no se puede ejecutar, contáctese con el banco emisor","errorCode":42}`, http.StatusBadRequest)
+			},
+			refused: true,
+		},
+		"404 errorCode 20, no such transaction": {
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"message":"Transacción no encontrada","errorCode":20}`, http.StatusNotFound)
+			},
+			refused: true,
+		},
+		"400 errorCode 40, not a reversal": {
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"message":"La transacción no es un reverso","errorCode":40}`, http.StatusBadRequest)
+			},
+			refused: true,
+		},
+		"500, PayPhone is unwell and says nothing about the money": {
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "boom", http.StatusInternalServerError)
+			},
+		},
+		"400 with an errorCode outside the published refusal set": {
+			// The catalogue is what we know, not everything PayPhone can send. A
+			// code we have never seen is not a licence to declare nothing happened.
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"message":"algo","errorCode":99}`, http.StatusBadRequest)
+			},
+		},
+		"400 whose body is not JSON at all": {
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "<html>maintenance</html>", http.StatusBadRequest)
+			},
+		},
+		"200 carrying a refusal object": {
+			// PayPhone documents refusals as non-2xx. A refusal-shaped body on a 200
+			// is an answer we do not recognize, whatever code it quotes.
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"message":"Transaccion no encontrada","errorCode":20}`))
+			},
+		},
+		"200 literal false": {
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte("false"))
+			},
+		},
+	}
+	for name, tc := range cases {
+		srv := httptest.NewServer(tc.handler)
+		p := NewPayPhoneProvider("token", "store-1", srv.URL, discardLogger())
+		err := p.Reverse(context.Background(), "ctid-123")
+		srv.Close()
+		if err == nil {
+			t.Fatalf("%s: reverse succeeded; only a literal true is a reversal", name)
+		}
+		if got := errors.Is(err, ErrPaymentReverseRefused); got != tc.refused {
+			t.Fatalf("%s: definite refusal = %v, want %v (error: %v)", name, got, tc.refused, err)
+		}
+		// The two readings are one reading: an error is exactly one of them.
+		if got := PaymentReverseOutcomeUnknown(err); got == tc.refused {
+			t.Fatalf("%s: unknown outcome = %v alongside definite refusal = %v; a failure is one or the other", name, got, tc.refused)
+		}
+	}
+}
+
+// TestPayPhoneReverseStillTreatsErrorCode24AsSuccess guards the amendment the
+// whole asynchronous design rests on (ADR 0024): "ya se encuentra cancelada" is
+// a receipt, not a refusal, and the classification above must not have turned it
+// into one — 24 sits in the same 4xx shape the refusal codes do.
+func TestPayPhoneReverseStillTreatsErrorCode24AsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"La transacción ya se encuentra cancelada","errorCode":24}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	p := NewPayPhoneProvider("token", "store-1", srv.URL, discardLogger())
+	if err := p.Reverse(context.Background(), "ctid-123"); err != nil {
+		t.Fatalf("reverse: %v, want success — the money has already left, and reading that as a refusal strands the sale forever active", err)
 	}
 }
 

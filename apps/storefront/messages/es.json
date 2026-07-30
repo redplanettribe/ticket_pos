@@ -177,6 +177,11 @@
     "undoKeep": "Conservar mis entradas",
     "undoing": "Deshaciendo…",
     "undoneToast": "Su compra quedó anulada.",
+    "undoPendingToast": "Estamos procesando su reembolso.",
+    "refundRefusedToast": "Sus entradas siguen siendo válidas: no se pudo procesar su reembolso.",
+    "refundPendingBadge": "Reembolso en proceso",
+    "refundPendingNote": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete; vuelva a revisar en unos minutos.",
+    "refundPendingNoteLink": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete.",
     "undoFailed": "No se pudo deshacer esta compra. Inténtelo de nuevo.",
     "undoNetworkFailed": "No se pudo deshacer esta compra. Revise su conexión e inténtelo de nuevo."
   },
@@ -242,7 +247,8 @@
       "SALE_ALREADY_REVERSED": "Esta compra ya fue anulada.",
       "SALE_NOT_REVERSIBLE": "Esta compra no se puede deshacer desde aquí. Contacte al organizador para que lo ayude.",
       "REVERSAL_WINDOW_CLOSED": "El plazo para deshacer esta compra ya terminó. Contacte al organizador para que lo ayude.",
-      "SALE_REVERSAL_FAILED": "No pudimos deshacer esta compra. No cambió nada; contacte al organizador con su referencia de confirmación."
+      "SALE_REVERSAL_FAILED": "No pudimos deshacer esta compra. No cambió nada; contacte al organizador con su referencia de confirmación.",
+      "REVERSAL_UNRESOLVED": "Estamos revisando con el proveedor de pagos qué pasó con este reembolso. Aquí no cambió nada; contacte al organizador con su referencia de confirmación."
     },
     "field": {
       "REQUIRED": "Campo obligatorio",

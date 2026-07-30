@@ -92,6 +92,64 @@ func TestStubPaymentProviderReverseSucceeds(t *testing.T) {
 	}
 }
 
+// TestStubPaymentProviderReverseDrivesBothFailureKinds: the stub can produce a
+// definite refusal and an unknown outcome on demand, because a Reversal Request
+// behaves completely differently on each (ADR 0024) and both paths have to be
+// exercisable on a deployment with no PayPhone credentials — the same reason the
+// stub agrees by default.
+//
+// Success stays the zero value, so nothing that merely constructs a stub can
+// have changed behaviour by adding this.
+func TestStubPaymentProviderReverseDrivesBothFailureKinds(t *testing.T) {
+	p := NewStubPaymentProvider("http://storefront.example")
+
+	p.SetReverseOutcome(StubReverseRefuses)
+	err := p.Reverse(context.Background(), "ctid-123")
+	if err == nil {
+		t.Fatal("reverse succeeded while driven to refuse")
+	}
+	if !errors.Is(err, ErrPaymentReverseRefused) {
+		t.Fatalf("refusal = %v; a caller cannot tell it apart from silence, which is the whole distinction", err)
+	}
+	if PaymentReverseOutcomeUnknown(err) {
+		t.Fatal("a driven refusal reads as an unknown outcome; the Reversal Request would stay open on an answer that was definite")
+	}
+
+	p.SetReverseOutcome(StubReverseOutcomeUnknown)
+	err = p.Reverse(context.Background(), "ctid-123")
+	if err == nil {
+		t.Fatal("reverse succeeded while driven to an unknown outcome")
+	}
+	if !PaymentReverseOutcomeUnknown(err) {
+		t.Fatalf("unknown outcome = %v reads as a definite refusal; the buyer would be told nothing happened to money that may have moved", err)
+	}
+
+	p.SetReverseOutcome(StubReverseSucceeds)
+	if err := p.Reverse(context.Background(), "ctid-123"); err != nil {
+		t.Fatalf("reverse: %v, want the stub back to agreeing", err)
+	}
+}
+
+// TestPaymentReverseNotSupportedIsADefiniteRefusal: a provider with no reversal
+// API did not reverse anything, and never could. That is the strongest definite
+// answer the boundary has, so it must never be read as an unknown outcome — a
+// Reversal Request against such a provider would otherwise stay open forever,
+// re-asking a provider that has nothing to ask.
+func TestPaymentReverseNotSupportedIsADefiniteRefusal(t *testing.T) {
+	err := unreversibleProvider{}.Reverse(context.Background(), "ctid-123")
+	if !errors.Is(err, ErrPaymentReverseRefused) {
+		t.Fatalf("%v is not a definite refusal; nothing happened and nothing ever could", err)
+	}
+	if PaymentReverseOutcomeUnknown(err) {
+		t.Fatal("an unsupported reversal reads as an unknown outcome; there is nothing to find out")
+	}
+	// And it keeps its own identity: SupportsReverse and the Undo offer are still
+	// decided by this sentinel, not by the classification above.
+	if !errors.Is(err, ErrPaymentReverseNotSupported) {
+		t.Fatal("ErrPaymentReverseNotSupported no longer matches itself")
+	}
+}
+
 // TestPaymentReversalSupports pins the one rule that decides both whether the
 // Customer Area offers an Undo and whether the endpoint goes ahead.
 func TestPaymentReversalSupports(t *testing.T) {

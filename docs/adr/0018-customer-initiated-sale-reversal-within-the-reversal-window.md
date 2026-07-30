@@ -97,6 +97,13 @@ residual risk, as the checkout incident already documented on `payments.ticket_s
 deferred a reconciler; this decision does not add one, and this is the second case that would
 benefit from it.
 
+**Amendment (2026-07-29): that residual risk is retired for the Customer reversal path.** The
+reconciler this decision declined to add now exists (ADR 0024), and the incident is no longer a log
+line waiting for a hand-repair: it is a Reversal Request standing `succeeded` over a Ticket Sale that
+is still `active`, which the Reversal Reconciler picks up and finishes. Retired for this path only —
+the checkout incident on `payments.ticket_sale_id` is untouched and remains the case ADR 0012
+deferred.
+
 **No aggregate needed changing.** Net Proceeds, the Withdrawable Balance and the Operator
 Dashboard's platform revenue all already filter `ts.status = 'active'`, so a reversal propagates
 by flipping one column. The already-anticipated consequence at the far end holds: a sale reversed

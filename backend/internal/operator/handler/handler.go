@@ -284,6 +284,7 @@ type reverseSaleBody struct {
 // @Failure      403  {object}  platform.Envelope
 // @Failure      404  {object}  platform.Envelope
 // @Failure      409  {object}  platform.Envelope
+// @Failure      503  {object}  platform.Envelope
 // @Router       /api/v1/operator/sales/{confirmationRef}/reverse [post]
 func (h *Handler) ReverseSale(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())

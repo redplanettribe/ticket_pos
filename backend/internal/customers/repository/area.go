@@ -66,6 +66,58 @@ type TicketSaleRow struct {
 	// a later purchase leaves what an old sale shows untouched.
 	TaxIDType   sql.NullString
 	TaxIDNumber sql.NullString
+	// ReversalPending is true exactly while a reversal of this sale is in
+	// progress: the Customer asked to undo it, and the platform is still working
+	// on it (ADR 0024). That is an `in_flight` or `succeeded` Reversal Request
+	// over a sale that is still active.
+	//
+	// Both halves are needed and neither is redundant. A request alone would
+	// still be true of a reversal that completed, since a `succeeded` request
+	// stands over its now-reversed sale forever; an active sale alone says
+	// nothing. Together they name the one situation a card must draw differently:
+	// the tickets still work, and we are still working on the refund. A
+	// `succeeded` request over an ACTIVE sale is SALE_REVERSAL_NOT_COMMITTED
+	// (#162) and belongs here too — the buyer is owed a refund that has not
+	// finished landing, which is precisely what this flag says.
+	//
+	// `needs_attention` is deliberately NOT one of them, and this is the one
+	// place where the display question and the database's live-per-sale index
+	// part company. That index counts an Unresolved Reversal as live because
+	// nothing may be written past it — the money's fate is unknown, so a second
+	// ask could refund twice — but nothing is in progress about it: the platform
+	// has stopped asking and is waiting on a Platform Operator. Borrowing the
+	// index's predicate here would tell the buyer "refund in progress" forever on
+	// the one reversal that has permanently stopped moving. What the Customer
+	// gets instead is a sale that looks untouched, which it is, and a typed
+	// refusal if they press Undo (sales.ErrReversalUnresolved).
+	//
+	// It changes nothing about the sale itself, and the row above shows exactly
+	// that: the status is still `active`, the capacity is still held, and the
+	// tickets are still valid, because no money is known to have moved. The only
+	// thing this flag entitles a surface to do is withdraw the Undo action and
+	// say a refund is being processed.
+	//
+	// It is read from `sale_reversals`, which the sales module owns, for the same
+	// reason this file already reads `payments`: the Customer Area is a
+	// composition of what a buyer's purchase looks like across the system, and a
+	// second round trip through another module to colour one card would buy
+	// nothing.
+	ReversalPending bool
+	// ReversalStatus is where this sale's most recent Reversal Request stands,
+	// null when the buyer has never asked (ADR 0024).
+	//
+	// ReversalPending answers "is a refund being worked on"; this answers "how did
+	// the ask end", which a surface needs precisely where the two disagree. An
+	// Unresolved Reversal leaves the sale active and ReversalPending false, so a
+	// surface reading only that flag sees a pending refund silently vanish and
+	// cannot tell it apart from a refusal — and telling a buyer their refund was
+	// refused is the one thing the platform must never say about an Unresolved
+	// Reversal, since nobody knows whether the money went back.
+	//
+	// It carries the request's own word, unmapped, so a surface decides what to
+	// say and this file does not decide for it. `refused` is the only value any
+	// surface may present as a refusal.
+	ReversalStatus sql.NullString
 }
 
 // ReversalFacts narrows a Customer Area row to the reversal rule's inputs, so the
@@ -168,7 +220,38 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			org.currency,
 			e.id, e.name, e.slug, e.starts_at, e.ends_at, e.timezone, e.venue_name,
 			org.id, org.name, org.slug,
-			ts.customer_tax_id_type, ts.customer_tax_id_number
+			ts.customer_tax_id_type, ts.customer_tax_id_number,
+			-- Whether a reversal of this sale is in progress (ADR 0024): a request
+			-- the platform is still working on, over a sale that still stands.
+			-- The two statuses are named rather than expressed as "not refused" —
+			-- see ReversalPending above for why the fourth one is not one of them.
+			--
+			-- EXISTS rather than a join: the live-per-sale index makes at most one
+			-- such row possible per sale, and the question asked here is only
+			-- whether there is one — none of its columns are shown to a buyer.
+			(ts.status = 'active' AND EXISTS (
+				SELECT 1 FROM sale_reversals sr
+				WHERE sr.ticket_sale_id = ts.id
+				  AND sr.status IN ('in_flight', 'succeeded')
+			)),
+			-- Where this sale's most recent Reversal Request stands, or null when
+			-- the buyer has never asked.
+			--
+			-- ORDER BY is load-bearing and not tidiness. The live-per-sale index
+			-- bounds the non-refused rows at one, but it deliberately excludes
+			-- 'refused' — a refusal means nothing happened, so a buyer inside the
+			-- Window may ask again — and a sale can therefore carry several refused
+			-- rows beside one live one. Without an order this would return an
+			-- arbitrary one of them, and the arbitrary choice a surface would act on
+			-- is whether to tell somebody their refund failed.
+			--
+			-- Most recent ask wins, because that is the one the buyer is waiting on:
+			-- an older refusal they already saw is not news, and a live request
+			-- always postdates the refusals that preceded it.
+			(SELECT sr.status FROM sale_reversals sr
+			  WHERE sr.ticket_sale_id = ts.id
+			  ORDER BY sr.requested_at DESC
+			  LIMIT 1)
 		FROM ticket_sales ts
 		JOIN events e ON e.id = ts.event_id
 		JOIN organizations org ON org.id = ts.organization_id
@@ -216,6 +299,8 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 			&s.EventID, &s.EventName, &s.EventSlug, &s.EventStartsAt, &s.EventEndsAt, &s.EventTimezone, &s.EventVenueName,
 			&s.OrganizationID, &s.OrganizationName, &s.OrganizationSlug,
 			&s.TaxIDType, &s.TaxIDNumber,
+			&s.ReversalPending,
+			&s.ReversalStatus,
 		); err != nil {
 			return nil, err
 		}

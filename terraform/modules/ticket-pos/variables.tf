@@ -212,7 +212,7 @@ variable "api_concurrency" {
 }
 
 variable "api_request_timeout_seconds" {
-  description = "How long Cloud Run waits for a response before killing the request. Cloud Run's own default; lowering it would put a new ceiling on the slowest existing endpoint (sale import parses an uploaded file in memory) that nothing else in the system imposes."
+  description = "How long Cloud Run waits for a response before killing the request. Cloud Run's own default; lowering it would put a new ceiling on the slowest existing endpoint (sale import parses an uploaded file in memory) that nothing else in the system imposes. It is also the outermost term of the reversal drain's deadline chain, written down once in backend/internal/sales/service/reconciler.go beside reversalDrainBudget — read that before lowering it near reversal_reconciler_attempt_deadline_seconds."
   type        = number
   default     = 300
 
@@ -402,5 +402,41 @@ variable "otp_global_ceiling" {
   validation {
     condition     = var.otp_global_ceiling == null || var.otp_global_ceiling > 0
     error_message = "otp_global_ceiling must be a positive integer; the API rejects a non-positive value at startup."
+  }
+}
+
+# --- Reversal Reconciler ------------------------------------------------------
+
+variable "reversal_reconciler_enabled" {
+  description = "Whether the Cloud Scheduler tick actually fires. False leaves the job, its identity and its run.invoker grant in place but paused — which is how ADR 0024's rollout wants it applied (the drain endpoint is exercised by hand first), and how the schedule is stopped during an incident without deleting anything."
+  type        = bool
+  default     = false
+}
+
+variable "reversal_reconciler_schedule" {
+  description = "Unix cron for the drain tick. A minute because a Customer waiting on a refund they were told was 'processing' should not wait tens of minutes, and no faster because nothing here is sub-minute urgent. Changing it changes how quickly a stuck request is picked up, never whether it is: overlapping and skipped runs are both harmless for the reason reversal_reconciler.tf gives beside attempt_deadline, and per-request backoff lives in sale_reversals.next_attempt_at."
+  type        = string
+  default     = "* * * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.reversal_reconciler_schedule))
+    error_message = "reversal_reconciler_schedule must be five space-separated cron fields, e.g. \"* * * * *\"."
+  }
+}
+
+variable "reversal_reconciler_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one drain before abandoning it. It is the middle term of a chain — the backend's own drain budget must expire first, this second, api_request_timeout_seconds last — written down once, with what breaks when a term moves alone, in backend/internal/sales/service/reconciler.go beside reversalDrainBudget. Read that before moving this. A backend test reads this default and fails if the chain stops holding, which is the only place the three numbers are ever compared."
+  type        = number
+  default     = 90
+
+  validation {
+    # The floor is not Cloud Scheduler's own 15: it is the backend's drain budget
+    # plus the provider timeout a probe already in flight can still be paying.
+    # Sixty leaves room for both at their current values, and the backend test
+    # named above is what actually holds the relationship — Terraform cannot read
+    # a Go constant, so this bound stays deliberately loose rather than restating
+    # a number that would go stale here.
+    condition     = var.reversal_reconciler_attempt_deadline_seconds >= 60 && var.reversal_reconciler_attempt_deadline_seconds <= 1800
+    error_message = "reversal_reconciler_attempt_deadline_seconds must be between 60 and 1800: at least 60 so it outlives the backend's drain budget plus a probe in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
   }
 }

@@ -177,6 +177,11 @@
     "undoKeep": "Keep my tickets",
     "undoing": "Undoing…",
     "undoneToast": "Your purchase is undone.",
+    "undoPendingToast": "We're processing your refund.",
+    "refundRefusedToast": "Your tickets are still valid — your refund could not be processed.",
+    "refundPendingBadge": "Refund in progress",
+    "refundPendingNote": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through — check back in a few minutes.",
+    "refundPendingNoteLink": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through.",
     "undoFailed": "This purchase could not be undone. Try again.",
     "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again."
   },
@@ -242,7 +247,8 @@
       "SALE_ALREADY_REVERSED": "This purchase has already been undone.",
       "SALE_NOT_REVERSIBLE": "This purchase can't be undone here. Contact the organizer for help.",
       "REVERSAL_WINDOW_CLOSED": "The time to undo this purchase has passed. Contact the organizer for help.",
-      "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference."
+      "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
+      "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference."
     },
     "field": {
       "REQUIRED": "is required",

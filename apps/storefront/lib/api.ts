@@ -143,6 +143,29 @@ export class APIError extends Error {
 }
 
 /**
+ * What a successful call to the Go API came back as: the envelope, plus the HTTP
+ * status that carried it.
+ *
+ * The status is here because "the call succeeded" stopped being one thing. A
+ * Customer's undo now answers 200 when the Sale Reversal is done and 202 when a
+ * Reversal Request is in flight and nobody yet knows whether the money moved
+ * (ADR 0024), and both are `response.ok`. A relay that only forwarded the body
+ * would flatten the two into the same answer, and the one it would flatten them
+ * into is "your purchase is undone" — a claim about somebody's money that no
+ * part of the system has made.
+ *
+ * `status` describes the call, not the payload, so a BFF route relaying this to
+ * the browser names the envelope's three fields rather than spreading this whole
+ * object: spreading it would put a `status` key inside the response body, where
+ * the envelope contract has never had one and a client reading `data.status`
+ * beside it would have two unrelated things spelled the same.
+ */
+export type BackendResponse<T> = APIEnvelope<T> & {
+  /** The API's own HTTP status. Only successful ones reach here; failures throw. */
+  status: number;
+};
+
+/**
  * callBackend proxies one request to the Go API and returns its envelope,
  * throwing APIError when the call failed.
  *
@@ -157,7 +180,7 @@ export class APIError extends Error {
 export async function callBackend<T>(
   path: string,
   init: RequestInit & { sessionToken?: string } = {},
-): Promise<APIEnvelope<T>> {
+): Promise<BackendResponse<T>> {
   const headers = new Headers(init.headers);
   if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
@@ -185,7 +208,7 @@ export async function callBackend<T>(
       envelope.request_id ?? crypto.randomUUID(),
     );
   }
-  return envelope;
+  return { ...envelope, status: response.status };
 }
 
 export type PublicOrganization = {

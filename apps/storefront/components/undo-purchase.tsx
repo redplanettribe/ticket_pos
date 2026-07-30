@@ -17,6 +17,7 @@ import { useMessages, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { apiErrorMessage } from "@/lib/api-errors";
+import type { TicketSaleReversal } from "@/lib/customer-session";
 
 /**
  * "Undo this purchase" on a Ticket Sale card in the Customer Area (#119,
@@ -36,6 +37,13 @@ import { apiErrorMessage } from "@/lib/api-errors";
  * rendered before the deadline and pressed after it comes back refused rather
  * than quietly succeeding. Which refusal it is stays the API's to decide; the
  * sentence is this app's, chosen by the API's code (ADR 0023).
+ *
+ * Pressing it has three outcomes rather than two (ADR 0024). It is done, it was
+ * refused, or the Payment Provider went silent and a Reversal Request is in
+ * flight — the last answered 202 with `status: "pending"`. The third is why this
+ * dialog reads the body's own status instead of trusting the response having
+ * been ok: a 202 is ok, and reporting it as done would tell a Customer their
+ * money is back when the platform does not yet know that it is.
  *
  * The confirmation step is deliberate rather than ceremonial. This is the one
  * destructive action a Customer has, it cannot be taken back — capacity returns
@@ -57,8 +65,19 @@ type UndoPurchaseProps = {
   paidLabel?: string | null;
 };
 
+/**
+ * The BFF route's relay of the undo, typed by the union the API actually answers
+ * with rather than by a local guess at it. `data` is null only on the error path,
+ * which is read through `error` instead.
+ *
+ * The union is the point: `TicketSaleReversal` discriminates on `status`, so the
+ * comparison the "done" toast rests on is checked against the values the API can
+ * really send. A future state — or a rename of `reversed` — stops this file from
+ * compiling instead of quietly leaving the success branch unreachable and every
+ * outcome reported as pending.
+ */
 type Envelope = {
-  data: unknown;
+  data: TicketSaleReversal | null;
   error: { code: string; message: string } | null;
 };
 
@@ -115,13 +134,37 @@ export function UndoPurchase({
         return;
       }
       setOpen(false);
-      toast.success(t("undoneToast"));
+      // Only `reversed` is done, and the test is positive on purpose: anything
+      // else — including a body this build does not recognise — falls to "we are
+      // processing it", which is at worst premature, where the other default
+      // would tell somebody their money is back on no evidence at all.
+      if (envelope.data?.status === "reversed") {
+        toast.success(t("undoneToast"));
+      } else {
+        // Not toast.success: nothing has succeeded. This is the one place the
+        // Customer Area says "refund" rather than "undo", and it is earned —
+        // a Reversal Request exists only where a Payment Provider took real
+        // money and has not yet said what it did with it. A free claim reverses
+        // synchronously and never reaches this branch.
+        toast(t("undoPendingToast"));
+      }
       // The card, the badge and the ticket lists are all server-rendered from
       // the Customer Area read, so the page is asked for the new truth rather
-      // than being patched locally into a state the API never confirmed.
+      // than being patched locally into a state the API never confirmed. It is
+      // also what draws the pending case durably: a toast lasts seconds, and
+      // the "Refund in progress" state on the card is what is still there when
+      // the Customer comes back to look.
       router.refresh();
     } catch {
       setError({ code: null, message: null, fallback: "undoNetworkFailed" });
+      // A lost response is not proof that nothing happened. The POST may well
+      // have reached the API and written a Reversal Request (ADR 0024), and the
+      // sentence above — the only thing this dialog can honestly say from here —
+      // reads as "it did not work". So the page is asked for the truth on this
+      // path too: if a request was made, the card comes back with the refund in
+      // progress and without an Undo button to press a second time, and the
+      // Customer sees what actually happened rather than what we guessed.
+      router.refresh();
     } finally {
       setBusy(false);
     }
