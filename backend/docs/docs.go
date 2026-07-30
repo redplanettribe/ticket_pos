@@ -1965,6 +1965,10 @@ const docTemplate = `{
             },
             "service.PublicTicketType": {
                 "properties": {
+                    "already_held": {
+                        "description": "AlreadyHeld is how many of this Ticket Type the Customer who asked for this\npage already holds — their active Ticket Sales plus their live Capacity\nHolds, the same count begin-checkout refuses on, and the same word its\nPURCHASE_LIMIT_EXCEEDED details use, so a client learns one name for one\nidea (ADR 0025, #168).\n\nIt is NULL for an anonymous read, and that is not the same statement as 0.\nZero says \"you hold none of these\"; null says \"we do not know who you are\",\nand the Storefront must not turn the second into the first — an anonymous\nvisitor learns of their allowance at submit, which is the first moment they\nhave told us who they are. Nobody ever reads anybody else's figure: it is\nderived from the Customer Session the request carried and from nothing in\nthe URL, so there is no address a caller can ask about but their own.\n\nIt is reported for every Ticket Type a signed-in Customer reads, including\nunrestricted ones, so that null keeps meaning \"anonymous\" and never doubles\nas \"unrestricted\" — max_per_customer already says that, and one field\nanswering two questions is how a picker ends up bounding the wrong thing.\nIt may legitimately exceed max_per_customer: lowering a Purchase Limit is\nnot retroactive, so remaining allowance is max(0, limit - already_held) and\nis never asserted non-negative.",
+                        "type": "integer"
+                    },
                     "currency": {
                         "type": "string"
                     },
@@ -4173,7 +4177,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}": {
             "get": {
-                "description": "Returns a published event with its ticket types for the Storefront event page.",
+                "description": "Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means \"we do not know who is asking\", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -5548,7 +5552,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
-                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional ` + "`" + `skip_rows` + "`" + `, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body.",
+                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional ` + "`" + `skip_rows` + "`" + `, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -5659,7 +5663,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sale-imports/preview": {
             "post": {
-                "description": "Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.",
+                "description": "Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). A row that would take one customer past a ticket type's max_per_customer is invalid, with a blocking error on its quantity cell; rows in the same file count against each other, and the complaint names the earlier row when that is what the row conflicts with. No writes.",
                 "parameters": [
                     {
                         "description": "Event ID",

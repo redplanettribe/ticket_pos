@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  allowanceSpent,
   checkoutDestination,
   clampQuantity,
   offerableQuantity,
@@ -85,6 +86,106 @@ test("a Purchase Limit equal to remaining capacity offers all of it", () => {
 test("a sold-out rationed Ticket Type still offers nothing", () => {
   assert.equal(offerableQuantity({ ...soldOut, max_per_customer: 5 }), 0);
   assert.equal(clampQuantity(1, { ...soldOut, max_per_customer: 5 }), 0);
+});
+
+// --- What the signed-in Customer already holds (ADR 0025, #168) -------------
+
+test("the offer is the Purchase Limit less what the Customer already holds", () => {
+  // The case #165 left open: bounding at the bare limit offered a returning
+  // Customer their whole allowance a second time.
+  const cases: { name: string; limit: number; held: number | null; want: number }[] = [
+    { name: "none of the allowance spent", limit: 4, held: 0, want: 4 },
+    { name: "part of the allowance spent", limit: 4, held: 1, want: 3 },
+    { name: "all but one spent", limit: 4, held: 3, want: 1 },
+    { name: "the whole allowance spent", limit: 4, held: 4, want: 0 },
+    // Lowering a Purchase Limit is not retroactive, so holding MORE than the
+    // limit is a legitimate state and must offer zero, never a negative.
+    { name: "more held than the limit now allows", limit: 4, held: 9, want: 0 },
+    // An anonymous read discloses no holdings, and absent means unknown rather
+    // than zero — so it subtracts nothing and behaves exactly as before.
+    { name: "holdings unknown", limit: 4, held: null, want: 4 },
+  ];
+
+  for (const { name, limit, held, want } of cases) {
+    const ticketType: SellableTicketType = {
+      ...generalAdmission,
+      remaining: 50,
+      max_per_customer: limit,
+      already_held: held,
+    };
+    assert.equal(offerableQuantity(ticketType), want, name);
+    assert.equal(clampQuantity(99, ticketType), want, name);
+  }
+});
+
+test("an absent already_held is the same statement as a null one", () => {
+  // generalAdmission carries no already_held key at all, which is what a caller
+  // predating #168 hands in; null is what the API sends an anonymous reader.
+  const absent: SellableTicketType = { ...generalAdmission, max_per_customer: 3 };
+  const explicitlyNull: SellableTicketType = { ...absent, already_held: null };
+  assert.equal(offerableQuantity(absent), 3);
+  assert.equal(offerableQuantity(explicitlyNull), 3);
+  assert.equal(allowanceSpent(absent), false);
+  assert.equal(allowanceSpent(explicitlyNull), false);
+});
+
+test("holdings on an unrestricted Ticket Type bound nothing", () => {
+  // There is no allowance to spend without a Purchase Limit, so a held count
+  // must not become one by subtraction.
+  const unrestricted: SellableTicketType = { ...generalAdmission, already_held: 12 };
+  assert.equal(offerableQuantity(unrestricted), 5);
+  assert.equal(offerableQuantity({ ...unrestricted, max_per_customer: null }), 5);
+  assert.equal(allowanceSpent(unrestricted), false);
+});
+
+test("capacity still binds when it is the smaller number", () => {
+  // Two remain and the Customer's allowance would permit four: the Event's
+  // stock wins, because an allowance is not a licence to oversell.
+  const scarce: SellableTicketType = { ...vip, max_per_customer: 6, already_held: 2 };
+  assert.equal(offerableQuantity(scarce), 2);
+  assert.equal(clampQuantity(10, scarce), 2);
+  assert.equal(allowanceSpent(scarce), false);
+});
+
+test("allowanceSpent is true only when a known Customer has used a real limit up", () => {
+  const cases: { name: string; ticketType: SellableTicketType; want: boolean }[] = [
+    {
+      name: "allowance exactly spent",
+      ticketType: { ...generalAdmission, max_per_customer: 2, already_held: 2 },
+      want: true,
+    },
+    {
+      name: "more held than the limit now allows",
+      ticketType: { ...generalAdmission, max_per_customer: 2, already_held: 5 },
+      want: true,
+    },
+    {
+      name: "allowance partly spent",
+      ticketType: { ...generalAdmission, max_per_customer: 2, already_held: 1 },
+      want: false,
+    },
+    {
+      name: "anonymous read of a rationed Ticket Type",
+      ticketType: { ...generalAdmission, max_per_customer: 2 },
+      want: false,
+    },
+    {
+      name: "unrestricted Ticket Type",
+      ticketType: { ...generalAdmission, already_held: 7 },
+      want: false,
+    },
+    {
+      // Sold out is a fact about the Event that everybody reading the page
+      // sees, and it keeps its own wording: the two states must not merge.
+      name: "sold out with the allowance also spent",
+      ticketType: { ...soldOut, max_per_customer: 2, already_held: 2 },
+      want: false,
+    },
+  ];
+
+  for (const { name, ticketType, want } of cases) {
+    assert.equal(allowanceSpent(ticketType), want, name);
+  }
 });
 
 test("running total prices the selection per Ticket Type", () => {

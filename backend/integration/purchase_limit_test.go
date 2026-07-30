@@ -2,16 +2,22 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
 // Purchase Limit: the most of one Ticket Type a single Customer may hold at
 // once (CONTEXT.md, ADR 0025). This file covers the catalog half — setting,
-// reading, clearing and rejecting the value (#164) — and the online enforcement
-// half: begin-checkout refusing a breach with PURCHASE_LIMIT_EXCEEDED (#166).
-// The Sale Import refusal arrives with its own ticket and extends this file too.
+// reading, clearing and rejecting the value (#164) — the online enforcement
+// half: begin-checkout refusing a breach with PURCHASE_LIMIT_EXCEEDED (#166) —
+// the Sale Import half: the preview refusing offending rows, counting the
+// rows of one file against each other (#167) — and the read half: a signed-in
+// Customer being told their own holdings on the public Event page, and nobody
+// else learning anything about anybody (#168).
 //
 // The catalog half turns on the difference between "no Purchase Limit" and "a
 // Purchase Limit of N", so every read asserts on null as carefully as on a
@@ -750,4 +756,574 @@ func publicTicketTypeWithLimit(t *testing.T, env *testEnv, eventSlug, name strin
 	}
 	t.Fatalf("ticket type %q is not on the public Event page: %+v", name, detail.TicketTypes)
 	return ticketTypeWithLimit{}
+}
+
+// --- Sale Import (#167) ---------------------------------------------------
+//
+// An Organization must not walk past its own Purchase Limit with a spreadsheet.
+// The preview is the surface these tests read, because it is where every other
+// row problem is already reported cell by cell, and the commit is exercised
+// alongside it because a client can post a file straight to it without ever
+// previewing.
+//
+// The load-bearing case is the RUNNING TALLY: two rows of one file for the same
+// Customer count against each other. A file of a hundred identical rows that all
+// passed would make the refusal decorative, so the second row being refused
+// while the first is accepted is the assertion that matters most here.
+
+// rationedImportRow is one data row of a Sale Import file. Only the buyer's
+// email and the quantity vary in these tests: the Purchase Limit is keyed on the
+// Customer and measured in tickets, and every other cell is scenery.
+func rationedImportRow(email, firstName string, quantity int) string {
+	return fmt.Sprintf("%s,%s,Lopez,GA,%d,cash,2026-07-01T10:00:00Z,", email, firstName, quantity)
+}
+
+// rationedImportFile assembles those rows into a file, numbered from 2 as the
+// organizer sees them (row 1 is the header).
+func rationedImportFile(rows ...string) []byte {
+	return importCSV(plainImportHeader, rows...)
+}
+
+// commitImportFileRefused posts a file to the commit endpoint expecting it to be
+// refused, and hands back the envelope so the caller can read the complaints.
+func commitImportFileRefused(t *testing.T, env *testEnv, sessionID, eventID, idempotencyKey string, file []byte) envelope {
+	t.Helper()
+	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"sales.csv", file, map[string]string{"idempotency_key": idempotencyKey, "source": "direct"}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("commit status=%d error=%+v, want 400 — the commit re-decides the Purchase Limit itself", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("error = %+v, want VALIDATION_FAILED", body.Error)
+	}
+	return body
+}
+
+// commitImportFileSkipping commits a file with some of its rows excluded — how
+// an organizer drops the one row the preview refused — expecting acceptance.
+func commitImportFileSkipping(t *testing.T, env *testEnv, sessionID, eventID, idempotencyKey string, file []byte, skipRows string) importResultBody {
+	t.Helper()
+	resp, body := postFile(t, env, "/api/v1/staff/events/"+eventID+"/sale-imports",
+		"sales.csv", file, map[string]string{"idempotency_key": idempotencyKey, "source": "direct", "skip_rows": skipRows}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("commit status=%d error=%+v, want 201", resp.StatusCode, body.Error)
+	}
+	return importResult(t, body)
+}
+
+// refusedRowComplaint asserts a preview row was rejected for the Purchase Limit
+// and returns the complaint the organizer reads beside the row.
+//
+// The complaint is blamed on the quantity cell on purpose: that is the cell the
+// staff member edits (or the row they delete), and the preview panel puts the
+// message beside it. There is no separate warnings channel to look in — a row
+// over the allowance is blocking, exactly like a malformed email.
+func refusedRowComplaint(t *testing.T, row previewRow) string {
+	t.Helper()
+	if row.Valid {
+		t.Fatalf("row %d is valid; want it refused for the Purchase Limit", row.Row)
+	}
+	for _, e := range row.Errors {
+		if e.Field == "quantity" && strings.Contains(e.Message, "Purchase Limit") {
+			return e.Message
+		}
+	}
+	t.Fatalf("row %d errors = %+v, want one on quantity naming the Purchase Limit", row.Row, row.Errors)
+	return ""
+}
+
+func assertRowValid(t *testing.T, row previewRow, where string) {
+	t.Helper()
+	if !row.Valid {
+		t.Fatalf("%s: row %d = %+v, want valid — only the offending rows are refused", where, row.Row, row.Errors)
+	}
+}
+
+// TestSaleImportRefusesARowPastWhatTheCustomerAlreadyHolds is the tracer bullet
+// for the import half: a Customer who took her allowance on the Storefront
+// cannot be handed more of the same Ticket Type through a spreadsheet.
+//
+// The holdings the row collides with were made on ANOTHER channel, which is the
+// point — the allowance belongs to the Customer, not to the channel that spent
+// it — and the rest of the batch imports untouched once the offending row goes.
+// TestSaleImportRefusesARowThatIsOverTheLimitOnItsOwn covers the case neither
+// other complaint can word honestly: a single row asking for more than the
+// Purchase Limit allows, by a Customer who holds nothing and has no earlier row
+// in the file. The refusal must not say "they already hold 0" — that asserts a
+// Ticket Sale which does not exist and sends the organizer looking for it.
+func TestSaleImportRefusesARowThatIsOverTheLimitOnItsOwn(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, _ := publishRationedEvent(t, env, sessionID, "Import Solo Fest", "import-solo-fest", 1000, 50, 2)
+
+	// Cora holds nothing at all; her one row asks for three against a limit of two.
+	file := rationedImportFile(rationedImportRow("cora@example.com", "Cora", 3))
+	res := previewImportFile(t, env, sessionID, eventID, file)
+	if res.ValidRows != 0 {
+		t.Fatalf("preview valid rows = %d, want 0", res.ValidRows)
+	}
+	complaint := refusedRowComplaint(t, res.Rows[0])
+	if !strings.Contains(complaint, "Purchase Limit of 2") {
+		t.Fatalf("complaint = %q, want it to state the Purchase Limit", complaint)
+	}
+	if strings.Contains(complaint, "already hold") {
+		t.Fatalf("complaint = %q, but Cora holds nothing — it must not claim she does", complaint)
+	}
+	if strings.Contains(complaint, "in this file") {
+		t.Fatalf("complaint = %q, but no earlier row spent her allowance", complaint)
+	}
+
+	// The refused row takes its quantity back out of the capacity figures with
+	// it, so the preview never reports an import wanting tickets it has refused.
+	for _, impact := range res.CapacityImpact {
+		if impact.Requested != 0 {
+			t.Fatalf("capacity impact for %s requests %d after the only row was refused, want 0",
+				impact.TicketTypeID, impact.Requested)
+		}
+		if impact.Oversold {
+			t.Fatalf("capacity impact for %s reports oversold on a refused row", impact.TicketTypeID)
+		}
+	}
+}
+
+func TestSaleImportRefusesARowPastWhatTheCustomerAlreadyHolds(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Import Held Fest", "import-held-fest", 1000, 50, 2)
+
+	// Ana takes her whole allowance online, settled through to an active Ticket Sale.
+	begun := beginCheckoutOK(t, env, testOrgSlug, "import-held-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 2)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	file := rationedImportFile(
+		rationedImportRow("ana@example.com", "Ana", 1),
+		rationedImportRow("bea@example.com", "Bea", 2),
+	)
+	res := previewImportFile(t, env, sessionID, eventID, file)
+	if res.TotalRows != 2 || res.ValidRows != 1 {
+		t.Fatalf("preview counts = %d valid / %d total, want 1 / 2", res.ValidRows, res.TotalRows)
+	}
+	if res.Committable {
+		t.Fatal("committable = true with a row over the Purchase Limit")
+	}
+	complaint := refusedRowComplaint(t, res.Rows[0])
+	if !strings.Contains(complaint, "already hold 2") {
+		t.Fatalf("row 2 complaint = %q, want it to state what the Customer already holds", complaint)
+	}
+	if strings.Contains(complaint, "in this file") {
+		t.Fatalf("row 2 complaint = %q, but nothing earlier in the file took her allowance", complaint)
+	}
+	assertRowValid(t, res.Rows[1], "Bea's row")
+
+	// Committing the file anyway is refused per row, and records nothing at all.
+	body := commitImportFileRefused(t, env, sessionID, eventID, "import-held-1", file)
+	if got := fieldErrors(t, body)["rows[2].quantity"]; !strings.Contains(got, "Purchase Limit") {
+		t.Fatalf("field errors = %v, want one on rows[2].quantity naming the Purchase Limit", fieldErrors(t, body))
+	}
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 2 {
+		t.Fatalf("sold_count = %d, want 2 — a blocked batch is all-or-nothing", got)
+	}
+
+	// Dropping the one offending row imports the rest, which is the whole promise:
+	// one bad cell never costs the organizer the batch.
+	if res := commitImportFileOK(t, env, sessionID, eventID, "import-held-2",
+		rationedImportFile(rationedImportRow("bea@example.com", "Bea", 2))); res.SaleCount != 1 {
+		t.Fatalf("sale_count = %d, want 1", res.SaleCount)
+	}
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 4 {
+		t.Fatalf("sold_count = %d, want 4", got)
+	}
+}
+
+// TestSaleImportCountsRowsInTheSameFileAgainstEachOther is the core of #167:
+// with a limit of one, a file carrying two rows for Ana has the FIRST accepted
+// and the SECOND refused, even though she held nothing when it was uploaded.
+// Without the running tally a single file of identical rows would defeat the
+// limit outright.
+//
+// The second row spells her address differently, so the tally is proved to be
+// keyed on the Customer (ADR 0010) rather than on the literal cell — two
+// spellings are one person and share one allowance.
+//
+// Its complaint NAMES the earlier row and reads differently from the
+// already-holds case: one is fixed in the spreadsheet, the other is not, and a
+// staff member told the wrong one goes looking in the wrong place.
+func TestSaleImportCountsRowsInTheSameFileAgainstEachOther(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Import Tally Fest", "import-tally-fest", 1000, 50, 1)
+
+	file := rationedImportFile(
+		rationedImportRow("ana@example.com", "Ana", 1),
+		rationedImportRow("ANA@Example.COM", "Ana", 1),
+		rationedImportRow("bea@example.com", "Bea", 1),
+	)
+	res := previewImportFile(t, env, sessionID, eventID, file)
+	if res.TotalRows != 3 || res.ValidRows != 2 {
+		t.Fatalf("preview counts = %d valid / %d total, want 2 / 3", res.ValidRows, res.TotalRows)
+	}
+	if res.Committable {
+		t.Fatal("committable = true with a row over the Purchase Limit")
+	}
+	assertRowValid(t, res.Rows[0], "Ana's first row")
+	assertRowValid(t, res.Rows[2], "Bea's row")
+
+	complaint := refusedRowComplaint(t, res.Rows[1])
+	if !strings.Contains(complaint, "row "+strconv.Itoa(res.Rows[0].Row)) {
+		t.Fatalf("row 3 complaint = %q, want it to name row %d — the earlier row that took the allowance", complaint, res.Rows[0].Row)
+	}
+	if !strings.Contains(complaint, "in this file") {
+		t.Fatalf("row 3 complaint = %q, want it to say the conflict is inside the file", complaint)
+	}
+	if strings.Contains(complaint, "already hold") {
+		t.Fatalf("row 3 complaint = %q, but Ana held nothing before this upload", complaint)
+	}
+
+	// Skipping the offending row commits the other two: the refusal costs the
+	// batch one row, never the upload.
+	if got := commitImportFileSkipping(t, env, sessionID, eventID, "import-tally-1", file, "3"); got.SaleCount != 2 {
+		t.Fatalf("sale_count = %d, want 2 (Ana once, Bea once)", got.SaleCount)
+	}
+	if got := salesCountByEmail(t, env, eventID, "ana@example.com"); got != 1 {
+		t.Fatalf("Ana's active Ticket Sales = %d, want 1", got)
+	}
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 2 {
+		t.Fatalf("sold_count = %d, want 2", got)
+	}
+}
+
+// TestImportedTicketSaleConsumesThePurchaseLimit closes the loop the other way
+// round: a Customer given her ticket through a Sale Import cannot then take a
+// second one on the Storefront.
+//
+// Nothing was written for this. An imported Ticket Sale is an ordinary active
+// ticket_sales row against the Customer the import upserted, and the allowance
+// is counted from those rows whatever channel made them — this test is what
+// proves it rather than a second code path that would have to agree.
+func TestImportedTicketSaleConsumesThePurchaseLimit(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Import Consumes Fest", "import-consumes-fest", 1000, 50, 1)
+
+	commitImportFileOK(t, env, sessionID, eventID, "import-consumes-1",
+		rationedImportFile(rationedImportRow("ana@example.com", "Ana", 1)))
+
+	details := refusedByPurchaseLimit(t, env, "import-consumes-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 1)))
+	assertLimitDetails(t, details, gaID, 1, 1, 1)
+}
+
+// TestRaisingThePurchaseLimitLetsARejectedFileImport is the documented route out
+// for an Organization importing history recorded before they set a limit: raise
+// or clear it, import, set it back. The rejection is not a dead end, and this is
+// the accepted trade rather than a bug (ADR 0025).
+func TestRaisingThePurchaseLimitLetsARejectedFileImport(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Import Raise Fest", "import-raise-fest", 1000, 50, 1)
+
+	file := rationedImportFile(
+		rationedImportRow("ana@example.com", "Ana", 1),
+		rationedImportRow("ana@example.com", "Ana", 1),
+	)
+	if previewImportFile(t, env, sessionID, eventID, file).Committable {
+		t.Fatal("committable = true at a limit of 1 for two rows of the same Customer")
+	}
+
+	raised := 2
+	setPurchaseLimit(t, env, sessionID, eventID, gaID, 1000, 50, &raised)
+	if !previewImportFile(t, env, sessionID, eventID, file).Committable {
+		t.Fatal("committable = false after raising the Purchase Limit to 2")
+	}
+	commitImportFileOK(t, env, sessionID, eventID, "import-raise-1", file)
+	if got := salesCountByEmail(t, env, eventID, "ana@example.com"); got != 2 {
+		t.Fatalf("Ana's active Ticket Sales = %d, want 2", got)
+	}
+
+	// Clearing it is the stronger form of the same escape: with no Purchase Limit
+	// the allowance is not counted at all, and history imports whatever its size.
+	setPurchaseLimit(t, env, sessionID, eventID, gaID, 1000, 50, nil)
+	commitImportFileOK(t, env, sessionID, eventID, "import-raise-2",
+		rationedImportFile(rationedImportRow("ana@example.com", "Ana", 5)))
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 7 {
+		t.Fatalf("sold_count = %d, want 7", got)
+	}
+}
+
+// TestUnrestrictedTicketTypeImportsAnyQuantity is the migration's promise on the
+// import path: a Ticket Type with no Purchase Limit is not made harder to import
+// against by this feature existing. One Customer, three rows, fifteen tickets —
+// every one of which a limit would have refused.
+func TestUnrestrictedTicketTypeImportsAnyQuantity(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Import Open Fest", "import-open-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 50)
+
+	file := rationedImportFile(
+		rationedImportRow("ana@example.com", "Ana", 5),
+		rationedImportRow("ana@example.com", "Ana", 5),
+		rationedImportRow("ana@example.com", "Ana", 5),
+	)
+	res := previewImportFile(t, env, sessionID, eventID, file)
+	if res.ValidRows != 3 || !res.Committable {
+		t.Fatalf("preview = %d valid / committable %t, want 3 / true", res.ValidRows, res.Committable)
+	}
+	if got := commitImportFileOK(t, env, sessionID, eventID, "import-open-1", file); got.SaleCount != 3 {
+		t.Fatalf("sale_count = %d, want 3", got.SaleCount)
+	}
+	if got := soldCount(t, env, sessionID, eventID, gaID); got != 15 {
+		t.Fatalf("sold_count = %d, want 15", got)
+	}
+}
+
+// --- A signed-in Customer reads their own allowance (#168) ----------------
+//
+// The same count begin-checkout refuses on, stated on the Storefront Event page
+// BEFORE the buyer fills anything in, so the picker can bound itself and a
+// Ticket Type whose allowance is spent can say so instead of claiming to be sold
+// out. The security property is the reason these tests exist at all: the figure
+// is derived from the Customer Session the request carried and from nothing in
+// the URL, so an anonymous read must reveal nothing about anybody and there must
+// be no way to ask about an address you have not proven you own (ADR 0025).
+
+// publicTicketTypeHoldings is the public Ticket Type as a Storefront client
+// reads it once a Customer Session is in play: the Ticket Type's own Purchase
+// Limit, plus what THIS reader already holds of it.
+//
+// AlreadyHeld is a pointer because null and 0 are different statements — "we do
+// not know who you are" against "you hold none of these" — and a test that let
+// one stand for the other would prove nothing about the anonymous read.
+type publicTicketTypeHoldings struct {
+	ticketTypeWithLimit
+	AlreadyHeld *int `json:"already_held"`
+}
+
+// readPublicEventAs reads the Storefront Event page as the holder of a Customer
+// Session token, or anonymously when the token is empty, and returns its Ticket
+// Types by name.
+//
+// It insists on 200 whatever the token is. That is the acceptance criterion for
+// a route that took on OptionalCustomerSession: the Event page is public, and an
+// absent, expired or garbage token is an ordinary visitor rather than an error.
+func readPublicEventAs(t *testing.T, env *testEnv, eventSlug, token string) map[string]publicTicketTypeHoldings {
+	t.Helper()
+	var headers map[string]string
+	if token != "" {
+		headers = authHeader(token)
+	}
+	resp, body := env.get(t, "/api/v1/public/organizations/"+testOrgSlug+"/events/"+eventSlug, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public event status=%d error=%+v, want 200", resp.StatusCode, body.Error)
+	}
+	var detail struct {
+		TicketTypes []publicTicketTypeHoldings `json:"ticket_types"`
+	}
+	if err := json.Unmarshal(body.Data, &detail); err != nil {
+		t.Fatalf("decode public event: %v", err)
+	}
+	byName := map[string]publicTicketTypeHoldings{}
+	for _, tt := range detail.TicketTypes {
+		byName[tt.Name] = tt
+	}
+	return byName
+}
+
+func ticketTypeNamed(t *testing.T, types map[string]publicTicketTypeHoldings, name string) publicTicketTypeHoldings {
+	t.Helper()
+	tt, ok := types[name]
+	if !ok {
+		t.Fatalf("ticket type %q is not on the public Event page: %+v", name, types)
+	}
+	return tt
+}
+
+func assertAlreadyHeld(t *testing.T, tt publicTicketTypeHoldings, want int, where string) {
+	t.Helper()
+	if tt.AlreadyHeld == nil {
+		t.Fatalf("%s: already_held = null, want %d — a Customer we can identify is owed a number", where, want)
+	}
+	if *tt.AlreadyHeld != want {
+		t.Fatalf("%s: already_held = %d, want %d", where, *tt.AlreadyHeld, want)
+	}
+}
+
+// assertHoldingsUnknown is the privacy assertion, and it insists on null rather
+// than accepting a zero: a 0 would be a statement about a person the platform
+// has not identified, and it is exactly the answer an oracle gives.
+func assertHoldingsUnknown(t *testing.T, tt publicTicketTypeHoldings, where string) {
+	t.Helper()
+	if tt.AlreadyHeld != nil {
+		t.Fatalf("%s: already_held = %d, want null — this read identified nobody", where, *tt.AlreadyHeld)
+	}
+}
+
+// TestPublicEventStatesTheSignedInCustomersOwnHoldings is the tracer bullet: a
+// Customer who has taken part of their allowance loads the Event page and is
+// told so, per Ticket Type, before typing anything.
+//
+// A second Ticket Type with no Purchase Limit is read alongside it, because
+// already_held is reported for every Ticket Type a known Customer reads: null
+// must go on meaning "anonymous" and never double as "unrestricted", which is
+// what max_per_customer says.
+func TestPublicEventStatesTheSignedInCustomersOwnHoldings(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Allowance Fest", "allowance-fest", 1000, 50, 3)
+
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/ticket-types", map[string]any{
+		"name":        "Open Tier",
+		"price_cents": 1000,
+		"capacity":    50,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create unrestricted ticket type status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	begun := beginCheckoutOK(t, env, testOrgSlug, "allowance-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 2)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	token := customerSignIn(t, env, "ana@example.com")
+	mine := readPublicEventAs(t, env, "allowance-fest", token)
+	ga := ticketTypeNamed(t, mine, "GA")
+	assertAlreadyHeld(t, ga, 2, "signed-in buyer's own Ticket Type")
+	assertPurchaseLimit(t, ga.ticketTypeWithLimit, 3, "signed-in read")
+	open := ticketTypeNamed(t, mine, "Open Tier")
+	assertAlreadyHeld(t, open, 0, "unrestricted Ticket Type the buyer holds none of")
+	assertNoPurchaseLimit(t, open.ticketTypeWithLimit, "unrestricted Ticket Type")
+
+	// Everybody else's page is untouched by what Ana bought — including another
+	// signed-in Customer's, which is what proves the figure is the CALLER's and
+	// not the Ticket Type's.
+	other := readPublicEventAs(t, env, "allowance-fest", customerSignIn(t, env, "bruno@example.com"))
+	assertAlreadyHeld(t, ticketTypeNamed(t, other, "GA"), 0, "a different signed-in Customer")
+}
+
+// TestAnonymousPublicEventRevealsNoHoldings is the security property of #168: a
+// read that identifies nobody says nothing about anybody. The Purchase Limit
+// itself is public — it is the Ticket Type's rule — but who has spent theirs is
+// not, and no query parameter, header or body may ask about an address the
+// caller has not proven they own (ADR 0025).
+func TestAnonymousPublicEventRevealsNoHoldings(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishRationedEvent(t, env, sessionID, "Anon Fest", "anon-fest", 1000, 50, 2)
+
+	begun := beginCheckoutOK(t, env, testOrgSlug, "anon-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 2)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	ga := ticketTypeNamed(t, readPublicEventAs(t, env, "anon-fest", ""), "GA")
+	assertHoldingsUnknown(t, ga, "anonymous read of an Event whose allowance somebody has spent")
+	assertPurchaseLimit(t, ga.ticketTypeWithLimit, 2, "anonymous read")
+
+	// The one thing an anonymous caller might try: naming the address. Neither
+	// spelling exists, and neither is allowed to start answering — a page that
+	// took an email here would tell anyone whether it had bought a ticket.
+	for _, query := range []string{"?email=ana@example.com", "?customer_email=ana@example.com"} {
+		probe := ticketTypeNamed(t, readPublicEventAs(t, env, "anon-fest"+query, ""), "GA")
+		assertHoldingsUnknown(t, probe, "anonymous read carrying "+query)
+	}
+}
+
+// TestDeadCustomerTokenReadsThePublicEventAsAGuest: the middleware is optional
+// in both directions. Garbage in Authorization, and a token whose session has
+// been destroyed, both read the Event page exactly as an anonymous visitor does
+// — 200 with no holdings, never a 401. A Storefront holding a stale token must
+// not lose the Event page over it.
+func TestDeadCustomerTokenReadsThePublicEventAsAGuest(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishRationedEvent(t, env, sessionID, "Stale Fest", "stale-fest", 1000, 50, 2)
+
+	begun := beginCheckoutOK(t, env, testOrgSlug, "stale-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 1)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	assertHoldingsUnknown(t, ticketTypeNamed(t, readPublicEventAs(t, env, "stale-fest", "not-a-session-token"), "GA"),
+		"read carrying a garbage token")
+
+	// A real token, signed out from under itself. It named Ana a moment ago and
+	// must reveal nothing about her now.
+	token := customerSignIn(t, env, "ana@example.com")
+	assertAlreadyHeld(t, ticketTypeNamed(t, readPublicEventAs(t, env, "stale-fest", token), "GA"), 1, "while the session is alive")
+	if resp, body := env.post(t, customerLogoutPath, nil, authHeader(token)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("sign out status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	assertHoldingsUnknown(t, ticketTypeNamed(t, readPublicEventAs(t, env, "stale-fest", token), "GA"),
+		"read carrying a destroyed session's token")
+}
+
+// TestPublicEventHoldingsCountALiveCapacityHold: the page counts the allowance
+// exactly as begin-checkout does — both arms — so a Customer with the provider's
+// payment page open in another tab is told the tickets on it are already theirs
+// to the tune of the Purchase Limit, and is not invited to start a second
+// checkout that would only be refused (ADR 0025).
+func TestPublicEventHoldingsCountALiveCapacityHold(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishRationedEvent(t, env, sessionID, "Held Fest", "held-fest", 1000, 50, 2)
+
+	// Begun and left on the provider's payment page: a pending Payment, no Ticket
+	// Sale, and the Customer record here is the sign-in's rather than the sale's.
+	beginCheckoutOK(t, env, testOrgSlug, "held-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 1)))
+
+	token := customerSignIn(t, env, "ana@example.com")
+	assertAlreadyHeld(t, ticketTypeNamed(t, readPublicEventAs(t, env, "held-fest", token), "GA"),
+		1, "a live Capacity Hold of the signed-in Customer")
+
+	// Past the hold window the abandoned checkout speaks for nothing, and the
+	// allowance is visibly back — the page needs no bookkeeping of its own to say
+	// so, exactly as capacity does not.
+	holdClocksAt(afterHoldWindow())
+	assertAlreadyHeld(t, ticketTypeNamed(t, readPublicEventAs(t, env, "held-fest", token), "GA"),
+		0, "after the hold window lapsed")
+}
+
+// TestReversedSaleDropsOutOfThePublicEventHoldings: an undone Ticket Sale
+// returns the allowance on the page as surely as it returns the seat to
+// capacity, because the sale arm counts ACTIVE sales and nothing else.
+//
+// Driven on a Free Ticket Type so the whole journey — claim, read, undo, read —
+// runs with no Payment Provider in it (ADR 0017).
+func TestReversedSaleDropsOutOfThePublicEventHoldings(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishRationedEvent(t, env, sessionID, "Undone Page", "undone-page", 0, 50, 1)
+
+	ref := claimFree(t, env, "undone-page", gaID, "ana@example.com", 1)
+	token := customerSignIn(t, env, "ana@example.com")
+	spent := ticketTypeNamed(t, readPublicEventAs(t, env, "undone-page", token), "GA")
+	assertAlreadyHeld(t, spent, 1, "after claiming the whole allowance")
+	assertPurchaseLimit(t, spent.ticketTypeWithLimit, 1, "spent allowance")
+
+	undoOwnSale(t, env, "ana@example.com", ref)
+
+	assertAlreadyHeld(t, ticketTypeNamed(t, readPublicEventAs(t, env, "undone-page", token), "GA"),
+		0, "after undoing the claim")
+}
+
+// TestPublicEventHoldingsSurviveALoweredPurchaseLimit: lowering a Purchase Limit
+// is never retroactive, so already_held may legitimately EXCEED max_per_customer
+// and the page must state both plainly. Remaining allowance is max(0, limit -
+// already_held); nothing here is clamped, corrected or alerted on (ADR 0025).
+func TestPublicEventHoldingsSurviveALoweredPurchaseLimit(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishRationedEvent(t, env, sessionID, "Lowered Page", "lowered-page", 1000, 50, 3)
+
+	begun := beginCheckoutOK(t, env, testOrgSlug, "lowered-page",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 3)))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	lowered := 1
+	setPurchaseLimit(t, env, sessionID, eventID, gaID, 1000, 50, &lowered)
+
+	token := customerSignIn(t, env, "ana@example.com")
+	ga := ticketTypeNamed(t, readPublicEventAs(t, env, "lowered-page", token), "GA")
+	assertAlreadyHeld(t, ga, 3, "holdings above a lowered Purchase Limit")
+	assertPurchaseLimit(t, ga.ticketTypeWithLimit, 1, "lowered Purchase Limit")
 }

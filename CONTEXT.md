@@ -132,6 +132,7 @@ _Avoid_: Discounted price, sale price, special price, offer price
 The most of one Ticket Type a single Customer may hold at once — unset on most Ticket Types, and the reason a Free Ticket Type is not handed out a hundred at a time.
 Counted the way capacity is: a Customer's active Ticket Sales plus their live Capacity Holds, so a Sale Reversal returns it and an abandoned Payment releases it. Keyed on the Customer, which makes it a deterrent against taking too many rather than a defence against someone minting identities.
 Governs future checkouts only: lowering it never unmakes a Ticket Sale, so a Customer may hold more than the current limit. Distinct from capacity, which is the Event-wide stock rather than one person's share of it.
+Also refuses the offending rows of a Sale Import, counting the rows of one file against each other, so importing history recorded before the limit existed means raising or clearing it first.
 _Avoid_: Quota, cap, max quantity, rate limit, one-per-person, purchase restriction
 
 **Tag**:

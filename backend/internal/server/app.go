@@ -178,12 +178,6 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		FeeIVABasisPoints: cfg.Fees.FeeIVABasisPoints,
 	}
 
-	catalogService := catalogsvc.New(catalogRepo, objectStorage, feeRates, platformLogger)
-	if options.clock != nil {
-		catalogService = catalogService.WithClock(options.clock)
-	}
-	catalogHandler := cataloghandler.New(catalogService)
-
 	confirmationLinkSecret, err := confirmationLinkSecret(cfg, platformLogger)
 	if err != nil {
 		_ = db.Close()
@@ -220,6 +214,18 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		salesService = salesService.WithClock(options.clock)
 	}
 	salesHandler := saleshandler.New(salesService)
+
+	// Catalog is built AFTER sales because the public Event page reports a
+	// signed-in Customer their own holdings per Ticket Type, and that count is
+	// sales' rule to answer (ADR 0025, #168). The dependency runs one way only —
+	// sales knows nothing of catalog's service — so this is an ordinary
+	// constructor argument rather than another knot tied afterwards.
+	catalogService := catalogsvc.New(catalogRepo, objectStorage, feeRates, salesService, platformLogger)
+	if options.clock != nil {
+		catalogService = catalogService.WithClock(options.clock)
+	}
+	catalogHandler := cataloghandler.New(catalogService)
+
 	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
 	// platform ask the Payment Provider again about their own stuck reversal.
 	// Wired here rather than at construction because sales is built after

@@ -376,14 +376,7 @@ func (s *Service) refusePurchaseLimitBreach(
 		return nil
 	}
 
-	customerID, normalizedEmail, err := s.customers.ResolveByEmail(ctx, email)
-	if err != nil {
-		return err
-	}
-	held, err := s.repo.CustomerEventHoldings(ctx, eventID, repository.BuyerHoldings{
-		CustomerID:      customerID,
-		NormalizedEmail: normalizedEmail,
-	}, cutoff)
+	held, err := s.customerEventHoldings(ctx, eventID, email, cutoff)
 	if err != nil {
 		return err
 	}
@@ -398,6 +391,70 @@ func (s *Service) refusePurchaseLimitBreach(
 		}
 	}
 	return nil
+}
+
+// CustomerEventHoldings reports how much of each of an Event's Ticket Types the
+// person at this email already holds — their active Ticket Sales plus their live
+// Capacity Holds, which is exactly what a Purchase Limit is measured against
+// (ADR 0025). Ticket Types they hold none of are absent from the map.
+//
+// It exists for one caller outside this module: the public Event read, which
+// tells a SIGNED-IN Customer their own holdings so the Storefront can bound its
+// quantity picker before they type anything, and can say "you have yours"
+// instead of "sold out" (#168). Catalog asks sales through this seam rather than
+// reaching into the sales repository or restating the two-armed count in a
+// second query of its own — one definition of "how many does this person hold"
+// is what keeps the page and the refusal agreeing.
+//
+// THE EMAIL MUST BE ONE THE CALLER HAS PROVEN THE REQUESTER OWNS. Nothing here
+// checks that and nothing here can: this is a service method, and the privacy
+// property rests entirely on no route ever letting a caller name an address they
+// have not proven. An endpoint that took an arbitrary email would be an oracle
+// revealing whether a given address had bought a given Ticket Type, which
+// ADR 0025 refuses outright.
+//
+// The hold window is read off this service's own clock, because a page read is
+// its own moment and has no other cutoff to be consistent with — unlike
+// begin-checkout, which shares one cutoff with its capacity check.
+func (s *Service) CustomerEventHoldings(ctx context.Context, eventID, email string) (map[string]int, error) {
+	return s.customerEventHoldings(ctx, eventID, email, sales.HoldCutoff(s.now()))
+}
+
+// customerEventHoldings is the count itself: resolve the email to a Customer
+// through the customers seam — never lower-casing it here, since normalisation
+// is that module's rule (ADR 0010) — then read both arms in the one query that
+// defines them.
+func (s *Service) customerEventHoldings(ctx context.Context, eventID, email string, cutoff time.Time) (map[string]int, error) {
+	_, holdings, err := s.resolveCustomerEventHoldings(ctx, eventID, email, cutoff)
+	return holdings, err
+}
+
+// resolveCustomerEventHoldings is the whole of that read, handing back the
+// normalised email alongside the holdings.
+//
+// The Sale Import needs both: the holdings to judge the row, and the normalised
+// address to key its running per-file tally on, so two spellings of one Customer
+// in the same spreadsheet spend one allowance. Callers that only want the
+// figures take customerEventHoldings above; nobody resolves an email and reads
+// the two arms themselves, or begin-checkout's refusal and the import's could
+// come to disagree about who a buyer is.
+func (s *Service) resolveCustomerEventHoldings(
+	ctx context.Context,
+	eventID, email string,
+	cutoff time.Time,
+) (string, map[string]int, error) {
+	customerID, normalizedEmail, err := s.customers.ResolveByEmail(ctx, email)
+	if err != nil {
+		return "", nil, err
+	}
+	holdings, err := s.repo.CustomerEventHoldings(ctx, eventID, repository.BuyerHoldings{
+		CustomerID:      customerID,
+		NormalizedEmail: normalizedEmail,
+	}, cutoff)
+	if err != nil {
+		return "", nil, err
+	}
+	return normalizedEmail, holdings, nil
 }
 
 // resolveAffiliateLink turns the click history a checkout arrived with into the

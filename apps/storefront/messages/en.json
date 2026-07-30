@@ -47,6 +47,8 @@
     "ticketsHeading": "Tickets",
     "feeIncluded": "Prices include the service fee.",
     "soldOut": "Sold out",
+    "limitReached": "Your limit reached",
+    "limitReachedNote": "This ticket type is limited to {limit} per person and you have reached yours. Nothing is sold out — this is only your own limit.",
     "remaining": "{count, plural, one {# remaining} other {# remaining}}",
     "promotionSavings": "{percent}% off",
     "promotionDeadline": "Promotional Price until <when>{deadline}</when>"

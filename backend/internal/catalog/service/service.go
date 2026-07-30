@@ -147,12 +147,34 @@ type CreateVideoUploadURLInput struct {
 	ContentType string
 }
 
+// CustomerHoldings is what catalog needs from sales to tell a signed-in Customer
+// how much of each Ticket Type they already hold, which is the only thing the
+// Storefront needs to bound its quantity picker by the Purchase Limit before the
+// buyer types anything (ADR 0025, #168).
+//
+// It is a service seam, not a repository one: the count is a sales rule with two
+// arms — active Ticket Sales and live Capacity Holds — and catalog must never
+// grow a second spelling of it, or the Event page and the checkout's refusal
+// would drift apart. Catalog already borrows sales.LiveHoldsSQL for the Event's
+// remaining figures, and that is as far into sales' storage as this module is
+// allowed to reach: that one is a shared derivation with no identity in it,
+// whereas this one resolves a person.
+//
+// The email handed across MUST be one the caller has proven the requester owns.
+// See the implementation for why nothing on this side can check that.
+type CustomerHoldings interface {
+	CustomerEventHoldings(ctx context.Context, eventID, email string) (map[string]int, error)
+}
+
 // Service implements catalog business rules.
 type Service struct {
 	repo    *repository.Repository
 	storage storage.ObjectStorage
 	fees    sales.FeeRates
 	now     func() time.Time
+	// holdings answers what a signed-in Customer already holds of an Event's
+	// Ticket Types, for the public Event read only.
+	holdings CustomerHoldings
 	// logger is where a failed media cleanup goes to be seen. The organizer
 	// never hears about it (ADR 0020), so the log line is the only record that
 	// an object outlived the Event that referenced it.
@@ -162,13 +184,22 @@ type Service struct {
 // New returns a catalog service. The fee rates are the platform's configured
 // Platform Fee schedule, surfaced on Event payloads so the staff forms derive
 // buyer and take-home figures with the checkout arithmetic (ADR 0014).
-func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates, logger platform.Logger) *Service {
+//
+// The holdings seam is a constructor argument rather than a later WithX because
+// an unwired one would not degrade gracefully: a signed-in Customer would be
+// told they hold nothing, which is a false statement about them rather than an
+// absent one. Sales imports the catalog ROOT package for shared pricing types
+// but never catalog/service, so satisfying this interface from the sales service
+// closes no cycle — there is nothing to unpick, and no reason to tie the knot
+// after construction.
+func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees sales.FeeRates, holdings CustomerHoldings, logger platform.Logger) *Service {
 	return &Service{
-		repo:    repo,
-		storage: objectStorage,
-		fees:    fees,
-		now:     time.Now,
-		logger:  logger,
+		repo:     repo,
+		storage:  objectStorage,
+		fees:     fees,
+		now:      time.Now,
+		holdings: holdings,
+		logger:   logger,
 	}
 }
 

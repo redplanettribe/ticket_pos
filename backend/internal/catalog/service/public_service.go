@@ -66,6 +66,28 @@ type PublicTicketType struct {
 	// and nothing about any Customer's holdings: an anonymous reader learns the
 	// limit, never who has already used theirs up.
 	MaxPerCustomer *int `json:"max_per_customer"`
+	// AlreadyHeld is how many of this Ticket Type the Customer who asked for this
+	// page already holds — their active Ticket Sales plus their live Capacity
+	// Holds, the same count begin-checkout refuses on, and the same word its
+	// PURCHASE_LIMIT_EXCEEDED details use, so a client learns one name for one
+	// idea (ADR 0025, #168).
+	//
+	// It is NULL for an anonymous read, and that is not the same statement as 0.
+	// Zero says "you hold none of these"; null says "we do not know who you are",
+	// and the Storefront must not turn the second into the first — an anonymous
+	// visitor learns of their allowance at submit, which is the first moment they
+	// have told us who they are. Nobody ever reads anybody else's figure: it is
+	// derived from the Customer Session the request carried and from nothing in
+	// the URL, so there is no address a caller can ask about but their own.
+	//
+	// It is reported for every Ticket Type a signed-in Customer reads, including
+	// unrestricted ones, so that null keeps meaning "anonymous" and never doubles
+	// as "unrestricted" — max_per_customer already says that, and one field
+	// answering two questions is how a picker ends up bounding the wrong thing.
+	// It may legitimately exceed max_per_customer: lowering a Purchase Limit is
+	// not retroactive, so remaining allowance is max(0, limit - already_held) and
+	// is never asserted non-negative.
+	AlreadyHeld *int `json:"already_held"`
 }
 
 // PublicPromotion is a live Promotion as the Storefront shows it (ADR 0021):
@@ -246,9 +268,31 @@ func (s *Service) GetOrganizationEvents(ctx context.Context, orgSlug string) (*P
 	return result, nil
 }
 
+// PublicEventViewer is the Customer a public Event read was made by, when the
+// request proved who that is. A nil *PublicEventViewer is an anonymous read and
+// is the ordinary case: the Storefront event page is public, and everything on
+// it except the viewer's own holdings is the same for everybody.
+//
+// It carries an email rather than a Customer id because that is what identity
+// rests on (ADR 0010) and because a buyer part-way through their first purchase
+// has no Customer record yet while their live Capacity Holds still count.
+type PublicEventViewer struct {
+	// Email is an address the REQUEST PROVED the caller owns — a full Customer
+	// Session's own address and nothing else. It must never be filled from a
+	// query parameter, a header, or a request body: an anonymous caller able to
+	// name any address would have an oracle telling them whether that address had
+	// bought a given Ticket Type (ADR 0025).
+	Email string
+}
+
 // GetPublicEvent returns the Storefront event page for a published Event,
 // reachable by direct link regardless of discoverability.
-func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string) (*PublicEventDetail, error) {
+//
+// The viewer, when there is one, adds their own holdings per Ticket Type and
+// changes nothing else about the page: every other figure a Customer reads is
+// the one an anonymous visitor reads, so the Event page stays cacheable in the
+// only shape most requests come in.
+func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string, viewer *PublicEventViewer) (*PublicEventDetail, error) {
 	orgSlug = strings.ToLower(strings.TrimSpace(orgSlug))
 	eventSlug = strings.ToLower(strings.TrimSpace(eventSlug))
 
@@ -271,6 +315,19 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 	held, err := s.repo.LiveCapacityHolds(ctx, row.ID, sales.HoldCutoff(now))
 	if err != nil {
 		return nil, err
+	}
+	// What THIS Customer already holds, counted by sales because the Purchase
+	// Limit's count is its rule (ADR 0025). Read for every Ticket Type of the
+	// Event in one query, whether or not any of them is rationed: it costs the
+	// same read either way, and skipping it on an unrestricted Event would make a
+	// signed-in Customer's already_held null, which this payload reserves for
+	// saying we do not know who is asking.
+	var ownHoldings map[string]int
+	if viewer != nil {
+		ownHoldings, err = s.holdings.CustomerEventHoldings(ctx, row.ID, viewer.Email)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	tags, err := s.repo.ListEventTags(ctx, row.ID)
@@ -330,9 +387,22 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string)
 			Promotion:   s.toPublicPromotion(handling, tt.PriceCents, promotion, now),
 
 			MaxPerCustomer: nullIntPtr(tt.MaxPerCustomer),
+			AlreadyHeld:    viewerHoldingOf(viewer, ownHoldings, tt.ID),
 		})
 	}
 	return detail, nil
+}
+
+// viewerHoldingOf renders one Ticket Type's already_held: nil for an anonymous
+// read, and a number — zero included — for a known Customer, since a Ticket Type
+// they hold none of is absent from the count and "none" is a real answer to give
+// somebody we can identify (ADR 0025).
+func viewerHoldingOf(viewer *PublicEventViewer, holdings map[string]int, ticketTypeID string) *int {
+	if viewer == nil {
+		return nil
+	}
+	held := holdings[ticketTypeID]
+	return &held
 }
 
 // promotionFor pulls a Ticket Type's Promotion out of an Event's batch-loaded

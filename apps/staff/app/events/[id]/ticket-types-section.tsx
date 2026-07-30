@@ -631,7 +631,9 @@ export function TicketTypesSection({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit ticket type</DialogTitle>
-            <DialogDescription>Update name, price, and capacity for this ticket category.</DialogDescription>
+            <DialogDescription>
+              Update the details of this ticket category, including its Purchase Limit.
+            </DialogDescription>
           </DialogHeader>
           {ticketTypeForm("edit", handleUpdate, () => setEditTarget(null))}
         </DialogContent>

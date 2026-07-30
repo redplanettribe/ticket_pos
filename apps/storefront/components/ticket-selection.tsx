@@ -30,6 +30,7 @@ import {
   type ErrorCatalog,
 } from "@/lib/api-errors";
 import {
+  allowanceSpent,
   checkoutDestination,
   clampQuantity,
   offerableQuantity,
@@ -444,13 +445,23 @@ export function TicketSelection({
       <div className="space-y-3">
         {ticketTypes.map((ticketType) => {
           const quantity = quantities[ticketType.id] ?? 0;
-          // The most this stepper may offer: remaining capacity, narrowed by the
-          // Purchase Limit where the Ticket Type has one (ADR 0025). Recomputed
-          // per render rather than memoized because it is two comparisons on
-          // numbers already in hand.
+          // The most this stepper may offer: remaining capacity, narrowed by
+          // what is left of this Customer's own allowance under the Purchase
+          // Limit (ADR 0025). Recomputed per render rather than memoized because
+          // it is arithmetic on numbers already in hand.
           const offerable = offerableQuantity(ticketType);
+          // Unavailable to THIS Customer and to nobody else: their allowance is
+          // gone while the Ticket Type is still on sale (#168). It is worded and
+          // badged apart from sold out on purpose — a Customer who has used
+          // their limit must never walk away believing the Event is full, which
+          // is the one wrong conclusion this whole state exists to prevent.
+          //
+          // False for every anonymous visitor, who has no known holdings at all,
+          // so the page they see is unchanged.
+          const limitReached = allowanceSpent(ticketType);
+          const sellable = !ticketType.sold_out && !limitReached;
           return (
-            <Card key={ticketType.id} className={ticketType.sold_out ? "opacity-70" : undefined}>
+            <Card key={ticketType.id} className={sellable ? undefined : "opacity-70"}>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -458,21 +469,40 @@ export function TicketSelection({
                     {ticketType.sold_out ? (
                       <Badge variant="secondary">{eventCopy("soldOut")}</Badge>
                     ) : null}
+                    {/* A different variant as well as different words: the two
+                        unavailable states have to be told apart at a glance, not
+                        only by reading. */}
+                    {limitReached ? (
+                      <Badge variant="outline">{eventCopy("limitReached")}</Badge>
+                    ) : null}
                     <PromotionBadge ticketType={ticketType} />
                   </div>
                   {ticketType.description ? (
                     <p className="text-sm text-muted-foreground">{ticketType.description}</p>
                   ) : null}
                   <PromotionDeadline ticketType={ticketType} timezone={timezone} />
+                  {/* The remaining count stays on a Ticket Type whose allowance
+                      is spent, and it is the evidence for the sentence beside
+                      it: "seven remaining" under "your limit reached" is the
+                      Event visibly not being full. */}
                   {!ticketType.sold_out ? (
                     <p className="text-sm text-muted-foreground">
                       {eventCopy("remaining", { count: ticketType.remaining })}
                     </p>
                   ) : null}
+                  {/* The null test is the compiler's, not a doubt: a spent
+                      allowance implies a Purchase Limit. It is written as a
+                      narrowing rather than as a `?? 0` default so the sentence
+                      can never be rendered around a limit nobody set. */}
+                  {limitReached && ticketType.max_per_customer !== null ? (
+                    <p className="text-sm font-medium text-foreground">
+                      {eventCopy("limitReachedNote", { limit: ticketType.max_per_customer })}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center justify-between gap-4 sm:flex-col sm:items-end">
                   <TicketTypePrice ticketType={ticketType} />
-                  {!ticketType.sold_out ? (
+                  {sellable ? (
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
