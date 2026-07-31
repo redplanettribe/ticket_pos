@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 
+import { staffNavItems } from "../lib/staff-nav";
 import { Logo } from "./logo";
 import { OrgAvatar } from "./org-avatar";
 import { SidebarShell, type SidebarNavItem } from "./sidebar-shell";
@@ -13,14 +14,16 @@ type StaffShellProps = {
   userMenu?: ReactNode;
   activePath?: string;
   showSettings?: boolean;
+  /**
+   * The Payouts entry (#190). Org-Admin-only, the same gate Settings is behind,
+   * but a flag of its own so the two can part company later. When a caller says
+   * nothing it follows `showSettings`: today one role answers both questions,
+   * and a shell that quietly dropped the entry would be the worse failure.
+   */
+  showPayouts?: boolean;
   showEvents?: boolean;
   onOrganizationClick?: () => void;
 };
-
-const baseNavItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/pos", label: "POS" },
-] as const;
 
 export function StaffShell({
   organizationName,
@@ -29,15 +32,15 @@ export function StaffShell({
   userMenu,
   activePath,
   showSettings = false,
+  showPayouts,
   showEvents = false,
   onOrganizationClick,
 }: StaffShellProps) {
-  const navItems: SidebarNavItem[] = [
-    ...baseNavItems.slice(0, 1),
-    ...(showEvents ? [{ href: "/events", label: "Events" }] : []),
-    ...baseNavItems.slice(1),
-    ...(showSettings ? [{ href: "/settings", label: "Settings" }] : []),
-  ];
+  const navItems: SidebarNavItem[] = staffNavItems({
+    showEvents,
+    showPayouts: showPayouts ?? showSettings,
+    showSettings,
+  });
 
   const header = ({ onNavigate }: { onNavigate?: () => void }) => {
     const handleOrganizationClick = onOrganizationClick

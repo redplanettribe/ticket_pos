@@ -8,12 +8,12 @@ import { FormField, Input } from "@ticket-pos/ui";
 // is the ADR's: THE REQUEST FORM IS THE PROFILE EDITOR. An organizer correcting
 // an account number while asking to be paid means their account number changed,
 // and having to fix the same typo in two places is worse than the alternative —
-// so there is one set of these six fields on the Settings page, inside the
-// Payouts section, and saving a request saves the profile too. What lives here
+// so there is one set of these six fields on the Payouts page, inside the
+// request section, and saving a request saves the profile too. What lives here
 // now is the shared material that section is built from: the wire types, the
 // fetch that keeps `null` as a legitimate answer, and the fields themselves.
 //
-// It is Org-Admin-only on the server. The Settings page is already
+// It is Org-Admin-only on the server. The Payouts page is already
 // Org-Admin-only, so a refused read here means something has gone wrong rather
 // than something ordinary.
 //

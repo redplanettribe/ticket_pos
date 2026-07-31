@@ -26,12 +26,9 @@ import {
   Input,
 } from "@ticket-pos/ui";
 
-import { SUPPORTED_CURRENCIES, formatPriceCents } from "@/lib/events-api";
-import { payableBalanceExplanation } from "@/lib/payable-balance";
-import { formatPaidAtDate } from "@/lib/payouts";
+import { SUPPORTED_CURRENCIES } from "@/lib/events-api";
 
 import { OrgLogoImage } from "./org-logo-image";
-import { PayoutRequestsSection } from "./payout-requests-section";
 
 type Organization = {
   id: string;
@@ -53,27 +50,6 @@ type Event = {
   id: string;
   name: string;
   slug: string;
-};
-
-type Payout = {
-  id: string;
-  amount_cents: number;
-  /** A calendar day ("YYYY-MM-DD"), not an instant. */
-  paid_at: string;
-  note: string | null;
-};
-
-type PayoutsSummary = {
-  /** What the platform owes. Signed: negative after a post-settlement reversal. */
-  withdrawable_balance_cents: number;
-  /**
-   * The part of it that has cleared and may be asked for today (ADR 0026).
-   * Signed too, never larger than the figure above, and negative when a
-   * settlement got ahead of what had cleared.
-   */
-  payable_balance_cents: number;
-  currency: string;
-  payouts: Payout[];
 };
 
 type Assignment = {
@@ -114,7 +90,6 @@ export function SettingsPageClient() {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
-  const [payouts, setPayouts] = useState<PayoutsSummary | null>(null);
   const [assignmentsByEvent, setAssignmentsByEvent] = useState<Record<string, Assignment[]>>({});
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -141,14 +116,12 @@ export function SettingsPageClient() {
     setLoading(true);
     setError(null);
     try {
-      const [org, memberList, eventList, payoutsSummary] = await Promise.all([
+      const [org, memberList, eventList] = await Promise.all([
         fetchJSON<Organization>("/api/settings/organization"),
         fetchJSON<Member[]>("/api/settings/members"),
         fetchJSON<Event[]>("/api/settings/events"),
-        fetchJSON<PayoutsSummary>("/api/settings/organization/payouts"),
       ]);
       setOrganization(org);
-      setPayouts(payoutsSummary);
       setProfileName(org.name);
       setProfileCurrency(org.currency);
       setCurrencyLocked(org.currency_locked);
@@ -382,92 +355,6 @@ export function SettingsPageClient() {
         logoUrl={organization.logo_url}
         onUpdated={(logoUrl) => setOrganization((current) => (current ? { ...current, logo_url: logoUrl } : current))}
       />
-
-      {payouts ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Payouts</CardTitle>
-            <CardDescription>
-              What your online sales have earned, less what has already been paid out to you.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/*
-              Both balances, side by side, with the gap between them in words.
-              Showing only the smaller figure would be simpler and would send
-              every organizer who sold this morning to support asking why they
-              are being offered less than they earned (ADR 0026).
-            */}
-            <div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total balance</p>
-                  <p className="text-3xl font-semibold tabular-nums">
-                    {formatPriceCents(payouts.withdrawable_balance_cents, payouts.currency)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Everything your online sales have earned you so far.</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Available to request</p>
-                  <p className="text-3xl font-semibold tabular-nums">
-                    {formatPriceCents(payouts.payable_balance_cents, payouts.currency)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Sales clear overnight, so today&apos;s are not here yet.
-                  </p>
-                </div>
-              </div>
-              <p className="mt-4 text-sm text-muted-foreground">
-                {payableBalanceExplanation(
-                  payouts.withdrawable_balance_cents,
-                  payouts.payable_balance_cents,
-                  (cents) => formatPriceCents(cents, payouts.currency),
-                )}
-              </p>
-            </div>
-
-            {/*
-              Where the money goes, the ask to be paid, and what became of every
-              earlier ask (#175, ADR 0026). It sits between the balances and the
-              payout history because that is the order the questions arrive in:
-              how much do I have, can I have it, and what have I been paid
-              before. It reads the Payable Balance from the summary above rather
-              than fetching its own — two readings of the same money on one page
-              would eventually disagree.
-            */}
-            <PayoutRequestsSection
-              currency={payouts.currency}
-              payableBalanceCents={payouts.payable_balance_cents}
-            />
-
-            <div className="space-y-3">
-              <p className="text-sm font-medium">Payout history</p>
-              {payouts.payouts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No payouts recorded yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {payouts.payouts.map((payout) => (
-                    <div
-                      key={payout.id}
-                      className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div>
-                        <p className="font-medium tabular-nums">
-                          {formatPriceCents(payout.amount_cents, payouts.currency)}
-                        </p>
-                        {payout.note ? (
-                          <p className="text-sm text-muted-foreground">{payout.note}</p>
-                        ) : null}
-                      </div>
-                      <p className="text-sm text-muted-foreground">{formatPaidAtDate(payout.paid_at)}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
 
       <Card>
         <CardHeader>
