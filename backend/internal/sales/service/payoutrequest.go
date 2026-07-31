@@ -155,6 +155,17 @@ func (s *Service) RequestPayout(ctx context.Context, actor ActorContext, input R
 		// asking again is the answer, and it will now succeed.
 		return nil, nil, sales.ErrPayoutRequestNotFound()
 	}
+
+	// The operators are told only about an ask that was newly RECORDED. A repeat
+	// submission is handed the outstanding request back (created=false), and an
+	// organizer who pressed twice has not asked twice. The send is best-effort and
+	// cannot fail the request — the notice is a courtesy over a record that
+	// already stands, and the pending count on the operator navigation is the
+	// backstop when it does not arrive (#179, ADR 0026).
+	if created {
+		s.notifyPayoutRequestSubmitted(ctx, row)
+	}
+
 	return &PayoutRequestResult{Request: payoutRequestView(*row), Created: created}, nil, nil
 }
 

@@ -30,6 +30,18 @@ func (s *Service) IsPlatformOperator(ctx context.Context, email string) (bool, e
 	return s.repo.IsPlatformOperator(ctx, platform.NormalizeEmail(email))
 }
 
+// PlatformOperatorEmails returns every address on the operator allowlist, for
+// the one thing that needs the list rather than a verdict about one address:
+// telling the operators that an Organization has asked to be paid (#179).
+//
+// It sits beside IsPlatformOperator on purpose. Both answer from the same table,
+// so who is notified and who is authorised can never be two different sets —
+// which is the whole reason the allowlist is the platform's only operator
+// concept (ADR 0015).
+func (s *Service) PlatformOperatorEmails(ctx context.Context) ([]string, error) {
+	return s.repo.ListPlatformOperatorEmails(ctx)
+}
+
 // ListOrganizationsForOperator returns one page of every Organization on the
 // platform, name-ascending, plus the unpaginated total (ADR 0006). Page and size
 // arrive already floored and clamped by the handler.

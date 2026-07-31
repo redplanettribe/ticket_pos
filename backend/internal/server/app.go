@@ -213,6 +213,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)
 	}
+	// A submitted Payout Request emails the operator allowlist, and the allowlist
+	// is identity's to read: presence on it is the whole of operator authority
+	// (ADR 0015), so who is notified and who is authorised come from one place
+	// (#179, ADR 0026). Identity is built above, so this could be a constructor
+	// argument; it is a knot tied afterwards because it serves one notice, and a
+	// constructor that grew a parameter per email would stop being readable.
+	salesService = salesService.WithPlatformOperators(identityService)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a

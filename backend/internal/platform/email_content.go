@@ -96,6 +96,99 @@ func (r SaleReversalRefused) Text() string {
 		r.CustomerName, r.EventName, r.Reference)
 }
 
+// The three Payout Request notices (#179, ADR 0026). They are the platform's
+// first organizer-facing email, and they read differently from everything above
+// for one reason: their reader is a person doing their job rather than a
+// Customer who bought a ticket. No "Hi <name>" — a request records its asker as
+// an email and nothing else, and a greeting to a name the platform does not know
+// is worse than none.
+//
+// What none of them says is where the money is going. The account number, the
+// bank, the holder's name and the Tax ID stay in the database; the notices say
+// "the account on your Payout Profile", which is the sentence an organizer can
+// act on and a stranger cannot (ADR 0026).
+
+// Subject is the operator's submission notice subject line. It names the
+// Organization and the amount, because this line is the whole of what an
+// operator sees in a mailbox list on a Friday evening, and it is what decides
+// whether they open the dashboard now or on Monday.
+func (p PayoutRequestSubmitted) Subject() string {
+	return fmt.Sprintf("%s has asked to be paid %s", p.OrganizationName, formatMoney(p.AmountCents, p.Currency))
+}
+
+// Text is the operator's submission notice body: the ask, who made it, and what
+// to do about it.
+//
+// The note is the organizer's own words and is included because it is usually
+// the reason the request is urgent; it is absent rather than blank when they
+// wrote none, exactly as the receipt's optional lines are.
+//
+// There is no link. The staff application's public origin is not something this
+// module is told (only the Storefront's is), and a wrong link in a money email
+// would be worse than no link at all — the queue is one click from the operator
+// dashboard either way.
+func (p PayoutRequestSubmitted) Text() string {
+	text := fmt.Sprintf("%s has submitted a Payout Request for %s.\n\nAsked by: %s",
+		p.OrganizationName, formatMoney(p.AmountCents, p.Currency), p.RequestedBy)
+	if p.Note != "" {
+		text += fmt.Sprintf("\nNote: %s", p.Note)
+	}
+	text += "\n\nOpen the Payout Request queue on the Operator Dashboard to see the bank details and answer it."
+	return text
+}
+
+// Subject is the paid notice's subject line: the answer itself, so an organizer
+// who only ever reads this line still learns the money has moved.
+func (p PayoutRequestPaid) Subject() string {
+	return fmt.Sprintf("Your payout of %s has been sent", formatMoney(p.AmountCents, p.Currency))
+}
+
+// Text is the paid notice's body.
+//
+// It says the transfer has ALREADY been made rather than that it is being
+// arranged, because that is what happened: the operator wires the money by hand
+// and then records it, and there is no approved-but-unpaid state in between
+// (ADR 0026).
+//
+// The one conditional sentence is the shortfall. Partial fulfilment is not
+// modelled — the Payout records what moved and the request keeps what was asked
+// — so this email is the only place an organizer is ever told that a transfer
+// came in under their ask, and learning it from a bank statement instead is
+// precisely the support thread this feature exists to remove.
+func (p PayoutRequestPaid) Text() string {
+	text := fmt.Sprintf("%s has been transferred to the account on your Payout Profile.\n\nThe transfer has already been made, so it will appear in your bank account as soon as your bank posts it.",
+		formatMoney(p.AmountCents, p.Currency))
+	if p.RequestedCents != p.AmountCents {
+		text += fmt.Sprintf("\n\nYou asked for %s, and %s was sent. If you were expecting the full amount, contact the platform.",
+			formatMoney(p.RequestedCents, p.Currency), formatMoney(p.AmountCents, p.Currency))
+	}
+	text += fmt.Sprintf("\n\nThis answers the Payout Request submitted for %s.", p.OrganizationName)
+	return text
+}
+
+// Subject is the decline notice's subject line. It says the outcome outright,
+// for the reason the refused-reversal notice does: an unanswered ask that reads
+// as an update in a mailbox list is worse than one that reads as a no.
+func (p PayoutRequestDeclined) Subject() string {
+	return fmt.Sprintf("Your payout request for %s was declined", formatMoney(p.AmountCents, p.Currency))
+}
+
+// Text is the decline notice's body: what happened, why, and what can be done
+// next.
+//
+// The reason is quoted whole and unedited. It is the operator's message to this
+// Organization and the only thing standing between a decline and a support
+// thread, so nothing here summarises or softens it.
+//
+// The closing line matters as much. A decline is a "not this" rather than a
+// lockout: it ends this request and frees the Organization to ask again
+// immediately, and an organizer who does not know that will write to ask
+// (ADR 0026).
+func (p PayoutRequestDeclined) Text() string {
+	return fmt.Sprintf("The Payout Request for %s submitted for %s has been declined.\n\nReason: %s\n\nNothing has moved and no payout was made. You can submit a new request whenever you are ready — being declined once has no bearing on the next ask.",
+		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
+}
+
 // formatMoney renders integer cents for a receipt line: two decimals with the
 // currency code alongside, e.g. "17.82 USD". Deliberately plain — the email is
 // text, and a Customer reconciling against a card statement needs the number,

@@ -137,3 +137,45 @@ func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleR
 	}
 	return nil
 }
+
+// SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
+// Organization asked to be paid. Best-effort: the request is recorded whether or
+// not anybody was told, and the pending count on the operator navigation is the
+// backstop when this fails.
+//
+// No field of the message is logged beyond the recipient and the Organization.
+// The amount is not a secret, but the log line's job here is diagnosing a
+// delivery failure, and a money email's contents are not part of that.
+func (s *ResendEmailSender) SendPayoutRequestSubmitted(ctx context.Context, p PayoutRequestSubmitted) error {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+		s.logger.Error("resend send payout request submitted failed", "email", p.To, "organization", p.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendPayoutRequestPaid delivers the asker's notice that the transfer was made.
+// Best-effort: the Payout is the fact, and a failure here leaves an organizer
+// who finds out from their bank instead.
+func (s *ResendEmailSender) SendPayoutRequestPaid(ctx context.Context, p PayoutRequestPaid) error {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+		s.logger.Error("resend send payout request paid failed", "email", p.To, "organization", p.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendPayoutRequestDeclined delivers the asker's notice that the ask was
+// refused, carrying the operator's reason.
+//
+// Best-effort like the rest, and the log line is what is left when it fails: a
+// decline nobody hears about is a request that appears to have been ignored,
+// which is the outcome the reason exists to prevent. The reason itself is not
+// logged — it is a message to one Organization, not an operational fact.
+func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p PayoutRequestDeclined) error {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+		s.logger.Error("resend send payout request declined failed", "email", p.To, "organization", p.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}

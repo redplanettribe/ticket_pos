@@ -13,6 +13,39 @@ func (r *Repository) IsPlatformOperator(ctx context.Context, email string) (bool
 	return exists, err
 }
 
+// ListPlatformOperatorEmails returns every address on the platform operator
+// allowlist, alphabetically.
+//
+// It is the allowlist read as a RECIPIENT LIST rather than as an authority
+// check, and it has exactly one caller: the notice that tells the operators an
+// Organization has asked to be paid (#179, ADR 0026). There is no subscription
+// table and no preference to consult — presence on the allowlist is what makes
+// somebody an operator (ADR 0015), so it is also what makes them somebody to
+// tell.
+//
+// An empty allowlist returns no rows and no error. A platform with no operators
+// has nobody to notify, which is a fact about the deployment rather than a
+// failure of the request that provoked the read.
+func (r *Repository) ListPlatformOperatorEmails(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT email FROM platform_operators ORDER BY email ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		out = append(out, email)
+	}
+	return out, rows.Err()
+}
+
 // OrganizationsByIDs returns the named Organizations, unscoped by Membership,
 // for an operator list whose rows arrived from another module.
 //

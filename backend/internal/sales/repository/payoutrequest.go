@@ -402,6 +402,40 @@ func (r *Repository) GetPayoutRequestByID(ctx context.Context, requestID string)
 	return row, err
 }
 
+// PayoutNoticeOrganization is the little an email needs to know about an
+// Organization: what to call it, and the currency its money is stated in.
+//
+// It is deliberately not the identity module's Organization. The three Payout
+// Request notices (#179) need two fields, and reaching across a module boundary
+// for a whole aggregate — logo key, slug, created_at — to render a subject line
+// would teach this path far more than it uses. `payouts.organization_id` already
+// references `organizations` from inside this module (ADR 0026), so reading a
+// name here is the same reach the balance query above already makes.
+type PayoutNoticeOrganization struct {
+	Name     string
+	Currency string
+}
+
+// GetPayoutNoticeOrganization returns the name and currency for a notice about
+// one Organization's Payout Request, or nil when the id names none.
+//
+// Nil is answerable rather than an error because of what the caller does with
+// it: composing an email. A notice that cannot be composed is a notice that is
+// not sent, and the money record it accompanies stands either way (ADR 0026).
+func (r *Repository) GetPayoutNoticeOrganization(ctx context.Context, orgID string) (*PayoutNoticeOrganization, error) {
+	var org PayoutNoticeOrganization
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT name, currency FROM organizations WHERE id = $1
+	`, orgID).Scan(&org.Name, &org.Currency)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &org, nil
+}
+
 // trailingScanner lets payoutRequestScan read a row that carries extra columns
 // after the shared column list — COUNT(*) OVER() on the paginated queue.
 //

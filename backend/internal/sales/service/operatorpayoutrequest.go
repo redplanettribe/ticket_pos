@@ -275,6 +275,15 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
 	}
 
+	// Told AFTER the transaction committed, and told best-effort. The Payout is
+	// in the ledger and the request is paid; a Resend outage that failed this call
+	// would tell an operator who has already wired the money by hand that they had
+	// not, which is the worst outcome this path can produce (#179, ADR 0026).
+	//
+	// What was PAID is passed beside what was asked, because they are allowed to
+	// differ and this email is the only place the organizer is told so.
+	s.notifyPayoutRequestPaid(ctx, request, payout.AmountCents)
+
 	return &FulfilledPayoutRequest{
 		Payout:  toOperatorPayout(*payout),
 		Request: *payoutRequestView(*request),
@@ -301,6 +310,14 @@ func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in
 	if row == nil {
 		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
 	}
+
+	// The reason travels to the asker, best-effort like every other notice here.
+	// A decline the Organization never hears about is a request that looks
+	// ignored, which is the support thread requiring a reason was meant to
+	// prevent — but a delivery failure still leaves the decline standing, and the
+	// reason readable on the Organization's own payouts page (#179, ADR 0026).
+	s.notifyPayoutRequestDeclined(ctx, row)
+
 	return payoutRequestView(*row), nil
 }
 
