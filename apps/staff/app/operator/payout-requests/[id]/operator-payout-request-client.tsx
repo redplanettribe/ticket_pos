@@ -41,6 +41,7 @@ import {
   declineReasonProblem,
   fulfilmentAmountDefault,
   fulfilmentDivergence,
+  isOutstanding,
   payoutRequestStatusLabel,
   waitingLabel,
 } from "@/lib/payout-requests";
@@ -262,7 +263,13 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
   const profile = request.payout_profile;
   const snapshotPayable = request.payable_balance_cents;
   const livePayable = detail.payable_balance_cents;
-  const outstanding = request.status === "pending";
+  // OUTSTANDING, through the one predicate that says what that means — not a
+  // second copy of it written out here. It drives what this page says about the
+  // ask (waiting-for-N-days rather than a resolution date, and the badge's
+  // weight) and whether the answer form is offered at all. The form's gate is
+  // the part that will need splitting when the definition widens: fulfilment is
+  // reachable from a processing request and a decline is not (#186).
+  const outstanding = isOutstanding(request.status);
   const money = (cents: number) => formatPriceCents(cents, currency);
   const typedCents = parsePriceToCents(amount);
   const divergence = fulfilmentDivergence(typedCents, request.amount_cents, money);

@@ -34,6 +34,15 @@ test("exceedsWithdrawableBalance flags any amount against a negative balance", (
 });
 
 // --- paying an organization twice (#178) ----------------------------------
+//
+// THE DEFINITION UNDER TEST: a Payout Request is OUTSTANDING while it still
+// awaits an answer, occupying the single slot an Organization has. Today that is
+// exactly `pending`; `processing` joins it in #184, and these tests are written
+// so that widening isOutstanding is the only edit they need.
+//
+// It is deliberately not the same question as "has an operator touched this
+// yet?". The warning exists to stop an Organization being paid twice, so what it
+// asks is whether the Organization is currently waiting on money.
 
 test("outstandingPayoutRequest is null for an organization that has never asked", () => {
   assert.equal(outstandingPayoutRequest([]), null);
@@ -50,12 +59,12 @@ test("outstandingPayoutRequest is null when every ask has been answered", () => 
   assert.equal(outstandingPayoutRequest(answered), null);
 });
 
-test("outstandingPayoutRequest finds the pending ask among answered ones", () => {
+test("outstandingPayoutRequest finds the outstanding ask among answered ones", () => {
   // The Organization detail payload is the whole history, newest first, so the
   // outstanding one is normally at the top but need not be.
-  const pending = { id: "b", status: "pending" };
-  const history = [{ id: "a", status: "paid" }, pending, { id: "c", status: "cancelled" }];
-  assert.equal(outstandingPayoutRequest(history), pending);
+  const outstanding = { id: "b", status: "pending" };
+  const history = [{ id: "a", status: "paid" }, outstanding, { id: "c", status: "cancelled" }];
+  assert.equal(outstandingPayoutRequest(history), outstanding);
 });
 
 test("outstandingPayoutRequest returns the request itself, so the warning can name it", () => {

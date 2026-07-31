@@ -50,6 +50,35 @@ const payoutRequestColumns = `
 	resolution_reason, resolved_by, resolved_at, payout_id
 `
 
+// outstandingPayoutRequest is THE definition of an OUTSTANDING Payout Request —
+// one still awaiting an answer — as a SQL predicate over payout_requests.
+//
+// It is stated ONCE, here, and every read that means *outstanding* is written
+// against it. `outstanding` and `pending` are NOT synonyms, even though today
+// they describe exactly the same rows: `pending` means nobody has touched the
+// request yet, and `outstanding` means the Organization's single slot is still
+// occupied. The two came apart when `processing` was designed (#181), and this
+// constant is where that widening lands — `IN ('pending', 'processing')`, one
+// line, once.
+//
+// IT IS ALSO THE PREDICATE OF MIGRATION 043's PARTIAL UNIQUE INDEX
+// payout_requests_one_pending_per_org_idx, and of the queue index
+// payout_requests_pending_queue_idx beside it. The three must stay in step:
+//
+//   - CreatePayoutRequest's ON CONFLICT names that unique index by its columns
+//     AND its predicate, which is how Postgres infers a partial index. Change
+//     this constant without changing the index and the INSERT stops finding an
+//     arbiter — loudly, at runtime, on the first ask.
+//   - The queue read below matches the queue index's predicate so the index stays
+//     the size of the backlog rather than the size of the history. Change one
+//     without the other and the queue quietly stops using its index.
+//
+// The single-element IN is deliberate rather than clumsy: it is the shape the
+// widened predicate has, so widening changes the list and nothing else. Postgres
+// proves `status IN ('pending')` implies `status = 'pending'`, which is what the
+// index inference and the partial-index match both need.
+const outstandingPayoutRequest = `status IN ('pending')`
+
 // CreatePayoutRequestInput is one ask, already validated: the amount is within
 // the Payable Balance and the profile is complete and normalised. The repository
 // decides nothing about either — it writes the row and reports what the unique
@@ -75,17 +104,23 @@ type CreatePayoutRequestInput struct {
 // of them would learn about it, as a unique violation rather than as an answer.
 //
 // The read that follows is deliberately unconditional on error handling: reaching
-// it means the index refused the write, so a pending row exists. It is fetched
+// it means the index refused the write, so an outstanding row exists. It is fetched
 // rather than reconstructed because the courtesy ADR 0024 established is to show
 // the asker THEIR EARLIER ASK — its amount, its note, its snapshot — and not a
 // restatement of what they just typed.
+//
+// The literal 'pending' in the VALUES list is NOT the outstanding predicate and
+// must not become it. It is the state a new ask is BORN in — nobody has looked
+// at it yet — and it stays a single named state however many states later come
+// to count as outstanding. The ON CONFLICT predicate beside it is the other
+// concept, and is the shared one.
 func (r *Repository) CreatePayoutRequest(ctx context.Context, input CreatePayoutRequestInput) (*PayoutRequestRow, bool, error) {
 	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
 		INSERT INTO payout_requests
 			(organization_id, amount_cents, note, status, requested_by, payable_balance_cents,
 			 bank_name, account_type, account_number, account_holder_name, tax_id_type, tax_id_number)
 		VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (organization_id) WHERE status = 'pending' DO NOTHING
+		ON CONFLICT (organization_id) WHERE `+outstandingPayoutRequest+` DO NOTHING
 		RETURNING `+payoutRequestColumns,
 		input.OrganizationID,
 		input.AmountCents,
@@ -106,12 +141,12 @@ func (r *Repository) CreatePayoutRequest(ctx context.Context, input CreatePayout
 		return nil, false, err
 	}
 
-	existing, err := r.GetPendingPayoutRequest(ctx, input.OrganizationID)
+	existing, err := r.GetOutstandingPayoutRequest(ctx, input.OrganizationID)
 	if err != nil {
 		return nil, false, err
 	}
 	if existing == nil {
-		// The pending row that refused the INSERT was resolved between the two
+		// The outstanding row that refused the INSERT was resolved between the two
 		// statements — a cancellation landing in the gap. Nothing was written and
 		// nothing outstanding exists, so the honest answer is that this call did
 		// not record the ask; the caller retries or the organizer presses again.
@@ -120,14 +155,19 @@ func (r *Repository) CreatePayoutRequest(ctx context.Context, input CreatePayout
 	return existing, false, nil
 }
 
-// GetPendingPayoutRequest returns the Organization's outstanding Payout Request,
-// or nil when it has none. Nil is an ordinary answer: having nothing outstanding
-// is the state every Organization spends most of its life in.
-func (r *Repository) GetPendingPayoutRequest(ctx context.Context, orgID string) (*PayoutRequestRow, error) {
+// GetOutstandingPayoutRequest returns the Organization's outstanding Payout
+// Request, or nil when it has none. Nil is an ordinary answer: having nothing
+// outstanding is the state every Organization spends most of its life in.
+//
+// It reads the row occupying the Organization's single slot — the one the
+// partial unique index refused a second ask on — so it is written against
+// outstandingPayoutRequest and must never be narrowed back to `pending`. It was
+// called GetPendingPayoutRequest while the two words meant the same thing (#183).
+func (r *Repository) GetOutstandingPayoutRequest(ctx context.Context, orgID string) (*PayoutRequestRow, error) {
 	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
 		SELECT `+payoutRequestColumns+`
 		FROM payout_requests
-		WHERE organization_id = $1 AND status = 'pending'
+		WHERE organization_id = $1 AND `+outstandingPayoutRequest+`
 	`, orgID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -177,6 +217,14 @@ func (r *Repository) ListPayoutRequests(ctx context.Context, orgID string) ([]Pa
 // The organization_id in the WHERE is what keeps one Organization from
 // cancelling another's ask; a request that is not this Organization's reads back
 // as absent, which is the answer the caller turns into a not-found.
+//
+// THE GUARD SAYS `status = 'pending'` AND IS NOT THE OUTSTANDING PREDICATE. What
+// it means is UNTOUCHED BY AN OPERATOR: an Organization may withdraw an ask
+// nobody has acted on, and nothing else. It happens to match the same rows as
+// outstandingPayoutRequest today, and it must NOT widen with it — once an
+// operator has submitted the transfer the bank is already acting on the ask, and
+// letting the asker take it back would withdraw money that is on its way to them
+// (ADR 0026, amendment).
 func (r *Repository) CancelPayoutRequest(ctx context.Context, orgID, requestID, resolvedBy string, now time.Time) (*PayoutRequestRow, error) {
 	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
 		UPDATE payout_requests
@@ -218,8 +266,8 @@ type FulfilPayoutRequestInput struct {
 // MUST NOT BE DROPPED. This is the compare-and-swap ADR 0026 chose over a claim
 // lock, and every part of its shape is load-bearing:
 //
-//   - The UPDATE carries `status = 'pending'` in its WHERE, so it is the ROW's
-//     own state that decides, not a read taken a moment earlier. Two operators
+//   - The UPDATE carries an explicit status guard in its WHERE, so it is the
+//     ROW's own state that decides, not a read taken a moment earlier. Two operators
 //     who both open the request and both press the button cannot both win,
 //     however close together they land, because the loser's UPDATE matches
 //     nothing.
@@ -237,6 +285,15 @@ type FulfilPayoutRequestInput struct {
 //   - NOTHING IS EVER HELD. No row lock, no claim, no advisory lock. An operator
 //     who opens a request and goes to lunch leaves nothing stale behind, which is
 //     precisely what a claim lock could not promise.
+//
+// THE GUARD SAYS `status = 'pending'` AND IS DELIBERATELY NOT WRITTEN AGAINST
+// outstandingPayoutRequest, even though the two match the same rows today. What
+// this one means is ANSWERABLE WITH MONEY. It does widen — #184 adds
+// `processing`, because money landing is exactly how a submitted transfer ends —
+// but it must widen ON ITS OWN TERMS, by someone deciding that a Payout may be
+// recorded against that state. Borrowing the queue's definition would let any
+// state later called outstanding become a state the ledger can be written
+// against, without anybody deciding so.
 //
 // It stops a double RECORD, not a double TRANSFER: if two operators both wired
 // the money at the bank, the loser must record their Payout directly or the
@@ -293,6 +350,13 @@ func (r *Repository) FulfilPayoutRequest(ctx context.Context, input FulfilPayout
 // request silently would generate the support thread the queue was built to
 // prevent, and the schema's payout_requests_decline_has_reason CHECK is the
 // backstop under this argument (migration 043, ADR 0026).
+//
+// THE GUARD SAYS `status = 'pending'` AND IS NOT THE OUTSTANDING PREDICATE. What
+// it means is UNTOUCHED BY AN OPERATOR: a decline is a judgement made before
+// anything happened, and it must NOT widen with the definition of outstanding.
+// The platform cannot refuse an ask its own operator has already submitted a
+// transfer for — the money is out there, and the answer to a transfer that
+// bounces is `failed`, not `declined` (ADR 0026, amendment).
 func (r *Repository) DeclinePayoutRequest(ctx context.Context, requestID, reason, resolvedBy string, now time.Time) (*PayoutRequestRow, error) {
 	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
 		UPDATE payout_requests
@@ -339,15 +403,24 @@ func (r *Repository) GetPayoutRequest(ctx context.Context, orgID, requestID stri
 // this is is one of the answers — and the authorization is the operator
 // allowlist on the namespace it is reached through (ADR 0015).
 //
-// The WHERE is exactly the predicate of payout_requests_pending_queue_idx from
-// migration 043, which was created for this query: the index stays the size of
-// the backlog rather than the size of the history, so the queue does not slow
-// down as answered requests accumulate behind it.
+// The WHERE is outstandingPayoutRequest, because what belongs in a work queue is
+// every ask still awaiting an answer, not only the ones nobody has touched: a
+// transfer an operator submitted and nobody confirmed is precisely the work that
+// must not fall out of sight. The name still says Pending — the badge's public
+// field is `pending_count` and renaming across the operator service, its handler
+// and the API contract is not this prefactor's business (#183) — but the read
+// means outstanding and widens with it.
+//
+// It must stay in step with the predicate of payout_requests_pending_queue_idx
+// from migration 043, which was created for this query: the index stays the size
+// of the backlog rather than the size of the history, so the queue does not slow
+// down as answered requests accumulate behind it. Widen one without the other
+// and the queue silently stops using its index.
 func (r *Repository) ListPendingPayoutRequests(ctx context.Context, limit, offset int) ([]PayoutRequestRow, int, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT `+payoutRequestColumns+`, COUNT(*) OVER() AS total
 		FROM payout_requests
-		WHERE status = 'pending'
+		WHERE `+outstandingPayoutRequest+`
 		ORDER BY created_at ASC, id ASC
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
@@ -376,11 +449,14 @@ func (r *Repository) ListPendingPayoutRequests(ctx context.Context, limit, offse
 //
 // It is its own read rather than a by-product of listing, because the badge is
 // rendered on every page of the staff app and the list is rendered on one. Both
-// count the same partial index, so they cannot disagree.
+// are written against outstandingPayoutRequest — the SAME constant, which is the
+// only reason they cannot disagree. The badge counts the work OUTSTANDING rather
+// than the work untouched: a number that dropped when an operator submitted a
+// transfer would tell the queue it was emptier than it is.
 func (r *Repository) CountPendingPayoutRequests(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM payout_requests WHERE status = 'pending'
+		SELECT COUNT(*) FROM payout_requests WHERE `+outstandingPayoutRequest+`
 	`).Scan(&count)
 	return count, err
 }

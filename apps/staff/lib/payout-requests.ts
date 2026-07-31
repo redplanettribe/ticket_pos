@@ -37,12 +37,29 @@ export function payoutRequestStatusLabel(status: string): string {
 }
 
 /**
+ * The statuses that count as OUTSTANDING: a request still awaiting an answer,
+ * occupying the single slot an Organization has.
+ *
+ * This is the client's one statement of that definition, and the mirror of the
+ * `outstandingPayoutRequest` predicate in the sales repository, which is the
+ * authority — the server enforces the slot with a partial unique index and this
+ * only decides what the staff app says about it. Widening the definition is
+ * adding to this list, once (#183); `processing` joins it in #184.
+ *
+ * `outstanding` is NOT a synonym for `pending`, even though today it names the
+ * same rows. `pending` means nobody has looked at the request yet; `outstanding`
+ * means it has not been answered. Anything asking "may this be cancelled?" or
+ * "has an operator acted?" is asking the first question and must say `pending`.
+ */
+const OUTSTANDING_STATUSES: readonly string[] = ["pending"];
+
+/**
  * Whether a request is the outstanding one — the single slot an Organization
  * has, and the reason a second submission returns the first ask instead of
  * recording a new one.
  */
 export function isOutstanding(status: string): boolean {
-  return status === "pending";
+  return OUTSTANDING_STATUSES.includes(status);
 }
 
 /**

@@ -20,8 +20,15 @@ import "strings"
 // cancelled and re-asked, which is what keeps `pending` genuinely singular — and
 // singular is what the partial unique index in migration 043 enforces.
 const (
-	// PayoutRequestPending is the one outstanding state, and the only one the
-	// partial unique index treats as occupying the Organization's single slot.
+	// PayoutRequestPending means nobody has answered the ask yet — UNTOUCHED BY
+	// AN OPERATOR, which is what makes it the only state an Organization may
+	// cancel from and an operator may decline from.
+	//
+	// It is not the definition of OUTSTANDING, which is the set of states
+	// occupying the Organization's single slot and lives in exactly one place:
+	// the outstandingPayoutRequest predicate in the sales repository, beside the
+	// partial unique index that enforces it. The two name the same rows today and
+	// are not the same question (#183).
 	PayoutRequestPending = "pending"
 	// PayoutRequestPaid means an operator transferred the money and recorded the
 	// Payout the request points at (#177).

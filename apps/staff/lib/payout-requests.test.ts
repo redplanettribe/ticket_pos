@@ -28,6 +28,11 @@ test("an unknown status is shown raw rather than swallowed", () => {
   assert.equal(payoutRequestStatusLabel("approved"), "approved");
 });
 
+// THE DEFINITION UNDER TEST: a request is OUTSTANDING while it still awaits an
+// answer, which is what occupies the Organization's single slot. Today that is
+// exactly `pending`, so this test and a test of "untouched by an operator" would
+// look identical — they are not the same question, and only this one widens
+// (`processing` joins it in #184).
 test("only pending is outstanding: the three end states free the slot", () => {
   assert.equal(isOutstanding("pending"), true);
   for (const status of ["paid", "declined", "cancelled"]) {
