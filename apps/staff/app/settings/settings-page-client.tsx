@@ -30,6 +30,7 @@ import { SUPPORTED_CURRENCIES, formatPriceCents } from "@/lib/events-api";
 import { formatPaidAtDate } from "@/lib/payouts";
 
 import { OrgLogoImage } from "./org-logo-image";
+import { PayoutProfileForm } from "./payout-profile-form";
 
 type Organization = {
   id: string;
@@ -373,6 +374,8 @@ export function SettingsPageClient() {
         logoUrl={organization.logo_url}
         onUpdated={(logoUrl) => setOrganization((current) => (current ? { ...current, logo_url: logoUrl } : current))}
       />
+
+      <PayoutProfileForm />
 
       {payouts ? (
         <Card>
