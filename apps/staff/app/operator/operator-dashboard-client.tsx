@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -14,33 +13,16 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  FormField,
-  Input,
   PageHeader,
-  cn,
 } from "@ticket-pos/ui";
 
 import { formatPriceCents } from "@/lib/events-api";
 import {
   type OperatorCurrencyTotals,
-  type OperatorOrganizationRow,
-  type OperatorPagination,
   fetchOperatorOrganizations,
+  fetchOperatorPendingPayoutRequestCount,
   fetchOperatorSummary,
 } from "@/lib/operator-api";
-
-/**
- * Money that can legitimately be negative — an Organization that owes the
- * platform after a post-settlement reversal. Shown as-is, in the destructive
- * colour, never clamped: the sign is the information.
- */
-function SignedAmount({ cents, currency }: { cents: number; currency: string }) {
-  return (
-    <span className={cn("tabular-nums", cents < 0 && "text-destructive")}>
-      {formatPriceCents(cents, currency)}
-    </span>
-  );
-}
 
 /**
  * The one place platform revenue stops being "active sales only": fees kept on
@@ -100,88 +82,48 @@ function TotalsCard({ totals }: { totals: OperatorCurrencyTotals }) {
   );
 }
 
-/**
- * The door a support thread opens: paste a Sale Confirmation reference and land
- * on that sale, whichever Organization it belongs to (#124).
- *
- * There is no sales browser here and none is planned — the flow always starts
- * from a reference somebody was given. The field validates nothing beyond being
- * non-empty: whether a reference names a sale is the API's answer, and the
- * lookup ignores case, so a reference quoted in lowercase resolves too.
- */
-function SaleLookupCard() {
-  const router = useRouter();
-  const [reference, setReference] = useState("");
-
-  function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const trimmed = reference.trim();
-    if (!trimmed) {
-      return;
-    }
-    router.push(`/operator/sales/${encodeURIComponent(trimmed)}`);
-  }
-
+/** A count on the Overview that exists to be walked through to the work (#193). */
+function CountCard({
+  title,
+  description,
+  count,
+  href,
+  linkLabel,
+}: {
+  title: string;
+  description: string;
+  count: number;
+  href: string;
+  linkLabel: string;
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Find a sale</CardTitle>
-        <CardDescription>
-          Look a ticket sale up by its sale confirmation reference, across every organization.
-        </CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <form className="grid gap-4 sm:grid-cols-[2fr_auto] sm:items-end" onSubmit={handleSubmit}>
-          <FormField id="operator-sale-reference" label="Sale confirmation reference">
-            <Input
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              placeholder="TP-J7K2QX9M"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </FormField>
-          <Button type="submit" disabled={!reference.trim()}>
-            Find sale
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * The way into the payout request queue (#176, ADR 0026).
- *
- * It sits at the top of the dashboard because it is the one thing here that
- * somebody is WAITING on: the revenue totals and the organization list are
- * standing facts, while an unanswered request is a person expecting money. The
- * count itself lives on the navigation, which is where an operator who came to
- * do something else will see it.
- */
-function PayoutRequestsCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Payout requests</CardTitle>
-        <CardDescription>
-          Every organization waiting to be paid, across the platform, longest wait first.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button asChild>
-          <Link href="/operator/payout-requests">Open the queue</Link>
+      <CardContent className="space-y-4">
+        <p className="text-2xl font-semibold tabular-nums">{count}</p>
+        <Button asChild variant="outline">
+          <Link href={href}>{linkLabel}</Link>
         </Button>
       </CardContent>
     </Card>
   );
 }
 
+/**
+ * The Operator Dashboard's landing page: what the platform has earned, and how
+ * much work is waiting elsewhere on the surface (#193).
+ *
+ * Deliberately lean. The Organizations roll and the sale lookup used to sit
+ * below these totals; both are destinations on the operator panel now, and the
+ * counts here lead to them rather than reproducing them.
+ */
 export function OperatorDashboardClient() {
   const [totals, setTotals] = useState<OperatorCurrencyTotals[]>([]);
-  const [organizations, setOrganizations] = useState<OperatorOrganizationRow[]>([]);
-  const [pagination, setPagination] = useState<OperatorPagination | null>(null);
-  const [page, setPage] = useState(1);
+  const [organizationCount, setOrganizationCount] = useState(0);
+  const [pendingPayoutRequests, setPendingPayoutRequests] = useState(0);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,13 +132,16 @@ export function OperatorDashboardClient() {
     setLoading(true);
     setError(null);
     try {
-      const [summary, organizationsPage] = await Promise.all([
+      // The organizations call is made for its pagination total alone — the roll
+      // itself is read on its own page now.
+      const [summary, organizationsPage, payoutRequestCount] = await Promise.all([
         fetchOperatorSummary(),
-        fetchOperatorOrganizations(page),
+        fetchOperatorOrganizations(1),
+        fetchOperatorPendingPayoutRequestCount(),
       ]);
       setTotals(summary.totals);
-      setOrganizations(organizationsPage.data);
-      setPagination(organizationsPage.pagination);
+      setOrganizationCount(organizationsPage.pagination.total);
+      setPendingPayoutRequests(payoutRequestCount.pending_count);
       setForbidden(false);
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Failed to load";
@@ -208,7 +153,7 @@ export function OperatorDashboardClient() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -240,12 +185,29 @@ export function OperatorDashboardClient() {
     <div className="space-y-6">
       <PageHeader
         title="Operator"
-        description="Platform revenue, every organization on the platform, and what each is owed."
+        description="Platform revenue, and what is waiting to be done across every organization."
       />
 
-      <PayoutRequestsCard />
-
-      <SaleLookupCard />
+      <div className="grid gap-6 sm:grid-cols-2">
+        {/*
+          Payout requests first: it is the one figure here that somebody is
+          WAITING on, while the organization count is a standing fact.
+        */}
+        <CountCard
+          title="Payout requests"
+          description="Every organization waiting to be paid, across the platform, longest wait first."
+          count={pendingPayoutRequests}
+          href="/operator/payout-requests"
+          linkLabel="Open the queue"
+        />
+        <CountCard
+          title="Organizations"
+          description="Every organization on the platform and its withdrawable balance."
+          count={organizationCount}
+          href="/operator/organizations"
+          linkLabel="View organizations"
+        />
+      </div>
 
       {totals.length === 0 ? (
         <Card>
@@ -260,85 +222,6 @@ export function OperatorDashboardClient() {
           <TotalsCard key={currencyTotals.currency} totals={currencyTotals} />
         ))
       )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Organizations</CardTitle>
-          <CardDescription>Every Organization on the platform and its withdrawable balance.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {organizations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No organizations yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">Organization</th>
-                    <th className="py-2 pr-4 font-medium">Slug</th>
-                    <th className="py-2 pr-4 font-medium">Currency</th>
-                    <th className="py-2 pr-4 font-medium">Events</th>
-                    <th className="py-2 pr-4 font-medium">Withdrawable balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {organizations.map((organization) => (
-                    <tr key={organization.id} className="border-b last:border-b-0">
-                      <td className="py-3 pr-4">
-                        <Link
-                          href={`/operator/organizations/${organization.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {organization.name}
-                        </Link>
-                      </td>
-                      <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">
-                        {organization.slug}
-                      </td>
-                      <td className="py-3 pr-4">{organization.currency}</td>
-                      <td className="py-3 pr-4 tabular-nums">{organization.events_count}</td>
-                      <td className="py-3 pr-4">
-                        <SignedAmount
-                          cents={organization.withdrawable_balance_cents}
-                          currency={organization.currency}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {pagination && pagination.total_pages > 1 ? (
-            <div className="mt-4 flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Page {pagination.page} of {pagination.total_pages} · {pagination.total} organizations
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={pagination.page <= 1}
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={pagination.page >= pagination.total_pages}
-                  onClick={() => setPage((current) => current + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
     </div>
   );
 }

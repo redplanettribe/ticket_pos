@@ -18,7 +18,7 @@ export default async function OperatorSalePage({ params }: OperatorSalePageProps
   }
 
   return (
-    <StaffPageShell activePath="/operator">
+    <StaffPageShell activePath="/operator/sales">
       <div className="mx-auto max-w-5xl">
         <OperatorSaleClient confirmationRef={decodeURIComponent(confirmationRef)} />
       </div>

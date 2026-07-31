@@ -17,7 +17,7 @@ export default async function OperatorOrganizationPage({ params }: OperatorOrgan
   }
 
   return (
-    <StaffPageShell activePath="/operator">
+    <StaffPageShell activePath="/operator/organizations">
       <div className="mx-auto max-w-5xl">
         <OperatorOrganizationClient organizationId={id} />
       </div>

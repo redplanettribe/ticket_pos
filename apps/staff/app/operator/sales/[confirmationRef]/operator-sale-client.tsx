@@ -211,7 +211,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   if (notFoundRef) {
     return (
       <div className="space-y-6">
-        <Breadcrumb items={[{ label: "Operator", href: "/operator" }, { label: confirmationRef }]} />
+        <Breadcrumb items={[{ label: "Find a sale", href: "/operator/sales" }, { label: confirmationRef }]} />
         <Card>
           <CardHeader>
             <CardTitle>No sale with that reference</CardTitle>
@@ -222,8 +222,8 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/operator" className="text-sm underline">
-              Back to the operator dashboard
+            <Link href="/operator/sales" className="text-sm underline">
+              Back to the sale lookup
             </Link>
           </CardContent>
         </Card>
@@ -259,7 +259,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   return (
     <div className="space-y-6">
       <Breadcrumb
-        items={[{ label: "Operator", href: "/operator" }, { label: sale.confirmation_ref }]}
+        items={[{ label: "Find a sale", href: "/operator/sales" }, { label: sale.confirmation_ref }]}
       />
 
       <PageHeader

@@ -9,8 +9,11 @@ import type { ReactNode } from "react";
  * Organization's Dashboard, Events, POS, Payouts and Settings are none of their
  * business here (#192).
  *
- * Only the destinations that exist today. Further entries arrive when the
- * dashboard is broken up into pages of its own.
+ * One entry per job the Operator Dashboard does (#193): the platform's revenue,
+ * the Organizations it owes, the Payout Requests waiting to be answered, and a
+ * Ticket Sale looked up by its Sale Confirmation reference. Overview leads, and
+ * the work that somebody is WAITING on sits above the lookup that only answers
+ * a question already being asked.
  */
 export type OperatorNavItem = {
   href: string;
@@ -34,6 +37,10 @@ export function operatorNavItems({
     // Overview is the index of the surface, not its owner: without `exact` it
     // would stay lit while an operator reads a single payout request.
     { href: "/operator", label: "Overview", exact: true },
+    { href: "/operator/organizations", label: "Organizations" },
     { href: "/operator/payout-requests", label: "Payout Requests", badge: payoutRequestBadge },
+    // Named for the act, not the collection: there is no sales browser here and
+    // none is planned, so the entry promises a lookup rather than a list.
+    { href: "/operator/sales", label: "Find a sale" },
   ];
 }

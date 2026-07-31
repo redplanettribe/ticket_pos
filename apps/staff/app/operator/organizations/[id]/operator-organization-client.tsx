@@ -204,7 +204,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
   return (
     <div className="space-y-6">
       <Breadcrumb
-        items={[{ label: "Operator", href: "/operator" }, { label: organization.name }]}
+        items={[{ label: "Organizations", href: "/operator/organizations" }, { label: organization.name }]}
       />
 
       <PageHeader

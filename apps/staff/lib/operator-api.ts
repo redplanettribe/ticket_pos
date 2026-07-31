@@ -274,6 +274,17 @@ export async function fetchOperatorPayoutRequests(
   );
 }
 
+/**
+ * How many payout requests are waiting to be answered, platform-wide.
+ *
+ * Its own route rather than a field on the summary, because it is the figure
+ * the operator navigation wears on every page (ADR 0026). The Overview reads it
+ * for the same reason it exists: a count that leads onward to the work (#193).
+ */
+export async function fetchOperatorPendingPayoutRequestCount(): Promise<OperatorPendingPayoutRequestCount> {
+  return fetchEventsJSON<OperatorPendingPayoutRequestCount>("/api/operator/payout-requests/count");
+}
+
 /** One payout request in full, with its organization's live balances. */
 export async function fetchOperatorPayoutRequest(
   requestId: string,

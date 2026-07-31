@@ -8,14 +8,19 @@ const labels = (items: Array<{ label: string }>) => items.map((item) => item.lab
 
 // --- what the operator surface offers --------------------------------------
 
-test("the operator sees Overview and Payout Requests, in that order", () => {
-  assert.deepEqual(labels(operatorNavItems({})), ["Overview", "Payout Requests"]);
+test("the operator sees each job of the dashboard as its own destination, in order", () => {
+  assert.deepEqual(labels(operatorNavItems({})), [
+    "Overview",
+    "Organizations",
+    "Payout Requests",
+    "Find a sale",
+  ]);
 });
 
 test("the entries point at the operator surface", () => {
   assert.deepEqual(
     operatorNavItems({}).map((item) => item.href),
-    ["/operator", "/operator/payout-requests"],
+    ["/operator", "/operator/organizations", "/operator/payout-requests", "/operator/sales"],
   );
 });
 
@@ -33,19 +38,29 @@ test("reading a single payout request lights Payout Requests alone", () => {
   assert.deepEqual(activeLabels("/operator/payout-requests/pr_123"), ["Payout Requests"]);
 });
 
+test("reading one organization lights Organizations alone", () => {
+  assert.deepEqual(activeLabels("/operator/organizations"), ["Organizations"]);
+  assert.deepEqual(activeLabels("/operator/organizations/org_123"), ["Organizations"]);
+});
+
+test("reading the sale a lookup found lights Find a sale alone", () => {
+  assert.deepEqual(activeLabels("/operator/sales"), ["Find a sale"]);
+  assert.deepEqual(activeLabels("/operator/sales/TP-J7K2QX9M"), ["Find a sale"]);
+});
+
 // --- the pending count -----------------------------------------------------
 
 test("the pending count is worn by Payout Requests and by nothing else", () => {
   const items = operatorNavItems({ payoutRequestBadge: "3" });
   assert.deepEqual(
     items.map((item) => item.badge ?? null),
-    [null, "3"],
+    [null, null, "3", null],
   );
 });
 
 test("nothing waiting means no entry wears anything", () => {
   assert.deepEqual(
     operatorNavItems({ payoutRequestBadge: null }).map((item) => item.badge ?? null),
-    [null, null],
+    [null, null, null, null],
   );
 });
