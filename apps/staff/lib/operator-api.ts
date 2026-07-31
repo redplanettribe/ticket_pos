@@ -149,14 +149,33 @@ export type RecordPayoutBody = {
 
 export const OPERATOR_ORGANIZATIONS_PAGE_SIZE = 50;
 
+/**
+ * The smallest slice the listing will return: one row, and the pagination that
+ * comes with it. For a caller after the platform-wide total and nothing else —
+ * the total is unpaginated (ADR-0006), so it is the same number at any size, and
+ * asking for one row rather than fifty is the difference (#194).
+ */
+export const OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE = 1;
+
 export async function fetchOperatorSummary(): Promise<OperatorSummary> {
   return fetchEventsJSON<OperatorSummary>("/api/operator/summary");
 }
 
-export async function fetchOperatorOrganizations(page = 1): Promise<OperatorOrganizationsPage> {
+/**
+ * One page of every Organization on the platform, name-ascending.
+ *
+ * `pageSize` is the caller's, because not every caller wants rows: the API
+ * clamps it to [1, 100] and reports the unpaginated total beside whatever slice
+ * it returns, so a caller wanting only the count asks for
+ * OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE.
+ */
+export async function fetchOperatorOrganizations(
+  page = 1,
+  pageSize = OPERATOR_ORGANIZATIONS_PAGE_SIZE,
+): Promise<OperatorOrganizationsPage> {
   const params = new URLSearchParams({
     page: String(page),
-    page_size: String(OPERATOR_ORGANIZATIONS_PAGE_SIZE),
+    page_size: String(pageSize),
   });
   return fetchEventsJSON<OperatorOrganizationsPage>(`/api/operator/organizations?${params.toString()}`);
 }

@@ -18,6 +18,7 @@ import {
 
 import { formatPriceCents } from "@/lib/events-api";
 import {
+  OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE,
   type OperatorCurrencyTotals,
   fetchOperatorOrganizations,
   fetchOperatorPendingPayoutRequestCount,
@@ -133,10 +134,11 @@ export function OperatorDashboardClient() {
     setError(null);
     try {
       // The organizations call is made for its pagination total alone — the roll
-      // itself is read on its own page now.
+      // itself is read on its own page now — so it asks for the smallest slice
+      // the listing will return rather than a full page it would discard (#194).
       const [summary, organizationsPage, payoutRequestCount] = await Promise.all([
         fetchOperatorSummary(),
-        fetchOperatorOrganizations(1),
+        fetchOperatorOrganizations(1, OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE),
         fetchOperatorPendingPayoutRequestCount(),
       ]);
       setTotals(summary.totals);
