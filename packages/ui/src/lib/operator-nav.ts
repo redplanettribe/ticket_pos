@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import type { SidebarNavItem } from "../components/sidebar-shell";
+
 /**
  * The Operator Dashboard's primary navigation, in the order it is read.
  *
@@ -15,14 +17,6 @@ import type { ReactNode } from "react";
  * the work that somebody is WAITING on sits above the lookup that only answers
  * a question already being asked.
  */
-export type OperatorNavItem = {
-  href: string;
-  label: string;
-  /** True for an entry that must not claim the pages beneath it. */
-  exact?: boolean;
-  badge?: ReactNode;
-};
-
 export function operatorNavItems({
   payoutRequestBadge,
 }: {
@@ -32,7 +26,7 @@ export function operatorNavItems({
    * queue is, not how long it is.
    */
   payoutRequestBadge?: ReactNode;
-}): OperatorNavItem[] {
+}): SidebarNavItem[] {
   return [
     // Overview is the index of the surface, not its owner: without `exact` it
     // would stay lit while an operator reads a single payout request.

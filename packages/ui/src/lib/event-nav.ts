@@ -1,3 +1,5 @@
+import type { SidebarNavItem } from "../components/sidebar-shell";
+
 /**
  * An Event's navigation, in the order it is read.
  *
@@ -9,20 +11,13 @@
  * Affiliate Links stay owner-only, but the Sales list is visible to every
  * Member of the Event — Event Staff included — so it appears for all roles.
  */
-export type EventNavItem = {
-  href: string;
-  label: string;
-  /** True for an entry that must not claim the pages beneath it. */
-  exact?: boolean;
-};
-
 export function eventNavItems({
   eventId,
   fullAccess,
 }: {
   eventId: string;
   fullAccess: boolean;
-}): EventNavItem[] {
+}): SidebarNavItem[] {
   return [
     // Details is the index of the Event, not its owner: without `exact` it would
     // stay lit on every page beneath the Event, so somebody reading the Sales

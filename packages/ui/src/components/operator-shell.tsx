@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { operatorNavItems } from "../lib/operator-nav";
 import { Logo } from "./logo";
 import { PlatformMark } from "./platform-mark";
-import { SidebarShell } from "./sidebar-shell";
+import { SidebarShell, type SidebarNavItem } from "./sidebar-shell";
 
 type OperatorShellProps = {
   children: ReactNode;
@@ -38,7 +38,7 @@ export function OperatorShell({
   payoutRequestBadge,
   onPlatformClick,
 }: OperatorShellProps) {
-  const navItems = operatorNavItems({ payoutRequestBadge });
+  const navItems: SidebarNavItem[] = operatorNavItems({ payoutRequestBadge });
 
   const header = ({ onNavigate }: { onNavigate?: () => void }) => {
     const handlePlatformClick = onPlatformClick

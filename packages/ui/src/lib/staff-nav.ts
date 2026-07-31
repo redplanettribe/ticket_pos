@@ -1,3 +1,14 @@
+import type { SidebarNavItem } from "../components/sidebar-shell";
+
+export type StaffNavVisibility = {
+  /** Any member of an Organization. */
+  showEvents?: boolean;
+  /** Org Admins only: a Payout Request is theirs to make (CONTEXT.md). */
+  showPayouts: boolean;
+  /** Org Admins only. */
+  showSettings?: boolean;
+};
+
 /**
  * The staff side panel's primary navigation, in the order it is read.
  *
@@ -14,22 +25,11 @@
  * would silently follow the wrong gate the day the two diverged (#191). An
  * entry guarding where an Organization's money is sent asks its caller to say.
  */
-export type StaffNavItem = { href: string; label: string };
-
-export type StaffNavVisibility = {
-  /** Any member of an Organization. */
-  showEvents?: boolean;
-  /** Org Admins only: a Payout Request is theirs to make (CONTEXT.md). */
-  showPayouts: boolean;
-  /** Org Admins only. */
-  showSettings?: boolean;
-};
-
 export function staffNavItems({
   showEvents = false,
   showPayouts = false,
   showSettings = false,
-}: StaffNavVisibility): StaffNavItem[] {
+}: StaffNavVisibility): SidebarNavItem[] {
   return [
     { href: "/", label: "Dashboard" },
     ...(showEvents ? [{ href: "/events", label: "Events" }] : []),

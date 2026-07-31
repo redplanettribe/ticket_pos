@@ -55,5 +55,4 @@ export { Toaster } from "./components/ui/sonner";
 export { Textarea } from "./components/ui/textarea";
 export { isNavItemActive } from "./lib/nav-active";
 export { eventNavItems } from "./lib/event-nav";
-export type { EventNavItem } from "./lib/event-nav";
 export { cn } from "./lib/utils";
