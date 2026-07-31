@@ -78,9 +78,9 @@ type EnvelopeOperatorPayoutFulfilment struct {
 // /operator/payout-requests/{requestID}/decline success responses: the request
 // as it now stands, carrying the reason the Organization will read.
 type EnvelopeOperatorPayoutRequest struct {
-	Data      service.PayoutRequest `json:"data"`
-	Error     *platform.APIError    `json:"error"`
-	RequestID string                `json:"request_id"`
+	Data      service.PayoutRequestWhole `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
 }
 
 // EnvelopeOperatorSaleReversal documents POST

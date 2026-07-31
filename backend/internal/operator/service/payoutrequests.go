@@ -66,8 +66,8 @@ type PendingPayoutRequestCount struct {
 // together — the smaller number alone provokes the question the larger one
 // answers.
 type PayoutRequestDetail struct {
-	Request      PayoutRequest `json:"request"`
-	Organization Organization  `json:"organization"`
+	Request      PayoutRequestWhole `json:"request"`
+	Organization Organization       `json:"organization"`
 	// The LIVE figures, read now, both signed and never clamped.
 	WithdrawableBalanceCents int `json:"withdrawable_balance_cents"`
 	PayableBalanceCents      int `json:"payable_balance_cents"`
@@ -215,7 +215,7 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 
 // DeclinePayoutRequest refuses the ask with a reason the Organization reads, and
 // frees it to ask again.
-func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*PayoutRequest, error) {
+func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*PayoutRequestWhole, error) {
 	return s.money.DeclinePayoutRequest(ctx, requestID, salessvc.DeclinePayoutRequestInput{
 		Reason:   in.Reason,
 		Operator: in.Operator,

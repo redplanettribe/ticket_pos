@@ -37,9 +37,18 @@ type Sale = service.OperatorSale
 // masked and the Tax ID absent (sales owns it, and does the masking).
 type PayoutRequestSummary = service.OperatorPayoutRequest
 
-// PayoutRequest is one ask WHOLE, snapshot bank details included — the detail
-// view an operator opens when they are about to make the transfer.
-type PayoutRequest = service.PayoutRequest
+// PayoutRequestWhole is one ask entire, snapshot bank details included — the
+// detail view an operator opens when they are about to make the transfer, as
+// against the masked PayoutRequestSummary a list shows.
+//
+// It is NOT named PayoutRequest, and must not be renamed to it. Both this
+// package and the sales package it aliases are called `service`, so an alias
+// whose own name matched its target's would read as `service.PayoutRequest =
+// service.PayoutRequest` — which the swagger generator resolves to itself and
+// gives up on, failing `make openapi` with a recursion error rather than
+// anything that names the real problem. Every other alias here is safe only
+// because sales happens to have prefixed its own type differently.
+type PayoutRequestWhole = service.PayoutRequest
 
 // PayoutFulfilment is what a fulfilled Payout Request produces: the Payout now
 // in the ledger, and the request it answered (sales owns both).
