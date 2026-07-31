@@ -30,8 +30,10 @@ import {
   type ErrorCatalog,
 } from "@/lib/api-errors";
 import {
+  allowanceSpent,
   checkoutDestination,
   clampQuantity,
+  offerableQuantity,
   selectionLines,
   totalCents,
   totalQuantity,
@@ -150,10 +152,16 @@ function fieldErrorsFromDetails(catalog: ErrorCatalog, details: unknown): FieldE
  * names which of this app's own two failures to say instead when the API said
  * nothing at all. Nothing here is a sentence: the words are looked up at render,
  * so state never holds copy that a language switch would strand.
+ *
+ * `details` is carried for the same reason and under the same rule — they are the
+ * facts the API refused over, never words. A Purchase Limit refusal is only
+ * meaningful with them: the sentence has to state the limit and how many the
+ * Customer already holds, or it reads as the Event being full (ADR 0025).
  */
 type CheckoutError = {
   code: string | null;
   message: string | null;
+  details: unknown;
   fallback: "startFailed" | "networkFailed";
 };
 
@@ -366,6 +374,7 @@ export function TicketSelection({
         setError({
           code: apiError?.code ?? null,
           message: apiError?.message ?? null,
+          details: apiError?.details,
           fallback: "startFailed",
         });
         setSubmitting(false);
@@ -376,7 +385,7 @@ export function TicketSelection({
         // The API accepted the checkout but named nowhere to go, so there is
         // nothing truthful to navigate to. Say so rather than assign a missing
         // redirect_url, which the browser would resolve against this event page.
-        setError({ code: null, message: null, fallback: "startFailed" });
+        setError({ code: null, message: null, details: undefined, fallback: "startFailed" });
         setSubmitting(false);
         return;
       }
@@ -392,12 +401,15 @@ export function TicketSelection({
         destination.startsWith("/") ? localizedPath(locale, destination) : destination,
       );
     } catch {
-      setError({ code: null, message: null, fallback: "networkFailed" });
+      setError({ code: null, message: null, details: undefined, fallback: "networkFailed" });
       setSubmitting(false);
     }
   }
 
-  /** Sold-out mid-checkout: back to the steppers with fresh remaining counts. */
+  /**
+   * Refused over what was in the cart: back to the steppers with fresh remaining
+   * counts and Purchase Limits, and nothing selected.
+   */
   function backToTickets() {
     setCheckoutOpen(false);
     setQuantities({});
@@ -405,14 +417,51 @@ export function TicketSelection({
   }
 
   const capacityExceeded = error?.code === "CAPACITY_EXCEEDED";
+  // A Purchase Limit refusal is about the Customer, not the Event (ADR 0025), so
+  // it gets its own title — "you already have yours" against "not enough tickets
+  // left". The two share this 409's handling because the remedy is the same one:
+  // the cart cannot be paid for as it stands, and no field on the form is what is
+  // wrong with it. Filling the form in again would be refused identically.
+  //
+  const purchaseLimitExceeded = error?.code === "PURCHASE_LIMIT_EXCEEDED";
+  const cartRefused = capacityExceeded || purchaseLimitExceeded;
+
+  // Neither the title nor the body claims the Customer already HOLDS any of
+  // these tickets, though this refusal usually means they do. The API refuses
+  // whenever held + requested exceeds the Purchase Limit, so `already_held` is 0
+  // when the REQUEST alone was too large — unreachable through this page, whose
+  // steppers never offer more than offerableQuantity, but well within the API's
+  // contract and reachable by a caller that is not this page. One sentence has
+  // to be true of both, so it states the two numbers and lets the buyer read
+  // them, rather than asserting a possession that may be zero.
+  //
+  // Selecting between two sentences on `already_held` was the alternative, and
+  // ADR 0023 forecloses it: copy resolves on `error.code` and "nothing else
+  // selects" it, the interception list there being closed rather than an
+  // invitation.
 
   return (
     <>
       <div className="space-y-3">
         {ticketTypes.map((ticketType) => {
           const quantity = quantities[ticketType.id] ?? 0;
+          // The most this stepper may offer: remaining capacity, narrowed by
+          // what is left of this Customer's own allowance under the Purchase
+          // Limit (ADR 0025). Recomputed per render rather than memoized because
+          // it is arithmetic on numbers already in hand.
+          const offerable = offerableQuantity(ticketType);
+          // Unavailable to THIS Customer and to nobody else: their allowance is
+          // gone while the Ticket Type is still on sale (#168). It is worded and
+          // badged apart from sold out on purpose — a Customer who has used
+          // their limit must never walk away believing the Event is full, which
+          // is the one wrong conclusion this whole state exists to prevent.
+          //
+          // False for every anonymous visitor, who has no known holdings at all,
+          // so the page they see is unchanged.
+          const limitReached = allowanceSpent(ticketType);
+          const sellable = !ticketType.sold_out && !limitReached;
           return (
-            <Card key={ticketType.id} className={ticketType.sold_out ? "opacity-70" : undefined}>
+            <Card key={ticketType.id} className={sellable ? undefined : "opacity-70"}>
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -420,21 +469,40 @@ export function TicketSelection({
                     {ticketType.sold_out ? (
                       <Badge variant="secondary">{eventCopy("soldOut")}</Badge>
                     ) : null}
+                    {/* A different variant as well as different words: the two
+                        unavailable states have to be told apart at a glance, not
+                        only by reading. */}
+                    {limitReached ? (
+                      <Badge variant="outline">{eventCopy("limitReached")}</Badge>
+                    ) : null}
                     <PromotionBadge ticketType={ticketType} />
                   </div>
                   {ticketType.description ? (
                     <p className="text-sm text-muted-foreground">{ticketType.description}</p>
                   ) : null}
                   <PromotionDeadline ticketType={ticketType} timezone={timezone} />
+                  {/* The remaining count stays on a Ticket Type whose allowance
+                      is spent, and it is the evidence for the sentence beside
+                      it: "seven remaining" under "your limit reached" is the
+                      Event visibly not being full. */}
                   {!ticketType.sold_out ? (
                     <p className="text-sm text-muted-foreground">
                       {eventCopy("remaining", { count: ticketType.remaining })}
                     </p>
                   ) : null}
+                  {/* The null test is the compiler's, not a doubt: a spent
+                      allowance implies a Purchase Limit. It is written as a
+                      narrowing rather than as a `?? 0` default so the sentence
+                      can never be rendered around a limit nobody set. */}
+                  {limitReached && ticketType.max_per_customer !== null ? (
+                    <p className="text-sm font-medium text-foreground">
+                      {eventCopy("limitReachedNote", { limit: ticketType.max_per_customer })}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center justify-between gap-4 sm:flex-col sm:items-end">
                   <TicketTypePrice ticketType={ticketType} />
-                  {!ticketType.sold_out ? (
+                  {sellable ? (
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
@@ -460,7 +528,7 @@ export function TicketSelection({
                         size="icon"
                         className="size-11"
                         aria-label={t("increaseQuantity", { ticketType: ticketType.name })}
-                        disabled={quantity >= ticketType.remaining}
+                        disabled={quantity >= offerable}
                         onClick={() => adjust(ticketType, 1)}
                       >
                         +
@@ -536,6 +604,7 @@ export function TicketSelection({
           {error ? (
             <Alert variant="destructive">
               {capacityExceeded ? <AlertTitle>{t("capacityTitle")}</AlertTitle> : null}
+              {purchaseLimitExceeded ? <AlertTitle>{t("purchaseLimitTitle")}</AlertTitle> : null}
               {/* The API decided which failure this is; the catalog decides how
                   to say it, in this page's language, falling back to the API's
                   own message for a code it does not know. This app's own two
@@ -546,7 +615,7 @@ export function TicketSelection({
             </Alert>
           ) : null}
 
-          {capacityExceeded ? (
+          {cartRefused ? (
             <DialogFooter>
               <Button type="button" variant="secondary" className="h-11 w-full" onClick={backToTickets}>
                 {t("backToSelection")}

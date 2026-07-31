@@ -27,6 +27,7 @@ import {
 } from "@ticket-pos/ui";
 
 import { SUPPORTED_CURRENCIES, formatPriceCents } from "@/lib/events-api";
+import { payableBalanceExplanation } from "@/lib/payable-balance";
 import { formatPaidAtDate } from "@/lib/payouts";
 
 import { OrgLogoImage } from "./org-logo-image";
@@ -62,7 +63,14 @@ type Payout = {
 };
 
 type PayoutsSummary = {
+  /** What the platform owes. Signed: negative after a post-settlement reversal. */
   withdrawable_balance_cents: number;
+  /**
+   * The part of it that has cleared and may be asked for today (ADR 0025).
+   * Signed too, never larger than the figure above, and negative when a
+   * settlement got ahead of what had cleared.
+   */
+  payable_balance_cents: number;
   currency: string;
   payouts: Payout[];
 };
@@ -383,10 +391,37 @@ export function SettingsPageClient() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/*
+              Both balances, side by side, with the gap between them in words.
+              Showing only the smaller figure would be simpler and would send
+              every organizer who sold this morning to support asking why they
+              are being offered less than they earned (ADR 0025).
+            */}
             <div>
-              <p className="text-sm text-muted-foreground">Withdrawable balance</p>
-              <p className="text-3xl font-semibold tabular-nums">
-                {formatPriceCents(payouts.withdrawable_balance_cents, payouts.currency)}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total balance</p>
+                  <p className="text-3xl font-semibold tabular-nums">
+                    {formatPriceCents(payouts.withdrawable_balance_cents, payouts.currency)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Everything your online sales have earned you so far.</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Available to request</p>
+                  <p className="text-3xl font-semibold tabular-nums">
+                    {formatPriceCents(payouts.payable_balance_cents, payouts.currency)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Sales clear overnight, so today&apos;s are not here yet.
+                  </p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm text-muted-foreground">
+                {payableBalanceExplanation(
+                  payouts.withdrawable_balance_cents,
+                  payouts.payable_balance_cents,
+                  (cents) => formatPriceCents(cents, payouts.currency),
+                )}
               </p>
             </div>
 

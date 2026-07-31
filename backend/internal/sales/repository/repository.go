@@ -262,6 +262,15 @@ type EventTicketType struct {
 	// Only the channels that price from the catalog consult it: a Sale Import
 	// carries its own amounts and ignores this, as it ignores the List Price.
 	Promotion *catalog.Promotion
+	// MaxPerCustomer is the Ticket Type's Purchase Limit — the most of it one
+	// Customer may hold at once — and nil is the unrestricted state every Ticket
+	// Type is in until an Org Admin says otherwise (ADR 0025, migration 041).
+	//
+	// It rides this struct rather than a catalog read of its own because checkout
+	// already loads the Event's Ticket Types here to price the cart, and the
+	// refusal must be decided from the same row the price came from. nil is a
+	// distinct value and not a zero: no arithmetic may be done on "not rationed".
+	MaxPerCustomer *int
 }
 
 // ListEventTicketTypes returns the Event's Ticket Types with their Promotion
@@ -270,6 +279,7 @@ type EventTicketType struct {
 func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID string) ([]EventTicketType, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT tt.id, tt.name, tt.price_cents, tt.capacity, tt.sold_count,
+		       tt.max_per_customer,
 		       p.promotional_price_cents, p.starts_at, p.ends_at
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
@@ -284,13 +294,19 @@ func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID st
 	var out []EventTicketType
 	for rows.Next() {
 		var tt EventTicketType
+		var maxPerCustomer sql.NullInt64
 		var promotionalPriceCents sql.NullInt64
 		var startsAt, endsAt sql.NullTime
 		if err := rows.Scan(
 			&tt.ID, &tt.Name, &tt.PriceCents, &tt.Capacity, &tt.SoldCount,
+			&maxPerCustomer,
 			&promotionalPriceCents, &startsAt, &endsAt,
 		); err != nil {
 			return nil, err
+		}
+		if maxPerCustomer.Valid {
+			limit := int(maxPerCustomer.Int64)
+			tt.MaxPerCustomer = &limit
 		}
 		// The end is NOT NULL on a Promotion row, so the join either produced a
 		// whole Promotion or none at all.
@@ -519,9 +535,9 @@ func (r *Repository) liveHoldsForUpdate(ctx context.Context, tx *sql.Tx, eventID
 	var rows *sql.Rows
 	var err error
 	if excludePaymentID == "" {
-		rows, err = tx.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, cutoff)
+		rows, err = tx.QueryContext(ctx, sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: "$2", EventExpr: "$1"}), eventID, cutoff)
 	} else {
-		rows, err = tx.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", "$3"), eventID, cutoff, excludePaymentID)
+		rows, err = tx.QueryContext(ctx, sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: "$2", EventExpr: "$1", ExcludePaymentExpr: "$3"}), eventID, cutoff, excludePaymentID)
 	}
 	if err != nil {
 		return nil, err

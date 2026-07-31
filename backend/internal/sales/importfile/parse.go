@@ -36,6 +36,13 @@ const (
 	colAmount              = "amount"
 )
 
+// ColQuantity names the quantity cell to a complaint raised OUTSIDE this
+// package. The Purchase Limit refusal (ADR 0025) is decided by the sales
+// service, because it needs what each Customer already holds and that is a
+// database read, yet it must blame the same column string the parser recognises
+// — a row over the allowance is fixed by lowering or removing its quantity.
+const ColQuantity = colQuantity
+
 // requiredHeaders must all be present for a file to be parseable at all.
 var requiredHeaders = []string{
 	colCustomerEmail, colCustomerFirstName, colCustomerLastName, colTicketType,

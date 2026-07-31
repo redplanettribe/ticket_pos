@@ -267,6 +267,30 @@ export type PublicTicketType = {
   remaining: number;
   sold_out: boolean;
   promotion: PublicPromotion | null;
+  // The Purchase Limit: the most of this Ticket Type one Customer may hold at
+  // once, or null when it is unrestricted (ADR 0025). A raw count of tickets,
+  // untouched by the fee and Promotion arithmetic price_cents carries.
+  //
+  // It states the Ticket Type's rule and nothing about any Customer's holdings,
+  // which is why the anonymous Event page can be bounded by it at all. The
+  // quantity steppers narrow it further by already_held below, via
+  // offerableQuantity.
+  max_per_customer: number | null;
+  // How many of this Ticket Type the Customer who asked for this page already
+  // holds: their active Ticket Sales plus their live Capacity Holds, the same
+  // count begin-checkout refuses on and under the same name its
+  // PURCHASE_LIMIT_EXCEEDED details use (ADR 0025, #168).
+  //
+  // Null for an anonymous read, and that is not the same statement as 0: null
+  // says we do not know who is asking, zero says this Customer holds none. The
+  // API fills it for every Ticket Type a signed-in Customer reads, unrestricted
+  // ones included, so null never doubles as "unrestricted" — max_per_customer
+  // already answers that question.
+  //
+  // It arrives only when getPublicEvent carries the Customer Session token, and
+  // it may legitimately exceed max_per_customer, because lowering a Purchase
+  // Limit is not retroactive.
+  already_held: number | null;
 };
 
 export type PublicEventDetail = {
@@ -353,11 +377,22 @@ function cacheInit(cache?: ReadCache): RequestInit {
   return cache ? { next: { revalidate: cache.revalidate } } : { cache: "no-store" };
 }
 
-async function fetchData<T>(path: string, cache?: ReadCache): Promise<T | null> {
+async function fetchData<T>(
+  path: string,
+  cache?: ReadCache,
+  sessionToken?: string,
+): Promise<T | null> {
   // Deliberately outside the try: a missing service credential is a
   // deployment fault and must surface, while an API that is merely down or
   // unhappy still degrades to an empty page.
-  const headers = await serviceAuthHeaders();
+  const headers = new Headers(await serviceAuthHeaders());
+  // The Customer Session token, on a read that is public either way. It goes in
+  // Authorization while the service credential stays in
+  // X-Serverless-Authorization, exactly as callBackend arranges them, so neither
+  // ever displaces the other (ADR 0008).
+  if (sessionToken) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+  }
   try {
     const response = await fetch(`${apiBaseUrl()}${path}`, { ...cacheInit(cache), headers });
     const envelope = (await response.json()) as APIEnvelope<T>;
@@ -426,12 +461,33 @@ export async function getOrganizationEvents(slug: string): Promise<PublicOrganiz
   );
 }
 
+/**
+ * The Storefront event page's Event.
+ *
+ * `sessionToken` is the Customer Session token out of this app's httpOnly
+ * cookie, and it changes exactly one thing: each Ticket Type comes back with
+ * `already_held`, how many of it the Customer on that session holds, so the
+ * steppers can bound themselves at their real remaining allowance and a Ticket
+ * Type whose allowance is spent can say so rather than claim to be sold out
+ * (ADR 0025, #168). Everything else on the page is identical either way, and a
+ * missing, expired or dead token reads the Event as an ordinary visitor — the
+ * route is public and never answers 401.
+ *
+ * It is a parameter rather than a cookie read inside this module because
+ * lib/customer-session.ts imports this one; the caller that has already entered
+ * a request scope passes it down instead. Passing nothing is the anonymous read,
+ * which is what generateMetadata wants: page metadata is the same for everybody
+ * and must not vary by who is signed in.
+ */
 export async function getPublicEvent(
   orgSlug: string,
   eventSlug: string,
+  sessionToken?: string,
 ): Promise<PublicEventDetail | null> {
   return fetchData<PublicEventDetail>(
     `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}`,
+    undefined,
+    sessionToken,
   );
 }
 

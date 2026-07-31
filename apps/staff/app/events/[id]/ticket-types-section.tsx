@@ -33,6 +33,13 @@ import {
 } from "@/lib/events-api";
 import { buyerUnitPriceCents, netProceedsUnitCents, type FeeHandling, type FeeRates } from "@/lib/fees";
 import { promotionErrorMessage, promotionState } from "@/lib/promotions";
+import {
+  parsePurchaseLimit,
+  purchaseLimitFormValue,
+  purchaseLimitWireValue,
+  PURCHASE_LIMIT_HINT,
+  PURCHASE_LIMIT_INVALID_MESSAGE,
+} from "@/lib/purchase-limit";
 
 import { TicketTypeCard } from "./ticket-type-card";
 
@@ -52,13 +59,23 @@ type TicketTypeFormState = {
   name: string;
   description: string;
   price: string;
+  /**
+   * The Purchase Limit as typed, "" for no Purchase Limit. A string rather than
+   * a number so the absent case is the field being empty, which is what most
+   * Ticket Types want.
+   */
+  maxPerCustomer: string;
   capacity: string;
 };
 
+// The Add and the Edit dialog share this one form state, so every field must
+// appear here: a field missing from the empty form keeps whatever the last Edit
+// prefilled and silently carries it into the next Ticket Type added.
 const emptyForm: TicketTypeFormState = {
   name: "",
   description: "",
   price: "",
+  maxPerCustomer: "",
   capacity: "",
 };
 
@@ -150,6 +167,7 @@ export function TicketTypesSection({
       name: ticketType.name,
       description: ticketType.description ?? "",
       price: (ticketType.price_cents / 100).toFixed(2),
+      maxPerCustomer: purchaseLimitFormValue(ticketType.max_per_customer),
       capacity: String(ticketType.capacity),
     });
   }
@@ -181,6 +199,13 @@ export function TicketTypesSection({
       toast.error("Enter a valid capacity");
       return;
     }
+    // The Purchase Limit is optional, so an empty field is an answer rather than
+    // an error and must not go through the capacity guard above.
+    const purchaseLimit = parsePurchaseLimit(form.maxPerCustomer);
+    if (purchaseLimit.kind === "invalid") {
+      toast.error(PURCHASE_LIMIT_INVALID_MESSAGE);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -191,6 +216,7 @@ export function TicketTypesSection({
           description: form.description || null,
           price_cents: priceCents,
           capacity,
+          max_per_customer: purchaseLimitWireValue(purchaseLimit),
         }),
       });
       setAddOpen(false);
@@ -220,6 +246,13 @@ export function TicketTypesSection({
       toast.error("Enter a valid capacity");
       return;
     }
+    // Clearing the field lifts the Purchase Limit; lowering or lifting it
+    // governs future checkouts only and unmakes no Ticket Sale (ADR 0025).
+    const purchaseLimit = parsePurchaseLimit(form.maxPerCustomer);
+    if (purchaseLimit.kind === "invalid") {
+      toast.error(PURCHASE_LIMIT_INVALID_MESSAGE);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -230,6 +263,7 @@ export function TicketTypesSection({
           description: form.description || null,
           price_cents: priceCents,
           capacity,
+          max_per_customer: purchaseLimitWireValue(purchaseLimit),
           sort_order: editTarget.sort_order,
         }),
       });
@@ -367,6 +401,11 @@ export function TicketTypesSection({
 
     const other = ticketTypes[swapIndex];
     try {
+      // The update endpoint is a full restatement, not a partial patch: an
+      // omitted key clears the field. Every field a Ticket Type carries has to
+      // be echoed back here or a reorder would quietly wipe it — the Purchase
+      // Limit especially, since it is the one field an organizer would not think
+      // to re-check after nudging a row up or down.
       await Promise.all([
         fetchEventsJSON<TicketType>(`/api/events/${eventId}/ticket-types/${ticketType.id}`, {
           method: "PATCH",
@@ -375,6 +414,7 @@ export function TicketTypesSection({
             description: ticketType.description,
             price_cents: ticketType.price_cents,
             capacity: ticketType.capacity,
+            max_per_customer: ticketType.max_per_customer,
             sort_order: other.sort_order,
           }),
         }),
@@ -385,6 +425,7 @@ export function TicketTypesSection({
             description: other.description,
             price_cents: other.price_cents,
             capacity: other.capacity,
+            max_per_customer: other.max_per_customer,
             sort_order: ticketType.sort_order,
           }),
         }),
@@ -463,6 +504,27 @@ export function TicketTypesSection({
             />
           </FormField>
         </div>
+        {/* The Purchase Limit sits under capacity because the two are read
+            together and told apart there: capacity is the Event-wide stock, the
+            Purchase Limit one Customer's share of it. Deliberately empty by
+            default even at a price of zero — a free RSVP for a large venue is a
+            legitimate unrestricted case (ADR 0025), so nothing is suggested. */}
+        <FormField
+          id={`${idPrefix}-max-per-customer`}
+          label="Purchase Limit"
+          description={PURCHASE_LIMIT_HINT}
+        >
+          <Input
+            id={`${idPrefix}-max-per-customer`}
+            type="number"
+            min="1"
+            step="1"
+            value={form.maxPerCustomer}
+            onChange={(changeEvent) =>
+              setForm((current) => ({ ...current, maxPerCustomer: changeEvent.target.value }))
+            }
+          />
+        </FormField>
         {derivedLine ? <p className="text-sm text-muted-foreground">{derivedLine}</p> : null}
         {ticketTypeError ? (
           <p className="text-sm text-destructive" role="alert">
@@ -569,7 +631,9 @@ export function TicketTypesSection({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit ticket type</DialogTitle>
-            <DialogDescription>Update name, price, and capacity for this ticket category.</DialogDescription>
+            <DialogDescription>
+              Update the details of this ticket category, including its Purchase Limit.
+            </DialogDescription>
           </DialogHeader>
           {ticketTypeForm("edit", handleUpdate, () => setEditTarget(null))}
         </DialogContent>

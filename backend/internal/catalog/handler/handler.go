@@ -498,6 +498,10 @@ type createTicketTypeBody struct {
 	Description *string `json:"description"`
 	PriceCents  int     `json:"price_cents"`
 	Capacity    int     `json:"capacity"`
+	// MaxPerCustomer is the Purchase Limit. Absent or null means the Ticket Type
+	// is unrestricted, which is the default and the state of every Ticket Type
+	// that predates ADR 0025.
+	MaxPerCustomer *int `json:"max_per_customer"`
 }
 
 type updateTicketTypeBody struct {
@@ -506,6 +510,11 @@ type updateTicketTypeBody struct {
 	PriceCents  int     `json:"price_cents"`
 	Capacity    int     `json:"capacity"`
 	SortOrder   int     `json:"sort_order"`
+	// MaxPerCustomer is the Purchase Limit. This endpoint is a full restatement
+	// of the Ticket Type rather than a patch — every scalar above lands as its
+	// zero value when omitted — so absent and explicit null both clear the
+	// Purchase Limit, exactly as they clear Description.
+	MaxPerCustomer *int `json:"max_per_customer"`
 }
 
 // ListTicketTypes returns Ticket Types for an Event.
@@ -572,7 +581,7 @@ func (h *Handler) CreateTicketType(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	if fields := validateTicketType(body.Name, body.PriceCents, body.Capacity); len(fields) > 0 {
+	if fields := validateTicketType(body.Name, body.PriceCents, body.Capacity, body.MaxPerCustomer); len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
@@ -580,10 +589,11 @@ func (h *Handler) CreateTicketType(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromRequest(r)
 
 	created, err := h.svc.CreateTicketType(r.Context(), actor, eventID, service.CreateTicketTypeInput{
-		Name:        body.Name,
-		Description: body.Description,
-		PriceCents:  body.PriceCents,
-		Capacity:    body.Capacity,
+		Name:           body.Name,
+		Description:    body.Description,
+		PriceCents:     body.PriceCents,
+		Capacity:       body.Capacity,
+		MaxPerCustomer: body.MaxPerCustomer,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -631,7 +641,7 @@ func (h *Handler) UpdateTicketType(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	if fields := validateTicketType(body.Name, body.PriceCents, body.Capacity); len(fields) > 0 {
+	if fields := validateTicketType(body.Name, body.PriceCents, body.Capacity, body.MaxPerCustomer); len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
@@ -639,11 +649,12 @@ func (h *Handler) UpdateTicketType(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromRequest(r)
 
 	updated, err := h.svc.UpdateTicketType(r.Context(), actor, eventID, ticketTypeID, service.UpdateTicketTypeInput{
-		Name:        body.Name,
-		Description: body.Description,
-		PriceCents:  body.PriceCents,
-		Capacity:    body.Capacity,
-		SortOrder:   body.SortOrder,
+		Name:           body.Name,
+		Description:    body.Description,
+		PriceCents:     body.PriceCents,
+		Capacity:       body.Capacity,
+		SortOrder:      body.SortOrder,
+		MaxPerCustomer: body.MaxPerCustomer,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -695,7 +706,7 @@ func (h *Handler) DeleteTicketType(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func validateTicketType(name string, priceCents, capacity int) []platform.FieldError {
+func validateTicketType(name string, priceCents, capacity int, maxPerCustomer *int) []platform.FieldError {
 	var fields []platform.FieldError
 	if strings.TrimSpace(name) == "" {
 		fields = append(fields, platform.FieldError{Field: "name", Code: platform.CodeRequired, Message: "is required"})
@@ -705,6 +716,15 @@ func validateTicketType(name string, priceCents, capacity int) []platform.FieldE
 	}
 	if capacity <= 0 {
 		fields = append(fields, platform.FieldError{Field: "capacity", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
+	}
+	// The Purchase Limit is optional, so only a value that was actually supplied
+	// is judged. Zero is refused rather than read as "nobody may buy this": a
+	// Ticket Type nobody may buy is expressed by not publishing it, and a
+	// quantity field that silently meant "none" would mislead an Org Admin into
+	// believing they had said so (ADR 0025). The code is capacity's, so a client
+	// already keying copy on it needs nothing new.
+	if maxPerCustomer != nil && *maxPerCustomer <= 0 {
+		fields = append(fields, platform.FieldError{Field: "max_per_customer", Code: platform.CodeInvalidPositiveInt, Message: "must be greater than zero"})
 	}
 	return fields
 }

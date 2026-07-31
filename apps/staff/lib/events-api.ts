@@ -84,6 +84,13 @@ export type TicketType = {
   capacity: number;
   sold_count: number;
   sort_order: number;
+  /**
+   * The Purchase Limit: the most of this Ticket Type one Customer may hold at
+   * once (CONTEXT.md, ADR 0025). null means there is no Purchase Limit, which
+   * is the case on most Ticket Types. It governs future checkouts only, so a
+   * Customer may legitimately hold more than this.
+   */
+  max_per_customer: number | null;
   /** The one Promotion slot, or null when it is empty. */
   promotion: Promotion | null;
   created_at: string;

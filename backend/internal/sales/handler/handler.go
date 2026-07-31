@@ -101,7 +101,7 @@ func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Requ
 // validation result plus the capacity impact, writing nothing.
 //
 // @Summary      Preview a Sale Import file
-// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.
+// @Description  Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). A row that would take one customer past a ticket type's max_per_customer is invalid, with a blocking error on its quantity cell; rows in the same file count against each other, and the complaint names the earlier row when that is what the row conflicts with. No writes.
 // @Tags         staff
 // @Accept       multipart/form-data
 // @Produce      json
@@ -141,7 +141,7 @@ func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
 // `idempotency_key` and `source` fields) or as a JSON body.
 //
 // @Summary      Commit a Direct Sale Import
-// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body.
+// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).
 // @Tags         staff
 // @Accept       json
 // @Accept       multipart/form-data

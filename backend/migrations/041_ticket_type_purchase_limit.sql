@@ -1,0 +1,37 @@
+-- The Purchase Limit: the most of one Ticket Type a single Customer may hold at
+-- once (#164, parent #163, ADR 0025).
+--
+-- It exists because a Free Ticket Type could be taken a hundred at a time. The
+-- only quantity constraint the catalog had was `capacity`, which is the
+-- Event-wide stock — it says how many tickets exist, never how many belong to
+-- any one person. This column is that second statement.
+--
+-- NULL is the unrestricted state, and NULL rather than a sentinel. "This Ticket
+-- Type is not rationed" and "this Ticket Type allows N" are different
+-- statements, and only NULL says the first without inviting arithmetic on it: a
+-- 0 would have to mean "unlimited" while every other integer meant a count, and
+-- a very large number would silently become a real ceiling somebody eventually
+-- hits. Every row that exists the day this ships takes NULL, so the migration is
+-- additive, needs no backfill, and no Ticket Type becomes harder to buy as a
+-- result of it.
+--
+-- The CHECK is safe to freeze in the schema, unlike the deliberately absent
+-- constraint on customers.phone (migration 029). What it states is not a
+-- validation policy that might loosen — it is the arithmetic identity of the
+-- value: a Purchase Limit of zero or less cannot be counted against, and a
+-- Ticket Type nobody may buy is expressed by not publishing it. The rule that
+-- DOES belong in Go, and is not here, is how the allowance is counted — active
+-- Ticket Sales plus live Capacity Holds, keyed on the Customer (ADR 0013, ADR
+-- 0024). No column constraint can see a Customer's holdings, and this one does
+-- not pretend to.
+--
+-- Note what this does NOT constrain: `max_per_customer <= capacity`. A limit
+-- above the stock is harmless — capacity refuses first — and forbidding it would
+-- turn an ordinary capacity reduction into a rejected edit for a reason the Org
+-- Admin never asked about.
+--
+-- No index. Nothing looks a Ticket Type up by this value; it is read on the row
+-- that has already been loaded by id or by event.
+ALTER TABLE ticket_types
+    ADD COLUMN max_per_customer INTEGER
+    CHECK (max_per_customer IS NULL OR max_per_customer > 0);

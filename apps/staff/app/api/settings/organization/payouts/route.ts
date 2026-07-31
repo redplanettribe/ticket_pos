@@ -7,6 +7,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type PayoutsSummary = {
   withdrawable_balance_cents: number;
+  payable_balance_cents: number;
   currency: string;
   payouts: {
     id: string;

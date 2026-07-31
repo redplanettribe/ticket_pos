@@ -80,6 +80,18 @@ type CustomerService interface {
 	// which is what the far side needs to tell a person correcting their own
 	// record from a stranger typing a known email.
 	UpsertForSale(ctx context.Context, tx *sql.Tx, customer platform.SaleCustomer, now time.Time) (string, error)
+	// ResolveByEmail says which Customer a typed email is, without creating one:
+	// the Customer id, or "" when no record exists yet. It is how the Purchase
+	// Limit finds whose holdings to count (ADR 0025), and "" is an ordinary
+	// answer — the Customer record is upserted only when a sale commits, so a
+	// first-time buyer has none and holds nothing by definition.
+	//
+	// It also hands back the normalised email, because normalisation is the far
+	// side's rule (ADR 0010) and this module must not restate it. Sales needs the
+	// value for the one record that snapshots an email verbatim and has no
+	// Customer to point at: a pending Payment, which is the Purchase Limit's
+	// Capacity Hold arm.
+	ResolveByEmail(ctx context.Context, email string) (customerID, normalizedEmail string, err error)
 	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
 	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
 	// when it has no schedule; how long the link then lives is the customers
@@ -639,6 +651,13 @@ func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID
 	}
 	flagDuplicates(&result, existing, loc)
 
+	// After the duplicate flag, not before: the soft signal is only computed for
+	// rows still valid, and a row the Purchase Limit rejects is one the organizer
+	// may well fix by skipping it as the duplicate it also is.
+	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &result); err != nil {
+		return nil, err
+	}
+
 	return &result, nil
 }
 
@@ -702,6 +721,23 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 		Now:      s.now(),
 		Location: loc,
 	})
+	// The Purchase Limit is re-decided here rather than trusted from the preview.
+	// The preview is the surface an organizer works on, not a gate the server can
+	// enforce: this endpoint takes a file directly, so a commit that skipped the
+	// check could be driven straight past it, and the tally would only ever have
+	// held for organizers who happened to click Preview first.
+	//
+	// This is NOT the trade-off the online commit faces (ADR 0025). There, the
+	// Payment Provider is holding the buyer's money by the time the sale commits,
+	// so a refusal at that point is the PAYMENT_APPROVED_WITHOUT_SALE incident a
+	// Platform Operator unpicks by hand — which is why begin-checkout is the only
+	// place the online path checks. An import moves no money and nobody is
+	// waiting on a payment page, so refusing here costs a rejected row and
+	// nothing else.
+	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated); err != nil {
+		return nil, nil, err
+	}
+
 	// Invalid kept rows block with VALIDATION_FAILED. Oversell is not decided here:
 	// it falls through to the repository's under-lock capacity check, which fails
 	// the whole batch with IMPORT_BATCH_FAILED / CAPACITY_EXCEEDED (and also
@@ -773,11 +809,12 @@ func (s *Service) loadImportContext(ctx context.Context, orgID, eventID string) 
 	types := make([]importfile.TicketTypeRef, 0, len(rows))
 	for _, tt := range rows {
 		types = append(types, importfile.TicketTypeRef{
-			ID:         tt.ID,
-			Name:       tt.Name,
-			PriceCents: tt.PriceCents,
-			Capacity:   tt.Capacity,
-			SoldCount:  tt.SoldCount,
+			ID:             tt.ID,
+			Name:           tt.Name,
+			PriceCents:     tt.PriceCents,
+			Capacity:       tt.Capacity,
+			SoldCount:      tt.SoldCount,
+			MaxPerCustomer: tt.MaxPerCustomer,
 		})
 	}
 

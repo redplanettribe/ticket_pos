@@ -151,7 +151,66 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 // per Ticket Type on an Event: pending Payments created strictly after the
 // cutoff (ADR 0013). Ticket Types with no live hold are absent from the map.
 func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, cutoff time.Time) (map[string]int, error) {
-	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL("$2", "$1", ""), eventID, cutoff)
+	rows, err := r.db.Pool.QueryContext(ctx, sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: "$2", EventExpr: "$1"}), eventID, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	return sales.ScanHeldQuantities(rows)
+}
+
+// BuyerHoldings identifies the buyer whose holdings are being counted, as the
+// customers module resolved them (ADR 0010): the Customer id when a record for
+// the email exists, and the normalised email either way.
+//
+// The two are needed together because the Purchase Limit's two arms are keyed
+// differently and cannot be otherwise. A committed Ticket Sale references the
+// Customer row, so its arm is keyed on the id. A pending Payment has no
+// Customer — the record is upserted only when the sale commits — and carries
+// nothing but the email typed at checkout, so its arm is keyed on that. An empty
+// CustomerID is the ordinary first-time buyer: they have no Ticket Sales, and
+// only their own live Capacity Holds count.
+type BuyerHoldings struct {
+	CustomerID      string
+	NormalizedEmail string
+}
+
+// CustomerEventHoldings returns how much of each of an Event's Ticket Types one
+// buyer already holds, which is what a Purchase Limit is measured against
+// (ADR 0025): their ACTIVE Ticket Sale Lines plus their live Capacity Holds.
+// Ticket Types they hold none of are absent from the map.
+//
+// The two arms are exactly the two things that consume capacity, which is the
+// whole point — the allowance moves like capacity, so a Sale Reversal (status
+// leaves 'active') returns it and a failed or expired Payment (status leaves
+// 'pending', or its created_at falls behind the cutoff) releases it, with no
+// bookkeeping of its own to keep in step.
+//
+// It is scoped to the Event and returns every Ticket Type at once rather than
+// taking a list, so a cart of any size costs one read — the same shape
+// LiveCapacityHolds has, for the same reason. A Purchase Limit lives on a Ticket
+// Type, and a Ticket Type belongs to one Event, so the Event scope loses
+// nothing.
+func (r *Repository) CustomerEventHoldings(ctx context.Context, eventID string, buyer BuyerHoldings, cutoff time.Time) (map[string]int, error) {
+	// SQL NULL for a buyer with no Customer record yet: the sale arm then matches
+	// nothing, which is the truth about someone who has never completed a sale.
+	var customerID sql.NullString
+	if buyer.CustomerID != "" {
+		customerID = sql.NullString{String: buyer.CustomerID, Valid: true}
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT ticket_type_id, SUM(held)::int AS held
+		FROM (
+			SELECT tsl.ticket_type_id AS ticket_type_id, tsl.quantity AS held
+			FROM ticket_sale_lines tsl
+			JOIN ticket_sales ts ON ts.id = tsl.ticket_sale_id
+			WHERE ts.event_id = $1
+			  AND ts.status = 'active'
+			  AND ts.customer_id = $3::uuid
+			UNION ALL
+			`+sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: "$2", EventExpr: "$1", BuyerEmailExpr: "$4"})+`
+		) holdings
+		GROUP BY ticket_type_id
+	`, eventID, cutoff, customerID, buyer.NormalizedEmail)
 	if err != nil {
 		return nil, err
 	}

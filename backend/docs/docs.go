@@ -157,6 +157,10 @@ const docTemplate = `{
                     "description": {
                         "type": "string"
                     },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit. Absent or null means the Ticket Type\nis unrestricted, which is the default and the state of every Ticket Type\nthat predates ADR 0025.",
+                        "type": "integer"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -369,6 +373,10 @@ const docTemplate = `{
                     },
                     "description": {
                         "type": "string"
+                    },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit. This endpoint is a full restatement\nof the Ticket Type rather than a patch — every scalar above lands as its\nzero value when omitted — so absent and explicit null both clear the\nPurchase Limit, exactly as they clear Description.",
+                        "type": "integer"
                     },
                     "name": {
                         "type": "string"
@@ -1957,6 +1965,10 @@ const docTemplate = `{
             },
             "service.PublicTicketType": {
                 "properties": {
+                    "already_held": {
+                        "description": "AlreadyHeld is how many of this Ticket Type the Customer who asked for this\npage already holds — their active Ticket Sales plus their live Capacity\nHolds, the same count begin-checkout refuses on, and the same word its\nPURCHASE_LIMIT_EXCEEDED details use, so a client learns one name for one\nidea (ADR 0025, #168).\n\nIt is NULL for an anonymous read, and that is not the same statement as 0.\nZero says \"you hold none of these\"; null says \"we do not know who you are\",\nand the Storefront must not turn the second into the first — an anonymous\nvisitor learns of their allowance at submit, which is the first moment they\nhave told us who they are. Nobody ever reads anybody else's figure: it is\nderived from the Customer Session the request carried and from nothing in\nthe URL, so there is no address a caller can ask about but their own.\n\nIt is reported for every Ticket Type a signed-in Customer reads, including\nunrestricted ones, so that null keeps meaning \"anonymous\" and never doubles\nas \"unrestricted\" — max_per_customer already says that, and one field\nanswering two questions is how a picker ends up bounding the wrong thing.\nIt may legitimately exceed max_per_customer: lowering a Purchase Limit is\nnot retroactive, so remaining allowance is max(0, limit - already_held) and\nis never asserted non-negative.",
+                        "type": "integer"
+                    },
                     "currency": {
                         "type": "string"
                     },
@@ -1965,6 +1977,10 @@ const docTemplate = `{
                     },
                     "id": {
                         "type": "string"
+                    },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit, or null when this Ticket Type is\nunrestricted. The Storefront bounds its quantity picker by it so a buyer is\nnever invited to choose a quantity that will be refused (ADR 0025).\n\nUnlike PriceCents it is a raw count, untouched by Fee Handling or Promotion\narithmetic — it counts tickets, not money. It states the Ticket Type's rule\nand nothing about any Customer's holdings: an anonymous reader learns the\nlimit, never who has already used theirs up.",
+                        "type": "integer"
                     },
                     "name": {
                         "type": "string"
@@ -2340,6 +2356,10 @@ const docTemplate = `{
                     },
                     "id": {
                         "type": "string"
+                    },
+                    "max_per_customer": {
+                        "description": "MaxPerCustomer is the Purchase Limit — the most of this Ticket Type one\nCustomer may hold at once — or null when the Ticket Type is unrestricted,\nwhich is most of them. A count of tickets, not money: unlike PriceCents it\nis untouched by Promotion or fee arithmetic (ADR 0025).",
+                        "type": "integer"
                     },
                     "name": {
                         "type": "string"
@@ -4157,7 +4177,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}": {
             "get": {
-                "description": "Returns a published event with its ticket types for the Storefront event page.",
+                "description": "Returns a published event with its ticket types for the Storefront event page. A Customer Session presented in Authorization is optional and changes nothing but one field: each ticket type then carries already_held, how many of it that Customer already holds — their active Ticket Sales plus their live Capacity Holds, the same count begin-checkout refuses on, so the picker can bound itself at max(0, max_per_customer - already_held) and a ticket type whose allowance is spent can say so instead of claiming to be sold out (ADR 0025). An absent, expired or invalid token reads the event as an anonymous visitor rather than failing, and already_held is then null — null means \"we do not know who is asking\", which is not the same statement as 0. already_held may exceed max_per_customer, because lowering a Purchase Limit is never retroactive. No unauthenticated lookup of anybody's holdings exists: the count comes from the session and from nothing in the URL.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -4258,7 +4278,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, and remaining capacity (check-only, no hold), snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
+                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -5532,7 +5552,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
-                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional ` + "`" + `skip_rows` + "`" + `, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body.",
+                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional ` + "`" + `skip_rows` + "`" + `, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -5643,7 +5663,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sale-imports/preview": {
             "post": {
-                "description": "Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). No writes.",
+                "description": "Parses an uploaded .csv/.xlsx server-side and returns every row's validation result at once, the matched Ticket Type, the normalised Tax ID when the row supplies one (the customer_tax_id_type/customer_tax_id_number columns are optional; a present-but-invalid value is a row error naming the failing column), the capacity impact per Ticket Type (with per-type oversell overage), soft possible-duplicate flags per row, and a top-level committable flag (false when any row is invalid or any Ticket Type is oversold). A row that would take one customer past a ticket type's max_per_customer is invalid, with a blocking error on its quantity cell; rows in the same file count against each other, and the complaint names the earlier row when that is what the row conflicts with. No writes.",
                 "parameters": [
                     {
                         "description": "Event ID",
