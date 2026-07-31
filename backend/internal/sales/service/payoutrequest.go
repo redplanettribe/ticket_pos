@@ -42,13 +42,36 @@ type PayoutRequest struct {
 	// PayoutProfile is the frozen copy of where the Organization said to pay. No
 	// later edit of the profile rewrites it (ADR 0026).
 	PayoutProfile PayoutRequestProfile `json:"payout_profile"`
-	// The answer, all null while the request is pending. ResolutionReason says why
-	// the request ended the way it did — today only a decline fills it — and
-	// PayoutID only on a payment (#177).
+	// The answer, all null while the request is pending or processing.
+	// ResolutionReason says why the request ended the way it did — a decline the
+	// platform made, or a failure the bank did — and PayoutID only on a payment
+	// (#177, #185).
 	ResolutionReason *string    `json:"resolution_reason"`
 	ResolvedBy       *string    `json:"resolved_by"`
 	ResolvedAt       *time.Time `json:"resolved_at"`
 	PayoutID         *string    `json:"payout_id"`
+	// TransferSubmittedAt is when an operator submitted the transfer, and null on
+	// a request that never went through `processing` — including one that went
+	// `pending → paid` directly, which is an instant transfer and legal.
+	//
+	// IT IS THE DATE THAT MAKES "up to 48 hours" CHECKABLE. Without it the
+	// organizer's sentence is boilerplate they cannot act on: they would know a
+	// transfer was sent and have no way to tell whether the wait has already
+	// outrun what they were promised. That is the whole reason this field is on
+	// the organizer's surface at all (#187).
+	//
+	// Its two companions on the row are deliberately NOT here, and the omission
+	// is of a piece with OrganizationID above rather than any kind of masking —
+	// nothing is masked on an Organization's own surface. TransferSubmittedBy
+	// answers "which colleague do I ask about this transfer", which is an
+	// operator's question about an internal handoff (ADR 0026 amendment); the
+	// organizer's question is whether their money is coming, and an operator's
+	// email is not the answer to it. TransferReference is the handle for chasing
+	// PayPhone about a specific transfer, and handing an organizer a reference
+	// their own bank cannot look up invites them to quote it at a teller who has
+	// never heard of it. Either can be added the day somebody wants it; neither
+	// is wanted yet.
+	TransferSubmittedAt *time.Time `json:"transfer_submitted_at"`
 }
 
 // PayoutRequestProfile is the six-field snapshot on a request. It is a separate
@@ -289,9 +312,10 @@ func payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
 			TaxIDType:         row.Profile.TaxIDType,
 			TaxIDNumber:       row.Profile.TaxIDNumber,
 		},
-		ResolutionReason: row.ResolutionReason,
-		ResolvedBy:       row.ResolvedBy,
-		ResolvedAt:       row.ResolvedAt,
-		PayoutID:         row.PayoutID,
+		ResolutionReason:    row.ResolutionReason,
+		ResolvedBy:          row.ResolvedBy,
+		ResolvedAt:          row.ResolvedAt,
+		PayoutID:            row.PayoutID,
+		TransferSubmittedAt: row.TransferSubmittedAt,
 	}
 }
