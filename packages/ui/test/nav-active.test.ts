@@ -21,6 +21,14 @@ test("an entry is active for a path beneath it", () => {
   assert.equal(isNavItemActive("/operator/payout-requests/pr_123", "/operator"), true);
 });
 
+// --- the index entry of a surface --------------------------------------------
+
+test("an exact entry is active only on its own path", () => {
+  assert.equal(isNavItemActive("/operator", "/operator", { exact: true }), true);
+  assert.equal(isNavItemActive("/operator/payout-requests", "/operator", { exact: true }), false);
+  assert.equal(isNavItemActive("/operator/payout-requests/pr_123", "/operator", { exact: true }), false);
+});
+
 // --- shared text prefix, different path --------------------------------------
 
 test("a sibling sharing a text prefix does not activate the entry", () => {

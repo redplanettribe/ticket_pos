@@ -13,6 +13,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  OperatorShell,
+  PlatformMark,
   StaffShell,
   cn,
   isNavItemActive,
@@ -26,8 +28,9 @@ import { pendingPayoutRequestBadge, switcherEntries } from "@/lib/organization-s
 /**
  * How many organizations are waiting to be paid (#176, ADR 0026). Worn by the
  * switcher control so an operator working inside an Organization still sees
- * that requests have queued up, and repeated on the Platform entry so the
- * opened switcher says what it is offering.
+ * that requests have queued up, repeated on the Platform entry so the opened
+ * switcher says what it is offering, and worn by the Payout Requests nav entry
+ * once they have crossed over (#192).
  */
 function PendingPayoutRequestsBadge({ count }: { count: number }) {
   return (
@@ -100,12 +103,7 @@ function SwitcherEntryButton({
 function PlatformDetails() {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <div
-        aria-hidden
-        className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-sm font-semibold text-primary"
-      >
-        P
-      </div>
+      <PlatformMark />
       <div className="min-w-0">
         <p className="font-medium">Platform</p>
         <p className="text-sm text-muted-foreground">Operator Dashboard · every organization</p>
@@ -248,7 +246,7 @@ export function OrganizationSwitcherDialog({
   );
 }
 
-type StaffShellWithOrganizationSwitcherProps = {
+type ShellWithOrganizationSwitcherProps = {
   organizationName: string;
   organizationLogoUrl?: string | null;
   activePath: string;
@@ -264,7 +262,17 @@ type StaffShellWithOrganizationSwitcherProps = {
   children: ReactNode;
 };
 
-export function StaffShellWithOrganizationSwitcher({
+/**
+ * The staff app's side panel, whichever hat is being worn, with the switcher
+ * that changes hats wired to its header.
+ *
+ * Which panel is a consequence of where the user is, not of anything the caller
+ * decides: inside the operator surface the Organization's panel is a category
+ * error — its Dashboard, Events, POS, Payouts and Settings are not what a
+ * Platform Operator is doing — so the Operator Dashboard's own panel replaces
+ * it outright (#192).
+ */
+export function ShellWithOrganizationSwitcher({
   organizationName,
   organizationLogoUrl,
   activePath,
@@ -277,27 +285,46 @@ export function StaffShellWithOrganizationSwitcher({
   activeMemberId,
   userMenu,
   children,
-}: StaffShellWithOrganizationSwitcherProps) {
+}: ShellWithOrganizationSwitcherProps) {
   const [open, setOpen] = useState(false);
 
   const onPlatform = isNavItemActive(activePath, "/operator");
   const waiting = pendingPayoutRequestBadge(pendingPayoutRequests);
+  const badge = waiting ? <PendingPayoutRequestsBadge count={waiting} /> : null;
 
   return (
     <>
-      <StaffShell
-        organizationName={organizationName}
-        organizationLogoUrl={organizationLogoUrl}
-        activePath={activePath}
-        showSettings={showSettings}
-        showPayouts={showPayouts}
-        showEvents={showEvents}
-        organizationBadge={waiting ? <PendingPayoutRequestsBadge count={waiting} /> : null}
-        userMenu={userMenu}
-        onOrganizationClick={() => setOpen(true)}
-      >
-        {children}
-      </StaffShell>
+      {onPlatform ? (
+        /*
+          Inside the operator surface the queue has a page of its own in view, so
+          the count belongs on that entry and not on the switcher control above
+          it: the same number twice, one line apart, says nothing the first
+          saying did not. On an Organization's panel there is no such entry, and
+          the control keeps wearing it (#191).
+        */
+        <OperatorShell
+          activePath={activePath}
+          payoutRequestBadge={badge}
+          userMenu={userMenu}
+          onPlatformClick={() => setOpen(true)}
+        >
+          {children}
+        </OperatorShell>
+      ) : (
+        <StaffShell
+          organizationName={organizationName}
+          organizationLogoUrl={organizationLogoUrl}
+          activePath={activePath}
+          showSettings={showSettings}
+          showPayouts={showPayouts}
+          showEvents={showEvents}
+          organizationBadge={badge}
+          userMenu={userMenu}
+          onOrganizationClick={() => setOpen(true)}
+        >
+          {children}
+        </StaffShell>
+      )}
       <OrganizationSwitcherDialog
         open={open}
         onOpenChange={setOpen}

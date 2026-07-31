@@ -7,7 +7,7 @@ import { callBackend } from "@/lib/api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 import { LogoutButton } from "./logout-button";
-import { StaffShellWithOrganizationSwitcher } from "./organization-switcher-dialog";
+import { ShellWithOrganizationSwitcher } from "./organization-switcher-dialog";
 
 export type SessionData = {
   email: string;
@@ -53,8 +53,9 @@ export const loadSession = cache(async (): Promise<SessionData | null> => {
 });
 
 /**
- * How many organizations are waiting to be paid, platform-wide — the badge the
- * organization switcher control wears (#176, ADR 0026).
+ * How many organizations are waiting to be paid, platform-wide — worn by the
+ * organization switcher control on an Organization's panel, and by the Payout
+ * Requests entry once an operator has crossed over (#176, #192, ADR 0026).
  *
  * A queue's whole value is being noticed by somebody who had not already decided
  * to look, so this is read on every staff page an operator opens rather than
@@ -104,7 +105,7 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
   const isOrgAdmin = session?.active_member?.role === "org_admin";
 
   return (
-    <StaffShellWithOrganizationSwitcher
+    <ShellWithOrganizationSwitcher
       organizationName={organizationName}
       organizationLogoUrl={organizationLogoUrl}
       activePath={activePath}
@@ -118,6 +119,6 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
       userMenu={<LogoutButton />}
     >
       {children}
-    </StaffShellWithOrganizationSwitcher>
+    </ShellWithOrganizationSwitcher>
   );
 }
