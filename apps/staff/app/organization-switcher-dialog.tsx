@@ -17,13 +17,13 @@ import {
   PlatformMark,
   StaffShell,
   cn,
-  isNavItemActive,
+  isOnOperatorSurface,
 } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
 import { MembershipDetails, type Membership } from "@/app/membership-list";
-import { pendingPayoutRequestBadge, switcherEntries } from "@/lib/organization-switcher";
+import { switcherEntries, visiblePendingPayoutRequestCount } from "@/lib/organization-switcher";
 
 /**
  * How many organizations are waiting to be paid (#176, ADR 0026). Worn by the
@@ -138,7 +138,7 @@ export function OrganizationSwitcherDialog({
   const [error, setError] = useState<string | null>(null);
 
   const entries = switcherEntries({ memberships, isPlatformOperator });
-  const waiting = pendingPayoutRequestBadge(pendingPayoutRequests);
+  const waiting = visiblePendingPayoutRequestCount(pendingPayoutRequests);
 
   async function handleSwitch(memberId: string) {
     setSwitchingMemberId(memberId);
@@ -288,8 +288,8 @@ export function ShellWithOrganizationSwitcher({
 }: ShellWithOrganizationSwitcherProps) {
   const [open, setOpen] = useState(false);
 
-  const onPlatform = isNavItemActive(activePath, "/operator");
-  const waiting = pendingPayoutRequestBadge(pendingPayoutRequests);
+  const onPlatform = isOnOperatorSurface(activePath);
+  const waiting = visiblePendingPayoutRequestCount(pendingPayoutRequests);
   const badge = waiting ? <PendingPayoutRequestsBadge count={waiting} /> : null;
 
   return (

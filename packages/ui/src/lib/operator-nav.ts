@@ -30,6 +30,8 @@ export function operatorNavItems({
   return [
     // Overview is the index of the surface, not its owner: without `exact` it
     // would stay lit while an operator reads a single payout request.
+    // The same "/operator" the surface question asks about (`isOnOperatorSurface`),
+    // asked of differently: the surface extends past this entry, the entry does not.
     { href: "/operator", label: "Overview", exact: true },
     { href: "/operator/organizations", label: "Organizations" },
     { href: "/operator/payout-requests", label: "Payout Requests", badge: payoutRequestBadge },

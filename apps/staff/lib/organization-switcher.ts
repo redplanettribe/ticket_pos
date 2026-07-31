@@ -1,18 +1,19 @@
 // What the organization switcher offers a signed-in staff user, and what the
 // switcher control wears while it is closed (#191). Dependency-free — no DOM,
 // no fetch — so it runs directly under `node --test` (see
-// organization-switcher.test.ts).
+// organization-switcher.test.ts). The Membership import is type-only, so it is
+// erased before any of that component module is reached.
+
+import type { Membership } from "@/app/membership-list";
 
 /**
  * One thing a staff user can be acting as: an Organization they are a Member
  * of, or the platform itself.
  *
- * Generic over the membership so this stays a plain data question. It decides
- * which entries exist and in what order, not how one is drawn or what a
- * Membership is made of.
+ * It says which entries exist and in what order, not how one is drawn.
  */
-export type SwitcherEntry<TMembership> =
-  | { kind: "organization"; membership: TMembership }
+export type SwitcherEntry =
+  | { kind: "organization"; membership: Membership }
   | { kind: "platform" };
 
 /**
@@ -28,13 +29,13 @@ export type SwitcherEntry<TMembership> =
  * entry, which is the whole reason changing hats lives here rather than on a
  * navigation item hanging off an organization context they do not have.
  */
-export function switcherEntries<TMembership>({
+export function switcherEntries({
   memberships,
   isPlatformOperator,
 }: {
-  memberships: readonly TMembership[];
+  memberships: readonly Membership[];
   isPlatformOperator: boolean;
-}): SwitcherEntry<TMembership>[] {
+}): SwitcherEntry[] {
   return [
     ...memberships.map((membership) => ({ kind: "organization" as const, membership })),
     ...(isPlatformOperator ? [{ kind: "platform" as const }] : []),
@@ -51,6 +52,6 @@ export function switcherEntries<TMembership>({
  * nothing is waiting is a badge that trains its reader to ignore it. Null means
  * the count could not be read, which is also nothing to show.
  */
-export function pendingPayoutRequestBadge(count: number | null | undefined): number | null {
+export function visiblePendingPayoutRequestCount(count: number | null | undefined): number | null {
   return count && count > 0 ? count : null;
 }

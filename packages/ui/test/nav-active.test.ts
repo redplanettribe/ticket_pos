@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isNavItemActive } from "../src/lib/nav-active.ts";
+import { isNavItemActive, isOnOperatorSurface } from "../src/lib/nav-active.ts";
 
 // --- exact matches ---------------------------------------------------------
 
@@ -43,4 +43,23 @@ test("a path above the entry does not activate it", () => {
 
 test("no active path activates nothing", () => {
   assert.equal(isNavItemActive(undefined, "/operator"), false);
+});
+
+// --- which surface is being looked at ----------------------------------------
+
+test("every page of the Operator Dashboard is on the operator surface", () => {
+  assert.equal(isOnOperatorSurface("/operator"), true);
+  assert.equal(isOnOperatorSurface("/operator/payout-requests"), true);
+  assert.equal(isOnOperatorSurface("/operator/payout-requests/pr_123"), true);
+});
+
+test("an Organization's own pages are not the operator surface", () => {
+  assert.equal(isOnOperatorSurface("/"), false);
+  assert.equal(isOnOperatorSurface("/payouts"), false);
+  // A sibling route whose name merely starts the same way.
+  assert.equal(isOnOperatorSurface("/operator-guide"), false);
+});
+
+test("no active path is no surface", () => {
+  assert.equal(isOnOperatorSurface(undefined), false);
 });

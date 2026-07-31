@@ -53,6 +53,6 @@ export { Skeleton } from "./components/ui/skeleton";
 export { toast } from "sonner";
 export { Toaster } from "./components/ui/sonner";
 export { Textarea } from "./components/ui/textarea";
-export { isNavItemActive } from "./lib/nav-active";
+export { isNavItemActive, isOnOperatorSurface } from "./lib/nav-active";
 export { eventNavItems } from "./lib/event-nav";
 export { cn } from "./lib/utils";
