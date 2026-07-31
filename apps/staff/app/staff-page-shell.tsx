@@ -13,8 +13,8 @@ export type SessionData = {
   email: string;
   /**
    * True when this session's email is on the platform operator allowlist
-   * (ADR 0015). It decides whether the Operator Dashboard and its nav entry
-   * render at all; the API remains the actual gate.
+   * (ADR 0015). It decides whether the Operator Dashboard and the switcher's
+   * Platform entry exist at all; the API remains the actual gate.
    */
   is_platform_operator: boolean;
   active_member: {
@@ -54,7 +54,7 @@ export const loadSession = cache(async (): Promise<SessionData | null> => {
 
 /**
  * How many organizations are waiting to be paid, platform-wide — the badge the
- * operator navigation wears (#176, ADR 0026).
+ * organization switcher control wears (#176, ADR 0026).
  *
  * A queue's whole value is being noticed by somebody who had not already decided
  * to look, so this is read on every staff page an operator opens rather than
@@ -92,20 +92,26 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
   const session = await loadSession();
   const organizationName = session?.active_member?.organization_name ?? "Multiticketing";
   const organizationLogoUrl = session?.active_member?.organization_logo_url ?? null;
-  // Asked for only when the navigation will render it. A non-operator would be
+  // Asked for only when the switcher will render it. A non-operator would be
   // refused by the API anyway; not asking is the cheaper way to say the same.
   const pendingPayoutRequests = session?.is_platform_operator
     ? await loadPendingPayoutRequestCount()
     : null;
+  // Payouts and Settings are both an Org Admin's, for reasons of their own: a
+  // Payout Request is theirs to make, the Organization's settings theirs to
+  // keep. Two answers that agree today, asked separately so a change to one
+  // cannot quietly move the other (#190).
+  const isOrgAdmin = session?.active_member?.role === "org_admin";
 
   return (
     <StaffShellWithOrganizationSwitcher
       organizationName={organizationName}
       organizationLogoUrl={organizationLogoUrl}
       activePath={activePath}
-      showSettings={session?.active_member?.role === "org_admin"}
+      showSettings={isOrgAdmin}
+      showPayouts={isOrgAdmin}
       showEvents={session?.active_member != null}
-      showOperator={session?.is_platform_operator === true}
+      isPlatformOperator={session?.is_platform_operator === true}
       pendingPayoutRequests={pendingPayoutRequests}
       memberships={session?.memberships ?? []}
       activeMemberId={session?.active_member?.member_id}

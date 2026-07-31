@@ -101,7 +101,6 @@ export function OrganizationPicker({
         </Alert>
       ) : null}
       <MembershipList
-        mode="gate"
         memberships={memberships}
         onSelect={handleSelect}
         selecting={selecting}

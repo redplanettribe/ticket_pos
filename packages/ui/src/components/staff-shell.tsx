@@ -15,13 +15,19 @@ type StaffShellProps = {
   activePath?: string;
   showSettings?: boolean;
   /**
-   * The Payouts entry (#190). Org-Admin-only, the same gate Settings is behind,
-   * but a flag of its own so the two can part company later. When a caller says
-   * nothing it follows `showSettings`: today one role answers both questions,
-   * and a shell that quietly dropped the entry would be the worse failure.
+   * The Payouts entry (#190). Org-Admin-only, the same gate Settings is behind
+   * today, but asked for outright so the two can part company without Payouts
+   * silently following the wrong one.
    */
-  showPayouts?: boolean;
+  showPayouts: boolean;
   showEvents?: boolean;
+  /**
+   * Worn by the organization switcher control — today the count of Payout
+   * Requests waiting for a Platform Operator (#191). A node rather than a
+   * number: the shell renders what it is handed and does not decide what is
+   * worth badging.
+   */
+  organizationBadge?: ReactNode;
   onOrganizationClick?: () => void;
 };
 
@@ -34,11 +40,12 @@ export function StaffShell({
   showSettings = false,
   showPayouts,
   showEvents = false,
+  organizationBadge,
   onOrganizationClick,
 }: StaffShellProps) {
   const navItems: SidebarNavItem[] = staffNavItems({
     showEvents,
-    showPayouts: showPayouts ?? showSettings,
+    showPayouts,
     showSettings,
   });
 
@@ -61,11 +68,13 @@ export function StaffShell({
           >
             <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
             <span className="truncate">{organizationName}</span>
+            {organizationBadge ? <span className="ml-auto shrink-0">{organizationBadge}</span> : null}
           </button>
         ) : (
           <p className="mt-1 flex items-center gap-2 font-semibold">
             <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
             <span className="truncate">{organizationName}</span>
+            {organizationBadge ? <span className="ml-auto shrink-0">{organizationBadge}</span> : null}
           </p>
         )}
       </div>

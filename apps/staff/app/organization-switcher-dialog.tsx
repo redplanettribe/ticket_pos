@@ -3,7 +3,10 @@
 import {
   Alert,
   AlertDescription,
+  Badge,
   Button,
+  Card,
+  CardContent,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -17,13 +20,110 @@ import {
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
-import { MembershipList, type Membership } from "@/app/membership-list";
+import { MembershipDetails, type Membership } from "@/app/membership-list";
+import { pendingPayoutRequestBadge, switcherEntries } from "@/lib/organization-switcher";
+
+/**
+ * How many organizations are waiting to be paid (#176, ADR 0026). Worn by the
+ * switcher control so an operator working inside an Organization still sees
+ * that requests have queued up, and repeated on the Platform entry so the
+ * opened switcher says what it is offering.
+ */
+function PendingPayoutRequestsBadge({ count }: { count: number }) {
+  return (
+    <span
+      className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold tabular-nums text-primary-foreground"
+      aria-label={`${count} payout requests waiting`}
+    >
+      {count}
+    </span>
+  );
+}
+
+/** One choice in the switcher, drawn the same whichever hat it offers. */
+function SwitcherEntryButton({
+  onSelect,
+  isCurrent,
+  disabled,
+  busyLabel,
+  details,
+  trailing,
+}: {
+  onSelect: () => void;
+  isCurrent: boolean;
+  disabled: boolean;
+  busyLabel: string | null;
+  details: ReactNode;
+  trailing?: ReactNode;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        className={cn(
+          "w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          !isCurrent && !disabled && "cursor-pointer",
+        )}
+        onClick={() => {
+          if (!isCurrent) {
+            onSelect();
+          }
+        }}
+        disabled={disabled || isCurrent}
+        aria-busy={busyLabel !== null}
+        aria-current={isCurrent ? "true" : undefined}
+      >
+        <Card
+          className={cn("transition-colors", isCurrent ? "border-primary bg-primary/5" : "hover:bg-accent/50")}
+        >
+          <CardContent className="flex items-center justify-between gap-4 p-4">
+            {details}
+            {isCurrent ? (
+              <Badge variant="secondary">Current</Badge>
+            ) : busyLabel ? (
+              <span className="text-sm text-muted-foreground">{busyLabel}</span>
+            ) : (
+              trailing
+            )}
+          </CardContent>
+        </Card>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * The Platform entry as it reads beside the Organizations: not one more of
+ * them, but the other hat — an authority spanning every Organization
+ * (CONTEXT.md).
+ */
+function PlatformDetails() {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <div
+        aria-hidden
+        className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-sm font-semibold text-primary"
+      >
+        P
+      </div>
+      <div className="min-w-0">
+        <p className="font-medium">Platform</p>
+        <p className="text-sm text-muted-foreground">Operator Dashboard · every organization</p>
+      </div>
+    </div>
+  );
+}
 
 type OrganizationSwitcherDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   memberships: Membership[];
   activeMemberId?: string;
+  /** Whether this session may act for the platform at all (ADR 0015). */
+  isPlatformOperator: boolean;
+  /** True while the Operator Dashboard is the surface being looked at. */
+  onPlatform: boolean;
+  pendingPayoutRequests: number | null;
 };
 
 export function OrganizationSwitcherDialog({
@@ -31,16 +131,18 @@ export function OrganizationSwitcherDialog({
   onOpenChange,
   memberships,
   activeMemberId,
+  isPlatformOperator,
+  onPlatform,
+  pendingPayoutRequests,
 }: OrganizationSwitcherDialogProps) {
   const router = useRouter();
   const [switchingMemberId, setSwitchingMemberId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSwitch(memberId: string) {
-    if (memberId === activeMemberId) {
-      return;
-    }
+  const entries = switcherEntries({ memberships, isPlatformOperator });
+  const waiting = pendingPayoutRequestBadge(pendingPayoutRequests);
 
+  async function handleSwitch(memberId: string) {
     setSwitchingMemberId(memberId);
     setError(null);
 
@@ -67,6 +169,17 @@ export function OrganizationSwitcherDialog({
     }
   }
 
+  /*
+    Changing to Platform changes no server-side state: operator authority is not
+    a Staff Session's active Membership but something the session either has or
+    has not (CONTEXT.md), so the switch is a navigation and the Organization the
+    session was acting for is still there when they switch back.
+  */
+  function handleSwitchToPlatform() {
+    onOpenChange(false);
+    router.push("/operator");
+  }
+
   function handleCreateOrganization() {
     onOpenChange(false);
     router.push("/organizations/new");
@@ -77,21 +190,54 @@ export function OrganizationSwitcherDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Switch organization</DialogTitle>
-          <DialogDescription>Select an organization to work in, or create a new one.</DialogDescription>
+          <DialogDescription>
+            {isPlatformOperator
+              ? "Select an organization to work in, switch to the platform, or create a new organization."
+              : "Select an organization to work in, or create a new one."}
+          </DialogDescription>
         </DialogHeader>
         {error ? (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
-        <MembershipList
-          mode="switcher"
-          memberships={memberships}
-          activeMemberId={activeMemberId}
-          switching={switchingMemberId}
-          disabled={switchingMemberId !== null}
-          onSelect={(memberId) => void handleSwitch(memberId)}
-        />
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No organizations found for your account.</p>
+        ) : (
+          <ul className="space-y-3">
+            {entries.map((entry) => {
+              if (entry.kind === "platform") {
+                return (
+                  <SwitcherEntryButton
+                    key="platform"
+                    onSelect={handleSwitchToPlatform}
+                    isCurrent={onPlatform}
+                    disabled={switchingMemberId !== null}
+                    busyLabel={null}
+                    details={<PlatformDetails />}
+                    trailing={waiting ? <PendingPayoutRequestsBadge count={waiting} /> : null}
+                  />
+                );
+              }
+
+              const { membership } = entry;
+              // On the Operator Dashboard no Organization is the one being
+              // acted for, however the session's active Membership reads.
+              const isCurrent = !onPlatform && activeMemberId === membership.member_id;
+
+              return (
+                <SwitcherEntryButton
+                  key={membership.member_id}
+                  onSelect={() => void handleSwitch(membership.member_id)}
+                  isCurrent={isCurrent}
+                  disabled={switchingMemberId !== null}
+                  busyLabel={switchingMemberId === membership.member_id ? "Switching..." : null}
+                  details={<MembershipDetails membership={membership} />}
+                />
+              );
+            })}
+          </ul>
+        )}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={handleCreateOrganization}>
             Create organization
@@ -102,57 +248,14 @@ export function OrganizationSwitcherDialog({
   );
 }
 
-/**
- * The Operator Dashboard entry. StaffShell's primary navigation is a fixed list
- * owned by the shared UI package, so this platform-wide entry rides the shell's
- * sidebar footer slot above the user menu — visually a nav item, deliberately
- * set apart from the Organization-scoped links it does not belong with. It is
- * rendered only for a session on the platform operator allowlist (ADR 0015).
- */
-function OperatorNavLink({
-  active,
-  pendingPayoutRequests,
-}: {
-  active: boolean;
-  pendingPayoutRequests: number | null;
-}) {
-  return (
-    <a
-      href="/operator"
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-        active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-      )}
-    >
-      <span>Operator</span>
-      {/*
-        How many organizations are waiting to be paid (#176, ADR 0026). A queue's
-        whole value is being noticed by somebody who had not already decided to
-        look — a Friday-evening request otherwise waits until an operator happens
-        to click. Absent at zero rather than shown as a "0": a badge saying
-        nothing is waiting is a badge that trains its reader to ignore it. Null
-        means the count could not be read, which is also nothing to show.
-      */}
-      {pendingPayoutRequests ? (
-        <span
-          className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold tabular-nums text-primary-foreground"
-          aria-label={`${pendingPayoutRequests} payout requests waiting`}
-        >
-          {pendingPayoutRequests}
-        </span>
-      ) : null}
-    </a>
-  );
-}
-
 type StaffShellWithOrganizationSwitcherProps = {
   organizationName: string;
   organizationLogoUrl?: string | null;
   activePath: string;
   showSettings: boolean;
+  showPayouts: boolean;
   showEvents: boolean;
-  showOperator: boolean;
+  isPlatformOperator: boolean;
   /** How many payout requests are waiting platform-wide; null when unknown or not an operator. */
   pendingPayoutRequests?: number | null;
   memberships: Membership[];
@@ -166,8 +269,9 @@ export function StaffShellWithOrganizationSwitcher({
   organizationLogoUrl,
   activePath,
   showSettings,
+  showPayouts,
   showEvents,
-  showOperator,
+  isPlatformOperator,
   pendingPayoutRequests = null,
   memberships,
   activeMemberId,
@@ -176,6 +280,9 @@ export function StaffShellWithOrganizationSwitcher({
 }: StaffShellWithOrganizationSwitcherProps) {
   const [open, setOpen] = useState(false);
 
+  const onPlatform = isNavItemActive(activePath, "/operator");
+  const waiting = pendingPayoutRequestBadge(pendingPayoutRequests);
+
   return (
     <>
       <StaffShell
@@ -183,20 +290,10 @@ export function StaffShellWithOrganizationSwitcher({
         organizationLogoUrl={organizationLogoUrl}
         activePath={activePath}
         showSettings={showSettings}
+        showPayouts={showPayouts}
         showEvents={showEvents}
-        userMenu={
-          showOperator ? (
-            <div className="space-y-1">
-              <OperatorNavLink
-                active={isNavItemActive(activePath, "/operator")}
-                pendingPayoutRequests={pendingPayoutRequests}
-              />
-              {userMenu}
-            </div>
-          ) : (
-            userMenu
-          )
-        }
+        organizationBadge={waiting ? <PendingPayoutRequestsBadge count={waiting} /> : null}
+        userMenu={userMenu}
         onOrganizationClick={() => setOpen(true)}
       >
         {children}
@@ -206,6 +303,9 @@ export function StaffShellWithOrganizationSwitcher({
         onOpenChange={setOpen}
         memberships={memberships}
         activeMemberId={activeMemberId}
+        isPlatformOperator={isPlatformOperator}
+        onPlatform={onPlatform}
+        pendingPayoutRequests={pendingPayoutRequests}
       />
     </>
   );
