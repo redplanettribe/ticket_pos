@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  daysWaiting,
   isOutstanding,
   payoutRequestAmountProblem,
   payoutRequestStatusLabel,
+  waitingLabel,
 } from "./payout-requests.ts";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -52,4 +54,27 @@ test("a zero or negative Payable Balance is explained, never compared against", 
       "Nothing has cleared yet, so there is nothing to request. Sales clear overnight.",
     );
   }
+});
+
+// --- how long the queue says an ask has waited ----------------------------
+
+const now = new Date("2026-07-31T15:00:00Z");
+
+test("an age in whole days, floored, never negative", () => {
+  assert.equal(daysWaiting("2026-07-31T09:00:00Z", now), 0);
+  // Twenty-three hours is not a day: the queue counts elapsed days, so an
+  // operator reading "1 day" knows a day has genuinely passed.
+  assert.equal(daysWaiting("2026-07-30T16:00:00Z", now), 0);
+  assert.equal(daysWaiting("2026-07-30T14:00:00Z", now), 1);
+  assert.equal(daysWaiting("2026-07-19T15:00:00Z", now), 12);
+  // Clock skew putting the ask in the future is a new row, not a negative age.
+  assert.equal(daysWaiting("2026-08-02T15:00:00Z", now), 0);
+  // An unparseable instant is not a reason to render NaN at an operator.
+  assert.equal(daysWaiting("not an instant", now), 0);
+});
+
+test("the waiting label reads as a person would say it", () => {
+  assert.equal(waitingLabel("2026-07-31T09:00:00Z", now), "Today");
+  assert.equal(waitingLabel("2026-07-30T14:00:00Z", now), "1 day");
+  assert.equal(waitingLabel("2026-07-19T15:00:00Z", now), "12 days");
 });

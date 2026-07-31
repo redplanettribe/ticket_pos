@@ -51,6 +51,37 @@ func (s *Service) ListOrganizationsForOperator(ctx context.Context, page, pageSi
 	return out, total, nil
 }
 
+// OrganizationsForOperator returns the named Organizations keyed by id, for an
+// operator list whose rows came from another module and carry only an
+// organization_id — the Payout Request queue (#176).
+//
+// A map rather than a slice because that is how the caller uses it: it holds the
+// rows and needs the Organization for each. Ids that name nothing are simply
+// absent, which lets the caller decide whether a gap is possible; for the queue
+// it is not, because a request cascades with the Organization it belongs to.
+//
+// Malformed ids are not parsed and not refused. They can only come from another
+// module's foreign key, never from a URL, so the strictness
+// GetOrganizationForOperator applies to a path parameter would be answering a
+// question nobody asked.
+func (s *Service) OrganizationsForOperator(ctx context.Context, orgIDs []string) (map[string]OperatorOrganization, error) {
+	rows, err := s.repo.OrganizationsByIDs(ctx, orgIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]OperatorOrganization, len(rows))
+	for _, o := range rows {
+		out[o.ID] = OperatorOrganization{
+			ID:        o.ID,
+			Name:      o.Name,
+			Slug:      o.Slug,
+			Currency:  o.Currency,
+			CreatedAt: o.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
 // GetOrganizationForOperator returns one Organization by id, whoever the
 // operator is a Member of. A malformed id is answered as a missing Organization
 // rather than as a database failure: to the caller, both mean "no such

@@ -99,6 +99,10 @@ type operatorOrganizationDetail struct {
 	PayableBalanceCents int              `json:"payable_balance_cents"`
 	Events              []operatorEvent  `json:"events"`
 	Payouts             []operatorPayout `json:"payouts"`
+	// PayoutRequests is this Organization's own request history, newest first,
+	// beside the payout history it answers "are they asking again?" against
+	// (#176, ADR 0026). Exercised in operator_payout_requests_test.go.
+	PayoutRequests []operatorPayoutRequestRow `json:"payout_requests"`
 }
 
 // seedPlatformOperator grants operator authority the only way it is ever

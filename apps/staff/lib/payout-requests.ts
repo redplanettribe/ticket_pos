@@ -46,6 +46,39 @@ export function isOutstanding(status: string): boolean {
 }
 
 /**
+ * How long an ask has been waiting, in whole days, floored at zero.
+ *
+ * The operator queue is ordered oldest first because the oldest unanswered
+ * request is the one about to become a complaint (ADR 0026), and a queue that
+ * says only "requested 12 March" makes every reader do that subtraction in their
+ * head. Whole days rather than hours: nobody triages a payout backlog by the
+ * hour, and "waiting 3 days" is the sentence an operator would actually say.
+ *
+ * A clock skew putting the ask in the future reads as zero rather than as a
+ * negative age — the row is new, whatever the two clocks disagree about.
+ */
+export function daysWaiting(requestedAt: string, now: Date = new Date()): number {
+  const asked = new Date(requestedAt).getTime();
+  if (Number.isNaN(asked)) {
+    return 0;
+  }
+  const days = Math.floor((now.getTime() - asked) / 86_400_000);
+  return days > 0 ? days : 0;
+}
+
+/**
+ * How long an ask has been waiting, as the queue says it: "Today", "1 day",
+ * "12 days".
+ */
+export function waitingLabel(requestedAt: string, now: Date = new Date()): string {
+  const days = daysWaiting(requestedAt, now);
+  if (days === 0) {
+    return "Today";
+  }
+  return days === 1 ? "1 day" : `${days} days`;
+}
+
+/**
  * Why an amount cannot be asked for, or null when it can.
  *
  * The Payable Balance is signed and may be negative — an Organization settled

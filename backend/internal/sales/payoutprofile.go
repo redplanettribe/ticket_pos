@@ -150,6 +150,39 @@ func NormalizeAccountNumber(number string) string {
 	return b.String()
 }
 
+// MaskAccountNumber renders an account number the way it is safe to show beside
+// other people's: four dots and the last four digits, "····4821".
+//
+// It exists in Go — rather than only in the staff app, which has its own
+// maskAccountNumber in apps/staff/lib/payout-profile.ts — because the operator's
+// queue must not merely DISPLAY a masked number, it must not RECEIVE a whole
+// one. That queue is the one screen showing every Organization's details at once
+// and the one operators screenshot into support threads (ADR 0026), and a
+// payload carrying fifty account numbers to a browser that renders none of them
+// is a leak waiting for the first person to open the network tab. Masking at the
+// edge of the API is the only version of this rule a test can hold.
+//
+// The last four are what lets a person recognise an account without the number
+// being readable over a shoulder. A number of four digits or fewer is masked
+// entirely, because revealing "the last four" of it would reveal all of it.
+//
+// The separators are stripped first, so a stored number and a hand-typed one
+// mask identically; in practice everything stored has already been through
+// NormalizeAccountNumber.
+func MaskAccountNumber(accountNumber string) string {
+	normalized := NormalizeAccountNumber(accountNumber)
+	if utf8.RuneCountInString(normalized) <= 4 {
+		return accountNumberMask
+	}
+	runes := []rune(normalized)
+	return accountNumberMask + string(runes[len(runes)-4:])
+}
+
+// accountNumberMask is the four middle dots, U+00B7, matching the staff app's
+// mask character exactly. A different dot in each place would read as two
+// different products.
+const accountNumberMask = "····"
+
 // appendTextErrors applies the two rules every free-text field on the profile
 // shares — present, and within its bound — naming the field and never the value.
 // The bound is counted in runes, matching Postgres's char_length so the API and

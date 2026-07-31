@@ -87,6 +87,45 @@ export type OperatorPayout = {
   created_at: string;
 };
 
+/**
+ * The bank detail a LIST row carries: enough to recognise an account, never
+ * enough to retype one.
+ *
+ * The account number arrives ALREADY MASKED from the API — this client never
+ * holds the digits for a list, because the queue shows every organization's
+ * details at once and is the screen operators screenshot into support threads
+ * (ADR 0026). The tax id is absent for the same reason; it is on the request
+ * detail, where the factura is raised.
+ */
+export type OperatorPayoutRequestProfile = {
+  bank_name: string;
+  /** 'ahorros' or 'corriente', in the Spanish the receiving bank's form uses. */
+  account_type: string;
+  /** "····4821": four dots and the last four digits. */
+  account_number_masked: string;
+  account_holder_name: string;
+};
+
+/** One payout request as the queue and an organization's history show it. */
+export type OperatorPayoutRequestRow = {
+  id: string;
+  amount_cents: number;
+  note: string | null;
+  /** 'pending' | 'paid' | 'declined' | 'cancelled'. There is no 'approved'. */
+  status: string;
+  /** The asker's email, so the record outlives their membership. */
+  requested_by: string;
+  requested_at: string;
+  /** The payable balance AS IT STOOD when the ask was made. Never refreshed. */
+  payable_balance_cents: number;
+  payout_profile: OperatorPayoutRequestProfile;
+  /** The answer; all null while the request is outstanding. */
+  decline_reason: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  payout_id: string | null;
+};
+
 export type OperatorOrganizationDetail = {
   organization: OperatorOrganization;
   withdrawable_balance_cents: number;
@@ -98,6 +137,8 @@ export type OperatorOrganizationDetail = {
   payable_balance_cents: number;
   events: OperatorEventRow[];
   payouts: OperatorPayout[];
+  /** This organization's own asks, newest first — a history, not a work queue. */
+  payout_requests: OperatorPayoutRequestRow[];
 };
 
 export type RecordPayoutBody = {
@@ -142,6 +183,104 @@ export async function recordOperatorPayout(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** One queue row: the ask, and whose it is. */
+export type OperatorPayoutRequestQueueItem = {
+  request: OperatorPayoutRequestRow;
+  organization: OperatorOrganization;
+};
+
+/** The ADR-0006 nested envelope for the payout request queue. */
+export type OperatorPayoutRequestQueuePage = {
+  data: OperatorPayoutRequestQueueItem[];
+  pagination: OperatorPagination;
+};
+
+/**
+ * The snapshot as the request detail returns it: whole, including the account
+ * number and the tax id for the factura. This is the only shape in this client
+ * that holds a payable account number, and the only screen that shows one.
+ */
+export type OperatorPayoutRequestSnapshot = {
+  bank_name: string;
+  account_type: string;
+  account_number: string;
+  account_holder_name: string;
+  tax_id_type: string;
+  tax_id_number: string;
+};
+
+/** One payout request in full, as the detail view reads it. */
+export type OperatorPayoutRequestFull = {
+  id: string;
+  amount_cents: number;
+  note: string | null;
+  status: string;
+  requested_by: string;
+  requested_at: string;
+  /** The payable balance at the moment of asking. Compare with the live one. */
+  payable_balance_cents: number;
+  payout_profile: OperatorPayoutRequestSnapshot;
+  decline_reason: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  payout_id: string | null;
+};
+
+/**
+ * Everything needed to execute one transfer.
+ *
+ * The two payable balances are the point of the screen: the one on the request
+ * is what the organization could have asked for when it asked, and the one
+ * beside it is what it could ask for now. The gap tells an organization that
+ * asked for what it had from one that asked for four times as much, and nothing
+ * about it gates anything — the operator at the bank decides (ADR 0026).
+ */
+export type OperatorPayoutRequestDetail = {
+  request: OperatorPayoutRequestFull;
+  organization: OperatorOrganization;
+  withdrawable_balance_cents: number;
+  payable_balance_cents: number;
+};
+
+/**
+ * How many organizations are waiting for an answer, platform-wide. The badge on
+ * the operator navigation: a queue's whole value is being noticed by somebody
+ * who had not already decided to look (ADR 0026).
+ */
+export type OperatorPendingPayoutRequestCount = {
+  pending_count: number;
+};
+
+export const OPERATOR_PAYOUT_REQUESTS_PAGE_SIZE = 50;
+
+/**
+ * The outstanding payout requests across every organization, OLDEST FIRST.
+ *
+ * The order deliberately breaks the newest-first convention the payout and sale
+ * histories use: this is a work queue rather than a history, and the oldest
+ * unanswered request is the one about to become a complaint (ADR 0026).
+ */
+export async function fetchOperatorPayoutRequests(
+  page = 1,
+): Promise<OperatorPayoutRequestQueuePage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(OPERATOR_PAYOUT_REQUESTS_PAGE_SIZE),
+  });
+  return fetchEventsJSON<OperatorPayoutRequestQueuePage>(
+    `/api/operator/payout-requests?${params.toString()}`,
+  );
+}
+
+/** One payout request in full, with its organization's live balances. */
+export async function fetchOperatorPayoutRequest(
+  requestId: string,
+): Promise<OperatorPayoutRequestDetail> {
+  return fetchEventsJSON<OperatorPayoutRequestDetail>(
+    `/api/operator/payout-requests/${encodeURIComponent(requestId)}`,
+  );
 }
 
 /**

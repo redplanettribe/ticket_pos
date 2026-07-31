@@ -150,6 +150,33 @@ function SaleLookupCard() {
   );
 }
 
+/**
+ * The way into the payout request queue (#176, ADR 0026).
+ *
+ * It sits at the top of the dashboard because it is the one thing here that
+ * somebody is WAITING on: the revenue totals and the organization list are
+ * standing facts, while an unanswered request is a person expecting money. The
+ * count itself lives on the navigation, which is where an operator who came to
+ * do something else will see it.
+ */
+function PayoutRequestsCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Payout requests</CardTitle>
+        <CardDescription>
+          Every organization waiting to be paid, across the platform, longest wait first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button asChild>
+          <Link href="/operator/payout-requests">Open the queue</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OperatorDashboardClient() {
   const [totals, setTotals] = useState<OperatorCurrencyTotals[]>([]);
   const [organizations, setOrganizations] = useState<OperatorOrganizationRow[]>([]);
@@ -215,6 +242,8 @@ export function OperatorDashboardClient() {
         title="Operator"
         description="Platform revenue, every organization on the platform, and what each is owed."
       />
+
+      <PayoutRequestsCard />
 
       <SaleLookupCard />
 

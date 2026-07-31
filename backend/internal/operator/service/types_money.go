@@ -33,6 +33,14 @@ type Payout = service.OperatorPayout
 // reference returns it (sales owns it).
 type Sale = service.OperatorSale
 
+// PayoutRequestSummary is one ask as a LIST shows it: the account number already
+// masked and the Tax ID absent (sales owns it, and does the masking).
+type PayoutRequestSummary = service.OperatorPayoutRequest
+
+// PayoutRequest is one ask WHOLE, snapshot bank details included — the detail
+// view an operator opens when they are about to make the transfer.
+type PayoutRequest = service.PayoutRequest
+
 // SaleReversal is one recorded Operator Reversal — the marked sale and the
 // money memo the operator asserted (sales owns it).
 type SaleReversal = service.OperatorReversalResult

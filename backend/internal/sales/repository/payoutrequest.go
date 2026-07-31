@@ -17,10 +17,15 @@ import (
 // snapshot and the live profile are the same shape everywhere they are handled —
 // which is what lets one renderer serve both and one validator judge both.
 type PayoutRequestRow struct {
-	ID          string
-	AmountCents int
-	Note        *string
-	Status      string
+	ID string
+	// OrganizationID is whose ask it is. The Organization-scoped reads all know
+	// it already; the operator's queue and its detail view do not, because they
+	// arrive from a cross-Organization list and the Organization is one of the
+	// answers (#176).
+	OrganizationID string
+	AmountCents    int
+	Note           *string
+	Status         string
 	// RequestedBy is an email, exactly as PayoutRow.RecordedBy is: the record
 	// outlives the Member who made it (ADR 0026).
 	RequestedBy string
@@ -40,7 +45,7 @@ type PayoutRequestRow struct {
 // back differently by two paths is a bug that only shows up in whichever surface
 // nobody looked at.
 const payoutRequestColumns = `
-	id, amount_cents, note, status, requested_by, created_at, payable_balance_cents,
+	id, organization_id, amount_cents, note, status, requested_by, created_at, payable_balance_cents,
 	bank_name, account_type, account_number, account_holder_name, tax_id_type, tax_id_number,
 	decline_reason, resolved_by, resolved_at, payout_id
 `
@@ -202,6 +207,101 @@ func (r *Repository) GetPayoutRequest(ctx context.Context, orgID, requestID stri
 	return row, err
 }
 
+// ListPendingPayoutRequests returns one page of every OUTSTANDING Payout Request
+// on the platform, OLDEST FIRST, plus the unpaginated total (ADR 0006, #176).
+//
+// Oldest first is a deliberate break with the newest-first convention every
+// other list in this file follows, and the break is a property of what this list
+// IS. A history answers "what happened to my ask", so the newest row is the one
+// its reader came for; this is a WORK QUEUE, and the oldest unanswered request
+// is the one about to become a complaint (ADR 0026). The id tiebreaker is the
+// house rule unchanged: two requests made in the same instant must not swap
+// places between pages.
+//
+// It crosses every Organization on purpose and is scoped by nothing. There is no
+// Organization to scope it by — the operator is a Member of none, and whose ask
+// this is is one of the answers — and the authorization is the operator
+// allowlist on the namespace it is reached through (ADR 0015).
+//
+// The WHERE is exactly the predicate of payout_requests_pending_queue_idx from
+// migration 043, which was created for this query: the index stays the size of
+// the backlog rather than the size of the history, so the queue does not slow
+// down as answered requests accumulate behind it.
+func (r *Repository) ListPendingPayoutRequests(ctx context.Context, limit, offset int) ([]PayoutRequestRow, int, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+payoutRequestColumns+`, COUNT(*) OVER() AS total
+		FROM payout_requests
+		WHERE status = 'pending'
+		ORDER BY created_at ASC, id ASC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var (
+		out   = make([]PayoutRequestRow, 0)
+		total int
+	)
+	for rows.Next() {
+		row, err := payoutRequestScan(trailingScanner{inner: rows, trailing: []any{&total}})
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *row)
+	}
+	return out, total, rows.Err()
+}
+
+// CountPendingPayoutRequests is the backlog as one number: what the operator
+// navigation wears so a queue is noticed by somebody who had not already decided
+// to look (ADR 0026).
+//
+// It is its own read rather than a by-product of listing, because the badge is
+// rendered on every page of the staff app and the list is rendered on one. Both
+// count the same partial index, so they cannot disagree.
+func (r *Repository) CountPendingPayoutRequests(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM payout_requests WHERE status = 'pending'
+	`).Scan(&count)
+	return count, err
+}
+
+// GetPayoutRequestByID returns one Payout Request whatever Organization it
+// belongs to, or nil when there is none — the operator's read, where scoping by
+// Organization would be scoping by a Membership the operator does not have.
+//
+// The caller checks the id is a UUID first; this reads it as one.
+func (r *Repository) GetPayoutRequestByID(ctx context.Context, requestID string) (*PayoutRequestRow, error) {
+	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
+		SELECT `+payoutRequestColumns+`
+		FROM payout_requests
+		WHERE id = $1
+	`, requestID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return row, err
+}
+
+// trailingScanner lets payoutRequestScan read a row that carries extra columns
+// after the shared column list — COUNT(*) OVER() on the paginated queue.
+//
+// It exists so the queue reads a request through the SAME scan every other path
+// does. The alternative is a second scan listing all seventeen columns beside
+// one more, which is exactly the drift payoutRequestColumns was written to
+// prevent: a column added there would be read by every path but one.
+type trailingScanner struct {
+	inner    rowScanner
+	trailing []any
+}
+
+func (s trailingScanner) Scan(dest ...any) error {
+	return s.inner.Scan(append(dest, s.trailing...)...)
+}
+
 // payoutRequestScan reads one row in payoutRequestColumns order, turning the
 // nullable columns into pointers. It takes the rowScanner *sql.Row and *sql.Rows
 // share (operator.go), so the single-row reads and the list read one row exactly
@@ -215,6 +315,7 @@ func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 
 	if err := scanner.Scan(
 		&row.ID,
+		&row.OrganizationID,
 		&row.AmountCents,
 		&note,
 		&row.Status,

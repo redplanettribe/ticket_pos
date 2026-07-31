@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -38,6 +39,7 @@ import {
   fetchOperatorOrganization,
   recordOperatorPayout,
 } from "@/lib/operator-api";
+import { isOutstanding, payoutRequestStatusLabel } from "@/lib/payout-requests";
 import { exceedsWithdrawableBalance, formatPaidAtDate, todayISODate } from "@/lib/payouts";
 
 type OperatorOrganizationClientProps = {
@@ -156,6 +158,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
     payable_balance_cents: payableCents,
     events,
     payouts,
+    payout_requests: payoutRequests,
   } = detail;
   const currency = organization.currency;
 
@@ -334,6 +337,71 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
                     <p className="text-sm text-muted-foreground">{formatPaidAtDate(payout.paid_at)}</p>
                     <p className="text-xs text-muted-foreground">
                       {payout.recorded_by ? `Recorded by ${payout.recorded_by}` : "Recorded directly in the database"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/*
+        The Organization's asks, beside the payout history they belong with:
+        together the two answer "has this Organization been paid recently, and
+        are they asking again?" (ADR 0026). Newest first, because this is a
+        history — the top-level queue is the one place that inverts it, and it
+        inverts it because it is a work queue.
+
+        Masked here as well. One Organization's details are still bank details,
+        and the place to read an account number is the request that is about to
+        be paid; the API sends no whole number to this page at all.
+      */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Payout requests</CardTitle>
+          <CardDescription>
+            Every payout this Organization has asked for, newest first.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {payoutRequests.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This organization has never asked to be paid.</p>
+          ) : (
+            <div className="space-y-3">
+              {payoutRequests.map((request) => (
+                <div
+                  key={request.id}
+                  className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div>
+                    <p className="font-medium tabular-nums">
+                      {isOutstanding(request.status) ? (
+                        <Link
+                          href={`/operator/payout-requests/${request.id}`}
+                          className="hover:underline"
+                        >
+                          {formatPriceCents(request.amount_cents, currency)}
+                        </Link>
+                      ) : (
+                        formatPriceCents(request.amount_cents, currency)
+                      )}
+                    </p>
+                    {request.note ? (
+                      <p className="text-sm text-muted-foreground">{request.note}</p>
+                    ) : null}
+                    {request.decline_reason ? (
+                      <p className="text-sm text-destructive">Declined: {request.decline_reason}</p>
+                    ) : null}
+                    <p className="text-sm text-muted-foreground">
+                      Paying to {request.payout_profile.bank_name}{" "}
+                      {request.payout_profile.account_number_masked}
+                    </p>
+                  </div>
+                  <div className="sm:text-right">
+                    <p className="text-sm font-medium">{payoutRequestStatusLabel(request.status)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(request.requested_at).toLocaleDateString()} · {request.requested_by}
                     </p>
                   </div>
                 </div>

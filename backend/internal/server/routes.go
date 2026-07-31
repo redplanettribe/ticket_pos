@@ -92,6 +92,18 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
+	// Who is waiting to be paid: the second cross-Organization view on this
+	// surface, and not nested under an Organization for the same reason the sale
+	// lookup is not — the request is the reason to open the dashboard, and which
+	// Organization it belongs to is one of the answers (#176, ADR 0026).
+	mux.Handle("GET /api/v1/operator/payout-requests", operator(http.HandlerFunc(h.ListPayoutRequests)))
+	// The navigation badge. A literal path segment, which Go's router prefers
+	// over the {requestID} wildcard below it, so `count` can never be read as an
+	// id — and no id could be `count` anyway, since ids are UUIDs.
+	mux.Handle("GET /api/v1/operator/payout-requests/count", operator(http.HandlerFunc(h.CountPendingPayoutRequests)))
+	// The one endpoint on the platform that returns a whole account number, one
+	// request at a time (#176).
+	mux.Handle("GET /api/v1/operator/payout-requests/{requestID}", operator(http.HandlerFunc(h.GetPayoutRequest)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

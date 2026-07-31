@@ -22,10 +22,15 @@ import (
 // masking belongs to the operator queue, which shows every Organization's
 // details at once and is the screen that gets screenshotted into support threads.
 type PayoutRequest struct {
-	ID          string  `json:"id"`
-	AmountCents int     `json:"amount_cents"`
-	Note        *string `json:"note"`
-	Status      string  `json:"status"`
+	ID string `json:"id"`
+	// OrganizationID is whose ask it is, and is not serialised: on this
+	// Organization's own surface it is the Organization already reading, and on
+	// the operator's detail view (#176) the Organization travels beside the
+	// request as its own object, resolved through the module that owns it.
+	OrganizationID string  `json:"-"`
+	AmountCents    int     `json:"amount_cents"`
+	Note           *string `json:"note"`
+	Status         string  `json:"status"`
 	// RequestedBy is the asker's email, so the record outlives their Membership.
 	RequestedBy string    `json:"requested_by"`
 	RequestedAt time.Time `json:"requested_at"`
@@ -241,6 +246,7 @@ func (s *Service) CancelPayoutRequest(ctx context.Context, actor ActorContext, r
 func payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
 	return &PayoutRequest{
 		ID:                  row.ID,
+		OrganizationID:      row.OrganizationID,
 		AmountCents:         row.AmountCents,
 		Note:                row.Note,
 		Status:              row.Status,
