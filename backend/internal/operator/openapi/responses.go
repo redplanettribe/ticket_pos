@@ -65,6 +65,24 @@ type EnvelopeOperatorPayoutRequestDetail struct {
 	RequestID string                      `json:"request_id"`
 }
 
+// EnvelopeOperatorPayoutFulfilment documents POST
+// /operator/payout-requests/{requestID}/fulfil success responses: the Payout
+// that is now in the ledger, and the request it answered (#177).
+type EnvelopeOperatorPayoutFulfilment struct {
+	Data      service.PayoutFulfilment `json:"data"`
+	Error     *platform.APIError       `json:"error"`
+	RequestID string                   `json:"request_id"`
+}
+
+// EnvelopeOperatorPayoutRequest documents POST
+// /operator/payout-requests/{requestID}/decline success responses: the request
+// as it now stands, carrying the reason the Organization will read.
+type EnvelopeOperatorPayoutRequest struct {
+	Data      service.PayoutRequest `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
 // EnvelopeOperatorSaleReversal documents POST
 // /operator/sales/{confirmationRef}/reverse success responses.
 type EnvelopeOperatorSaleReversal struct {

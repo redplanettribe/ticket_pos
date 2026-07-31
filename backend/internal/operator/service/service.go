@@ -66,6 +66,16 @@ type Money interface {
 	// included — and PAYOUT_REQUEST_NOT_FOUND for an unknown (or malformed) id,
 	// which the handler maps to 404.
 	PayoutRequestForOperator(ctx context.Context, requestID string) (*salessvc.PayoutRequest, error)
+	// FulfilPayoutRequest records the Payout and marks the request paid in ONE
+	// transaction (#177). It answers PAYOUT_REQUEST_NOT_FOUND for an unknown or
+	// malformed id and PAYOUT_REQUEST_ALREADY_RESOLVED when somebody answered it
+	// first — in which case NOTHING was written, the Payout included, because the
+	// compare-and-swap rolls the whole transaction back (ADR 0026).
+	FulfilPayoutRequest(ctx context.Context, requestID string, input salessvc.FulfilPayoutRequestInput) (*salessvc.FulfilledPayoutRequest, error)
+	// DeclinePayoutRequest refuses the ask with a reason its asker can read, and
+	// answers the same two refusals. A decline moves no money and frees the
+	// Organization to ask again.
+	DeclinePayoutRequest(ctx context.Context, requestID string, input salessvc.DeclinePayoutRequestInput) (*salessvc.PayoutRequest, error)
 	// SaleByConfirmationRef returns TICKET_SALE_NOT_FOUND when no Ticket Sale on
 	// the platform carries the reference, which the handler maps to 404.
 	SaleByConfirmationRef(ctx context.Context, confirmationRef string) (*salessvc.OperatorSale, error)

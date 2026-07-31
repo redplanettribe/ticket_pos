@@ -191,6 +191,122 @@ func (r *Repository) CancelPayoutRequest(ctx context.Context, orgID, requestID, 
 	return row, err
 }
 
+// FulfilPayoutRequestInput is an operator answering a request with money: what
+// actually left the bank, the day it did, an optional note, and the operator's
+// own email — which stamps BOTH the Payout's recorded_by and the request's
+// resolved_by, and which the handler takes from the Staff Session and never from
+// a request body (ADR 0015, ADR 0019, ADR 0026).
+//
+// AmountCents is what MOVED, which need not be what was asked. An operator who
+// transfers less records the smaller figure; the request keeps the larger one,
+// and the divergence between them stays visible forever. Partial fulfilment
+// needs no model of its own (ADR 0026).
+type FulfilPayoutRequestInput struct {
+	RequestID      string
+	OrganizationID string
+	AmountCents    int
+	PaidAt         time.Time
+	Note           *string
+	Operator       string
+	Now            time.Time
+}
+
+// FulfilPayoutRequest records the Payout and marks the request paid, in ONE
+// transaction, and returns nils when the request was no longer pending.
+//
+// THE TWO STATEMENTS BELOW MUST NOT BE SEPARATED, AND THE GUARD ON THE SECOND
+// MUST NOT BE DROPPED. This is the compare-and-swap ADR 0026 chose over a claim
+// lock, and every part of its shape is load-bearing:
+//
+//   - The UPDATE carries `status = 'pending'` in its WHERE, so it is the ROW's
+//     own state that decides, not a read taken a moment earlier. Two operators
+//     who both open the request and both press the button cannot both win,
+//     however close together they land, because the loser's UPDATE matches
+//     nothing.
+//
+//   - ZERO ROWS AFFECTED ROLLS THE INSERT BACK. This is the part a future reader
+//     will be tempted to "simplify" into two independent statements, or into an
+//     insert followed by a best-effort update. It must not be: the INSERT always
+//     succeeds — nothing in the ledger knows requests exist, and nothing stops a
+//     second Payout being written — so a fulfilment that failed the CAS but kept
+//     its INSERT would record the Organization as PAID TWICE while telling the
+//     operator their fulfilment failed. The rollback is the only thing standing
+//     between a lost race and a duplicated settlement, and no request-shaped read
+//     can detect the difference afterwards.
+//
+//   - NOTHING IS EVER HELD. No row lock, no claim, no advisory lock. An operator
+//     who opens a request and goes to lunch leaves nothing stale behind, which is
+//     precisely what a claim lock could not promise.
+//
+// It stops a double RECORD, not a double TRANSFER: if two operators both wired
+// the money at the bank, the loser must record their Payout directly or the
+// books understate what left the account. The refusal message the service builds
+// says so, and that message is the whole of the mitigation (ADR 0026).
+func (r *Repository) FulfilPayoutRequest(ctx context.Context, input FulfilPayoutRequestInput) (*OperatorPayoutRow, *PayoutRequestRow, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	// Rolls back everything, including the Payout, unless Commit lands first.
+	defer func() { _ = tx.Rollback() }()
+
+	// The ledger write, through the same statement the direct path uses, so the
+	// two rows cannot differ by a column (see insertPayoutSQL).
+	payout, err := scanOperatorPayout(tx.QueryRowContext(ctx, insertPayoutSQL,
+		input.OrganizationID, input.AmountCents, input.PaidAt, input.Note, input.Operator))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// The compare-and-swap. payout_id is the ONLY link between this queue and the
+	// ledger, and the schema permits it on a `paid` row alone (migration 043).
+	request, err := payoutRequestScan(tx.QueryRowContext(ctx, `
+		UPDATE payout_requests
+		SET status = 'paid', payout_id = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
+		WHERE id = $1 AND status = 'pending'
+		RETURNING `+payoutRequestColumns,
+		input.RequestID, payout.ID, input.Operator, input.Now,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		// Somebody got there first. The deferred Rollback takes the Payout with
+		// it, which is the entire point of the transaction; the caller reads the
+		// request back afterwards to say what it actually became and who ended it.
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return &payout, request, nil
+}
+
+// DeclinePayoutRequest refuses the ask, with the reason its asker is shown.
+//
+// The same compare-and-swap, without the ledger write: a decline moves no money,
+// so there is nothing to roll back and nothing to hold. Zero rows means the
+// request had already ended, and the caller reads it back to say how.
+//
+// The reason is not optional here or anywhere. A decline that swallowed the
+// request silently would generate the support thread the queue was built to
+// prevent, and the schema's payout_requests_decline_has_reason CHECK is the
+// backstop under this argument (migration 043, ADR 0026).
+func (r *Repository) DeclinePayoutRequest(ctx context.Context, requestID, reason, resolvedBy string, now time.Time) (*PayoutRequestRow, error) {
+	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
+		UPDATE payout_requests
+		SET status = 'declined', decline_reason = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
+		WHERE id = $1 AND status = 'pending'
+		RETURNING `+payoutRequestColumns,
+		requestID, reason, resolvedBy, now,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return row, err
+}
+
 // GetPayoutRequest returns one of the Organization's Payout Requests by id, or
 // nil when there is no such request under this Organization. It exists to tell
 // "never yours" from "already resolved" after a compare-and-swap writes nothing,

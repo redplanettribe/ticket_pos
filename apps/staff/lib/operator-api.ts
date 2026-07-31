@@ -284,6 +284,71 @@ export async function fetchOperatorPayoutRequest(
 }
 
 /**
+ * Fulfilling a payout request: what ACTUALLY left the bank, the day it did, and
+ * an optional note.
+ *
+ * The same shape RecordPayoutBody has, because the Payout it produces is the
+ * same Payout — the request adds a target to aim at, not a different kind of
+ * settlement. The amount arrives PRE-FILLED from the request and may be
+ * overwritten; whatever is sent is what moved, and the request keeps what was
+ * asked (ADR 0026).
+ */
+export type FulfilPayoutRequestBody = {
+  amount_cents: number;
+  paid_at: string;
+  note?: string;
+};
+
+/**
+ * What a fulfilment produces: the Payout now in the ledger, and the request it
+ * answered.
+ *
+ * The Payout is indistinguishable from a directly recorded one — it lands on the
+ * organization's own payouts page and in its withdrawable balance unchanged, and
+ * only the request names it, through payout_id.
+ */
+export type OperatorPayoutFulfilment = {
+  payout: OperatorPayout;
+  request: OperatorPayoutRequestFull;
+};
+
+/**
+ * Records the Payout answering a request and marks the request paid, in ONE
+ * transaction on the API side.
+ *
+ * If somebody answered the request first the whole thing rolls back — NO payout
+ * row survives — and this rejects with a message naming the current state, who
+ * got there first, and the instruction that matters: if you also transferred the
+ * money, record the Payout DIRECTLY against the organization. The
+ * compare-and-swap stops a second record, not a second transfer (ADR 0026), so
+ * that sentence must reach the operator intact rather than being replaced with a
+ * generic failure notice.
+ */
+export async function fulfilOperatorPayoutRequest(
+  requestId: string,
+  body: FulfilPayoutRequestBody,
+): Promise<OperatorPayoutFulfilment> {
+  return fetchEventsJSON<OperatorPayoutFulfilment>(
+    `/api/operator/payout-requests/${encodeURIComponent(requestId)}/fulfil`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Declines a request with a reason the organization reads. The reason is
+ * required by the API and bounded at 500 characters; nothing moves.
+ */
+export async function declineOperatorPayoutRequest(
+  requestId: string,
+  reason: string,
+): Promise<OperatorPayoutRequestFull> {
+  return fetchEventsJSON<OperatorPayoutRequestFull>(
+    `/api/operator/payout-requests/${encodeURIComponent(requestId)}/decline`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+/**
  * What a Platform Operator asserted when they recorded an out-of-band refund:
  * who they are, what the buyer actually got back, whether the platform kept its
  * platform fee and fee IVA, and their note.

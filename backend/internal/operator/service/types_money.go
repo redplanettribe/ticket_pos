@@ -41,6 +41,10 @@ type PayoutRequestSummary = service.OperatorPayoutRequest
 // view an operator opens when they are about to make the transfer.
 type PayoutRequest = service.PayoutRequest
 
+// PayoutFulfilment is what a fulfilled Payout Request produces: the Payout now
+// in the ledger, and the request it answered (sales owns both).
+type PayoutFulfilment = service.FulfilledPayoutRequest
+
 // SaleReversal is one recorded Operator Reversal — the marked sale and the
 // money memo the operator asserted (sales owns it).
 type SaleReversal = service.OperatorReversalResult

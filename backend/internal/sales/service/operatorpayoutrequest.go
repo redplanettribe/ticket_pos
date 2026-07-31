@@ -178,3 +178,166 @@ func operatorPayoutRequestView(row repository.PayoutRequestRow) OperatorPayoutRe
 		PayoutID:      row.PayoutID,
 	}
 }
+
+// Answering a Payout Request: the operator transfers the money by hand and then
+// records it, and that one action also ends the ask (#177, ADR 0026).
+//
+// There is deliberately no `approved` state between the two. An operator
+// transfers and then records, exactly as they always have; an approved-but-unpaid
+// request would be a debt with a state name, needing its own chasing, its own
+// notifications and its own aging report.
+
+// FulfilPayoutRequestInput is an operator answering with money.
+//
+// It is the SAME three facts RecordPayoutInput carries, because the Payout this
+// produces is the same Payout — the request adds a target to aim at, not a
+// different kind of settlement. Operator stamps both the Payout's recorded_by
+// and the request's resolved_by, and comes from the Staff Session rather than
+// from any request body (ADR 0015, ADR 0019).
+//
+// AmountCents is what MOVED and is not required to equal what was asked. An
+// operator who transfers less records the smaller figure; the ask keeps the
+// larger one, and the gap between them is visible on the request forever.
+// Partial fulfilment needs no model of its own (ADR 0026).
+type FulfilPayoutRequestInput struct {
+	AmountCents int
+	PaidAt      time.Time
+	Note        *string
+	Operator    string
+}
+
+// FulfilledPayoutRequest is what an operator is handed after answering with
+// money: the Payout that is now in the ledger, and the request as it now stands.
+//
+// Both, because they are two different facts and the operator needs each. The
+// Payout is the money — an ordinary settlement, indistinguishable from a
+// directly recorded one and readable by the Organization on its own payouts page
+// — while the request is the queue's answer, carrying the payout_id that is the
+// single link between the two.
+type FulfilledPayoutRequest struct {
+	Payout  OperatorPayout `json:"payout"`
+	Request PayoutRequest  `json:"request"`
+}
+
+// DeclinePayoutRequestInput is an operator answering without money: why, and who
+// said it.
+//
+// The reason is a plain string rather than a pointer because there is no such
+// thing as a decline without one. A queue that swallows requests silently
+// generates the support thread it was built to prevent, so the reason is
+// required by the handler, required here, and enforced by a CHECK constraint
+// under both (ADR 0026).
+type DeclinePayoutRequestInput struct {
+	Reason   string
+	Operator string
+}
+
+// FulfilPayoutRequest records the Payout and marks the request paid, in one
+// transaction, or refuses because somebody already answered it.
+//
+// The refusal path is a SECOND read, taken only when the compare-and-swap wrote
+// nothing, so the ordinary fulfilment stays one transaction and pays nothing for
+// a case that almost never happens. What that read is for is the sentence the
+// operator gets: naming the current state and who reached it first is what turns
+// a generic conflict into a person to go and ask, and — because the CAS stops a
+// second RECORD and not a second TRANSFER — what makes it safe to tell an
+// operator who genuinely wired the money to record the Payout directly
+// (sales.ErrPayoutRequestAlreadyResolved).
+//
+// The request is read BEFORE anything is attempted as well, and for a different
+// reason: the Payout needs an organization_id, and the request is where it comes
+// from. An unknown id is therefore a 404 before the ledger is touched at all.
+//
+// Neither balance is consulted, in either direction. Recording a Payout is
+// unconditional (ADR 0015), and the cap that bound the Organization was checked
+// once, when it asked, and is deliberately never checked again: the operator
+// standing at the bank is the party who decides what to do about a figure that
+// has moved (ADR 0026).
+func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in FulfilPayoutRequestInput) (*FulfilledPayoutRequest, error) {
+	existing, err := s.lookUpPayoutRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	payout, request, err := s.repo.FulfilPayoutRequest(ctx, repository.FulfilPayoutRequestInput{
+		RequestID:      existing.ID,
+		OrganizationID: existing.OrganizationID,
+		AmountCents:    in.AmountCents,
+		PaidAt:         in.PaidAt,
+		Note:           in.Note,
+		Operator:       in.Operator,
+		Now:            s.now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
+	}
+
+	return &FulfilledPayoutRequest{
+		Payout:  toOperatorPayout(*payout),
+		Request: *payoutRequestView(*request),
+	}, nil
+}
+
+// DeclinePayoutRequest refuses the ask with a reason its asker can read, and
+// frees the Organization to ask again.
+//
+// A decline is a "not this" rather than a lockout: it ends this request, and the
+// partial unique index that keeps `pending` singular counts only pending rows,
+// so the Organization may submit a new one immediately (migration 043). Nothing
+// about being declined once bears on the next ask.
+func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*PayoutRequest, error) {
+	existing, err := s.lookUpPayoutRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.DeclinePayoutRequest(ctx, existing.ID, in.Reason, in.Operator, s.now())
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
+	}
+	return payoutRequestView(*row), nil
+}
+
+// lookUpPayoutRequest reads the request an operator is about to answer, whatever
+// Organization it belongs to, and turns "no such request" into a 404 before
+// anything is written.
+//
+// A malformed id is answered as a missing request rather than as a database
+// failure, exactly as PayoutRequestForOperator does: to the caller both mean "no
+// such request at this path".
+func (s *Service) lookUpPayoutRequest(ctx context.Context, requestID string) (*repository.PayoutRequestRow, error) {
+	if _, err := uuid.Parse(requestID); err != nil {
+		return nil, sales.ErrPayoutRequestNotFound()
+	}
+	row, err := s.repo.GetPayoutRequestByID(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, sales.ErrPayoutRequestNotFound()
+	}
+	return row, nil
+}
+
+// payoutRequestAlreadyResolved builds the refusal a lost compare-and-swap earns,
+// re-reading the request so the state and the resolver it names are the ones
+// that actually stand rather than the ones read before the attempt.
+//
+// The pre-attempt row is the fallback for the read failing. It is stale by
+// construction — if it were current the CAS would have succeeded — but a refusal
+// naming a slightly older answer is better than a database error swallowing the
+// instruction to record the Payout directly, which is the one sentence on this
+// path that must always be delivered.
+func (s *Service) payoutRequestAlreadyResolved(ctx context.Context, requestID string, before *repository.PayoutRequestRow) error {
+	current, err := s.repo.GetPayoutRequestByID(ctx, requestID)
+	if err != nil || current == nil {
+		return sales.ErrPayoutRequestAlreadyResolved(before.Status, before.ResolvedBy)
+	}
+	return sales.ErrPayoutRequestAlreadyResolved(current.Status, current.ResolvedBy)
+}

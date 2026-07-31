@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DECLINE_REASON_MAX_LENGTH,
   daysWaiting,
+  declineReasonProblem,
+  fulfilmentAmountDefault,
+  fulfilmentDivergence,
   isOutstanding,
   payoutRequestAmountProblem,
   payoutRequestStatusLabel,
@@ -77,4 +81,50 @@ test("the waiting label reads as a person would say it", () => {
   assert.equal(waitingLabel("2026-07-31T09:00:00Z", now), "Today");
   assert.equal(waitingLabel("2026-07-30T14:00:00Z", now), "1 day");
   assert.equal(waitingLabel("2026-07-19T15:00:00Z", now), "12 days");
+});
+
+// --- answering an ask (#177) ----------------------------------------------
+
+test("the fulfilment amount is pre-filled from the request, as an input value", () => {
+  // Whole units and cents alike come back as a plain decimal the amount input
+  // can hold and parsePriceToCents can read straight back.
+  assert.equal(fulfilmentAmountDefault(4_794), "47.94");
+  assert.equal(fulfilmentAmountDefault(100_000), "1000.00");
+  assert.equal(fulfilmentAmountDefault(5), "0.05");
+  // No currency symbol and no thousands separator: this is an input's value,
+  // not a rendering, and anything else would have to be stripped back out.
+  assert.ok(!/[^0-9.]/.test(fulfilmentAmountDefault(1_234_567)));
+});
+
+test("a decline reason is required, and bounded", () => {
+  assert.equal(declineReasonProblem("Ask again after the show"), null);
+  // Blank, missing and whitespace-only are one failure: all three reach the
+  // asker as a blank, which is what requiring a reason exists to prevent.
+  for (const blank of ["", "   ", "\n\t"]) {
+    assert.equal(declineReasonProblem(blank), "Say why. The organization is shown this.");
+  }
+  assert.equal(declineReasonProblem("x".repeat(DECLINE_REASON_MAX_LENGTH)), null);
+  assert.equal(
+    declineReasonProblem("x".repeat(DECLINE_REASON_MAX_LENGTH + 1)),
+    `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`,
+  );
+  // Trimmed before it is measured, so trailing whitespace is never what tips a
+  // reason over the bound.
+  assert.equal(declineReasonProblem(`  ${"x".repeat(DECLINE_REASON_MAX_LENGTH)}  `), null);
+});
+
+test("a partial fulfilment says what it means, not just what it costs", () => {
+  // The ordinary case says nothing at all.
+  assert.equal(fulfilmentDivergence(4_794, 4_794, money), null);
+  assert.equal(fulfilmentDivergence(null, 4_794, money), null);
+
+  const short = fulfilmentDivergence(2_000, 4_794, money);
+  assert.ok(short?.startsWith("$27.94 less than was asked for."));
+  // The consequence, which is the part an operator would otherwise assume
+  // wrongly: the request closes, and the rest is asked for again.
+  assert.ok(short?.includes("can ask again for the rest"));
+
+  const over = fulfilmentDivergence(5_000, 4_794, money);
+  assert.ok(over?.startsWith("$2.06 more than was asked for."));
+  assert.ok(over?.includes("stays visible"));
 });

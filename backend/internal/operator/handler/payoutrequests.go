@@ -1,17 +1,20 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
+	"github.com/peter/ticket_pos/backend/internal/operator/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// The Payout Request queue's three reads (#176, ADR 0026). All read-only:
-// fulfilling a request and declining one are #177, and nothing in this file
-// writes.
+// The Payout Request queue's three reads (#176) and the two writes that answer
+// one (#177, ADR 0026).
 //
-// They sit on the operator namespace and are gated by it and nothing else — a
+// The three reads sit on the operator namespace and are gated by it and nothing else — a
 // Staff Session whose email is on the allowlist, with no Membership required
 // anywhere (ADR 0015). That matters more here than on any other operator route:
 // every row on this queue belongs to an Organization the operator is not a
@@ -86,4 +89,172 @@ func (h *Handler) GetPayoutRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, detail)
+}
+
+// Answering a request: the two writes (#177, ADR 0026).
+//
+// Both take the acting operator's email from the Staff Session and never from
+// the body, exactly as recording a Payout and recording an Operator Reversal do.
+// Who asserted a money fact, and who answered somebody's ask to be paid, must
+// not be something a caller can claim (ADR 0015, ADR 0019).
+
+// declineReasonMaxLength bounds the reason, matching the schema's CHECK on
+// payout_requests.decline_reason (migration 043). It is stated here so an
+// over-long reason comes back as a field error naming the field, rather than as
+// a constraint violation the operator cannot act on — the same treatment the
+// Operator Reversal's note gets.
+const declineReasonMaxLength = 500
+
+// fulfilPayoutRequestBody is the fulfilment form: what actually left the bank,
+// the day it did, and an optional note.
+//
+// It is deliberately the SAME shape recordPayoutBody has, because the Payout it
+// produces is the same Payout. The one difference is where the amount starts:
+// this form arrives PRE-FILLED with the figure the request asked for.
+type fulfilPayoutRequestBody struct {
+	AmountCents int     `json:"amount_cents"`
+	PaidAt      string  `json:"paid_at"`
+	Note        *string `json:"note"`
+}
+
+// declinePayoutRequestBody is a refusal and its reason. The reason is not a
+// pointer: there is no decline without one.
+type declinePayoutRequestBody struct {
+	Reason string `json:"reason"`
+}
+
+// FulfilPayoutRequest records the Payout answering a request and marks it paid.
+//
+// @Summary      Fulfil a Payout Request by recording the Payout that answers it
+// @Description  Records a Payout against the requesting Organization AND marks the Payout Request `paid`, in ONE database transaction. The operator transfers the money by hand off-platform first, as they always have, and this records that it happened — there is no second step to forget and no `approved` state in between. The body is the same shape the direct record-payout endpoint takes: amount_cents (what ACTUALLY left the bank, strictly positive), paid_at (the calendar day, YYYY-MM-DD) and an optional note. The amount is PRE-FILLED from the request on the dashboard form and may be overwritten — a deliberate departure from the no-pre-fill rule of ADR 0019, because a payout amount is a figure the Organization already stated rather than an assertion only the operator can make. Transferring less than was asked needs no special handling: the Payout records what moved, the request keeps what was asked, and the divergence stays visible forever. The resulting Payout is INDISTINGUISHABLE from a directly recorded one — same shape, same recorded_by (taken from the Staff Session, never from the body), and it appears unchanged on the Organization's own payouts page and in its Withdrawable Balance; only the request names it, through payout_id. NO balance is consulted in either direction: recording a settlement is unconditional (ADR 0015), and the Payable Balance cap bound the Organization when it asked and is never re-checked (ADR 0026). FULFILMENT IS A COMPARE-AND-SWAP: the request is updated only while it is still pending, and if it is not, the WHOLE transaction rolls back so NO Payout row survives — 409 PAYOUT_REQUEST_ALREADY_RESOLVED, naming the current state and who resolved it first. That refusal tells an operator who also transferred to record the Payout directly, because the compare-and-swap prevents a double RECORD and not a double TRANSFER. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+// @Tags         operator
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        requestID  path  string                   true  "Payout Request ID"
+// @Param        body       body  fulfilPayoutRequestBody  true  "The Payout that answers the request"
+// @Success      201  {object}  openapi.EnvelopeOperatorPayoutFulfilment
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/payout-requests/{requestID}/fulfil [post]
+func (h *Handler) FulfilPayoutRequest(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body fulfilPayoutRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	// Validated through the record-payout body's own validator rather than a
+	// second copy of the same three rules. The two forms produce the same kind of
+	// row, so a rule that tightened on one and not the other would be a bug
+	// nobody would find until an operator hit it.
+	payout, fields := validateRecordPayout(recordPayoutBody{
+		AmountCents: body.AmountCents,
+		PaidAt:      body.PaidAt,
+		Note:        body.Note,
+	})
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	result, err := h.svc.FulfilPayoutRequest(r.Context(), strings.TrimSpace(r.PathValue("requestID")), service.FulfilPayoutRequestInput{
+		AmountCents: payout.AmountCents,
+		PaidAt:      payout.PaidAt,
+		Note:        payout.Note,
+		// Stamps the Payout's recorded_by and the request's resolved_by alike.
+		Operator: session.Email,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	// 201, because the thing that was created is a Payout — the same status the
+	// direct path answers with, for the same row.
+	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
+}
+
+// DeclinePayoutRequest refuses a request, with the reason its asker is shown.
+//
+// @Summary      Decline a Payout Request, with a reason the Organization reads
+// @Description  Marks the Payout Request `declined` and records why, who said so (taken from the Staff Session, never from the body) and when. THE REASON IS REQUIRED — a blank or whitespace-only one is refused with a field error, and it is bounded at 500 characters — because a queue that swallowed requests silently would generate the support thread it was built to prevent (ADR 0026). The reason is shown to the Organization on its own payouts page, beside the ask it answers. Nothing moves: a decline records no Payout and touches no balance. A decline is a "not this" rather than a lockout — it ends this request, and the Organization may submit a new one immediately, since only a `pending` request occupies its single outstanding slot. All end states are final, so declining a request that was already paid, declined or cancelled is 409 PAYOUT_REQUEST_ALREADY_RESOLVED naming the state and who reached it. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+// @Tags         operator
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        requestID  path  string                    true  "Payout Request ID"
+// @Param        body       body  declinePayoutRequestBody  true  "Why the request is refused"
+// @Success      200  {object}  openapi.EnvelopeOperatorPayoutRequest
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/payout-requests/{requestID}/decline [post]
+func (h *Handler) DeclinePayoutRequest(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	var body declinePayoutRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	reason, fields := validateDeclineReason(body.Reason)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	request, err := h.svc.DeclinePayoutRequest(r.Context(), strings.TrimSpace(r.PathValue("requestID")), service.DeclinePayoutRequestInput{
+		Reason:   reason,
+		Operator: session.Email,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, request)
+}
+
+// validateDeclineReason insists on a reason and bounds it.
+//
+// Missing, empty and whitespace-only are one failure and not three: all of them
+// reach the asker as a blank, which is the exact outcome requiring a reason
+// exists to prevent. The trimmed value is what gets stored, so no reason ever
+// arrives padded.
+func validateDeclineReason(raw string) (string, []platform.FieldError) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", []platform.FieldError{{
+			Field:   "reason",
+			Code:    platform.CodeRequired,
+			Message: "is required — the Organization is shown this",
+		}}
+	}
+	if len([]rune(trimmed)) > declineReasonMaxLength {
+		return "", []platform.FieldError{{
+			Field:   "reason",
+			Code:    platform.CodeTooLong,
+			Message: "must be at most " + strconv.Itoa(declineReasonMaxLength) + " characters",
+		}}
+	}
+	return trimmed, nil
 }

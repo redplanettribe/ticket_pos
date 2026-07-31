@@ -104,6 +104,16 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// The one endpoint on the platform that returns a whole account number, one
 	// request at a time (#176).
 	mux.Handle("GET /api/v1/operator/payout-requests/{requestID}", operator(http.HandlerFunc(h.GetPayoutRequest)))
+	// Answering the ask (#177). Both hang off the request rather than off the
+	// Organization, because the request is what is being answered — the Payout
+	// fulfilment produces is an ordinary Payout against the Organization, but the
+	// Organization is not what the operator named to get here.
+	//
+	// Fulfilment records the Payout and marks the request paid in one
+	// transaction, and the guarded update inside it is what makes this path
+	// strictly safer than recording directly (ADR 0026).
+	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/fulfil", operator(http.HandlerFunc(h.FulfilPayoutRequest)))
+	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

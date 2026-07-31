@@ -105,3 +105,76 @@ export function payoutRequestAmountProblem(
   }
   return null;
 }
+
+// --- answering an ask (#177) ----------------------------------------------
+
+/**
+ * The amount the fulfilment form starts with, as the plain decimal string the
+ * amount input holds: 4794 → "47.94".
+ *
+ * PRE-FILLING THIS FIELD IS A DELIBERATE DEPARTURE FROM ADR 0019, which rejected
+ * pre-filling an Operator Reversal's refunded amount on the grounds that a
+ * pre-filled field is a field nobody reads. The distinction is whose number it
+ * is. A refund amount is an assertion only the operator can make, about a
+ * transfer whose size they chose; a payout amount is a figure the Organization
+ * already stated and the operator agreed to by transferring it. Pre-filling a
+ * number somebody else committed to is not the same as inventing one
+ * (ADR 0026).
+ *
+ * The operator can overwrite it — an operator who transferred less types what
+ * moved — and the request keeps what was asked either way.
+ *
+ * It is not currency-formatted: this is an input's value, and a thousands
+ * separator or a symbol would have to be stripped back out before parsing.
+ */
+export function fulfilmentAmountDefault(amountCents: number): string {
+  return (Math.round(amountCents) / 100).toFixed(2);
+}
+
+/** The bound on a decline reason, matching the column's own CHECK. */
+export const DECLINE_REASON_MAX_LENGTH = 500;
+
+/**
+ * Why a decline cannot be submitted, or null when it can.
+ *
+ * A reason is required and the API refuses without one, so this is not a gate —
+ * it is the form saying so before a round trip. Blank and whitespace-only are
+ * the same failure as missing, because all three reach the asker as a blank,
+ * which is the exact outcome requiring a reason exists to prevent (ADR 0026).
+ */
+export function declineReasonProblem(reason: string): string | null {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return "Say why. The organization is shown this.";
+  }
+  if (trimmed.length > DECLINE_REASON_MAX_LENGTH) {
+    return `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`;
+  }
+  return null;
+}
+
+/**
+ * How a fulfilment diverges from the ask, or null when it does not.
+ *
+ * Partial fulfilment needs no model of its own (ADR 0026): an operator who
+ * transfers less records what moved, the request goes `paid` for the smaller
+ * amount, and the divergence is visible on the request forever. This is the
+ * sentence that makes it visible at the moment of typing, rather than only
+ * afterwards — and it says the consequence, not just the arithmetic, because
+ * "the rest is not owed any more" is what an operator would otherwise assume.
+ *
+ * formatCents renders a cents amount in the organization's currency.
+ */
+export function fulfilmentDivergence(
+  amountCents: number | null,
+  requestedCents: number,
+  formatCents: (cents: number) => string,
+): string | null {
+  if (amountCents === null || amountCents === requestedCents) {
+    return null;
+  }
+  if (amountCents < requestedCents) {
+    return `${formatCents(requestedCents - amountCents)} less than was asked for. The request will be marked paid for what you record, and the organization can ask again for the rest.`;
+  }
+  return `${formatCents(amountCents - requestedCents)} more than was asked for. The request will be marked paid, and the difference stays visible on it.`;
+}

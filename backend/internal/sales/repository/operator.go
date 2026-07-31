@@ -193,12 +193,34 @@ func (r *Repository) ListPayoutsWithRecorder(ctx context.Context, orgID string) 
 	return out, rows.Err()
 }
 
+// insertPayoutSQL writes one row into the ledger, and is the ONLY statement in
+// the system that does.
+//
+// It is a constant rather than an inlined string because there are two doors
+// into it: an operator recording a settlement directly, and an operator
+// fulfilling a Payout Request (#177). ADR 0026 requires that the Payout a
+// request produces be indistinguishable from a directly recorded one — the
+// Organization's payouts page and its Withdrawable Balance must not be able to
+// tell — and sharing the statement is the strongest available way of saying so.
+// A second INSERT written beside this one would be free to drift by a column.
+const insertPayoutSQL = `
+	INSERT INTO payouts (organization_id, amount_cents, paid_at, note, recorded_by)
+	VALUES ($1, $2, $3, $4, $5)
+	RETURNING id, amount_cents, paid_at, note, recorded_by, created_at
+`
+
 // InsertPayout records one Payout against an Organization and returns it.
 //
 // There is no balance check here or anywhere above it: by the time an operator
 // types the amount the money has already left the bank, and refusing to record
 // reality would corrupt the ledger. An over-balance Payout simply drives the
 // Withdrawable Balance negative, which is what it means (ADR 0015).
+//
+// This path stays UNCONDITIONAL, including for an Organization with an
+// outstanding Payout Request. Blocking it would be the same mistake as capping
+// the operator: the transfer happened whether or not the system approves of how
+// it was initiated, and a system that refuses to write it down has not prevented
+// anything, it has only stopped knowing (ADR 0019, ADR 0026).
 func (r *Repository) InsertPayout(
 	ctx context.Context,
 	orgID string,
@@ -207,11 +229,7 @@ func (r *Repository) InsertPayout(
 	note *string,
 	recordedBy string,
 ) (OperatorPayoutRow, error) {
-	row := r.db.Pool.QueryRowContext(ctx, `
-		INSERT INTO payouts (organization_id, amount_cents, paid_at, note, recorded_by)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, amount_cents, paid_at, note, recorded_by, created_at
-	`, orgID, amountCents, paidAt, note, recordedBy)
+	row := r.db.Pool.QueryRowContext(ctx, insertPayoutSQL, orgID, amountCents, paidAt, note, recordedBy)
 	return scanOperatorPayout(row)
 }
 

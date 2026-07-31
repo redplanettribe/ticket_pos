@@ -1,5 +1,7 @@
 // Package handler exposes the Platform Operator's HTTP endpoints — the
-// Operator Dashboard's reads and its one write, recording a Payout.
+// Operator Dashboard's reads and its writes: recording a Payout, recording an
+// Operator Reversal, and answering a Payout Request by fulfilling or declining
+// it (#177).
 //
 // Every route under /api/v1/operator/* is gated by the operator middleware,
 // which admits a Staff Session whose email is on the platform operator

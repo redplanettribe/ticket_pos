@@ -314,6 +314,50 @@ func ErrPayoutRequestNotPending(status string) apperror.DomainError {
 	})
 }
 
+// ErrPayoutRequestAlreadyResolved is returned to a Platform Operator whose
+// fulfilment or decline reached a request that had already ended (#177,
+// ADR 0026).
+//
+// It is deliberately NOT ErrPayoutRequestNotPending, which the Organization's
+// own cancellation uses. The two refusals are about the same fact and are read
+// by different people with different next moves, and this one's message is the
+// whole of a mitigation the system has no other defence for.
+//
+// THE COMPARE-AND-SWAP PREVENTS A DOUBLE RECORD, NOT A DOUBLE TRANSFER. Two
+// operators can both wire the money at the bank; only one of them can write the
+// Payout through this route, and the other's transaction is rolled back so no
+// orphan Payout survives. If that loser walks away, the books understate what
+// actually left the account — silently, and with no figure anywhere saying so.
+// So the message tells them to record the Payout directly, which is a path that
+// is unconditional by design and stays so (ADR 0019). Anything vaguer, or a
+// generic conflict, would drop a real payment on the floor.
+//
+// It names who got there first because that is what turns "somebody beat you"
+// into a person to go and ask. resolvedBy is a pointer only because the column
+// is nullable; the schema's payout_requests_resolution_matches_status CHECK
+// makes it present on every resolved row, and the fallback wording exists so a
+// hand-edited row cannot produce a sentence with a hole in it.
+func ErrPayoutRequestAlreadyResolved(status string, resolvedBy *string) apperror.DomainError {
+	who := "another operator"
+	if resolvedBy != nil && *resolvedBy != "" {
+		who = *resolvedBy
+	}
+	details := map[string]any{"status": status}
+	if resolvedBy != nil {
+		details["resolved_by"] = *resolvedBy
+	}
+	return apperror.New(
+		"PAYOUT_REQUEST_ALREADY_RESOLVED",
+		fmt.Sprintf(
+			"This Payout Request was already resolved by %s (%s), and nothing was recorded here. "+
+				"If you also transferred the money, record the Payout directly against the Organization — "+
+				"otherwise the books will understate what left the account.",
+			who, status,
+		),
+		details,
+	)
+}
+
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
 // parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
 // contents). The reason is a human-readable sentence produced by the importfile

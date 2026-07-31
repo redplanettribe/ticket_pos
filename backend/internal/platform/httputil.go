@@ -136,6 +136,16 @@ func domainHTTPStatus(code string) int {
 	// again, so neither is retryable into success.
 	case "PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE", "PAYOUT_REQUEST_NOT_PENDING":
 		return http.StatusConflict
+	// The operator's half of the same fact (#177): a fulfilment or a decline that
+	// reached a request somebody else had already ended. 409 for the same reason
+	// the two above are — the request will never be pending again, so retrying is
+	// not a path to success — and a separate code from PAYOUT_REQUEST_NOT_PENDING
+	// because the sentence it carries is a different instruction to a different
+	// person: the compare-and-swap stopped a second RECORD, not a second
+	// TRANSFER, and an operator who also wired the money must record the Payout
+	// directly (ADR 0026).
+	case "PAYOUT_REQUEST_ALREADY_RESOLVED":
+		return http.StatusConflict
 	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
 	// the caller was entitled to make it, but the catalog is not in a state that
 	// admits it — the one slot is taken, or the price would break the invariant

@@ -1,6 +1,11 @@
 package service
 
-import "context"
+import (
+	"context"
+	"time"
+
+	salessvc "github.com/peter/ticket_pos/backend/internal/sales/service"
+)
 
 // The Payout Request queue: who is waiting to be paid (#176, ADR 0026).
 //
@@ -12,8 +17,11 @@ import "context"
 // else precisely because an operator arrives already knowing which Organization
 // they care about, and a payout request inverts that.
 //
-// Everything here is read-only. Fulfilling a request and declining one are #177;
-// what this file builds is the ability to see the backlog and decide.
+// The reads come first and the two writes follow them at the foot of the file:
+// seeing the backlog and deciding (#176), then answering (#177). The order is
+// the operator's own — nobody fulfils a request they have not opened — and the
+// writes are deliberately the thinnest things here, because everything that
+// makes fulfilment safe is a transaction in the sales repository.
 
 // PayoutRequestQueueItem is one outstanding ask with whose it is.
 //
@@ -149,4 +157,67 @@ func (s *Service) GetPayoutRequest(ctx context.Context, requestID string) (*Payo
 		WithdrawableBalanceCents: balances.WithdrawableBalanceCents,
 		PayableBalanceCents:      balances.PayableBalanceCents,
 	}, nil
+}
+
+// Answering a request (#177, ADR 0026). Both operations are one call into sales
+// and nothing else: the composition this service exists for — the ask beside its
+// Organization and its live balances — belongs to the detail view that precedes
+// the action, and the operator who got here came through that door.
+//
+// The operator's own email is not read here either. It is taken from the Staff
+// Session by the handler and passed down, exactly as the direct record-payout
+// path and the Operator Reversal take theirs: who asserted a money fact must not
+// be something a caller can claim (ADR 0015, ADR 0019).
+
+// FulfilPayoutRequestInput is an operator answering with money: what actually
+// left the bank, the day it did, an optional note, and who is saying so.
+//
+// The amount is pre-filled from the request on the form and may be overwritten,
+// which is a deliberate departure from ADR 0019's rule against pre-filling a
+// money field. The distinction is whose number it is: a refund amount is an
+// assertion only the operator can make about a transfer whose size they chose,
+// while a payout amount is a figure the Organization already stated and the
+// operator agreed to by transferring it. Whatever arrives here is what MOVED,
+// and the request keeps what was ASKED.
+type FulfilPayoutRequestInput struct {
+	AmountCents int
+	PaidAt      time.Time
+	Note        *string
+	Operator    string
+}
+
+// DeclinePayoutRequestInput is an operator answering without money: why, and who
+// said it. There is no decline without a reason — the asker is shown it, and a
+// queue that swallowed requests silently would generate the support thread it
+// was built to prevent.
+type DeclinePayoutRequestInput struct {
+	Reason   string
+	Operator string
+}
+
+// FulfilPayoutRequest records the Payout and marks the request paid, in one
+// transaction, so there is no second step to forget.
+//
+// The Payout it produces is an ordinary Payout: the Organization reads it on its
+// own payouts page, and its Withdrawable Balance drops by the amount, neither of
+// them aware a request was involved. Nothing about the request is consulted as a
+// limit — not the amount asked for, not the Payable Balance snapshot beside it,
+// not the live figure — because recording a settlement is unconditional and the
+// operator at the bank is the party who decides (ADR 0015, ADR 0026).
+func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in FulfilPayoutRequestInput) (*PayoutFulfilment, error) {
+	return s.money.FulfilPayoutRequest(ctx, requestID, salessvc.FulfilPayoutRequestInput{
+		AmountCents: in.AmountCents,
+		PaidAt:      in.PaidAt,
+		Note:        in.Note,
+		Operator:    in.Operator,
+	})
+}
+
+// DeclinePayoutRequest refuses the ask with a reason the Organization reads, and
+// frees it to ask again.
+func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*PayoutRequest, error) {
+	return s.money.DeclinePayoutRequest(ctx, requestID, salessvc.DeclinePayoutRequestInput{
+		Reason:   in.Reason,
+		Operator: in.Operator,
+	})
 }
