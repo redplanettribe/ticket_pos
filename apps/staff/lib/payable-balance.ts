@@ -32,12 +32,15 @@ export function payableBalanceExplanation(
       "Sales from today clear tomorrow, once the day turns in Ecuador."
     );
   }
+  // "can be requested", never "available" — CONTEXT.md lists "available balance"
+  // under Payable Balance's _Avoid_, and this sentence is where an organizer
+  // learns what the term means.
   const unclearedCents = withdrawableCents - payableCents;
   if (unclearedCents <= 0) {
-    return `${formatCents(payableCents)} available to request now — your whole balance has cleared.`;
+    return `${formatCents(payableCents)} can be requested now — your whole balance has cleared.`;
   }
   return (
-    `${formatCents(payableCents)} available to request now — ` +
+    `${formatCents(payableCents)} can be requested now — ` +
     `${formatCents(unclearedCents)} from today's sales clears tomorrow.`
   );
 }

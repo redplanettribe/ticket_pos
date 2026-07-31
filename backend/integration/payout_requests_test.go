@@ -428,6 +428,59 @@ func TestPayoutRequestSecondSubmissionReturnsTheOutstandingOne(t *testing.T) {
 	}
 }
 
+// TestPayoutRequestSecondSubmissionChangesNoBankDetails: the repeat submission
+// writes nothing at all, and "nothing" has to include where the Organization is
+// paid.
+//
+// The ordering rule the request service opens with — a refused ask never quietly
+// changes an Organization's bank details — has to hold for every way an ask can
+// fail to be recorded, not just for an amount over the Payable Balance. An
+// organizer who corrects their account number, presses submit, and is handed
+// back the outstanding request would otherwise be looking at a request showing
+// one account while their profile had silently become another. The route for
+// changing banks mid-ask is the profile editor, which says so.
+func TestPayoutRequestSecondSubmissionChangesNoBankDetails(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	payable := clearedSale(t, env, sessionID, "Rebank Fest", "rebank-fest", 6)
+
+	first, created := submitPayoutRequestOK(t, env, sessionID, requestBody(payable, "the first ask"))
+	if !created {
+		t.Fatalf("the first request was not created")
+	}
+
+	// The same ask again, this time naming a different account entirely.
+	elsewhere := completeProfile()
+	elsewhere["bank_name"] = "Banco del Pacífico"
+	elsewhere["account_number"] = "0099887766"
+	second := requestBody(payable, "the second ask")
+	second["payout_profile"] = elsewhere
+
+	handedBack, createdAgain := submitPayoutRequestOK(t, env, sessionID, second)
+	if createdAgain {
+		t.Fatalf("the second submission recorded a new request; want the outstanding one handed back")
+	}
+	if handedBack.ID != first.ID {
+		t.Fatalf("handed back request %q; want the outstanding %q", handedBack.ID, first.ID)
+	}
+	if handedBack.PayoutProfile.AccountNumber != first.PayoutProfile.AccountNumber {
+		t.Fatalf("the outstanding request's snapshot changed to %q; want %q",
+			handedBack.PayoutProfile.AccountNumber, first.PayoutProfile.AccountNumber)
+	}
+
+	// And the profile itself is untouched: the Organization is still paid where
+	// it was before the second press.
+	profile, exists := getPayoutProfileOK(t, env, sessionID)
+	if !exists {
+		t.Fatalf("the Payout Profile vanished")
+	}
+	if profile.AccountNumber != first.PayoutProfile.AccountNumber || profile.BankName != first.PayoutProfile.BankName {
+		t.Fatalf("a repeat submission rewrote the Payout Profile to %s/%s; want %s/%s",
+			profile.BankName, profile.AccountNumber,
+			first.PayoutProfile.BankName, first.PayoutProfile.AccountNumber)
+	}
+}
+
 // TestPayoutRequestOnePendingIsEnforcedByTheDatabase goes around the API to
 // prove the rule is structural. A service check the application could race past
 // is not the rule; the partial unique index is (ADR 0026, in the shape ADR 0024

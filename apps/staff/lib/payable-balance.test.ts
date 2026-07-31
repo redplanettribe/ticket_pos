@@ -9,12 +9,12 @@ const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 test("names both amounts and says when the rest clears", () => {
   const sentence = payableBalanceExplanation(120_000, 90_000, usd);
-  assert.equal(sentence, "$900.00 available to request now — $300.00 from today's sales clears tomorrow.");
+  assert.equal(sentence, "$900.00 can be requested now — $300.00 from today's sales clears tomorrow.");
 });
 
 test("says so plainly when the whole balance has cleared", () => {
   const sentence = payableBalanceExplanation(90_000, 90_000, usd);
-  assert.match(sentence, /^\$900\.00 available to request now/);
+  assert.match(sentence, /^\$900\.00 can be requested now/);
   assert.match(sentence, /cleared/);
   assert.doesNotMatch(sentence, /tomorrow/);
 });

@@ -287,7 +287,10 @@ func ErrSaleReversalInProgress(confirmationRef string) apperror.DomainError {
 func ErrPayoutRequestExceedsPayableBalance(requestedCents, payableCents int, currency string) apperror.DomainError {
 	return apperror.New(
 		"PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE",
-		"You can only request up to your available balance.",
+		// "Payable Balance", never "available balance": the glossary names the
+		// concept and lists that synonym under _Avoid_, and this is the one
+		// sentence an organizer reads when the feature says no.
+		"You can only request up to your Payable Balance.",
 		map[string]any{
 			"requested_cents":       requestedCents,
 			"payable_balance_cents": payableCents,

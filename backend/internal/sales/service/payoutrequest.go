@@ -132,12 +132,6 @@ func (s *Service) RequestPayout(ctx context.Context, actor ActorContext, input R
 		return nil, nil, sales.ErrPayoutRequestExceedsPayableBalance(input.AmountCents, payable, balance.Currency)
 	}
 
-	if input.Profile != nil {
-		if _, err := s.repo.SavePayoutProfile(ctx, actor.OrganizationID, profile); err != nil {
-			return nil, nil, err
-		}
-	}
-
 	row, created, err := s.repo.CreatePayoutRequest(ctx, repository.CreatePayoutRequestInput{
 		OrganizationID:      actor.OrganizationID,
 		AmountCents:         input.AmountCents,
@@ -154,6 +148,21 @@ func (s *Service) RequestPayout(ctx context.Context, actor ActorContext, input R
 		// same instant. Nothing was recorded and there is nothing to hand back;
 		// asking again is the answer, and it will now succeed.
 		return nil, nil, sales.ErrPayoutRequestNotFound()
+	}
+
+	// The profile follows the request, and only a request that was newly
+	// RECORDED. The ordering rule this function opens with — a refused ask never
+	// quietly changes where the Organization is paid — has to hold for every way
+	// an ask can fail to be recorded, not just the cap. A repeat submission is
+	// handed back the outstanding request with the snapshot it was made under, so
+	// saving edited details here would leave an organizer looking at a request
+	// showing one account while their profile had silently become another. An
+	// Organization that means to change banks mid-ask does it in the profile
+	// editor, which says so.
+	if created && input.Profile != nil {
+		if _, err := s.repo.SavePayoutProfile(ctx, actor.OrganizationID, profile); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// The operators are told only about an ask that was newly RECORDED. A repeat
