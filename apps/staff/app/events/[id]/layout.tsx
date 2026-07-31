@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
-import type { SidebarNavItem } from "@ticket-pos/ui";
+import { eventNavItems, type SidebarNavItem } from "@ticket-pos/ui";
 
 import { callBackend } from "@/lib/api";
 import type { EventDetail } from "@/lib/events-api";
@@ -63,22 +63,9 @@ export default async function EventLayout({ params, children }: EventLayoutProps
     notFound();
   }
 
-  // org_admin / event_owner get full access; event_staff is limited. Tags and
-  // Affiliate Links stay owner-only, but the Sales list is visible to every
-  // Member of the Event — Event Staff included — so it appears for all roles.
   const role = session?.active_member?.role;
   const fullAccess = role === "org_admin" || role === "event_owner";
-  const navItems: SidebarNavItem[] = [
-    { href: `/events/${id}`, label: "Details" },
-    { href: `/events/${id}/ticket-types`, label: "Ticket Types" },
-    ...(fullAccess
-      ? [
-          { href: `/events/${id}/tags`, label: "Tags" },
-          { href: `/events/${id}/affiliate-links`, label: "Affiliate Links" },
-        ]
-      : []),
-    { href: `/events/${id}/sales`, label: "Sales" },
-  ];
+  const navItems: SidebarNavItem[] = eventNavItems({ eventId: id, fullAccess });
 
   return (
     <EventShellClient
