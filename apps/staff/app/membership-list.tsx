@@ -36,7 +36,6 @@ export function MembershipDetails({ membership }: { membership: Membership }) {
 
 export type MembershipListProps = {
   memberships: Membership[];
-  activeMemberId?: string;
   disabled?: boolean;
   onSelect: (memberId: string) => void;
   selecting?: string | null;
@@ -49,7 +48,7 @@ export type MembershipListProps = {
  * (#191) — an entry that is no Membership.
  */
 export function MembershipList(props: MembershipListProps) {
-  const { memberships, activeMemberId, disabled = false } = props;
+  const { memberships, disabled = false } = props;
 
   if (memberships.length === 0) {
     return (
@@ -60,7 +59,6 @@ export function MembershipList(props: MembershipListProps) {
   return (
     <ul className="space-y-3">
       {memberships.map((membership) => {
-        const isActive = activeMemberId === membership.member_id;
         const isBusy = props.selecting === membership.member_id;
 
         return (
@@ -71,7 +69,7 @@ export function MembershipList(props: MembershipListProps) {
                 <Button
                   type="button"
                   onClick={() => props.onSelect(membership.member_id)}
-                  disabled={disabled || isActive || props.selecting != null}
+                  disabled={disabled || props.selecting != null}
                   aria-busy={isBusy}
                 >
                   {isBusy ? "Selecting..." : "Select"}
