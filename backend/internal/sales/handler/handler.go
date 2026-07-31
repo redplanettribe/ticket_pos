@@ -58,6 +58,7 @@ func actorFromRequest(r *http.Request) service.ActorContext {
 	return service.ActorContext{
 		MemberID:       member.MemberID,
 		OrganizationID: member.OrganizationID,
+		Email:          member.Email,
 	}
 }
 

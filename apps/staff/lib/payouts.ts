@@ -2,6 +2,8 @@
 // Dashboard. Dependency-free so they run directly under `node --test`
 // (see payouts.test.ts).
 
+import { isOutstanding } from "./payout-requests.ts";
+
 /**
  * Renders a payout's paid-at day as the calendar date it is. Parsing
  * "YYYY-MM-DD" with the Date constructor would read it as UTC midnight and show
@@ -23,6 +25,40 @@ export function formatPaidAtDate(paidAt: string): string {
  */
 export function exceedsWithdrawableBalance(amountCents: number, balanceCents: number): boolean {
   return amountCents > balanceCents;
+}
+
+/**
+ * The Organization's outstanding Payout Request, or null when it is not asking
+ * for anything — the other question the record-payout form asks before it
+ * writes (#178, ADR 0026).
+ *
+ * The failure being defended against is paying an Organization TWICE: an
+ * operator answering a WhatsApp thread on the Organization detail page while a
+ * request for the same money sits in the queue, unaware that a colleague may be
+ * about to fulfil it. That is the most expensive mistake this feature can make
+ * and the hardest to undo.
+ *
+ * As with exceedsWithdrawableBalance above, the API accepts the Payout
+ * regardless — the direct-record path is unconditional, because the bank
+ * transfer already happened and an endpoint that refuses to write it down has
+ * not prevented anything, it has only stopped knowing (ADR 0019, ADR 0026).
+ * This only decides whether the form demands an explicit confirmation first,
+ * and offers the fulfilment route as the better door.
+ *
+ * Nor does recording directly close anything: a $200 direct Payout and a $900
+ * outstanding request are probably not the same event, so the request stays
+ * `pending` and this helper will warn again next time. Blocking and auto-closing
+ * are both options ADR 0026 considered and rejected.
+ *
+ * At most one request can be outstanding — a partial unique index says so — but
+ * this takes the whole history and finds it rather than trusting the caller to
+ * have filtered, because the Organization detail payload carries every ask the
+ * Organization ever made, answered ones included.
+ */
+export function outstandingPayoutRequest<T extends { status: string }>(
+  requests: readonly T[],
+): T | null {
+  return requests.find((request) => isOutstanding(request.status)) ?? null;
 }
 
 /**

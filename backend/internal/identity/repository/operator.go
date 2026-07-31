@@ -13,6 +13,78 @@ func (r *Repository) IsPlatformOperator(ctx context.Context, email string) (bool
 	return exists, err
 }
 
+// ListPlatformOperatorEmails returns every address on the platform operator
+// allowlist, alphabetically.
+//
+// It is the allowlist read as a RECIPIENT LIST rather than as an authority
+// check, and it has exactly one caller: the notice that tells the operators an
+// Organization has asked to be paid (#179, ADR 0026). There is no subscription
+// table and no preference to consult — presence on the allowlist is what makes
+// somebody an operator (ADR 0015), so it is also what makes them somebody to
+// tell.
+//
+// An empty allowlist returns no rows and no error. A platform with no operators
+// has nobody to notify, which is a fact about the deployment rather than a
+// failure of the request that provoked the read.
+func (r *Repository) ListPlatformOperatorEmails(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT email FROM platform_operators ORDER BY email ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		out = append(out, email)
+	}
+	return out, rows.Err()
+}
+
+// OrganizationsByIDs returns the named Organizations, unscoped by Membership,
+// for an operator list whose rows arrived from another module.
+//
+// It exists so a cross-Organization list costs ONE read of this table rather
+// than one per row: the operator's Payout Request queue (#176) is fifty rows
+// belonging to up to fifty Organizations, and resolving them one at a time
+// would be the classic N+1 in the middle of the surface an operator opens most
+// often. It is the batch twin of GetOrganizationByID, and the caller decides
+// what an id with no row means — here, nothing does: the requests reference
+// `organizations` and cascade with it.
+//
+// An unknown or malformed id is silently absent rather than an error, which is
+// what makes the caller's join a lookup rather than a second failure path.
+func (r *Repository) OrganizationsByIDs(ctx context.Context, ids []string) ([]Organization, error) {
+	out := make([]Organization, 0, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT id, name, slug, currency, logo_image_key, created_at
+		FROM organizations
+		WHERE id = ANY($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var o Organization
+		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // ListAllOrganizations returns one page of every Organization on the platform,
 // name-ascending with an id tiebreaker so equal names keep a stable order across
 // pages, plus the unpaginated total (ADR 0006). Unlike every other listing in

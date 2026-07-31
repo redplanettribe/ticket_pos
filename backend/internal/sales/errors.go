@@ -270,6 +270,97 @@ func ErrSaleReversalInProgress(confirmationRef string) apperror.DomainError {
 	)
 }
 
+// ErrPayoutRequestExceedsPayableBalance is returned when an Organization asks
+// for more than has cleared (ADR 0026).
+//
+// The cap binds the Organization and NOT the operator, and the asymmetry is the
+// whole point. A Payout is a record of money that already moved, so recording
+// one is never refused for exceeding any balance — an endpoint that refused
+// would make the books lie to protect a workflow (ADR 0015, ADR 0019). A request
+// is a claim about money that has not moved, so refusing an impossible one costs
+// nothing and is kinder than letting an organizer wait three days to be told no
+// by a human.
+//
+// It carries both figures because the refusal is only actionable with both: the
+// organizer needs to see what they asked for beside what they may ask for, and
+// the difference is the sentence the UI writes for them.
+func ErrPayoutRequestExceedsPayableBalance(requestedCents, payableCents int, currency string) apperror.DomainError {
+	return apperror.New(
+		"PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE",
+		// "Payable Balance", never "available balance": the glossary names the
+		// concept and lists that synonym under _Avoid_, and this is the one
+		// sentence an organizer reads when the feature says no.
+		"You can only request up to your Payable Balance.",
+		map[string]any{
+			"requested_cents":       requestedCents,
+			"payable_balance_cents": payableCents,
+			"currency":              currency,
+		},
+	)
+}
+
+// ErrPayoutRequestNotFound is returned when the target Payout Request is not one
+// of the acting Organization's. Another Organization's request is "not found"
+// and never "forbidden": which Organizations have asked to be paid is not a fact
+// this surface leaks.
+func ErrPayoutRequestNotFound() apperror.DomainError {
+	return apperror.New("PAYOUT_REQUEST_NOT_FOUND", "Payout Request not found.", nil)
+}
+
+// ErrPayoutRequestNotPending is returned when a cancellation reaches a request
+// that has already ended. All three end states are final (ADR 0026), so this is
+// a 409 the caller cannot retry into success rather than a silent no-op — the
+// current status is named so the asker learns what actually happened to it.
+func ErrPayoutRequestNotPending(status string) apperror.DomainError {
+	return apperror.New("PAYOUT_REQUEST_NOT_PENDING", "This Payout Request has already been resolved.", map[string]any{
+		"status": status,
+	})
+}
+
+// ErrPayoutRequestAlreadyResolved is returned to a Platform Operator whose
+// fulfilment or decline reached a request that had already ended (#177,
+// ADR 0026).
+//
+// It is deliberately NOT ErrPayoutRequestNotPending, which the Organization's
+// own cancellation uses. The two refusals are about the same fact and are read
+// by different people with different next moves, and this one's message is the
+// whole of a mitigation the system has no other defence for.
+//
+// THE COMPARE-AND-SWAP PREVENTS A DOUBLE RECORD, NOT A DOUBLE TRANSFER. Two
+// operators can both wire the money at the bank; only one of them can write the
+// Payout through this route, and the other's transaction is rolled back so no
+// orphan Payout survives. If that loser walks away, the books understate what
+// actually left the account — silently, and with no figure anywhere saying so.
+// So the message tells them to record the Payout directly, which is a path that
+// is unconditional by design and stays so (ADR 0019). Anything vaguer, or a
+// generic conflict, would drop a real payment on the floor.
+//
+// It names who got there first because that is what turns "somebody beat you"
+// into a person to go and ask. resolvedBy is a pointer only because the column
+// is nullable; the schema's payout_requests_resolution_matches_status CHECK
+// makes it present on every resolved row, and the fallback wording exists so a
+// hand-edited row cannot produce a sentence with a hole in it.
+func ErrPayoutRequestAlreadyResolved(status string, resolvedBy *string) apperror.DomainError {
+	who := "another operator"
+	if resolvedBy != nil && *resolvedBy != "" {
+		who = *resolvedBy
+	}
+	details := map[string]any{"status": status}
+	if resolvedBy != nil {
+		details["resolved_by"] = *resolvedBy
+	}
+	return apperror.New(
+		"PAYOUT_REQUEST_ALREADY_RESOLVED",
+		fmt.Sprintf(
+			"This Payout Request was already resolved by %s (%s), and nothing was recorded here. "+
+				"If you also transferred the money, record the Payout directly against the Organization — "+
+				"otherwise the books will understate what left the account.",
+			who, status,
+		),
+		details,
+	)
+}
+
 // ErrImportFileUnreadable is returned when an uploaded Sale Import file cannot be
 // parsed (wrong format, missing columns, missing Sales sheet, corrupt or empty
 // contents). The reason is a human-readable sentence produced by the importfile

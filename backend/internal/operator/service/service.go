@@ -24,6 +24,10 @@ type Organizations interface {
 	// GetOrganizationForOperator returns ORGANIZATION_NOT_FOUND for an unknown
 	// (or malformed) id, which the handler maps to 404.
 	GetOrganizationForOperator(ctx context.Context, orgID string) (*identitysvc.OperatorOrganization, error)
+	// OrganizationsForOperator resolves many Organizations at once, keyed by id,
+	// for a cross-Organization list whose rows arrive from another module (#176).
+	// Ids that name nothing are absent from the map rather than an error.
+	OrganizationsForOperator(ctx context.Context, orgIDs []string) (map[string]identitysvc.OperatorOrganization, error)
 }
 
 // Events is what the operator surface needs from catalog: what each
@@ -34,16 +38,44 @@ type Events interface {
 }
 
 // Money is what the operator surface needs from sales: the Withdrawable
-// Balances, the platform's own revenue, the payout history it appends to, and
-// the one Ticket Sale a support thread names by its Sale Confirmation
-// reference — which is a money question too, since what an operator does with
-// it next is decide what happened to somebody's payment.
+// Balances, the platform's own revenue, the payout history it appends to, the
+// queue of Organizations waiting to be paid, and the one Ticket Sale a support
+// thread names by its Sale Confirmation reference — which is a money question
+// too, since what an operator does with it next is decide what happened to
+// somebody's payment.
 type Money interface {
-	WithdrawableBalance(ctx context.Context, orgID string) (int, error)
+	// OrganizationBalances returns both money figures for one Organization: the
+	// Withdrawable Balance and the Payable Balance, each signed (ADR 0026).
+	OrganizationBalances(ctx context.Context, orgID string) (salessvc.OrganizationBalances, error)
 	WithdrawableBalances(ctx context.Context, orgIDs []string) (map[string]int, error)
 	PlatformTotals(ctx context.Context) ([]salessvc.CurrencyTotals, error)
 	OperatorPayoutHistory(ctx context.Context, orgID string) ([]salessvc.OperatorPayout, error)
 	RecordPayout(ctx context.Context, orgID string, input salessvc.RecordPayoutInput) (*salessvc.OperatorPayout, error)
+	// PendingPayoutRequests returns one page of every outstanding Payout Request
+	// on the platform, OLDEST FIRST, plus the unpaginated total (#176). The
+	// account numbers on these rows are already masked by sales; nothing on this
+	// side may unmask them, because nothing on this side has the digits.
+	PendingPayoutRequests(ctx context.Context, page, pageSize int) ([]salessvc.OperatorPayoutRequest, int, error)
+	// PendingPayoutRequestCount is the same backlog as one number, for the badge
+	// on the operator navigation.
+	PendingPayoutRequestCount(ctx context.Context) (int, error)
+	// OrganizationPayoutRequestHistory is one Organization's asks, newest first
+	// and masked, for the drill-down where they sit beside the payout history.
+	OrganizationPayoutRequestHistory(ctx context.Context, orgID string) ([]salessvc.OperatorPayoutRequest, error)
+	// PayoutRequestForOperator returns one request WHOLE — snapshot bank details
+	// included — and PAYOUT_REQUEST_NOT_FOUND for an unknown (or malformed) id,
+	// which the handler maps to 404.
+	PayoutRequestForOperator(ctx context.Context, requestID string) (*salessvc.PayoutRequest, error)
+	// FulfilPayoutRequest records the Payout and marks the request paid in ONE
+	// transaction (#177). It answers PAYOUT_REQUEST_NOT_FOUND for an unknown or
+	// malformed id and PAYOUT_REQUEST_ALREADY_RESOLVED when somebody answered it
+	// first — in which case NOTHING was written, the Payout included, because the
+	// compare-and-swap rolls the whole transaction back (ADR 0026).
+	FulfilPayoutRequest(ctx context.Context, requestID string, input salessvc.FulfilPayoutRequestInput) (*salessvc.FulfilledPayoutRequest, error)
+	// DeclinePayoutRequest refuses the ask with a reason its asker can read, and
+	// answers the same two refusals. A decline moves no money and frees the
+	// Organization to ask again.
+	DeclinePayoutRequest(ctx context.Context, requestID string, input salessvc.DeclinePayoutRequestInput) (*salessvc.PayoutRequest, error)
 	// SaleByConfirmationRef returns TICKET_SALE_NOT_FOUND when no Ticket Sale on
 	// the platform carries the reference, which the handler maps to 404.
 	SaleByConfirmationRef(ctx context.Context, confirmationRef string) (*salessvc.OperatorSale, error)
@@ -95,12 +127,23 @@ type OrganizationList struct {
 }
 
 // OrganizationDetail is the operator's drill-down into one Organization: what it
-// is, what the platform owes it, what it runs, and how it has been settled.
+// is, what the platform owes it, what of that has cleared, what it runs, and how
+// it has been settled.
 type OrganizationDetail struct {
 	Organization             Organization `json:"organization"`
 	WithdrawableBalanceCents int          `json:"withdrawable_balance_cents"`
-	Events                   []Event      `json:"events"`
-	Payouts                  []Payout     `json:"payouts"`
+	// PayableBalanceCents is the part of the Withdrawable Balance that has
+	// cleared — sales recorded before today in Ecuador with no Reversal Request
+	// still open (ADR 0026). Signed, never clamped, and never larger than the
+	// figure above it. It is shown to the operator and gates nothing they do.
+	PayableBalanceCents int      `json:"payable_balance_cents"`
+	Events              []Event  `json:"events"`
+	Payouts             []Payout `json:"payouts"`
+	// PayoutRequests is this Organization's own request history, newest first and
+	// with its account numbers masked (#176). It sits beside the payout history
+	// because that is the question it answers: has this Organization been paid
+	// recently, and are they asking again? (ADR 0026)
+	PayoutRequests []PayoutRequestSummary `json:"payout_requests"`
 }
 
 // RecordPayoutInput is a validated record-payout request: the amount is already
@@ -174,7 +217,7 @@ func (s *Service) GetOrganization(ctx context.Context, orgID string) (*Organizat
 	if err != nil {
 		return nil, err
 	}
-	balance, err := s.money.WithdrawableBalance(ctx, org.ID)
+	balances, err := s.money.OrganizationBalances(ctx, org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -186,11 +229,17 @@ func (s *Service) GetOrganization(ctx context.Context, orgID string) (*Organizat
 	if err != nil {
 		return nil, err
 	}
+	requests, err := s.money.OrganizationPayoutRequestHistory(ctx, org.ID)
+	if err != nil {
+		return nil, err
+	}
 	return &OrganizationDetail{
 		Organization:             *org,
-		WithdrawableBalanceCents: balance,
+		WithdrawableBalanceCents: balances.WithdrawableBalanceCents,
+		PayableBalanceCents:      balances.PayableBalanceCents,
 		Events:                   events,
 		Payouts:                  payouts,
+		PayoutRequests:           requests,
 	}, nil
 }
 

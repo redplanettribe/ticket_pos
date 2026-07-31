@@ -1165,7 +1165,7 @@ export interface paths {
         };
         /**
          * Get one Organization's Events and payout history
-         * @description Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email — null for Payouts entered directly in the database before the Operator Dashboard existed. Platform Operator only.
+         * @description Returns the operator's drill-down into one Organization: the Organization itself, its signed Withdrawable Balance, its signed Payable Balance — the same arithmetic counting only sales recorded before today in America/Guayaquil with no Reversal Request still open (ADR 0026), never larger than the Withdrawable Balance and negative when a settlement got ahead of what had cleared — its Events in every status (soonest-last, unscheduled Events last), and its full payout history newest first with the recording operator's email, null for Payouts entered directly in the database before the Operator Dashboard existed. Both balances are shown to the operator and neither gates recording a Payout, which stays unconditional (ADR 0015). Platform Operator only.
          */
         get: {
             parameters: {
@@ -1302,6 +1302,378 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/payout-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every outstanding Payout Request, oldest first
+         * @description Returns a page of every OUTSTANDING (pending) Payout Request across every Organization on the platform — the operator's work queue, and the second cross-Organization view on this surface after sale lookup. Ordered OLDEST FIRST, deliberately breaking the newest-first convention the payout and sale histories use: this is a work queue rather than a history, and the oldest unanswered request is the one about to become a complaint (ADR 0026). Each row carries the ask (amount, note, asker's email, the instant it was made) with the Payable Balance AS IT STOOD when it was made, and the Organization it belongs to. ACCOUNT NUMBERS ARE MASKED here and nowhere unmasked but the single-request endpoint: this is the one screen showing every Organization's bank details at once, so account_number_masked is "····4821" and the payload carries no whole account number and no Tax ID at all. Answered requests — paid, declined or cancelled — are not in the queue; they stay readable by id and on their Organization's detail page. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (1-based; floors at 1) */
+                    page?: number;
+                    /** @description Page size (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayoutRequestQueue"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/payout-requests/{requestID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one Payout Request with the details needed to pay it
+         * @description Returns everything needed to execute one transfer: the ask (amount, note, the asker's email, the instant), the Organization it belongs to, and the snapshot Payout Profile IN FULL — bank, account type, WHOLE account number, the name on the account and the Organization's Tax ID for the factura. This is the only endpoint that returns an unmasked account number, and it returns one request at a time: an operator who opens a request is about to retype that number into a banking app. The snapshot is frozen and no later edit of the Organization's Payout Profile rewrites it (ADR 0026). Two readings of the money travel with it: request.payable_balance_cents is the Payable Balance AS IT STOOD when the ask was made, while payable_balance_cents and withdrawable_balance_cents are the LIVE figures now — so an operator can tell an Organization that asked for what it had from one that asked for four times as much. The cap was checked at request time and is never checked again; neither live figure gates anything, and the operator at the bank exercises the judgement. Requests in every state are readable here, including paid, declined and cancelled ones that have left the queue. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Payout Request ID */
+                    requestID: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayoutRequestDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/payout-requests/{requestID}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline a Payout Request, with a reason the Organization reads
+         * @description Marks the Payout Request `declined` and records why, who said so (taken from the Staff Session, never from the body) and when. THE REASON IS REQUIRED — a blank or whitespace-only one is refused with a field error, and it is bounded at 500 characters — because a queue that swallowed requests silently would generate the support thread it was built to prevent (ADR 0026). The reason is shown to the Organization on its own payouts page, beside the ask it answers. Nothing moves: a decline records no Payout and touches no balance. A decline is a "not this" rather than a lockout — it ends this request, and the Organization may submit a new one immediately, since only a `pending` request occupies its single outstanding slot. All end states are final, so declining a request that was already paid, declined or cancelled is 409 PAYOUT_REQUEST_ALREADY_RESOLVED naming the state and who reached it. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Payout Request ID */
+                    requestID: string;
+                };
+                cookie?: never;
+            };
+            /** @description Why the request is refused */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.declinePayoutRequestBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayoutRequest"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/payout-requests/{requestID}/fulfil": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fulfil a Payout Request by recording the Payout that answers it
+         * @description Records a Payout against the requesting Organization AND marks the Payout Request `paid`, in ONE database transaction. The operator transfers the money by hand off-platform first, as they always have, and this records that it happened — there is no second step to forget and no `approved` state in between. The body is the same shape the direct record-payout endpoint takes: amount_cents (what ACTUALLY left the bank, strictly positive), paid_at (the calendar day, YYYY-MM-DD) and an optional note. The amount is PRE-FILLED from the request on the dashboard form and may be overwritten — a deliberate departure from the no-pre-fill rule of ADR 0019, because a payout amount is a figure the Organization already stated rather than an assertion only the operator can make. Transferring less than was asked needs no special handling: the Payout records what moved, the request keeps what was asked, and the divergence stays visible forever. The resulting Payout is INDISTINGUISHABLE from a directly recorded one — same shape, same recorded_by (taken from the Staff Session, never from the body), and it appears unchanged on the Organization's own payouts page and in its Withdrawable Balance; only the request names it, through payout_id. NO balance is consulted in either direction: recording a settlement is unconditional (ADR 0015), and the Payable Balance cap bound the Organization when it asked and is never re-checked (ADR 0026). FULFILMENT IS A COMPARE-AND-SWAP: the request is updated only while it is still pending, and if it is not, the WHOLE transaction rolls back so NO Payout row survives — 409 PAYOUT_REQUEST_ALREADY_RESOLVED, naming the current state and who resolved it first. That refusal tells an operator who also transferred to record the Payout directly, because the compare-and-swap prevents a double RECORD and not a double TRANSFER. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Payout Request ID */
+                    requestID: string;
+                };
+                cookie?: never;
+            };
+            /** @description The Payout that answers the request */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.fulfilPayoutRequestBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayoutFulfilment"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/payout-requests/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the outstanding Payout Requests
+         * @description Returns pending_count: how many Payout Requests are outstanding across every Organization on the platform. It is the badge the Operator Dashboard's navigation wears, because a queue's whole value is being noticed by somebody who had not already decided to look (ADR 0026). It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPendingPayoutRequestCount"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4349,6 +4721,335 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/organization/payout-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the Organization's Payout Profile
+         * @description Returns the acting Member's Organization's Payout Profile — the bank, whether the account is `ahorros` or `corriente`, the account number, the name on the account, and the Organization's own Tax ID for the factura (ADR 0026). The data payload is `null` when the Organization has never recorded one, which is an ordinary state rather than an error. The account number is returned whole, because this is the Organization's own editor; masking belongs to the operator surfaces that show many Organizations at once. Org Admin only — an Event Owner or Event Staff is refused.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutProfile"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        /**
+         * Set the Organization's Payout Profile
+         * @description Records where the acting Member's Organization is paid, replacing any existing profile — there is at most one per Organization (ADR 0026). Every field is required. The account number is normalised by stripping spaces and dashes and must then be digits only; its leading zeros are preserved exactly, because an account number that loses one reaches the wrong account. The Tax ID identifies the party being paid and invoiced, so it is `cedula` or `ruc` and never `passport`, validated with the same check digits as a buyer's Tax ID (ADR 0016). Bad fields come back one by one as VALIDATION_FAILED, naming the field and never echoing what was typed. Org Admin only.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Payout Profile */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.payoutProfileBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutProfile"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/organization/payout-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Organization's Payout Requests
+         * @description Returns the acting Member's Organization's Payout Requests, newest first, for the request history shown beside the payout history (ADR 0026). Each carries the amount asked for, the optional note, the status (`pending`, `paid`, `declined` or `cancelled`), the asker's email, the Payable Balance as it stood at the moment of asking, the frozen snapshot of the six Payout Profile fields the ask was made against — which no later profile edit alters — and, once answered, the resolver's email, the resolution instant, the decline reason on a decline, and the id of the Payout that settled it. No currency is returned: a request is always in the Organization's own currency, which the payouts summary this history sits beside states once. Org Admin only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutRequests"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Submit a Payout Request
+         * @description Records the acting Member's Organization's ask to be paid (ADR 0026): an amount in the Organization's currency, an optional note, and the bank details to pay it to. The bank details may be supplied as `payout_profile` — the request form is the Payout Profile editor, so anything sent there is validated exactly as PUT /staff/organization/payout-profile validates it and SAVED to the profile as well as snapshotted onto the request. Omit `payout_profile` to be paid where the stored profile says; a complete profile is required either way, and an Organization with none is refused with VALIDATION_FAILED naming each missing field. The ask is bounded by the Payable Balance AT THE MOMENT IT IS MADE and never again — one cent above it is refused with PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE, and the balance moving afterwards changes nothing about a recorded request. An Organization may have only one request outstanding at a time, enforced by a partial unique index: a second submission while one is pending returns 200 with the EXISTING request rather than a conflict, so an organizer learns where their earlier ask went, and nothing about the outstanding request is edited by it. A newly recorded request returns 201. The request snapshots the six profile fields and the Payable Balance as they stood, and no later profile edit alters them. The asker is recorded as an email, so the record outlives their Membership. A request moves no money: no balance, no aggregate and no revenue figure knows requests exist. Org Admin only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Payout Request */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.payoutRequestBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutRequest"];
+                    };
+                };
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutRequest"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/organization/payout-requests/{requestId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an outstanding Payout Request
+         * @description Withdraws the acting Member's Organization's outstanding Payout Request (ADR 0026). Cancelling is the only change an Organization can make to a pending request — it cannot be edited, only cancelled and re-asked, which is what keeps "outstanding" singular and stops an operator looking at a figure that changed under them. The row is kept and moves to `cancelled`, stamped with the cancelling Member's email and the instant, which frees the Organization to submit a new request. It is a compare-and-swap on the pending state: a request an operator paid or declined in the meantime is refused with 409 PAYOUT_REQUEST_NOT_PENDING naming the state it actually reached, and a request that is not this Organization's is 404 PAYOUT_REQUEST_NOT_FOUND. Nothing is ever locked. Org Admin only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Payout Request ID */
+                    requestId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePayoutRequest"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/organization/payouts": {
         parameters: {
             query?: never;
@@ -4357,8 +5058,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the Organization's Withdrawable Balance and payout history
-         * @description Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — in the Organization currency, plus the payout history newest first. The balance is signed: a sale reversed after a settlement makes it negative, and that is shown as-is. Read-only from this side: a Payout is recorded by a Platform Operator on the operator surface (ADR 0015), and appears here unchanged. Org Admin only.
+         * Get the Organization's balances and payout history
+         * @description Returns the acting Member's Organization's Withdrawable Balance — the Net Proceeds of its active Online Sales (each line's unit price minus the Platform Fee and Fee IVA snapshotted on it) minus every recorded Payout — and its Payable Balance, the same arithmetic counting only the sales that have cleared: those recorded before today in America/Guayaquil with no Reversal Request still open on them (ADR 0026). Both are in the Organization currency and both are signed: a sale reversed after a settlement makes them negative, and that is shown as-is. Cleared sales are a subset, so payable_balance_cents never exceeds withdrawable_balance_cents; the gap is money the platform holds but has not yet cleared, and a fully settled Organization that sold today shows a negative Payable Balance beside a positive Withdrawable one. The payout history follows, newest first. Read-only from this side: a Payout is recorded by a Platform Operator on the operator surface (ADR 0015), and appears here unchanged. Org Admin only.
          */
         get: {
             parameters: {
@@ -4795,6 +5496,14 @@ export interface components {
             name?: string;
             price_cents?: number;
         };
+        "handler.declinePayoutRequestBody": {
+            reason?: string;
+        };
+        "handler.fulfilPayoutRequestBody": {
+            amount_cents?: number;
+            note?: string;
+            paid_at?: string;
+        };
         "handler.healthResponse": {
             /** @example ok */
             status?: string;
@@ -4808,6 +5517,19 @@ export interface components {
             quantity?: number;
             sold_at?: string;
             ticket_type_id?: string;
+        };
+        "handler.payoutProfileBody": {
+            account_holder_name?: string;
+            account_number?: string;
+            account_type?: string;
+            bank_name?: string;
+            tax_id_number?: string;
+            tax_id_type?: string;
+        };
+        "handler.payoutRequestBody": {
+            amount_cents?: number;
+            note?: string;
+            payout_profile?: components["schemas"]["handler.payoutProfileBody"];
         };
         "handler.promotionBody": {
             ends_at?: string;
@@ -5069,6 +5791,31 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOperatorPayoutFulfilment": {
+            data?: components["schemas"]["service.PayoutFulfilment"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorPayoutRequest": {
+            data?: components["schemas"]["service.PayoutRequestWhole"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorPayoutRequestDetail": {
+            data?: components["schemas"]["service.PayoutRequestDetail"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorPayoutRequestQueue": {
+            data?: components["schemas"]["service.PayoutRequestQueue"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorPendingPayoutRequestCount": {
+            data?: components["schemas"]["service.PendingPayoutRequestCount"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeOperatorSaleLookup": {
             data?: components["schemas"]["service.SaleLookup"];
             error?: components["schemas"]["platform.APIError"];
@@ -5076,6 +5823,21 @@ export interface components {
         };
         "openapi.EnvelopeOperatorSaleReversal": {
             data?: components["schemas"]["service.SaleReversal"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopePayoutProfile": {
+            data?: components["schemas"]["service.PayoutProfile"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopePayoutRequest": {
+            data?: components["schemas"]["service.PayoutRequest"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopePayoutRequests": {
+            data?: components["schemas"]["service.PayoutRequest"][];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -5372,6 +6134,20 @@ export interface components {
             paid_at?: string;
             recorded_by?: string;
         };
+        "service.OperatorPayoutRequestProfile": {
+            account_holder_name?: string;
+            /**
+             * @description AccountNumberMasked is "····4821". The field is named for what it holds,
+             *     so no future reader mistakes it for something they can pay to.
+             */
+            account_number_masked?: string;
+            /**
+             * @description AccountType is 'ahorros' or 'corriente': the word the receiving bank's own
+             *     form uses, and no part of the account's identity.
+             */
+            account_type?: string;
+            bank_name?: string;
+        };
         /**
          * @description OperatorReversal is the money memo an Operator Reversal left (#125), and
          *     null on every sale reversed any other way. It is operator-facing only: it
@@ -5421,6 +6197,20 @@ export interface components {
         "service.OrganizationDetail": {
             events?: components["schemas"]["service.Event"][];
             organization?: components["schemas"]["service.Organization"];
+            /**
+             * @description PayableBalanceCents is the part of the Withdrawable Balance that has
+             *     cleared — sales recorded before today in Ecuador with no Reversal Request
+             *     still open (ADR 0026). Signed, never clamped, and never larger than the
+             *     figure above it. It is shown to the operator and gates nothing they do.
+             */
+            payable_balance_cents?: number;
+            /**
+             * @description PayoutRequests is this Organization's own request history, newest first and
+             *     with its account numbers masked (#176). It sits beside the payout history
+             *     because that is the question it answers: has this Organization been paid
+             *     recently, and are they asking again? (ADR 0026)
+             */
+            payout_requests?: components["schemas"]["service.PayoutRequestSummary"][];
             payouts?: components["schemas"]["internal_operator_service.Payout"][];
             withdrawable_balance_cents?: number;
         };
@@ -5448,16 +6238,134 @@ export interface components {
             total?: number;
             total_pages?: number;
         };
+        "service.PayoutFulfilment": {
+            payout?: components["schemas"]["service.OperatorPayout"];
+            request?: components["schemas"]["service.PayoutRequest"];
+        };
+        "service.PayoutProfile": {
+            account_holder_name?: string;
+            account_number?: string;
+            account_type?: string;
+            bank_name?: string;
+            tax_id_number?: string;
+            tax_id_type?: string;
+            /**
+             * @description UpdatedAt is when the details last changed, which is the fact an operator
+             *     about to transfer wants beyond the details themselves.
+             */
+            updated_at?: string;
+        };
+        "service.PayoutRequest": {
+            amount_cents?: number;
+            /**
+             * @description The answer, all null while the request is pending. DeclineReason is filled
+             *     only on a decline, and PayoutID only on a payment (#177).
+             */
+            decline_reason?: string;
+            id?: string;
+            note?: string;
+            /**
+             * @description PayableBalanceCents is what the Organization could have asked for at the
+             *     moment it asked. It is a snapshot and never refreshed: the live figure
+             *     moves, and the difference between the two is exactly what an operator needs
+             *     in order to exercise the judgement the cap deliberately leaves to them.
+             */
+            payable_balance_cents?: number;
+            payout_id?: string;
+            payout_profile?: components["schemas"]["service.PayoutRequestProfile"];
+            requested_at?: string;
+            /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
+            requested_by?: string;
+            resolved_at?: string;
+            resolved_by?: string;
+            status?: string;
+        };
+        "service.PayoutRequestDetail": {
+            organization?: components["schemas"]["service.Organization"];
+            payable_balance_cents?: number;
+            request?: components["schemas"]["service.PayoutRequestWhole"];
+            /** @description The LIVE figures, read now, both signed and never clamped. */
+            withdrawable_balance_cents?: number;
+        };
+        /**
+         * @description PayoutProfile is the frozen copy of where the Organization said to pay. No
+         *     later edit of the profile rewrites it (ADR 0026).
+         */
+        "service.PayoutRequestProfile": {
+            account_holder_name?: string;
+            account_number?: string;
+            account_type?: string;
+            bank_name?: string;
+            tax_id_number?: string;
+            tax_id_type?: string;
+        };
+        "service.PayoutRequestQueue": {
+            data?: components["schemas"]["service.PayoutRequestQueueItem"][];
+            pagination?: components["schemas"]["service.PageInfo"];
+        };
+        "service.PayoutRequestQueueItem": {
+            organization?: components["schemas"]["service.Organization"];
+            request?: components["schemas"]["service.PayoutRequestSummary"];
+        };
+        "service.PayoutRequestSummary": {
+            amount_cents?: number;
+            /**
+             * @description The answer, all null while the request is pending. They are carried here
+             *     because this shape also renders an Organization's request HISTORY, where
+             *     most rows have been answered (#177 fills them in).
+             */
+            decline_reason?: string;
+            id?: string;
+            note?: string;
+            /**
+             * @description PayableBalanceCents is what the Organization could have asked for at the
+             *     moment it asked. A snapshot, never refreshed: the live figure is on the
+             *     detail view, and the gap between the two is the judgement the cap
+             *     deliberately leaves to the operator (ADR 0026).
+             */
+            payable_balance_cents?: number;
+            payout_id?: string;
+            payout_profile?: components["schemas"]["service.OperatorPayoutRequestProfile"];
+            requested_at?: string;
+            /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
+            requested_by?: string;
+            resolved_at?: string;
+            resolved_by?: string;
+            status?: string;
+        };
+        "service.PayoutRequestWhole": {
+            amount_cents?: number;
+            /**
+             * @description The answer, all null while the request is pending. DeclineReason is filled
+             *     only on a decline, and PayoutID only on a payment (#177).
+             */
+            decline_reason?: string;
+            id?: string;
+            note?: string;
+            /**
+             * @description PayableBalanceCents is what the Organization could have asked for at the
+             *     moment it asked. It is a snapshot and never refreshed: the live figure
+             *     moves, and the difference between the two is exactly what an operator needs
+             *     in order to exercise the judgement the cap deliberately leaves to them.
+             */
+            payable_balance_cents?: number;
+            payout_id?: string;
+            payout_profile?: components["schemas"]["service.PayoutRequestProfile"];
+            requested_at?: string;
+            /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
+            requested_by?: string;
+            resolved_at?: string;
+            resolved_by?: string;
+            status?: string;
+        };
         "service.PayoutsSummary": {
             currency?: string;
+            payable_balance_cents?: number;
             payouts?: components["schemas"]["internal_sales_service.Payout"][];
-            /**
-             * @description WithdrawableBalanceCents is the Net Proceeds of the Organization's active
-             *     Online Sales minus every Payout recorded against it. It is signed on
-             *     purpose: a sale reversed after it was paid out leaves the Organization
-             *     owing the platform, and clamping that to zero would hide it.
-             */
             withdrawable_balance_cents?: number;
+        };
+        "service.PendingPayoutRequestCount": {
+            pending_count?: number;
         };
         "service.PlatformSummary": {
             totals?: components["schemas"]["service.PlatformTotals"][];

@@ -108,17 +108,39 @@ export function OrganizationSwitcherDialog({
  * set apart from the Organization-scoped links it does not belong with. It is
  * rendered only for a session on the platform operator allowlist (ADR 0015).
  */
-function OperatorNavLink({ active }: { active: boolean }) {
+function OperatorNavLink({
+  active,
+  pendingPayoutRequests,
+}: {
+  active: boolean;
+  pendingPayoutRequests: number | null;
+}) {
   return (
     <a
       href="/operator"
       aria-current={active ? "page" : undefined}
       className={cn(
-        "block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+        "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
         active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
       )}
     >
-      Operator
+      <span>Operator</span>
+      {/*
+        How many organizations are waiting to be paid (#176, ADR 0026). A queue's
+        whole value is being noticed by somebody who had not already decided to
+        look — a Friday-evening request otherwise waits until an operator happens
+        to click. Absent at zero rather than shown as a "0": a badge saying
+        nothing is waiting is a badge that trains its reader to ignore it. Null
+        means the count could not be read, which is also nothing to show.
+      */}
+      {pendingPayoutRequests ? (
+        <span
+          className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold tabular-nums text-primary-foreground"
+          aria-label={`${pendingPayoutRequests} payout requests waiting`}
+        >
+          {pendingPayoutRequests}
+        </span>
+      ) : null}
     </a>
   );
 }
@@ -130,6 +152,8 @@ type StaffShellWithOrganizationSwitcherProps = {
   showSettings: boolean;
   showEvents: boolean;
   showOperator: boolean;
+  /** How many payout requests are waiting platform-wide; null when unknown or not an operator. */
+  pendingPayoutRequests?: number | null;
   memberships: Membership[];
   activeMemberId?: string;
   userMenu: ReactNode;
@@ -143,6 +167,7 @@ export function StaffShellWithOrganizationSwitcher({
   showSettings,
   showEvents,
   showOperator,
+  pendingPayoutRequests = null,
   memberships,
   activeMemberId,
   userMenu,
@@ -161,7 +186,10 @@ export function StaffShellWithOrganizationSwitcher({
         userMenu={
           showOperator ? (
             <div className="space-y-1">
-              <OperatorNavLink active={activePath.startsWith("/operator")} />
+              <OperatorNavLink
+                active={activePath.startsWith("/operator")}
+                pendingPayoutRequests={pendingPayoutRequests}
+              />
               {userMenu}
             </div>
           ) : (

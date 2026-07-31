@@ -92,6 +92,28 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// Recording a Payout, which used to mean an INSERT typed by hand into the
 	// production database (ADR 0015).
 	mux.Handle("POST /api/v1/operator/organizations/{orgID}/payouts", operator(http.HandlerFunc(h.RecordPayout)))
+	// Who is waiting to be paid: the second cross-Organization view on this
+	// surface, and not nested under an Organization for the same reason the sale
+	// lookup is not — the request is the reason to open the dashboard, and which
+	// Organization it belongs to is one of the answers (#176, ADR 0026).
+	mux.Handle("GET /api/v1/operator/payout-requests", operator(http.HandlerFunc(h.ListPayoutRequests)))
+	// The navigation badge. A literal path segment, which Go's router prefers
+	// over the {requestID} wildcard below it, so `count` can never be read as an
+	// id — and no id could be `count` anyway, since ids are UUIDs.
+	mux.Handle("GET /api/v1/operator/payout-requests/count", operator(http.HandlerFunc(h.CountPendingPayoutRequests)))
+	// The one endpoint on the platform that returns a whole account number, one
+	// request at a time (#176).
+	mux.Handle("GET /api/v1/operator/payout-requests/{requestID}", operator(http.HandlerFunc(h.GetPayoutRequest)))
+	// Answering the ask (#177). Both hang off the request rather than off the
+	// Organization, because the request is what is being answered — the Payout
+	// fulfilment produces is an ordinary Payout against the Organization, but the
+	// Organization is not what the operator named to get here.
+	//
+	// Fulfilment records the Payout and marks the request paid in one
+	// transaction, and the guarded update inside it is what makes this path
+	// strictly safer than recording directly (ADR 0026).
+	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/fulfil", operator(http.HandlerFunc(h.FulfilPayoutRequest)))
+	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.
@@ -285,6 +307,34 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// and it is Org-Admin-only because the Organization's finances are not hired
 	// staff's business (ADR 0014).
 	mux.Handle("GET /api/v1/staff/organization/payouts", orgAdmin(http.HandlerFunc(sh.GetOrganizationPayouts)))
+	// Where that money goes: the Payout Profile (ADR 0026). It sits beside the
+	// balance above and is gated identically — same handler, same Org-Admin-only
+	// authority — because it answers the other half of the same question, and a
+	// bank account is even less hired staff's business than a balance is. It is
+	// on the sales handler and not identity's for the reason the table is in the
+	// sales module: `identity` owns organizations but must not learn what a bank
+	// account or a factura is.
+	mux.Handle("GET /api/v1/staff/organization/payout-profile", orgAdmin(http.HandlerFunc(sh.GetOrganizationPayoutProfile)))
+	mux.Handle("PUT /api/v1/staff/organization/payout-profile", orgAdmin(http.HandlerFunc(sh.UpdateOrganizationPayoutProfile)))
+	// Asking to be paid: the Payout Request (#175, ADR 0026). Same handler and
+	// the same Org-Admin-only gate as the two above, and the gate is the point
+	// here rather than a convenience.
+	//
+	// INTEGRATION PARTNERS ARE EXCLUDED, deliberately and in advance. Org-wide
+	// programmatic access (V8) is Org-Admin-equivalent for catalog and sales, and
+	// it was never meant to include moving money to a bank account. `orgAdmin`
+	// admits the `org_admin` MEMBER ROLE and nothing else, which is what excludes
+	// them today because a partner credential is not a Membership at all. When
+	// that credential lands, these three routes must NOT be widened to accept it
+	// — nor must the Payout Profile above them.
+	//
+	// There is no route to edit a request, and that absence is a decision. A
+	// pending request cannot be edited, only cancelled and re-asked, which is what
+	// keeps "outstanding" genuinely singular and stops an operator being shown a
+	// figure that changed under them.
+	mux.Handle("GET /api/v1/staff/organization/payout-requests", orgAdmin(http.HandlerFunc(sh.ListPayoutRequests)))
+	mux.Handle("POST /api/v1/staff/organization/payout-requests", orgAdmin(http.HandlerFunc(sh.SubmitPayoutRequest)))
+	mux.Handle("POST /api/v1/staff/organization/payout-requests/{requestId}/cancel", orgAdmin(http.HandlerFunc(sh.CancelPayoutRequest)))
 
 	mux.Handle("GET /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.ListMembers)))
 	mux.Handle("POST /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.AddMember)))

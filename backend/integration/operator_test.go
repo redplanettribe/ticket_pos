@@ -93,9 +93,16 @@ type operatorOrganizationDetail struct {
 		Currency  string `json:"currency"`
 		CreatedAt string `json:"created_at"`
 	} `json:"organization"`
-	WithdrawableBalanceCents int              `json:"withdrawable_balance_cents"`
-	Events                   []operatorEvent  `json:"events"`
-	Payouts                  []operatorPayout `json:"payouts"`
+	WithdrawableBalanceCents int `json:"withdrawable_balance_cents"`
+	// PayableBalanceCents is what the Organization may ask for today (#174,
+	// ADR 0026). Exercised in payable_balance_test.go.
+	PayableBalanceCents int              `json:"payable_balance_cents"`
+	Events              []operatorEvent  `json:"events"`
+	Payouts             []operatorPayout `json:"payouts"`
+	// PayoutRequests is this Organization's own request history, newest first,
+	// beside the payout history it answers "are they asking again?" against
+	// (#176, ADR 0026). Exercised in operator_payout_requests_test.go.
+	PayoutRequests []operatorPayoutRequestRow `json:"payout_requests"`
 }
 
 // seedPlatformOperator grants operator authority the only way it is ever

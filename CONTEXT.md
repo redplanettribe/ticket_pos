@@ -60,13 +60,13 @@ An authorization granting an Integration Partner org-wide access to an Organizat
 _Avoid_: API key, connection, webhook
 
 **Platform Operator**:
-A person who runs the platform itself, with read authority spanning every Organization and the authority to assert what the platform's money did: recording Payouts, and recording an Operator Reversal against any Online Sale.
+A person who runs the platform itself, with read authority spanning every Organization and the authority to assert what the platform's money did: recording Payouts — whether answering a Payout Request or not — and recording an Operator Reversal against any Online Sale.
 Granted by presence on the operator allowlist, keyed by email; exercised through an ordinary Staff Session.
 Orthogonal to Membership — a Platform Operator need not be a Member of any Organization, and being an Org Admin grants no operator authority.
 _Avoid_: Platform admin, super admin, site admin, root
 
 **Operator Dashboard**:
-The Platform Operator's surface inside the staff app: every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, where Payouts are recorded, and where a Ticket Sale is looked up by its Sale Confirmation reference — across every Organization — to be read or reversed as an Operator Reversal.
+The Platform Operator's surface inside the staff app: every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, where Payouts are recorded, where the outstanding Payout Requests of every Organization queue up to be answered, and where a Ticket Sale is looked up by its Sale Confirmation reference — across every Organization — to be read or reversed as an Operator Reversal.
 Does not exist for non-operators.
 _Avoid_: Admin panel, back office, console
 
@@ -261,12 +261,33 @@ What an Online Sale leaves for the Organization once the Platform Fee and Fee IV
 _Avoid_: Net revenue, earnings, take-home
 
 **Payout**:
-A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it; Organizations do not yet request Payouts themselves. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
+A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
+May answer a Payout Request or stand alone: an Organization that asked is settled by fulfilling its request, and one that asked through some other conversation is settled by recording the Payout directly. Neither route changes what a Payout is.
 _Avoid_: Withdrawal, transfer, disbursement, settlement run
 
+**Payout Request**:
+An Org Admin's ask to be paid a stated amount, which a Platform Operator answers by transferring the money off-platform and recording the Payout. An ask, not money: it moves nothing, and no figure in the system counts it.
+Bounded by the Payable Balance when it is made, and only then — the balance moves afterwards, and the operator at the bank decides what to do about that.
+Carries a snapshot of the Payout Profile as it stood when the request was made, so the account an operator was told to pay is readable forever, whatever the Organization's details became later.
+An Organization may have only one outstanding at a time. It ends paid, declined with a reason its asker can read, or cancelled by the Organization; all three are final, and a fresh ask is a fresh request.
+_Avoid_: Withdrawal request, payout order, disbursement request, cash-out
+
+**Payout Profile**:
+Where an Organization is paid: the bank, the account and its type, the name on it, and the Organization's own Tax ID for the factura. Set by an Org Admin, read by Platform Operators, and by nobody else — it never reaches an Event's staff or any Customer-facing surface.
+One per Organization, current rather than historical: it says where to pay today. What a given Payout Request was told to pay is the snapshot on that request.
+Its Tax ID identifies the Organization being paid, not a buyer — the same two words as a Customer's Tax ID, about a different person entirely, and never a passport, because the beneficiary holds an Ecuadorian bank account.
+_Avoid_: Bank details, payment method, payout account, billing info
+
 **Withdrawable Balance**:
-The money an Organization can currently be paid: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. Signed, not clamped — a sale reversed after it was paid out leaves the Organization owing the platform, and the figure says so. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what can be withdrawn."
+What the platform owes an Organization: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. Signed, not clamped — a sale reversed after it was paid out leaves the Organization owing the platform, and the figure says so. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what has the platform yet to hand over".
+What is owed, not what can be asked for today: money the platform holds but has not yet cleared is owed all the same. The Payable Balance is the part that can be asked for.
 _Avoid_: Available funds, wallet, account balance
+
+**Payable Balance**:
+The part of the Withdrawable Balance an Organization may ask for now: the same figure counting only sales that have cleared — recorded before today in Ecuador, with no Reversal Request still open on them.
+Cleared sales are a subset of all sales, so it never exceeds the Withdrawable Balance, and the gap between the two is simply money that has not settled yet.
+Waiting for the day to turn is what makes a sale safe to hand over: the Reversal Window shuts at 20:00 at the latest, so a sale from a previous day can no longer be undone by its buyer. It defends against the Customer, not against the platform — an Operator Reversal can undo any sale at any time, and one arriving after a settlement drives the Withdrawable Balance negative.
+_Avoid_: Available balance, cleared balance, settled funds, ready-to-withdraw
 
 **Affiliate Link**:
 A named, trackable link to an Event's page that an Org Admin or Event Owner creates to attribute Online Sales to whoever is promoting the Event — a person, a channel, or a campaign ("María's Instagram", "Radio spot").
@@ -340,6 +361,7 @@ _Avoid_: Profile picture, photo, user image, logo
 The identification a Customer supplies for tax declarations: a Tax ID Type and its number.
 The Customer holds their one current Tax ID — editable and clearable by the person, and not an identity: Customers are identified by email, and the same Tax ID may appear on several Customers. Each Ticket Sale immutably records the Tax ID it was transacted under, which may differ from the Customer's stored one.
 Required to record a Ticket Sale on the native Sales Channels (`online`, `in_person`); optional on `import`, where the sale happened elsewhere and the ID may never have been collected. A fact of the sale's buyer, never of an individual attendee.
+An Organization's own identification on its Payout Profile is a Tax ID too, validated the same way. It answers a different question — who the platform is paying and invoicing — and the two never mix.
 _Avoid_: ID number, identification, cédula (as the generic term), document number, national ID
 
 **Phone Number**:

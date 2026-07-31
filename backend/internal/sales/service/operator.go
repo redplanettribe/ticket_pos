@@ -56,17 +56,28 @@ type RecordPayoutInput struct {
 	RecordedBy  string
 }
 
-// WithdrawableBalance returns one Organization's Withdrawable Balance, signed.
-func (s *Service) WithdrawableBalance(ctx context.Context, orgID string) (int, error) {
-	balance, err := s.repo.GetOrganizationBalance(ctx, orgID)
+// OrganizationBalances returns one Organization's Withdrawable and Payable
+// Balances, both signed, for the operator's drill-down.
+//
+// The operator sees both for the same reason the Organization does, and one
+// reason more: an operator settling a Payout Request is the last person who can
+// notice that the figure asked against has moved since the ask, and the smaller
+// number is the one that says whether the money has cleared (ADR 0026). Neither
+// figure ever gates the operator's write — a Payout is a record of money that
+// already moved, and recording it is unconditional (ADR 0015).
+func (s *Service) OrganizationBalances(ctx context.Context, orgID string) (OrganizationBalances, error) {
+	balance, err := s.organizationBalance(ctx, orgID)
 	if err != nil {
-		return 0, err
+		return OrganizationBalances{}, err
 	}
-	return balance.NetProceedsCents - balance.PaidOutCents, nil
+	return balances(balance), nil
 }
 
 // WithdrawableBalances returns the signed Withdrawable Balance of each given
-// Organization, for the operator's Organization list.
+// Organization, for the operator's Organization list. The list shows the one
+// figure by design: it is a directory of what the platform owes, and the Payable
+// Balance is a per-Organization question answered on the drill-down where the
+// gap between the two can be explained.
 func (s *Service) WithdrawableBalances(ctx context.Context, orgIDs []string) (map[string]int, error) {
 	return s.repo.BalancesByOrganizationIDs(ctx, orgIDs)
 }

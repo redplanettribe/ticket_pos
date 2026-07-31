@@ -43,6 +43,34 @@ type EnvelopeSalesSummary struct {
 	RequestID string               `json:"request_id"`
 }
 
+// EnvelopePayoutProfile documents GET and PUT /staff/organization/payout-profile
+// success responses. The data is nullable in practice — an Organization that has
+// never recorded a Payout Profile reads back `null` — which the generated schema
+// cannot say and the endpoint's description does.
+type EnvelopePayoutProfile struct {
+	Data      service.PayoutProfile `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
+// EnvelopePayoutRequest documents POST /staff/organization/payout-requests and
+// the cancel route's success responses. The 201/200 distinction on the
+// submission — recorded, versus the outstanding request handed back — is carried
+// by the status code rather than the body, which is the same shape either way.
+type EnvelopePayoutRequest struct {
+	Data      service.PayoutRequest `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
+// EnvelopePayoutRequests documents GET /staff/organization/payout-requests
+// success responses: the Organization's own request history, newest first.
+type EnvelopePayoutRequests struct {
+	Data      []service.PayoutRequest `json:"data"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
+}
+
 // EnvelopePayoutsSummary documents GET /staff/organization/payouts success responses.
 type EnvelopePayoutsSummary struct {
 	Data      service.PayoutsSummary `json:"data"`

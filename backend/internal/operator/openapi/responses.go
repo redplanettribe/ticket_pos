@@ -39,6 +39,50 @@ type EnvelopeOperatorSaleLookup struct {
 	RequestID string             `json:"request_id"`
 }
 
+// EnvelopeOperatorPayoutRequestQueue documents GET /operator/payout-requests
+// success responses: the ADR-0006 nested envelope inside the standard one. The
+// account numbers on these rows are masked (#176).
+type EnvelopeOperatorPayoutRequestQueue struct {
+	Data      service.PayoutRequestQueue `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}
+
+// EnvelopeOperatorPendingPayoutRequestCount documents GET
+// /operator/payout-requests/count success responses.
+type EnvelopeOperatorPendingPayoutRequestCount struct {
+	Data      service.PendingPayoutRequestCount `json:"data"`
+	Error     *platform.APIError                `json:"error"`
+	RequestID string                            `json:"request_id"`
+}
+
+// EnvelopeOperatorPayoutRequestDetail documents GET
+// /operator/payout-requests/{requestID} success responses — the one payload on
+// this surface that carries a whole account number.
+type EnvelopeOperatorPayoutRequestDetail struct {
+	Data      service.PayoutRequestDetail `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
+// EnvelopeOperatorPayoutFulfilment documents POST
+// /operator/payout-requests/{requestID}/fulfil success responses: the Payout
+// that is now in the ledger, and the request it answered (#177).
+type EnvelopeOperatorPayoutFulfilment struct {
+	Data      service.PayoutFulfilment `json:"data"`
+	Error     *platform.APIError       `json:"error"`
+	RequestID string                   `json:"request_id"`
+}
+
+// EnvelopeOperatorPayoutRequest documents POST
+// /operator/payout-requests/{requestID}/decline success responses: the request
+// as it now stands, carrying the reason the Organization will read.
+type EnvelopeOperatorPayoutRequest struct {
+	Data      service.PayoutRequestWhole `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}
+
 // EnvelopeOperatorSaleReversal documents POST
 // /operator/sales/{confirmationRef}/reverse success responses.
 type EnvelopeOperatorSaleReversal struct {

@@ -21,6 +21,12 @@ import (
 type ActorContext struct {
 	MemberID       string
 	OrganizationID string
+	// Email is the acting Member's email, and it is here for the one kind of
+	// record that must outlive a Membership: a Payout Request names its asker as
+	// an email, exactly as payouts.recorded_by names its recorder (ADR 0026). A
+	// member id would go dangling the day that person left, taking with it the
+	// answer to who asked for the money.
+	Email string
 }
 
 // ImportSaleInput is one Direct Sale row to record.
@@ -113,11 +119,32 @@ type AffiliateLinkResolver interface {
 	ResolveLiveCode(ctx context.Context, eventID, code string) (string, error)
 }
 
+// PlatformOperators is what sales needs from identity in order to tell the
+// Platform Operators that an Organization has asked to be paid (#179, ADR 0026):
+// the allowlist, read as a list of addresses.
+//
+// The seam is one method wide on purpose. Sales knows nothing about how operator
+// authority is granted — there is no role and no row to update, only presence on
+// the allowlist (ADR 0015) — and asking identity for the addresses rather than
+// reading `platform_operators` itself is what keeps who is NOTIFIED and who is
+// AUTHORISED the same set, decided in one module.
+//
+// It is implemented by the identity service, so the cross-module call goes
+// through a service exactly as CustomerService and AffiliateLinkResolver do.
+type PlatformOperators interface {
+	PlatformOperatorEmails(ctx context.Context) ([]string, error)
+}
+
 // Service implements sales business rules.
 type Service struct {
 	repo      *repository.Repository
 	customers CustomerService
 	email     platform.EmailSender
+	// operators is the operator allowlist, read only to address the notice that
+	// an Organization has asked to be paid. Optional: unset, the submission
+	// notice is skipped and nothing else changes — which is what makes it safe
+	// for any test that builds this service by hand.
+	operators PlatformOperators
 	// provider collects money for Online Sales behind the provider-agnostic
 	// Payment Provider boundary (ADR 0012); see checkout.go.
 	provider platform.PaymentProvider
@@ -161,6 +188,19 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithPlatformOperators supplies the operator allowlist, so a submitted Payout
+// Request reaches the people who can answer it (#179).
+//
+// Applied after construction rather than added to New's arguments because it
+// serves one notice on one path, and a constructor that grows a parameter per
+// email would be a constructor nobody can read. Without it, submission behaves
+// exactly as it did before #179: the request is recorded and the operator's
+// pending-count badge is the only thing that says so.
+func (s *Service) WithPlatformOperators(operators PlatformOperators) *Service {
+	s.operators = operators
 	return s
 }
 
