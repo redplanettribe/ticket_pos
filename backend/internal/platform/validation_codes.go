@@ -117,6 +117,14 @@ const (
 	CodeInvalidImportSource = "INVALID_IMPORT_SOURCE"
 	// CodeInvalidPaymentMethod — "must be 'cash' or 'transfer'".
 	CodeInvalidPaymentMethod = "INVALID_PAYMENT_METHOD"
+	// CodeInvalidAccountType — "must be ahorros or corriente". The Payout
+	// Profile's bank account type, in Spanish because that is the word on the
+	// receiving bank's own form (ADR 0025).
+	CodeInvalidAccountType = "INVALID_ACCOUNT_TYPE"
+	// CodeInvalidAccountNumber — "must contain digits only". A Payout Profile
+	// account number after its spaces and dashes have been stripped; separate
+	// from CodeTooLong, which is the other way the same field is refused.
+	CodeInvalidAccountNumber = "INVALID_ACCOUNT_NUMBER"
 	// CodeInvalidEnum — "must be one of …", where the accepted set is built at
 	// runtime. The set is in the message because it is not in the code.
 	CodeInvalidEnum = "INVALID_ENUM"

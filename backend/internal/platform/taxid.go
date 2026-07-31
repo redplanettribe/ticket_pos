@@ -176,6 +176,33 @@ func TaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string,
 	}
 }
 
+// BeneficiaryTaxIDTypeMessage is the field-level message for a Tax ID Type
+// outside the two a beneficiary may hold. It enumerates them, exactly as
+// TaxIDTypeMessage does for the wider set, and sits beside it so the two
+// vocabularies are read together rather than discovered separately.
+const BeneficiaryTaxIDTypeMessage = "must be cedula or ruc"
+
+// BeneficiaryTaxIDFieldErrors is TaxIDFieldErrors narrowed to the party being
+// paid: `cedula` or `ruc`, never `passport` (ADR 0025).
+//
+// The narrowing is about the question being asked, not about rigour. A buyer's
+// Tax ID says how to identify them on a sales declaration, where a foreign
+// tourist's passport is ordinary; a beneficiary's says who is being invoiced and
+// wired to, and a passport holder has no Ecuadorian bank account to receive it.
+//
+// It delegates the number to ValidateTaxID through TaxIDFieldErrors rather than
+// re-deriving anything: the check digits and province prefixes have exactly one
+// definition in this file, and a cédula one surface accepts must never be one
+// another rejects. All this adds is a smaller set of acceptable types, refused
+// on the type field with its own wording, because "must be cedula, ruc, or
+// passport" would be a lie on a Payout Profile.
+func BeneficiaryTaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string, []FieldError) {
+	if taxIDType != TaxIDTypeCedula && taxIDType != TaxIDTypeRUC {
+		return "", []FieldError{{Field: typeField, Code: CodeInvalidTaxIDType, Message: BeneficiaryTaxIDTypeMessage}}
+	}
+	return TaxIDFieldErrors(typeField, numberField, taxIDType, number)
+}
+
 // TaxIDNumberMessage explains a rejected number in the terms of its own Tax ID
 // Type, because "is not valid" tells someone staring at their ID card — or at a
 // spreadsheet cell — nothing about which digit to look at. It is the message

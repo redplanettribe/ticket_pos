@@ -43,6 +43,16 @@ type EnvelopeSalesSummary struct {
 	RequestID string               `json:"request_id"`
 }
 
+// EnvelopePayoutProfile documents GET and PUT /staff/organization/payout-profile
+// success responses. The data is nullable in practice — an Organization that has
+// never recorded a Payout Profile reads back `null` — which the generated schema
+// cannot say and the endpoint's description does.
+type EnvelopePayoutProfile struct {
+	Data      service.PayoutProfile `json:"data"`
+	Error     *platform.APIError    `json:"error"`
+	RequestID string                `json:"request_id"`
+}
+
 // EnvelopePayoutsSummary documents GET /staff/organization/payouts success responses.
 type EnvelopePayoutsSummary struct {
 	Data      service.PayoutsSummary `json:"data"`
