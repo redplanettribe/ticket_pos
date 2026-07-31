@@ -12,10 +12,10 @@
 # hold the httpOnly session cookie and proxy onwards using the server-only,
 # runtime API_URL.
 
-FROM node:22-alpine AS base
+FROM node:26-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN npm install -g pnpm@9.15.4
 
 # --- dependencies -----------------------------------------------------------
 # Manifests only, so the install layer is cached until a package.json or the
@@ -48,7 +48,7 @@ RUN pnpm --filter @ticket-pos/staff exec next build
 # Standalone output is laid out relative to outputFileTracingRoot (the
 # workspace root), so the server entrypoint is apps/staff/server.js and the
 # traced workspace packages sit alongside it under packages/.
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
