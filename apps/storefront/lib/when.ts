@@ -33,10 +33,15 @@ export function whenToRange(
       return { from: now.toISOString(), to: to.toISOString() };
     }
     case "weekend": {
-      // The coming Saturday 00:00 through Sunday 23:59:59 (local server time).
+      // The weekend in progress, or else the coming one: Saturday 00:00 through
+      // Sunday 23:59:59 (local server time).
       const start = new Date(now);
       const day = start.getDay(); // 0 Sun … 6 Sat
-      const daysUntilSaturday = (6 - day + 7) % 7;
+      // Sunday is the back half of a weekend that has already begun, so its
+      // Saturday is yesterday. Wrapping it forward instead — as (6 - day + 7) % 7
+      // does — sends a Customer browsing on Sunday to *next* weekend and hides
+      // everything happening today.
+      const daysUntilSaturday = day === 0 ? -1 : 6 - day;
       start.setDate(start.getDate() + daysUntilSaturday);
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
