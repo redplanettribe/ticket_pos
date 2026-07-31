@@ -31,7 +31,7 @@ import { payableBalanceExplanation } from "@/lib/payable-balance";
 import { formatPaidAtDate } from "@/lib/payouts";
 
 import { OrgLogoImage } from "./org-logo-image";
-import { PayoutProfileForm } from "./payout-profile-form";
+import { PayoutRequestsSection } from "./payout-requests-section";
 
 type Organization = {
   id: string;
@@ -383,8 +383,6 @@ export function SettingsPageClient() {
         onUpdated={(logoUrl) => setOrganization((current) => (current ? { ...current, logo_url: logoUrl } : current))}
       />
 
-      <PayoutProfileForm />
-
       {payouts ? (
         <Card>
           <CardHeader>
@@ -427,6 +425,20 @@ export function SettingsPageClient() {
                 )}
               </p>
             </div>
+
+            {/*
+              Where the money goes, the ask to be paid, and what became of every
+              earlier ask (#175, ADR 0026). It sits between the balances and the
+              payout history because that is the order the questions arrive in:
+              how much do I have, can I have it, and what have I been paid
+              before. It reads the Payable Balance from the summary above rather
+              than fetching its own — two readings of the same money on one page
+              would eventually disagree.
+            */}
+            <PayoutRequestsSection
+              currency={payouts.currency}
+              payableBalanceCents={payouts.payable_balance_cents}
+            />
 
             <div className="space-y-3">
               <p className="text-sm font-medium">Payout history</p>

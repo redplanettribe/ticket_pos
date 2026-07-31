@@ -21,6 +21,12 @@ import (
 type ActorContext struct {
 	MemberID       string
 	OrganizationID string
+	// Email is the acting Member's email, and it is here for the one kind of
+	// record that must outlive a Membership: a Payout Request names its asker as
+	// an email, exactly as payouts.recorded_by names its recorder (ADR 0026). A
+	// member id would go dangling the day that person left, taking with it the
+	// answer to who asked for the money.
+	Email string
 }
 
 // ImportSaleInput is one Direct Sale row to record.

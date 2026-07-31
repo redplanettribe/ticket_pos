@@ -294,6 +294,25 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// account or a factura is.
 	mux.Handle("GET /api/v1/staff/organization/payout-profile", orgAdmin(http.HandlerFunc(sh.GetOrganizationPayoutProfile)))
 	mux.Handle("PUT /api/v1/staff/organization/payout-profile", orgAdmin(http.HandlerFunc(sh.UpdateOrganizationPayoutProfile)))
+	// Asking to be paid: the Payout Request (#175, ADR 0026). Same handler and
+	// the same Org-Admin-only gate as the two above, and the gate is the point
+	// here rather than a convenience.
+	//
+	// INTEGRATION PARTNERS ARE EXCLUDED, deliberately and in advance. Org-wide
+	// programmatic access (V8) is Org-Admin-equivalent for catalog and sales, and
+	// it was never meant to include moving money to a bank account. `orgAdmin`
+	// admits the `org_admin` MEMBER ROLE and nothing else, which is what excludes
+	// them today because a partner credential is not a Membership at all. When
+	// that credential lands, these three routes must NOT be widened to accept it
+	// — nor must the Payout Profile above them.
+	//
+	// There is no route to edit a request, and that absence is a decision. A
+	// pending request cannot be edited, only cancelled and re-asked, which is what
+	// keeps "outstanding" genuinely singular and stops an operator being shown a
+	// figure that changed under them.
+	mux.Handle("GET /api/v1/staff/organization/payout-requests", orgAdmin(http.HandlerFunc(sh.ListPayoutRequests)))
+	mux.Handle("POST /api/v1/staff/organization/payout-requests", orgAdmin(http.HandlerFunc(sh.SubmitPayoutRequest)))
+	mux.Handle("POST /api/v1/staff/organization/payout-requests/{requestId}/cancel", orgAdmin(http.HandlerFunc(sh.CancelPayoutRequest)))
 
 	mux.Handle("GET /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.ListMembers)))
 	mux.Handle("POST /api/v1/staff/members", orgAdmin(http.HandlerFunc(h.AddMember)))

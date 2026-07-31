@@ -125,8 +125,17 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
-	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND":
+	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND":
 		return http.StatusNotFound
+	// The two Payout Request refusals (ADR 0026). Both 409: the request was well
+	// formed and the Org Admin was entitled to make it, and what stands in the way
+	// is a fact about the money or about the request's own state. Asking for more
+	// than has cleared is not a typo the caller can fix by restating the body —
+	// they must ask for less, or wait for the balance to clear — and a request
+	// that has already been paid, declined or cancelled will never be pending
+	// again, so neither is retryable into success.
+	case "PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE", "PAYOUT_REQUEST_NOT_PENDING":
+		return http.StatusConflict
 	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
 	// the caller was entitled to make it, but the catalog is not in a state that
 	// admits it — the one slot is taken, or the price would break the invariant
