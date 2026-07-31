@@ -100,7 +100,9 @@ one rather than erroring blindly. Without it the cap means nothing — three ind
 $1,000 requests against $1,000 payable would put the arithmetic the system refused to do back on
 the operator.
 
-**The states are `pending → paid | declined | cancelled`, and there is no `approved`.** The
+**The states are `pending → paid | declined | cancelled`, and there is no `approved`.** (Amended
+— see *Amendment: the `processing` state* below, which adds `processing` and `failed` and explains
+why they are not the `approved` this paragraph refuses.) The
 operator transfers the money and then records it, exactly as they always have. An `approved`
 request is a promise the platform then has to keep, and it would need its own chasing, its own
 notifications and its own aging report. A decline requires a reason, shown to the asker: a queue
@@ -201,7 +203,9 @@ operations.
 - **An `approved` state between `pending` and `paid`** — an operator accepts, transfers later,
   records later. Rejected as ceremony, in the same terms ADR 0019 used to reject modelling the
   reversal request: it adds states, notifications and a queue ahead of any volume that justifies
-  them, and an approved-but-unpaid request is a debt with a state name.
+  them, and an approved-but-unpaid request is a debt with a state name. (This rejection stands.
+  The `processing` state added by the amendment below is a different thing: it describes a
+  transfer that has already been submitted to the bank, not one an operator intends to make.)
 - **A claim lock so two operators cannot work the same request** — the obvious guard against the
   worst failure this feature has. Rejected in favour of the compare-and-swap, which needs nothing
   held and cannot go stale. It is an honest narrowing rather than a fix: the CAS stops the second
@@ -282,3 +286,134 @@ wrong one.
 **The database holds bank account numbers,** which changes the blast radius of a database
 compromise and of any future logging change. The rule that bank fields never appear in logs or
 error messages is enforced by nothing but review.
+
+## Amendment: the `processing` state
+
+Recorded after the original decision shipped, and amending it rather than superseding it. The
+Decision above stands in full except where this section says otherwise.
+
+### Why
+
+The original state machine assumed a bank transfer either happens or does not, resolving fast
+enough that an operator can transfer and record in one sitting. PayPhone does not work that way.
+A transfer submitted through it can take up to 48 hours to reach the Organization's account, and
+it can come back rejected — most often because the account number is wrong.
+
+That left an operator with no honest state to be in. They had submitted a transfer they could not
+yet confirm, and the only ways forward were to record a Payout for money that had not arrived, or
+to leave the request `pending` and lose track of the fact that a transfer was already out there.
+The first corrupts the ledger; the second is how the same request gets transferred twice.
+
+### What changes
+
+**Two states are added: `processing` and `failed.`**
+
+```
+pending ──→ processing ──→ paid
+   │            └────────→ failed
+   ├──→ paid          (unchanged — an instant transfer skips processing)
+   ├──→ declined
+   └──→ cancelled
+```
+
+`processing` means an operator submitted the transfer and the bank has not confirmed it. `failed`
+means the bank rejected it. Both `paid` and `failed` are terminal, as `declined` and `cancelled`
+already were.
+
+**`processing` is not the `approved` this ADR rejected.** The rejection above was of a state
+recording an operator's *intention* to transfer — a promise the platform then has to keep, needing
+its own chasing and its own aging report. `processing` records something that has already
+happened, in the world, outside the platform's control. The distinction is not stylistic: an
+`approved` request is resolved by the platform doing what it said it would, while a `processing`
+request is resolved by the platform *finding out* what the bank did. Nothing chases it because
+nothing can.
+
+**The ledger is untouched until the transfer is confirmed.** No `payouts` row exists while a
+request is `processing`. A Payout has meant *money that moved* since ADR 0014, and a rejected
+transfer means it did not — so writing the Payout on submission would mean deleting or negating
+ledger rows on failure, and inventing a voided-Payout concept every balance in the system would
+then have to understand. The cost of this choice is stated plainly under Consequences below.
+
+**`processing` counts as outstanding, and "outstanding" stops meaning "pending".** The partial
+unique index widens to `status IN ('pending', 'processing')`. Without this an Organization whose
+transfer has already been submitted could immediately ask again for the same money — the first request would no
+longer be `pending`, and no balance has moved to stop them. This is the single most load-bearing
+line of the amendment.
+
+**Fulfilment's compare-and-swap generalises rather than moves.** The guard becomes `status IN
+('pending', 'processing')`. Everything the original decision says about it is unchanged, including
+that zero rows affected rolls the `payouts` INSERT back, and that it prevents a double *record*
+rather than a double *transfer*.
+
+**`processing` is one-way for both parties.** An Organization cannot cancel a request whose
+transfer has been submitted, and an operator cannot decline one. Cancelling would let an organizer
+withdraw an ask that is thirty seconds from landing, leaving a confirmed transfer with nothing to
+attach it to and the Organization free to ask again for money already on its way. An operator who
+enters `processing` by mistake marks it `failed` with a reason saying so.
+
+**A `failed` request is not retried; the Organization asks again.** The bank details on a request
+are a frozen snapshot and a request cannot be edited, so the most common failure — a wrong account
+number — is unfixable inside the request it happened to. Reopening it to `pending` would have an
+operator retrying against the same bad details forever. The organizer corrects their Payout
+Profile and submits a fresh ask.
+
+**`failed` is distinct from `declined` and the reason column is renamed to `resolution_reason`.**
+A decline is a judgement a person made; a failure is a bank sending money back. Collapsing them
+would tell an organizer with a typo that the platform refused them, and would make every
+decline-rate figure count bank errors as refusals. The rename is a breaking change to a response
+body, taken deliberately while the only consumer is the staff app, whose client is generated from
+this server and deploys with it.
+
+**`processing` records its own who-and-when, plus an optional transfer reference.** The operator
+who submits and the operator who confirms need not be the same person, and `resolved_by` must keep
+meaning who *ended* it. The reference is whatever the bank hands back, optional because it is not
+always given synchronously and a required field an operator cannot fill is a field they will type
+`-` into. It stays on the request rather than on the Payout, which is shared with the direct path.
+
+**A request `processing` for more than 72 hours is flagged as stale on the operator queue,
+computed at read time.** No column, no job, no automated state change. ADR 0024 built a reconciler
+for Sale Reversals because there was an API to poll for a definite answer; here the operator learns
+the outcome by looking at PayPhone or hearing from the organizer, and an automated job with nothing
+to ask has nothing to do. The threshold is 72 rather than 48 because 48 is the advertised worst
+case, and a flag that fires on healthy transfers stops being read.
+
+**No balance is re-checked at any transition.** Unchanged from the original decision — request-time
+validation is a guardrail, not an invariant — and it matters more now, because a request can sit
+outstanding for three days rather than one.
+
+### Consequences of the amendment
+
+**An Organization's Withdrawable Balance overstates what the platform holds for up to 48 hours.**
+Money genuinely gone from the platform's account has no `payouts` row until it is confirmed. This
+is not a new class of inaccuracy — a `pending` request has always had it — but the window is now
+days rather than hours, and it is the price of never recording a Payout for money that might come
+back.
+
+**A crashed or forgotten `processing` request is invisible to everything but a human.** There is
+no reconciler and no timeout. The 72-hour flag is the only backstop, and it works exactly as long
+as somebody reads the queue.
+
+**`outstanding` and `pending` are now different words for different things,** in a codebase where
+they were interchangeable for the whole of the original feature's life. Every future reader adding
+a query about unanswered requests has to know which they mean; the glossary says so, and the partial
+unique index is the definition of record.
+
+**None of the copy this amendment adds is covered by a test that renders it.** The repository has no
+component-testing seam — no jsdom, no Testing Library, no renderer for a React Server Component —
+and this amendment deliberately did not introduce one, because a first component-testing setup is
+its own decision and not a rider on a payout state. So the pure helpers are tested directly under
+`node --test` (`apps/staff/lib/payout-requests.test.ts`, `payouts.test.ts`) and the payloads those
+helpers read are tested end to end in Go, but the wiring between them is covered only by reading
+it. Specifically, NOTHING ASSERTS:
+
+- that the organizer's outstanding-request card renders the transfer sentence
+  (`transferSentSentence`) when the request is `processing`;
+- that the cancel button is really absent while a request is `processing`, as opposed to
+  `isCancellable` merely returning false;
+- that the failure banner's button really opens the Payout Profile editor;
+- that the operator's mark-processing confirmation dialog really says no Payout is written and the
+  ledger is untouched.
+
+Each of those is a sentence a reader has to check by eye, and each would survive a refactor that
+dropped it. The helpers below them and the API above them would both stay green. Whoever adds the
+first component test to this repository should start here.

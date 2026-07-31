@@ -47,13 +47,20 @@ export function exceedsWithdrawableBalance(amountCents: number, balanceCents: nu
  *
  * Nor does recording directly close anything: a $200 direct Payout and a $900
  * outstanding request are probably not the same event, so the request stays
- * `pending` and this helper will warn again next time. Blocking and auto-closing
- * are both options ADR 0026 considered and rejected.
+ * outstanding and this helper will warn again next time. Blocking and
+ * auto-closing are both options ADR 0026 considered and rejected.
  *
  * At most one request can be outstanding — a partial unique index says so — but
  * this takes the whole history and finds it rather than trusting the caller to
  * have filtered, because the Organization detail payload carries every ask the
  * Organization ever made, answered ones included.
+ *
+ * What counts as outstanding is isOutstanding's to say and this function's to
+ * ask. The question here is genuinely "is this Organization waiting on money?" —
+ * NOT "has anybody looked at their ask yet?" — because the mistake being
+ * defended against is paying twice, and an Organization whose transfer is
+ * already been submitted is the case where double-paying is concrete rather than
+ * theoretical (#181). So it widens with the definition, deliberately.
  */
 export function outstandingPayoutRequest<T extends { status: string }>(
   requests: readonly T[],

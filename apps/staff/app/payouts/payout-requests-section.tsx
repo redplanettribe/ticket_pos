@@ -6,7 +6,15 @@ import { Button, FormField, Input, toast } from "@ticket-pos/ui";
 
 import { formatPriceCents, parsePriceToCents } from "@/lib/events-api";
 import { maskAccountNumber, normalizeAccountNumber } from "@/lib/payout-profile";
-import { isOutstanding, payoutRequestAmountProblem, payoutRequestStatusLabel } from "@/lib/payout-requests";
+import {
+  TRANSFER_FAILED_NEXT_STEP,
+  isCancellable,
+  isOutstanding,
+  payoutRequestAmountProblem,
+  payoutRequestStatusLabel,
+  resolutionSentence,
+  transferSentSentence,
+} from "@/lib/payout-requests";
 
 import {
   type APIEnvelope,
@@ -39,6 +47,15 @@ import {
 
 const PAYOUT_REQUESTS_PATH = "/api/settings/organization/payout-requests";
 
+/**
+ * Where a failed request sends the organizer. The Payout Profile lives at the
+ * top of this same section, so the "next step" after a bounced transfer is an
+ * anchor rather than a route — and the button that uses it opens the editor as
+ * well as scrolling to it, because arriving at a read-only summary of the
+ * account number that was just rejected is not the point.
+ */
+const BANK_DETAILS_ANCHOR = "payout-bank-details";
+
 type PayoutRequestProfileSnapshot = {
   bank_name: string;
   account_type: string;
@@ -59,11 +76,22 @@ type PayoutRequest = {
   payable_balance_cents: number;
   /** Where this ask said to pay. A later profile edit does not touch it. */
   payout_profile: PayoutRequestProfileSnapshot;
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
+  /** When an operator sent the transfer. Null until one is submitted (#187). */
+  transfer_submitted_at: string | null;
 };
+
+/**
+ * How this section renders a date, in the viewer's own locale, passed into the
+ * pure helpers that write prose around one. Stated once so the date under
+ * "Processing" and the date on every history row are the same rendering.
+ */
+function formatDate(date: Date): string {
+  return date.toLocaleDateString();
+}
 
 async function callRequests<T>(path: string, init?: RequestInit): Promise<T | null> {
   const response = await fetch(path, {
@@ -135,6 +163,9 @@ export function PayoutRequestsSection({
   }, [load]);
 
   const outstanding = requests.find((request) => isOutstanding(request.status)) ?? null;
+  const transferSentence = outstanding
+    ? transferSentSentence(outstanding.transfer_submitted_at, formatDate)
+    : null;
 
   function updateField(field: keyof PayoutProfileFormValues, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -235,10 +266,29 @@ export function PayoutRequestsSection({
       toast.success("Payout request cancelled");
       await load();
     } catch (error) {
+      // The refusal is the server's own sentence, and applyError shows it
+      // verbatim. An organizer who pressed cancel a moment too late is told
+      // "your transfer is already being processed and can no longer be
+      // cancelled" — the true, useful answer — rather than a generic conflict.
       applyError(error, "Failed to cancel the payout request");
+      // And the page catches up with what it just learned: the request moved on
+      // while this tab was looking at it, so the button that was pressed should
+      // not still be there afterwards.
+      await load();
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Opens the Payout Profile editor, which is the bank details block at the top
+   * of this same section — the next step after a transfer bounced, and the
+   * reason the failure's button is a button rather than a link. The profile is
+   * not a page to navigate to; it is three inches up, already loaded.
+   */
+  function editBankDetails() {
+    setEditingBankDetails(true);
+    document.getElementById(BANK_DETAILS_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   if (loading) {
@@ -250,7 +300,7 @@ export function PayoutRequestsSection({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-3">
+      <div className="space-y-3" id={BANK_DETAILS_ANCHOR}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-sm font-medium">Bank details</p>
           {profile && !editingBankDetails ? (
@@ -292,30 +342,55 @@ export function PayoutRequestsSection({
           // A pending request cannot be edited, only cancelled and re-asked.
           // That is what keeps "outstanding" singular, and it means nobody at
           // the platform is ever looking at a figure that changed under them.
+          //
+          // Outstanding is two states now, and the whole reason this feature
+          // exists is that they are different news: `pending` is "nobody has
+          // looked at this yet" and `processing` is "your money is on its way"
+          // (#181). Everything below that differs between them differs because
+          // of that sentence.
           <div className="space-y-3 rounded-md border p-4">
             <p className="font-medium tabular-nums">
               {formatPriceCents(outstanding.amount_cents, currency)} requested
+              {outstanding.status === "processing"
+                ? ` — ${payoutRequestStatusLabel(outstanding.status)}`
+                : null}
             </p>
             {outstanding.note ? (
               <p className="text-sm text-muted-foreground">{outstanding.note}</p>
             ) : null}
             <p className="text-sm text-muted-foreground">
-              Asked for on {new Date(outstanding.requested_at).toLocaleDateString()} by{" "}
-              {outstanding.requested_by}, paying to {outstanding.payout_profile.bank_name}{" "}
-              {maskAccountNumber(outstanding.payout_profile.account_number)}. We will be in touch once it has
-              been paid.
+              Asked for on {formatDate(new Date(outstanding.requested_at))} by {outstanding.requested_by},
+              paying to {outstanding.payout_profile.bank_name}{" "}
+              {maskAccountNumber(outstanding.payout_profile.account_number)}.
+              {outstanding.status === "processing" ? null : " We will be in touch once it has been paid."}
             </p>
-            <p className="text-sm text-muted-foreground">
-              To ask for a different amount, cancel this request and make a new one.
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void cancelRequest(outstanding.id)}
-            >
-              Cancel request
-            </Button>
+            {isCancellable(outstanding.status) ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  To ask for a different amount, cancel this request and make a new one.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void cancelRequest(outstanding.id)}
+                >
+                  Cancel request
+                </Button>
+              </>
+            ) : (
+              // THE CANCEL BUTTON IS REPLACED BY THIS SENTENCE, not merely
+              // removed. A button that vanishes with nothing in its place reads
+              // as a page that lost something; the sentence says what took it
+              // away, and the date in it is what lets an organizer tell whether
+              // the 48 hours they were promised have already run out.
+              // A null sentence means the date is missing, and the helper's
+              // header says why nothing at all is better than a dateless
+              // reassurance.
+              transferSentence !== null ? (
+                <p className="text-sm text-muted-foreground">{transferSentence}</p>
+              ) : null
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -356,35 +431,66 @@ export function PayoutRequestsSection({
           <p className="text-sm text-muted-foreground">No payout requests yet.</p>
         ) : (
           <div className="space-y-3">
-            {requests.map((request) => (
-              <div
-                key={request.id}
-                className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-start sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium tabular-nums">
-                    {formatPriceCents(request.amount_cents, currency)}
-                  </p>
-                  {request.note ? <p className="text-sm text-muted-foreground">{request.note}</p> : null}
-                  {/* A decline always carries its reason: a queue that refuses
-                      silently generates the support thread it was built to
-                      prevent (ADR 0026). */}
-                  {request.decline_reason ? (
-                    <p className="text-sm text-destructive">Declined: {request.decline_reason}</p>
-                  ) : null}
-                  <p className="text-sm text-muted-foreground">
-                    Paying to {request.payout_profile.bank_name}{" "}
-                    {maskAccountNumber(request.payout_profile.account_number)}
-                  </p>
+            {requests.map((request) => {
+              const resolution = resolutionSentence(request.status, request.resolution_reason);
+              return (
+                <div
+                  key={request.id}
+                  className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div>
+                    <p className="font-medium tabular-nums">
+                      {formatPriceCents(request.amount_cents, currency)}
+                    </p>
+                    {request.note ? <p className="text-sm text-muted-foreground">{request.note}</p> : null}
+                    {/* A decline always carries its reason: a queue that refuses
+                        silently generates the support thread it was built to
+                        prevent (ADR 0026). A failure carries one too, in the same
+                        column and NEVER in the same words — resolutionSentence is
+                        where that distinction is kept, and its header says why it
+                        matters more than it looks. */}
+                    {resolution ? <p className="text-sm text-destructive">{resolution}</p> : null}
+                    {/* A failed request is the one state with something for the
+                        organizer to DO, and it only ever appears here: a failure
+                        is terminal, so it is not the outstanding request above.
+                        The next step travels with the news. */}
+                    {request.status === "failed" ? (
+                      <p className="text-sm text-muted-foreground">
+                        {TRANSFER_FAILED_NEXT_STEP}{" "}
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 align-baseline"
+                          onClick={editBankDetails}
+                        >
+                          Check your bank details
+                        </Button>
+                      </p>
+                    ) : null}
+                    <p className="text-sm text-muted-foreground">
+                      Paying to {request.payout_profile.bank_name}{" "}
+                      {maskAccountNumber(request.payout_profile.account_number)}
+                    </p>
+                  </div>
+                  <div className="sm:text-right">
+                    <p className="text-sm font-medium">{payoutRequestStatusLabel(request.status)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {formatDate(new Date(request.requested_at))}
+                    </p>
+                    {/* The date the transfer was sent, beside the date it was
+                        asked for. On a processing row it is the checkable half of
+                        the sentence above; on a failed one it is when the money
+                        went out before it came back. */}
+                    {request.transfer_submitted_at ? (
+                      <p className="text-sm text-muted-foreground">
+                        Sent {formatDate(new Date(request.transfer_submitted_at))}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="sm:text-right">
-                  <p className="text-sm font-medium">{payoutRequestStatusLabel(request.status)}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(request.requested_at).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -458,8 +458,8 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
                     {request.note ? (
                       <p className="text-sm text-muted-foreground">{request.note}</p>
                     ) : null}
-                    {request.decline_reason ? (
-                      <p className="text-sm text-destructive">Declined: {request.decline_reason}</p>
+                    {request.resolution_reason ? (
+                      <p className="text-sm text-destructive">Declined: {request.resolution_reason}</p>
                     ) : null}
                     <p className="text-sm text-muted-foreground">
                       Paying to {request.payout_profile.bank_name}{" "}

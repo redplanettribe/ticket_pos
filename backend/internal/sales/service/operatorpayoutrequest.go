@@ -70,13 +70,28 @@ type OperatorPayoutRequest struct {
 	// deliberately leaves to the operator (ADR 0026).
 	PayableBalanceCents int                          `json:"payable_balance_cents"`
 	PayoutProfile       OperatorPayoutRequestProfile `json:"payout_profile"`
-	// The answer, all null while the request is pending. They are carried here
+	// The answer, all null while the request is outstanding. They are carried here
 	// because this shape also renders an Organization's request HISTORY, where
 	// most rows have been answered (#177 fills them in).
-	DeclineReason *string    `json:"decline_reason"`
-	ResolvedBy    *string    `json:"resolved_by"`
-	ResolvedAt    *time.Time `json:"resolved_at"`
-	PayoutID      *string    `json:"payout_id"`
+	ResolutionReason *string    `json:"resolution_reason"`
+	ResolvedBy       *string    `json:"resolved_by"`
+	ResolvedAt       *time.Time `json:"resolved_at"`
+	PayoutID         *string    `json:"payout_id"`
+	// The transfer, as the queue reads it (#186).
+	//
+	// These are not bank details and this is not a widening of what a list may
+	// carry: who submitted a transfer is an OPERATOR's email, the instant is the
+	// platform's own clock, and the reference is the string PayPhone handed back
+	// to identify a transfer — none of them names the account it went to. The
+	// masking rule is unchanged and unchangeable from here; it lives on
+	// PayoutProfile below and is applied by sales.MaskAccountNumber.
+	TransferSubmittedBy *string    `json:"transfer_submitted_by"`
+	TransferSubmittedAt *time.Time `json:"transfer_submitted_at"`
+	TransferReference   *string    `json:"transfer_reference"`
+	// TransferStale is the 72-hour flag, computed at read time from the injected
+	// clock and stored nowhere — the queue's one piece of arithmetic, and the
+	// backstop for a transfer that quietly died (ADR 0026 amendment).
+	TransferStale bool `json:"transfer_stale"`
 }
 
 // PendingPayoutRequests returns one page of every outstanding Payout Request on
@@ -89,7 +104,7 @@ func (s *Service) PendingPayoutRequests(ctx context.Context, page, pageSize int)
 	if err != nil {
 		return nil, 0, err
 	}
-	return operatorPayoutRequestViews(rows), total, nil
+	return s.operatorPayoutRequestViews(rows), total, nil
 }
 
 // PendingPayoutRequestCount is the backlog as one number, for the badge on the
@@ -113,7 +128,7 @@ func (s *Service) OrganizationPayoutRequestHistory(ctx context.Context, orgID st
 	if err != nil {
 		return nil, err
 	}
-	return operatorPayoutRequestViews(rows), nil
+	return s.operatorPayoutRequestViews(rows), nil
 }
 
 // PayoutRequestForOperator returns one Payout Request whole — the snapshot bank
@@ -128,7 +143,7 @@ func (s *Service) OrganizationPayoutRequestHistory(ctx context.Context, orgID st
 // caller both mean "no such request at this path". A request that has already
 // been answered is returned like any other — the queue drops it, and the record
 // of what happened does not vanish with it.
-func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string) (*PayoutRequest, error) {
+func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string) (*OperatorPayoutRequestWhole, error) {
 	if _, err := uuid.Parse(requestID); err != nil {
 		return nil, sales.ErrPayoutRequestNotFound()
 	}
@@ -139,13 +154,18 @@ func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string
 	if row == nil {
 		return nil, sales.ErrPayoutRequestNotFound()
 	}
-	return payoutRequestView(*row), nil
+	return s.payoutRequestWholeView(*row), nil
 }
 
-func operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPayoutRequest {
+func (s *Service) operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPayoutRequest {
 	out := make([]OperatorPayoutRequest, 0, len(rows))
+	// One instant for the whole page, so two rows submitted in the same second
+	// cannot fall on opposite sides of the threshold because the clock ticked
+	// mid-loop. A queue that reordered its own flags between rows would be a bug
+	// nobody could reproduce.
+	now := s.now()
 	for _, row := range rows {
-		out = append(out, operatorPayoutRequestView(row))
+		out = append(out, operatorPayoutRequestView(row, now))
 	}
 	return out
 }
@@ -153,7 +173,10 @@ func operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPa
 // operatorPayoutRequestView renders a stored request for a list. Every list
 // entry point goes through it, so the queue and an Organization's history can
 // never mask a number differently — or, worse, one of them not at all.
-func operatorPayoutRequestView(row repository.PayoutRequestRow) OperatorPayoutRequest {
+//
+// The instant is passed in rather than read here, because the caller renders a
+// whole page against one reading of the clock.
+func operatorPayoutRequestView(row repository.PayoutRequestRow, now time.Time) OperatorPayoutRequest {
 	return OperatorPayoutRequest{
 		ID:                  row.ID,
 		OrganizationID:      row.OrganizationID,
@@ -172,10 +195,17 @@ func operatorPayoutRequestView(row repository.PayoutRequestRow) OperatorPayoutRe
 			AccountNumberMasked: sales.MaskAccountNumber(row.Profile.AccountNumber),
 			AccountHolderName:   row.Profile.AccountHolderName,
 		},
-		DeclineReason: row.DeclineReason,
-		ResolvedBy:    row.ResolvedBy,
-		ResolvedAt:    row.ResolvedAt,
-		PayoutID:      row.PayoutID,
+		ResolutionReason:    row.ResolutionReason,
+		ResolvedBy:          row.ResolvedBy,
+		ResolvedAt:          row.ResolvedAt,
+		PayoutID:            row.PayoutID,
+		TransferSubmittedBy: row.TransferSubmittedBy,
+		TransferSubmittedAt: row.TransferSubmittedAt,
+		TransferReference:   row.TransferReference,
+		// The SAME predicate the detail view uses, so the queue and the request an
+		// operator opens from it can never disagree about whether a transfer is
+		// stale (payoutTransferStale, beside the other renderer).
+		TransferStale: payoutTransferStale(row, now),
 	}
 }
 
@@ -215,8 +245,46 @@ type FulfilPayoutRequestInput struct {
 // — while the request is the queue's answer, carrying the payout_id that is the
 // single link between the two.
 type FulfilledPayoutRequest struct {
-	Payout  OperatorPayout `json:"payout"`
-	Request PayoutRequest  `json:"request"`
+	Payout  OperatorPayout             `json:"payout"`
+	Request OperatorPayoutRequestWhole `json:"request"`
+}
+
+// MarkPayoutRequestProcessingInput is an operator saying they submitted the
+// transfer and cannot yet confirm it: whatever reference the bank handed back,
+// and who submitted it.
+//
+// There is no instant here. The moment of submission is the service's injected
+// clock, taken at the moment of writing, because an operator cannot be trusted
+// to be the source of a timestamp the 72-hour stale flag is computed against —
+// and because every other money instant in this system comes from the same clock
+// (ADR 0026). Operator comes from the Staff Session and never from a body
+// (ADR 0015).
+//
+// Reference is a pointer and nil is ordinary: PayPhone does not always hand one
+// back synchronously, and a required reference an operator cannot fill is a
+// field they will type "-" into.
+type MarkPayoutRequestProcessingInput struct {
+	Reference *string
+	Operator  string
+}
+
+// MarkPayoutRequestFailedInput is an operator recording that the bank sent the
+// transfer back: why, and who is saying so (#185).
+//
+// The reason is a plain string rather than a pointer for exactly the reason the
+// decline's is, and the argument is if anything stronger. An organizer told only
+// that their transfer "failed" learns nothing they can act on, while "the
+// account number was rejected" is also the instruction — go and correct the
+// Payout Profile, because this request's copy of it is frozen and cannot be
+// edited. It is required by the handler, required here, and enforced by a CHECK
+// under both (migration 046, ADR 0026 amendment).
+//
+// There is no instant here, and no operator identity a caller could supply. Both
+// come from the same places every other money fact's do: the injected clock and
+// the Staff Session (ADR 0015, ADR 0026).
+type MarkPayoutRequestFailedInput struct {
+	Reason   string
+	Operator string
 }
 
 // DeclinePayoutRequestInput is an operator answering without money: why, and who
@@ -286,8 +354,135 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 
 	return &FulfilledPayoutRequest{
 		Payout:  toOperatorPayout(*payout),
-		Request: *payoutRequestView(*request),
+		Request: *s.payoutRequestWholeView(*request),
 	}, nil
+}
+
+// MarkPayoutRequestProcessing records that the transfer has been submitted and
+// the bank has not confirmed it, or refuses because the request was no longer
+// pending (#184, ADR 0026 amendment).
+//
+// NO PAYOUT IS RECORDED HERE. That is the whole reason the state exists: a
+// Payout is money that MOVED (ADR 0014), and a transfer PayPhone may send back
+// in 48 hours has not moved anything yet. The operator says what they actually
+// did — submitted a transfer — and the ledger stays untouched until somebody
+// finds out what the bank did with it. A future reader tempted to write the
+// Payout here, "so the balance is right sooner", would be buying two days of
+// accuracy with a voided-Payout concept every balance in the system would then
+// have to understand.
+//
+// It is the same shape as the decline below: look the request up so an unknown
+// id is a 404 before anything is attempted, compare-and-swap, and read back on
+// zero rows to say who got there first. No balance is consulted — none is at any
+// transition, and it matters more here than anywhere, because a request can now
+// sit outstanding for three days while the Payable Balance moves under it
+// (ADR 0026).
+func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*OperatorPayoutRequestWhole, error) {
+	existing, err := s.lookUpPayoutRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.MarkPayoutRequestProcessing(ctx, repository.MarkPayoutRequestProcessingInput{
+		RequestID: existing.ID,
+		Operator:  in.Operator,
+		Reference: in.Reference,
+		Now:       s.now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
+	}
+
+	// Told AFTER the swap and only because the swap WON. A caller that lost the
+	// race has just been refused, and telling an organizer their transfer was sent
+	// on the strength of an update that wrote nothing would be a promise no row
+	// backs (#188).
+	//
+	// The row that was written is what is passed, not the row read before, so the
+	// date the organizer is asked to count 48 hours from is the one stored.
+	s.notifyPayoutRequestTransferSent(ctx, row)
+
+	return s.payoutRequestWholeView(*row), nil
+}
+
+// MarkPayoutRequestFailed records that the bank sent the transfer back, with the
+// reason the organizer reads, or refuses because no transfer was submitted for
+// this request (#185, ADR 0026 amendment).
+//
+// NO PAYOUT IS TOUCHED, CREATED OR UNDONE. There is nothing to unwind precisely
+// because marking the request `processing` wrote no ledger row: the money never
+// moved, and the books never said it did. This is the payoff of the decision the
+// `processing` state was built around, and a reader who finds themselves wanting
+// to negate a Payout here should find there is none to negate.
+//
+// It is the same shape as the decline below — look the request up so an unknown
+// id is a 404, compare-and-swap, read back on zero rows — with one difference
+// that is the whole of the ticket: THE GUARD IS `processing`, NOT `pending`, so
+// the refusal a lost swap earns is its own and not the decline's.
+//
+// The Organization is freed to ask again by the transition itself, and by
+// nothing else here: the partial unique index counts only `('pending',
+// 'processing')` (migration 045), so a `failed` request stops occupying the slot
+// the instant it is written. That is the whole retry story — a `failed` request
+// is TERMINAL and is never reopened, because the bank details it carries are a
+// frozen snapshot and the commonest failure is unfixable inside the request it
+// happened to.
+func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string, in MarkPayoutRequestFailedInput) (*OperatorPayoutRequestWhole, error) {
+	existing, err := s.lookUpPayoutRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.MarkPayoutRequestFailed(ctx, existing.ID, in.Reason, in.Operator, s.now())
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, s.payoutRequestNotProcessing(ctx, requestID, existing)
+	}
+
+	// The reason travels to the asker, gated on the swap having won and swallowed
+	// like every other notice here. This is the one notice of the five that is
+	// ACTIONABLE — the commonest cause is a wrong account number on the
+	// Organization's own Payout Profile — and it is also the one whose delivery
+	// must least be allowed to touch the answer: a failure that could not be
+	// emailed is still a failure, and it is still readable on the payouts page
+	// (#188).
+	s.notifyPayoutRequestTransferFailed(ctx, row)
+
+	return s.payoutRequestWholeView(*row), nil
+}
+
+// payoutRequestNotProcessing builds the refusal a failed swap on the `failed`
+// transition earns.
+//
+// It re-reads for the same reason payoutRequestAlreadyResolved does — the state
+// it names must be the one that actually stands rather than the one read before
+// the attempt — and falls back to the pre-attempt row when that read fails, so a
+// database hiccup cannot swallow the sentence.
+//
+// TWO REFUSALS, because two different things went wrong and the operator's next
+// move differs:
+//
+//   - The request is still `pending`. Nobody submitted a transfer, so nothing
+//     bounced, and telling them it was "already resolved" would be false. What
+//     they most likely meant is a decline, and the message says so.
+//   - The request has ENDED — paid, declined, cancelled, or already failed. Then
+//     somebody got there first and the house refusal is exactly right, naming the
+//     state and who reached it. This is also what makes `failed` terminal: a
+//     second failure marking lands here and is told the request already failed.
+func (s *Service) payoutRequestNotProcessing(ctx context.Context, requestID string, before *repository.PayoutRequestRow) error {
+	current, err := s.repo.GetPayoutRequestByID(ctx, requestID)
+	if err != nil || current == nil {
+		current = before
+	}
+	if current.Status == sales.PayoutRequestPending {
+		return sales.ErrPayoutRequestTransferNotSubmitted(current.Status)
+	}
+	return sales.ErrPayoutRequestAlreadyResolved(current.Status, current.ResolvedBy)
 }
 
 // DeclinePayoutRequest refuses the ask with a reason its asker can read, and
@@ -297,7 +492,7 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 // partial unique index that keeps `pending` singular counts only pending rows,
 // so the Organization may submit a new one immediately (migration 043). Nothing
 // about being declined once bears on the next ask.
-func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*PayoutRequest, error) {
+func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*OperatorPayoutRequestWhole, error) {
 	existing, err := s.lookUpPayoutRequest(ctx, requestID)
 	if err != nil {
 		return nil, err
@@ -318,7 +513,7 @@ func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in
 	// reason readable on the Organization's own payouts page (#179, ADR 0026).
 	s.notifyPayoutRequestDeclined(ctx, row)
 
-	return payoutRequestView(*row), nil
+	return s.payoutRequestWholeView(*row), nil
 }
 
 // lookUpPayoutRequest reads the request an operator is about to answer, whatever
@@ -343,18 +538,34 @@ func (s *Service) lookUpPayoutRequest(ctx context.Context, requestID string) (*r
 }
 
 // payoutRequestAlreadyResolved builds the refusal a lost compare-and-swap earns,
-// re-reading the request so the state and the resolver it names are the ones
-// that actually stand rather than the ones read before the attempt.
+// re-reading the request so the state and the person it names are the ones that
+// actually stand rather than the ones read before the attempt.
 //
 // The pre-attempt row is the fallback for the read failing. It is stale by
 // construction — if it were current the CAS would have succeeded — but a refusal
 // naming a slightly older answer is better than a database error swallowing the
 // instruction to record the Payout directly, which is the one sentence on this
 // path that must always be delivered.
+//
+// A `processing` request gets its own refusal, and the branch is not cosmetic. A
+// request whose transfer has been submitted HAS NOT BEEN RESOLVED — nothing has ended,
+// nobody has judged it, and resolved_by is null, so the resolved-by-whom sentence
+// would come out naming "another operator" for an event that did not happen.
+// Worse, that sentence tells the reader to record the Payout directly, which
+// against a transfer the bank has not confirmed is precisely the ledger entry
+// this whole state exists to prevent. Who they need is the operator who SUBMITTED
+// the transfer (ADR 0026 amendment).
+//
+// Fulfilment never arrives here for a `processing` request — its guard accepts
+// one — so in practice this branch answers a decline, and a second operator
+// marking an already-submitted request processing.
 func (s *Service) payoutRequestAlreadyResolved(ctx context.Context, requestID string, before *repository.PayoutRequestRow) error {
 	current, err := s.repo.GetPayoutRequestByID(ctx, requestID)
 	if err != nil || current == nil {
-		return sales.ErrPayoutRequestAlreadyResolved(before.Status, before.ResolvedBy)
+		current = before
+	}
+	if current.Status == sales.PayoutRequestProcessing {
+		return sales.ErrPayoutRequestTransferAlreadySubmitted(current.TransferSubmittedBy)
 	}
 	return sales.ErrPayoutRequestAlreadyResolved(current.Status, current.ResolvedBy)
 }

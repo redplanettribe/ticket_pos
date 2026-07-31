@@ -26,10 +26,17 @@ type PayoutRequest = {
     tax_id_type: string;
     tax_id_number: string;
   };
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
+  /**
+   * When an operator sent the transfer, and null until one is submitted. The
+   * date the organizer's "up to 48 hours" sentence is built on (#187) — which
+   * is why it is on this surface, while who submitted it and what the bank
+   * called it stay on the operator's.
+   */
+  transfer_submitted_at: string | null;
 };
 
 async function sessionToken() {

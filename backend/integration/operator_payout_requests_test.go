@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -65,10 +66,20 @@ type operatorPayoutRequestRow struct {
 	RequestedAt         string                `json:"requested_at"`
 	PayableBalanceCents int                   `json:"payable_balance_cents"`
 	PayoutProfile       operatorMaskedProfile `json:"payout_profile"`
-	DeclineReason       *string               `json:"decline_reason"`
+	ResolutionReason    *string               `json:"resolution_reason"`
 	ResolvedBy          *string               `json:"resolved_by"`
 	ResolvedAt          *string               `json:"resolved_at"`
 	PayoutID            *string               `json:"payout_id"`
+	// The transfer, so a `processing` row does not read as unactioned work
+	// (#186). TransferSubmittedBy is the operator who SENT it and is a different
+	// actor from ResolvedBy, who ends the request.
+	TransferSubmittedBy *string `json:"transfer_submitted_by"`
+	TransferSubmittedAt *string `json:"transfer_submitted_at"`
+	TransferReference   *string `json:"transfer_reference"`
+	// TransferStale is the 72-hour flag, computed at read time from the injected
+	// clock — which is why every assertion about it below moves that clock rather
+	// than sleeping or writing a contrived timestamp.
+	TransferStale bool `json:"transfer_stale"`
 }
 
 // operatorQueueItem pairs the ask with whose it is. The Organization is a
@@ -101,10 +112,14 @@ type operatorPayoutRequestDetail struct {
 		RequestedAt         string               `json:"requested_at"`
 		PayableBalanceCents int                  `json:"payable_balance_cents"`
 		PayoutProfile       payoutRequestProfile `json:"payout_profile"`
-		DeclineReason       *string              `json:"decline_reason"`
+		ResolutionReason    *string              `json:"resolution_reason"`
 		ResolvedBy          *string              `json:"resolved_by"`
 		ResolvedAt          *string              `json:"resolved_at"`
 		PayoutID            *string              `json:"payout_id"`
+		TransferSubmittedBy *string              `json:"transfer_submitted_by"`
+		TransferSubmittedAt *string              `json:"transfer_submitted_at"`
+		TransferReference   *string              `json:"transfer_reference"`
+		TransferStale       bool                 `json:"transfer_stale"`
 	} `json:"request"`
 	Organization struct {
 		ID       string `json:"id"`
@@ -221,7 +236,7 @@ func TestOperatorPayoutRequestQueueIsOldestFirstAcrossOrganizations(t *testing.T
 	if row.PayableBalanceCents != first.PayableBalanceCents {
 		t.Fatalf("row payable_balance_cents = %d; want the snapshot %d", row.PayableBalanceCents, first.PayableBalanceCents)
 	}
-	if row.DeclineReason != nil || row.ResolvedBy != nil || row.ResolvedAt != nil || row.PayoutID != nil {
+	if row.ResolutionReason != nil || row.ResolvedBy != nil || row.ResolvedAt != nil || row.PayoutID != nil {
 		t.Fatalf("a pending row carries a resolution: %+v", row)
 	}
 
@@ -591,5 +606,211 @@ func assertNoBankDetails(t *testing.T, apiError *platform.APIError) {
 		if strings.Contains(string(encoded), secret) {
 			t.Fatalf("an error envelope carries a bank detail (%q): %s", secret, encoded)
 		}
+	}
+}
+
+// A `processing` request on the operator's own surface: in the queue, on the
+// badge, and flagged once nobody has confirmed it for three days (#186, ADR 0026
+// amendment).
+//
+// Everything below moves the SALES CLOCK rather than sleeping or writing a
+// contrived timestamp, and that is not a convenience — it is the only way to
+// test the rule as stated. The stale flag is computed in Go from the service's
+// injected clock at the moment of the read, so a SQL NOW() would ignore the
+// harness entirely and every assertion here would pass vacuously against the
+// wall clock of whoever ran the suite. The same reasoning migration 043's
+// Payable Balance boundary is tested by.
+
+// staleQueueRow finds one request in the operator's queue, so an assertion about
+// a flag cannot quietly pass against an empty page.
+func staleQueueRow(t *testing.T, env *testEnv, sessionID, requestID string) operatorPayoutRequestRow {
+	t.Helper()
+	queue := operatorQueue(t, env, sessionID, "")
+	for _, item := range queue.Data {
+		if item.Request.ID == requestID {
+			return item.Request
+		}
+	}
+	t.Fatalf("request %s is not in the queue: %+v", requestID, queue.Data)
+	return operatorPayoutRequestRow{}
+}
+
+func operatorRequestDetail(t *testing.T, env *testEnv, sessionID, requestID string) operatorPayoutRequestDetail {
+	t.Helper()
+	var detail operatorPayoutRequestDetail
+	operatorGetOK(t, env, sessionID, operatorPayoutRequestsPath+"/"+requestID, &detail)
+	return detail
+}
+
+// TestOperatorQueueAndBadgeCountAProcessingRequest: submitting a transfer does
+// not clear the work.
+//
+// This is the badge's whole reason for existing, stated the other way round. A
+// count that dropped the moment an operator marked a request `processing` would
+// tell the queue it was emptier than it is, and a transfer nobody ever confirmed
+// would fall out of sight — which is precisely the failure the `processing`
+// state was added to make visible (ADR 0026 amendment). The queue and the count
+// are written against the SAME predicate in the repository, so this holds both
+// at once: they cannot be allowed to disagree.
+//
+// The ORDER is asserted too. Oldest-first is the queue's one deliberate break
+// with the house convention, and a `processing` request keeps the place its ask
+// earned rather than sinking to the bottom because somebody touched it.
+func TestOperatorQueueAndBadgeCountAProcessingRequest(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	first, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Badge Fest", "badge-fest", 4, 1)
+
+	otherSessionID := verifyOTP(t, env, "other@example.com")
+	createOrganization(t, env, otherSessionID, "Other Org", "other-org")
+	second, _ := operatorPendingRequestFor(t, env, otherSessionID, "other-org", "Badge Two Fest", "badge-two-fest", 3, 2)
+
+	operatorSessionID := operatorSession(t, env, "sender@example.com")
+	if count := operatorPendingPayoutRequestCount(t, env, operatorSessionID); count != 2 {
+		t.Fatalf("count before any transfer = %d; want both asks", count)
+	}
+
+	markProcessingOK(t, env, operatorSessionID, first.ID, map[string]any{"transfer_reference": "PP-2026-0186"})
+
+	// THE ASSERTION. The badge is unmoved: two requests are still outstanding,
+	// one untouched and one with its transfer submitted.
+	if count := operatorPendingPayoutRequestCount(t, env, operatorSessionID); count != 2 {
+		t.Fatalf("count after a transfer was submitted = %d; want 2 — the badge counts work OUTSTANDING, not work untouched", count)
+	}
+
+	queue := operatorQueue(t, env, operatorSessionID, "")
+	if len(queue.Data) != 2 || queue.Pagination.Total != 2 {
+		t.Fatalf("queue = %+v (total %d); want both asks", queue.Data, queue.Pagination.Total)
+	}
+	if queue.Data[0].Request.ID != first.ID || queue.Data[1].Request.ID != second.ID {
+		t.Fatalf("queue order = %q, %q; want the oldest ask still first even though its transfer was submitted",
+			queue.Data[0].Request.ID, queue.Data[1].Request.ID)
+	}
+
+	// Status per row, so the processing ask does not read as unactioned work.
+	row := queue.Data[0].Request
+	if row.Status != "processing" {
+		t.Fatalf("row status = %q; want processing", row.Status)
+	}
+	if queue.Data[1].Request.Status != "pending" {
+		t.Fatalf("untouched row status = %q; want pending", queue.Data[1].Request.Status)
+	}
+
+	// And the transfer itself, which is what tells the operator picking this up
+	// which colleague to ask about it.
+	if row.TransferSubmittedBy == nil || *row.TransferSubmittedBy != "sender@example.com" {
+		t.Fatalf("transfer_submitted_by = %v; want the operator who sent it", row.TransferSubmittedBy)
+	}
+	if row.TransferSubmittedAt == nil || *row.TransferSubmittedAt == "" {
+		t.Fatalf("transfer_submitted_at = %v; want the instant it was submitted", row.TransferSubmittedAt)
+	}
+	if row.TransferReference == nil || *row.TransferReference != "PP-2026-0186" {
+		t.Fatalf("transfer_reference = %v; want what the bank handed back", row.TransferReference)
+	}
+	// NOT RESOLVED. A submitted transfer is not an answer, and the two actors
+	// must not have been collapsed into one column.
+	if row.ResolvedBy != nil || row.ResolvedAt != nil || row.PayoutID != nil {
+		t.Fatalf("a processing row carries a resolution: %+v", row)
+	}
+	// The untouched ask carries no transfer at all — the fields are null, not
+	// zero values pretending to be a submission nobody made.
+	if untouched := queue.Data[1].Request; untouched.TransferSubmittedBy != nil ||
+		untouched.TransferSubmittedAt != nil || untouched.TransferReference != nil {
+		t.Fatalf("a pending row carries a transfer: %+v", untouched)
+	}
+
+	// Fresh, so nothing is flagged: the flag is about a transfer nobody has
+	// confirmed for three days, not about one that was submitted at all.
+	if row.TransferStale {
+		t.Fatalf("a transfer submitted moments ago reads as stale")
+	}
+}
+
+// TestPayoutRequestTransferIsStaleAfterSeventyTwoHours: the flag is false at 71
+// hours and true at 73, and the only thing that changed between the two reads is
+// what time it is.
+//
+// 72 RATHER THAN 48 IS THE DESIGN, not an off-by-one to be tidied. 48 hours is
+// the advertised worst case for a PayPhone transfer, so a flag firing there
+// would fire on healthy transfers — and a flag that fires on healthy transfers
+// stops being read, which makes it worse than no flag at all (ADR 0026
+// amendment). The two readings either side of the threshold are what stop a
+// future reader "simplifying" it back to the number the organizer was quoted.
+//
+// The same request is read through BOTH surfaces at each instant. The queue and
+// the detail view compute the flag through one predicate and must never be able
+// to disagree about the same transfer.
+func TestPayoutRequestTransferIsStaleAfterSeventyTwoHours(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Stale Fest", "stale-fest", 6, 1)
+	operatorSessionID := operatorSession(t, env, "sender@example.com")
+
+	// The instant the transfer is submitted IS the clock's, not the operator's:
+	// nothing in the request body carries a time, which is what makes the
+	// threshold measurable against something a caller cannot move.
+	submittedAt := ecuadorMidnight(t, 1)
+	salesClockAt(submittedAt)
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{})
+
+	// 71 HOURS. Slow, and still inside what an organizer was told to expect.
+	salesClockAt(submittedAt.Add(71 * time.Hour))
+	if row := staleQueueRow(t, env, operatorSessionID, request.ID); row.TransferStale {
+		t.Fatalf("queue row at 71 hours reads as stale; want the flag to hold until 72")
+	}
+	if detail := operatorRequestDetail(t, env, operatorSessionID, request.ID); detail.Request.TransferStale {
+		t.Fatalf("detail at 71 hours reads as stale; want the flag to hold until 72")
+	}
+
+	// 73 HOURS. Past the point where "still normal" is a defensible reading, and
+	// nobody has confirmed anything.
+	salesClockAt(submittedAt.Add(73 * time.Hour))
+	if row := staleQueueRow(t, env, operatorSessionID, request.ID); !row.TransferStale {
+		t.Fatalf("queue row at 73 hours does not read as stale; the flag is the only backstop there is")
+	}
+	detail := operatorRequestDetail(t, env, operatorSessionID, request.ID)
+	if !detail.Request.TransferStale {
+		t.Fatalf("detail at 73 hours does not read as stale")
+	}
+	// Still processing, still outstanding, still no Payout. The flag CHANGES
+	// NOTHING — there is no reconciler, no timeout and no automated transition,
+	// because there is no API to ask for a definite answer (ADR 0026 amendment).
+	if detail.Request.Status != "processing" {
+		t.Fatalf("status at 73 hours = %q; want processing — the flag transitions nothing", detail.Request.Status)
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows for a stale transfer = %d; want none", count)
+	}
+	if count := operatorPendingPayoutRequestCount(t, env, operatorSessionID); count != 1 {
+		t.Fatalf("badge count for a stale transfer = %d; want 1 — it is still the work outstanding", count)
+	}
+
+	// AND THEN IT LANDS, four days after it was sent. The flag is about a
+	// transfer nobody has confirmed, so confirming it clears the flag even though
+	// the transfer took longer than the threshold — a paid request read back
+	// later must not accuse anybody of anything.
+	fulfilled := fulfilPayoutRequestOK(t, env, operatorSessionID, request.ID,
+		fulfilBody(request.AmountCents, "2026-07-24", "landed, late"))
+	if fulfilled.Request.Status != "paid" {
+		t.Fatalf("request after fulfilment = %+v; want paid", fulfilled.Request)
+	}
+	salesClockAt(submittedAt.Add(120 * time.Hour))
+	paid := operatorRequestDetail(t, env, operatorSessionID, request.ID)
+	if paid.Request.TransferStale {
+		t.Fatalf("a PAID request whose transfer took four days reads as stale; the flag is about unconfirmed transfers")
+	}
+	// The transfer stamp survives the fulfilment, beside a resolution naming
+	// whoever ended it. Two actors, two records, and this is where an operator
+	// reads both.
+	if paid.Request.TransferSubmittedBy == nil || *paid.Request.TransferSubmittedBy != "sender@example.com" {
+		t.Fatalf("transfer_submitted_by after fulfilment = %v; want it kept", paid.Request.TransferSubmittedBy)
+	}
+	if paid.Request.ResolvedBy == nil || *paid.Request.ResolvedBy != "sender@example.com" {
+		t.Fatalf("resolved_by after fulfilment = %v", paid.Request.ResolvedBy)
+	}
+	// The reference was never given — PayPhone does not always hand one back —
+	// and null is the honest record of that.
+	if paid.Request.TransferReference != nil {
+		t.Fatalf("transfer_reference = %v; want null when the operator submitted without one", paid.Request.TransferReference)
 	}
 }

@@ -264,14 +264,19 @@ _Avoid_: Net revenue, earnings, take-home
 **Payout**:
 A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
 May answer a Payout Request or stand alone: an Organization that asked is settled by fulfilling its request, and one that asked through some other conversation is settled by recording the Payout directly. Neither route changes what a Payout is.
+Exists only where money actually arrived. A transfer an operator has submitted but the bank has not yet confirmed is recorded on the Payout Request, which is processing, and becomes a Payout when it lands — never before, because a transfer the bank later rejects must leave nothing behind.
 _Avoid_: Withdrawal, transfer, disbursement, settlement run
 
 **Payout Request**:
 An Org Admin's ask to be paid a stated amount, which a Platform Operator answers by transferring the money off-platform and recording the Payout. An ask, not money: it moves nothing, and no figure in the system counts it.
 Bounded by the Payable Balance when it is made, and only then — the balance moves afterwards, and the operator at the bank decides what to do about that.
 Carries a snapshot of the Payout Profile as it stood when the request was made, so the account an operator was told to pay is readable forever, whatever the Organization's details became later.
-An Organization may have only one outstanding at a time. It ends paid, declined with a reason its asker can read, or cancelled by the Organization; all three are final, and a fresh ask is a fresh request.
+A request is outstanding while it still awaits an answer — whether nobody has answered it yet, or an operator has submitted the transfer and the bank has not confirmed it. An Organization may have only one outstanding at a time.
+It is processing over that second stretch: the organizer's money has been sent but has not arrived, and until the bank confirms it nobody may say it was paid. Deliberately not called _in flight_, which this project reserves for a Sale Reversal waiting on an API the platform polls; a processing Payout Request waits on a person going to look.
+It ends paid, failed when the bank rejected the transfer, declined with a reason its asker can read, or cancelled by the Organization; all four are final, and a fresh ask is a fresh request. A failed request moved no money and leaves no Payout — the Organization corrects whatever the bank objected to and asks again, because the bank details a request carries are a snapshot and cannot be edited.
+Only a pending request can be cancelled or declined: once the transfer has been submitted, neither party may take back an ask the bank is already acting on.
 _Avoid_: Withdrawal request, payout order, disbursement request, cash-out
+_Avoid for `processing`_: In flight, in progress, approved, awaiting settlement
 
 **Payout Profile**:
 Where an Organization is paid: the bank, the account and its type, the name on it, and the Organization's own Tax ID for the factura. Set by an Org Admin, read by Platform Operators, and by nobody else — it never reaches an Event's staff or any Customer-facing surface.

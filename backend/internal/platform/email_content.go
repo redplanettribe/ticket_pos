@@ -1,6 +1,9 @@
 package platform
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // What a Sale Confirmation actually says, kept apart from the provider that
 // delivers it.
@@ -96,8 +99,8 @@ func (r SaleReversalRefused) Text() string {
 		r.CustomerName, r.EventName, r.Reference)
 }
 
-// The three Payout Request notices (#179, ADR 0026). They are the platform's
-// first organizer-facing email, and they read differently from everything above
+// The five Payout Request notices (#179 and #188, ADR 0026). They are the
+// platform's first organizer-facing email, and they read differently from above
 // for one reason: their reader is a person doing their job rather than a
 // Customer who bought a ticket. No "Hi <name>" — a request records its asker as
 // an email and nothing else, and a greeting to a name the platform does not know
@@ -187,6 +190,67 @@ func (p PayoutRequestDeclined) Subject() string {
 func (p PayoutRequestDeclined) Text() string {
 	return fmt.Sprintf("The Payout Request for %s submitted for %s has been declined.\n\nReason: %s\n\nNothing has moved and no payout was made. You can submit a new request whenever you are ready — being declined once has no bearing on the next ask.",
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
+}
+
+// Subject is the transfer-sent notice's subject line. It says the money is
+// moving rather than that it has arrived, because the whole distinction this
+// notice draws is between the two — and an organizer who reads only this line
+// must not go and look at a bank account that has nothing in it yet.
+func (p PayoutRequestTransferSent) Subject() string {
+	return fmt.Sprintf("Your payout of %s is on its way", formatMoney(p.AmountCents, p.Currency))
+}
+
+// Text is the transfer-sent notice's body: the amount, the date it was sent, and
+// the 48 hours.
+//
+// The DATE is what makes the rest of the message worth sending. "Up to 48 hours"
+// with no starting point is a sentence an organizer cannot check, and one they
+// cannot check is one they will write to ask about — which is the message this
+// notice exists to prevent. With the date they can count for themselves, and the
+// same date is on their payouts page for when they delete the email.
+//
+// It promises a further email, and that promise is kept on both branches: the
+// paid notice when the money lands, the failed one when it comes back. Neither
+// state is one the organizer has to poll a page for.
+func (p PayoutRequestTransferSent) Text() string {
+	return fmt.Sprintf("The transfer of %s to the account on your Payout Profile was submitted on %s.\n\nBank transfers can take up to 48 hours to arrive, so it may not show in your account straight away. We will email you again as soon as we know it has landed.\n\nThis answers the Payout Request submitted for %s.",
+		formatMoney(p.AmountCents, p.Currency), formatEcuadorDate(p.SubmittedAt), p.OrganizationName)
+}
+
+// Subject is the transfer-failed notice's subject line. "Could not be completed"
+// rather than "was refused": the bank sent the money back, and a subject line
+// that reads as a judgement is one the organizer answers with an appeal instead
+// of a corrected account number.
+func (p PayoutRequestTransferFailed) Subject() string {
+	return fmt.Sprintf("Your payout of %s could not be completed", formatMoney(p.AmountCents, p.Currency))
+}
+
+// Text is the transfer-failed notice's body: what the bank did, why, and the one
+// thing to go and fix.
+//
+// This is the only notice of the five the organizer must ACT on, and the body is
+// built around that. The reason is quoted whole and unedited, exactly as the
+// decline's is. The sentence after it says outright that this was not a
+// decision — `failed` and `declined` share a column and must never share a
+// sentence, and an organizer who believes the platform judged them over a typo
+// corrects nothing. And the Payout Profile is named, because a wrong account
+// number is the commonest cause and this request's copy of it is a frozen
+// snapshot: the fix is on the profile, and the next attempt is a new ask.
+func (p PayoutRequestTransferFailed) Text() string {
+	return fmt.Sprintf("The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request — the transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request — this one cannot be retried, because it carries a frozen copy of the details it was sent with.",
+		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
+}
+
+// formatEcuadorDate renders an instant as the calendar date it falls on in
+// Ecuador — "20 July 2026".
+//
+// The zone conversion is the point, for the reason StartOfEcuadorDay exists: a
+// transfer submitted at 03:00 UTC was submitted the previous evening in
+// Guayaquil, and a notice telling an organizer their money left on a day it did
+// not is worse than one giving no date at all, since the whole job of the date
+// is to let them count 48 hours from it.
+func formatEcuadorDate(instant time.Time) string {
+	return instant.In(ecuadorLocation()).Format("2 January 2006")
 }
 
 // formatMoney renders integer cents for a receipt line: two decimals with the
