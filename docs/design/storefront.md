@@ -119,6 +119,11 @@ Document multi-event checkout as deferred if requested later.
 - **H1:** Event name.
 - **Org name:** Secondary line ("Presented by Acme Promotions") — trust, not the headline.
 - **Hero:** Event image when available; clean typographic fallback when not.
+- **Description:** The organizer's Markdown, rendered — headings, lists, emphasis, links and tables,
+  in the platform's own typography rather than a document's. Raw HTML is not rendered: the copy is
+  an Organization's to write, not to style. Headings shift down a level (the page owns its `h1`), a
+  single newline is a line break, and links open in a new tab. The share preview reads the same
+  description as plain text, with the notation stripped.
 - **Ticket list:** All Ticket Types for this event on one page; no tabs per type.
 
 ### Header

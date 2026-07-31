@@ -4,6 +4,7 @@ export { EventShell } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
 export { Logo, LogoMark } from "./components/logo";
+export { Markdown } from "./components/markdown";
 export { OrgAvatar } from "./components/org-avatar";
 export { PageHeader } from "./components/page-header";
 export { SidebarShell, type SidebarHeaderSlot, type SidebarNavItem } from "./components/sidebar-shell";
