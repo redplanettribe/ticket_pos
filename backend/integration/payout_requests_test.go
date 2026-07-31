@@ -931,3 +931,82 @@ func TestPayoutRequestCannotBeCancelledOnceTheTransferIsSubmitted(t *testing.T) 
 		t.Fatalf("payout rows = %d; want none — nothing has been confirmed", count)
 	}
 }
+
+// TestFailedPayoutRequestFreesTheOrganizationToAskAgain is the organizer's whole
+// route out of a failure, and it is a FRESH ASK rather than a retry (#185,
+// ADR 0026 amendment).
+//
+// A failed request is terminal and cannot be reopened: the bank details it
+// carries are a frozen snapshot, so retrying it would aim at the same rejected
+// account forever. The organizer corrects their Payout Profile and submits a new
+// request — which they may do IMMEDIATELY, because the partial unique index
+// counts only `('pending', 'processing')` and a failed request is neither.
+//
+// This is the widened index read from the other side. A future "simplification"
+// that added `failed` to the outstanding predicate — reasoning that a request
+// with no Payout behind it is somehow still open — would lock an organizer out
+// of the money they are owed permanently, and this is the test that would fail.
+//
+// The 201 is load-bearing: it says a NEW request was created. Handing back the
+// failed one, the way a still-outstanding request is handed back, would tell an
+// organizer their correction had done nothing.
+func TestFailedPayoutRequestFreesTheOrganizationToAskAgain(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	first, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Again Fest", "again-fest", 6, 1)
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, first.ID, map[string]any{"transfer_reference": "PP-AGAIN"})
+	markFailedOK(t, env, operatorSessionID, first.ID, map[string]any{"reason": "the account number was rejected"})
+
+	// The same amount, because nothing moved: a rejected transfer left the
+	// Payable Balance exactly where it was, so the organizer may ask for all of
+	// it again.
+	second, created := submitPayoutRequestOK(t, env, adminSessionID, requestBody(payable, "corrected the account number"))
+	if !created {
+		t.Fatalf("the second ask was answered as an existing request %+v; want a new one", second)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("the second ask reopened the failed request %q; failed is terminal", first.ID)
+	}
+	if second.Status != "pending" || second.AmountCents != payable {
+		t.Fatalf("second request = %+v; want a fresh pending ask for the full payable balance", second)
+	}
+
+	// Both are on the record, and they read as two different things. The failure
+	// does not vanish when it is superseded — the history of what happened to
+	// each ask is complete — and it must never be rendered as a decline.
+	history := listPayoutRequests(t, env, adminSessionID)
+	if len(history) != 2 {
+		t.Fatalf("history = %+v; want the failed ask and the fresh one", history)
+	}
+	byID := map[string]payoutRequest{}
+	for _, request := range history {
+		byID[request.ID] = request
+	}
+	if byID[first.ID].Status != "failed" {
+		t.Fatalf("the earlier ask reads %q; want failed", byID[first.ID].Status)
+	}
+	if byID[second.ID].Status != "pending" {
+		t.Fatalf("the fresh ask reads %q; want pending", byID[second.ID].Status)
+	}
+
+	// Still no money anywhere: two asks, one rejected transfer, zero Payouts.
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows = %d; want none — nothing has been paid", count)
+	}
+
+	// And the fresh ask holds the slot on its own account, so the failure has not
+	// left the index permissive either.
+	resp, body := submitPayoutRequest(t, env, adminSessionID, requestBody(1, "a third ask"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("third submission status=%d error=%+v; want 200 with the outstanding request", resp.StatusCode, body.Error)
+	}
+	var third payoutRequest
+	if err := json.Unmarshal(body.Data, &third); err != nil {
+		t.Fatalf("decode third submission: %v", err)
+	}
+	if third.ID != second.ID {
+		t.Fatalf("third submission returned %q; want the outstanding pending request %q", third.ID, second.ID)
+	}
+}

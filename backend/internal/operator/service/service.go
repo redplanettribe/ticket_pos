@@ -78,6 +78,13 @@ type Money interface {
 	// PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED when another operator submitted
 	// one first, or PAYOUT_REQUEST_ALREADY_RESOLVED when the request had ended.
 	MarkPayoutRequestProcessing(ctx context.Context, requestID string, input salessvc.MarkPayoutRequestProcessingInput) (*salessvc.PayoutRequest, error)
+	// MarkPayoutRequestFailed records that the bank sent the transfer back, with
+	// the reason the organizer reads (#185). It writes no Payout and undoes none
+	// — there is none, because marking the request processing wrote nothing to
+	// the ledger. Only a `processing` request may fail: one nobody submitted a
+	// transfer for answers PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED, and one that
+	// had already ended answers PAYOUT_REQUEST_ALREADY_RESOLVED.
+	MarkPayoutRequestFailed(ctx context.Context, requestID string, input salessvc.MarkPayoutRequestFailedInput) (*salessvc.PayoutRequest, error)
 	// DeclinePayoutRequest refuses the ask with a reason its asker can read, and
 	// answers the same two refusals. A decline moves no money and frees the
 	// Organization to ask again.

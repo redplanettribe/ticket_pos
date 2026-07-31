@@ -238,6 +238,25 @@ type MarkPayoutRequestProcessingInput struct {
 	Operator  string
 }
 
+// MarkPayoutRequestFailedInput is an operator recording that the bank sent the
+// transfer back: why, and who is saying so (#185).
+//
+// The reason is a plain string rather than a pointer for exactly the reason the
+// decline's is, and the argument is if anything stronger. An organizer told only
+// that their transfer "failed" learns nothing they can act on, while "the
+// account number was rejected" is also the instruction — go and correct the
+// Payout Profile, because this request's copy of it is frozen and cannot be
+// edited. It is required by the handler, required here, and enforced by a CHECK
+// under both (migration 046, ADR 0026 amendment).
+//
+// There is no instant here, and no operator identity a caller could supply. Both
+// come from the same places every other money fact's do: the injected clock and
+// the Staff Session (ADR 0015, ADR 0026).
+type MarkPayoutRequestFailedInput struct {
+	Reason   string
+	Operator string
+}
+
 // DeclinePayoutRequestInput is an operator answering without money: why, and who
 // said it.
 //
@@ -348,6 +367,74 @@ func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID str
 	}
 
 	return payoutRequestView(*row), nil
+}
+
+// MarkPayoutRequestFailed records that the bank sent the transfer back, with the
+// reason the organizer reads, or refuses because no transfer was submitted for
+// this request (#185, ADR 0026 amendment).
+//
+// NO PAYOUT IS TOUCHED, CREATED OR UNDONE. There is nothing to unwind precisely
+// because marking the request `processing` wrote no ledger row: the money never
+// moved, and the books never said it did. This is the payoff of the decision the
+// `processing` state was built around, and a reader who finds themselves wanting
+// to negate a Payout here should find there is none to negate.
+//
+// It is the same shape as the decline below — look the request up so an unknown
+// id is a 404, compare-and-swap, read back on zero rows — with one difference
+// that is the whole of the ticket: THE GUARD IS `processing`, NOT `pending`, so
+// the refusal a lost swap earns is its own and not the decline's.
+//
+// The Organization is freed to ask again by the transition itself, and by
+// nothing else here: the partial unique index counts only `('pending',
+// 'processing')` (migration 045), so a `failed` request stops occupying the slot
+// the instant it is written. That is the whole retry story — a `failed` request
+// is TERMINAL and is never reopened, because the bank details it carries are a
+// frozen snapshot and the commonest failure is unfixable inside the request it
+// happened to.
+func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string, in MarkPayoutRequestFailedInput) (*PayoutRequest, error) {
+	existing, err := s.lookUpPayoutRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.MarkPayoutRequestFailed(ctx, existing.ID, in.Reason, in.Operator, s.now())
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, s.payoutRequestNotProcessing(ctx, requestID, existing)
+	}
+
+	return payoutRequestView(*row), nil
+}
+
+// payoutRequestNotProcessing builds the refusal a failed swap on the `failed`
+// transition earns.
+//
+// It re-reads for the same reason payoutRequestAlreadyResolved does — the state
+// it names must be the one that actually stands rather than the one read before
+// the attempt — and falls back to the pre-attempt row when that read fails, so a
+// database hiccup cannot swallow the sentence.
+//
+// TWO REFUSALS, because two different things went wrong and the operator's next
+// move differs:
+//
+//   - The request is still `pending`. Nobody submitted a transfer, so nothing
+//     bounced, and telling them it was "already resolved" would be false. What
+//     they most likely meant is a decline, and the message says so.
+//   - The request has ENDED — paid, declined, cancelled, or already failed. Then
+//     somebody got there first and the house refusal is exactly right, naming the
+//     state and who reached it. This is also what makes `failed` terminal: a
+//     second failure marking lands here and is told the request already failed.
+func (s *Service) payoutRequestNotProcessing(ctx context.Context, requestID string, before *repository.PayoutRequestRow) error {
+	current, err := s.repo.GetPayoutRequestByID(ctx, requestID)
+	if err != nil || current == nil {
+		current = before
+	}
+	if current.Status == sales.PayoutRequestPending {
+		return sales.ErrPayoutRequestTransferNotSubmitted(current.Status)
+	}
+	return sales.ErrPayoutRequestAlreadyResolved(current.Status, current.ResolvedBy)
 }
 
 // DeclinePayoutRequest refuses the ask with a reason its asker can read, and

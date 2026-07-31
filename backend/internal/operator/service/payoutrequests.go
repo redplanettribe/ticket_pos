@@ -208,6 +208,19 @@ type MarkPayoutRequestProcessingInput struct {
 	Operator  string
 }
 
+// MarkPayoutRequestFailedInput is an operator recording the bank's rejection:
+// why, and who is saying so (#185).
+//
+// The reason is required and is the entire content of the news. "Failed" tells
+// an organizer nothing; "the account number was rejected" tells them what to go
+// and fix — which is their Payout Profile, since this request's copy of it is a
+// frozen snapshot and cannot be edited. The organizer's next move is a FRESH
+// ask, never a retry of this one.
+type MarkPayoutRequestFailedInput struct {
+	Reason   string
+	Operator string
+}
+
 // FulfilPayoutRequest records the Payout and marks the request paid, in one
 // transaction, so there is no second step to forget.
 //
@@ -239,6 +252,26 @@ func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID str
 	return s.money.MarkPayoutRequestProcessing(ctx, requestID, salessvc.MarkPayoutRequestProcessingInput{
 		Reference: in.Reference,
 		Operator:  in.Operator,
+	})
+}
+
+// MarkPayoutRequestFailed records that the bank rejected the transfer, ending
+// the request with a reason the Organization reads.
+//
+// NOTHING IS UNDONE IN THE LEDGER, because nothing was ever written to it: the
+// transfer was recorded on the request and never as a Payout, which is the point
+// of the `processing` state (ADR 0014, ADR 0026 amendment). This is the second
+// write on this surface that answers a request without producing a Payout, and
+// the only one that ENDS a request without one.
+//
+// Only a `processing` request can fail — a transfer nobody submitted cannot have
+// bounced — and the failure is terminal. The Organization's answer to it is a
+// fresh ask against a corrected Payout Profile, which the widened partial unique
+// index permits the moment this lands.
+func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string, in MarkPayoutRequestFailedInput) (*PayoutRequestWhole, error) {
+	return s.money.MarkPayoutRequestFailed(ctx, requestID, salessvc.MarkPayoutRequestFailedInput{
+		Reason:   in.Reason,
+		Operator: in.Operator,
 	})
 }
 

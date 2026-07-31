@@ -117,8 +117,18 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// It is the one write on this surface that answers a request WITHOUT writing
 	// to the ledger, and the path is a state name rather than a verb because the
 	// action has no verb — "mark as processing" is what an operator does, and
-	// #185's counterpart will be /failed for the same reason.
+	// #185's counterpart is /failed for the same reason.
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/processing", operator(http.HandlerFunc(h.MarkPayoutRequestProcessing)))
+	// Saying the bank sent the transfer back (#185). The SECOND write here that
+	// touches no ledger row, and the only one that ENDS a request without one —
+	// there is nothing to unwind, because /processing wrote nothing.
+	//
+	// A state name rather than a verb, matching /processing above. It is
+	// deliberately a separate path from /decline and not a flag on it: a decline
+	// is a judgement a person made and a failure is a bank sending money back,
+	// they read differently to the organizer, and one endpoint taking a
+	// discriminator is how two answers quietly become one (ADR 0026 amendment).
+	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/failed", operator(http.HandlerFunc(h.MarkPayoutRequestFailed)))
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
 }
 

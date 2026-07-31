@@ -107,12 +107,16 @@ func (h *Handler) GetPayoutRequest(w http.ResponseWriter, r *http.Request) {
 // (ADR 0014) — so the `payouts` table learns nothing until the bank confirms it,
 // and a transfer that comes back leaves nothing to unwind.
 
-// declineReasonMaxLength bounds the reason, matching the schema's CHECK on
+// resolutionReasonMaxLength bounds the reason, matching the schema's CHECK on
 // payout_requests.resolution_reason (migrations 043, 044). It is stated here so an
 // over-long reason comes back as a field error naming the field, rather than as
 // a constraint violation the operator cannot act on — the same treatment the
 // Operator Reversal's note gets.
-const declineReasonMaxLength = 500
+//
+// It bounds a DECLINE's reason and a FAILURE's alike, because both are the same
+// column and the same sentence to the same reader (#185). Two constants would be
+// two chances to drift from one CHECK.
+const resolutionReasonMaxLength = 500
 
 // fulfilPayoutRequestBody is the fulfilment form: what actually left the bank,
 // the day it did, and an optional note.
@@ -129,6 +133,24 @@ type fulfilPayoutRequestBody struct {
 // declinePayoutRequestBody is a refusal and its reason. The reason is not a
 // pointer: there is no decline without one.
 type declinePayoutRequestBody struct {
+	Reason string `json:"reason"`
+}
+
+// markFailedBody is the bank's rejection and why, and it is the SAME SHAPE the
+// decline's body is — one required field, called `reason` (#185).
+//
+// The same shape and deliberately NOT the same type. A decline and a failure are
+// different states with different meanings to the organizer, and giving them one
+// struct is the first step of the collapse this feature spent an ADR amendment
+// refusing: the moment they share a payload type, somebody shares an endpoint,
+// and then a status. The shape being identical is what makes the staff app's two
+// dialogs one component; the type being separate is what keeps the two answers
+// two answers.
+//
+// No instant and no operator, for the same reason markProcessingBody carries
+// neither: who says a request failed and when are taken from the Staff Session
+// and the clock, never from a caller (ADR 0015).
+type markFailedBody struct {
 	Reason string `json:"reason"`
 }
 
@@ -266,6 +288,66 @@ func (h *Handler) MarkPayoutRequestProcessing(w http.ResponseWriter, r *http.Req
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, request)
 }
 
+// MarkPayoutRequestFailed records that the bank sent the transfer back.
+//
+// @Summary      Mark a Payout Request as failed — the bank rejected the transfer
+// @Description  Marks the Payout Request `failed`, recording why, who said so (taken from the Staff Session, NEVER from the body) and when (the server's clock). THE REASON IS REQUIRED — a blank or whitespace-only one is refused with a field error, and it is bounded at 500 characters — because it is the entire content of the news: "failed" tells an organizer nothing, while "the account number was rejected" also tells them what to fix, which is their Payout Profile. ONLY A `processing` REQUEST MAY FAIL: a transfer nobody submitted cannot have bounced, so a request that is merely `pending` is 409 PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED — an untouched ask an operator wants to refuse is DECLINED, which is a judgement with their name on it. NO PAYOUT IS RECORDED AND NONE IS UNDONE: there is none, because marking a request processing wrote nothing to the ledger (ADR 0014), so a rejected transfer leaves the books exactly as they were and no Payout ever has to be deleted or negated. `failed` IS TERMINAL AND IS NOT RETRIED — the bank details on a request are a frozen snapshot and a request cannot be edited, so the commonest failure is unfixable inside the request it happened to; the Organization corrects its Payout Profile and submits a FRESH request, which it may do immediately because a failed request no longer occupies its single outstanding slot. A `failed` request cannot be fulfilled, declined, cancelled, marked processing or failed again: all of those are 409 PAYOUT_REQUEST_ALREADY_RESOLVED. `failed` is NOT `declined` and must never be counted or filtered as one — a decline is a judgement a person made, a failure is a bank sending money back. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+// @Tags         operator
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        requestID  path  string          true  "Payout Request ID"
+// @Param        body       body  markFailedBody  true  "Why the bank rejected the transfer"
+// @Success      200  {object}  openapi.EnvelopeOperatorPayoutRequest
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
+// @Router       /api/v1/operator/payout-requests/{requestID}/failed [post]
+func (h *Handler) MarkPayoutRequestFailed(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	// The body is REQUIRED here, unlike the mark-as-processing one above, and the
+	// difference is the reason: an operator with no reference to record has
+	// nothing to say, but an operator with no reason has not finished telling the
+	// organizer what happened.
+	var body markFailedBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	// The decline's own validator, not a copy of it: one column, one CHECK, one
+	// set of bounds, and one field-error shape the staff app renders for both.
+	reason, fields := validateResolutionReason(body.Reason)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	session, ok := middleware.SessionFromContext(r.Context())
+	if !ok {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	request, err := h.svc.MarkPayoutRequestFailed(r.Context(), strings.TrimSpace(r.PathValue("requestID")), service.MarkPayoutRequestFailedInput{
+		Reason: reason,
+		// Stamps resolved_by. A failure IS a resolution — the request has ended —
+		// which is the one thing it has in common with a decline.
+		Operator: session.Email,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	// 200 and not 201: nothing was created, here least of all. No money moved, so
+	// there is no Payout, and the ledger learns nothing from a transfer that came
+	// back.
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, request)
+}
+
 // validateTransferReference normalises the optional reference the bank handed
 // back.
 //
@@ -319,7 +401,7 @@ func (h *Handler) DeclinePayoutRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reason, fields := validateDeclineReason(body.Reason)
+	reason, fields := validateResolutionReason(body.Reason)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
@@ -342,13 +424,20 @@ func (h *Handler) DeclinePayoutRequest(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, request)
 }
 
-// validateDeclineReason insists on a reason and bounds it.
+// validateResolutionReason insists on a reason and bounds it.
 //
 // Missing, empty and whitespace-only are one failure and not three: all of them
 // reach the asker as a blank, which is the exact outcome requiring a reason
 // exists to prevent. The trimmed value is what gets stored, so no reason ever
 // arrives padded.
-func validateDeclineReason(raw string) (string, []platform.FieldError) {
+//
+// ONE VALIDATOR FOR THE DECLINE AND THE FAILURE. They are different states and
+// must stay different states, but the rule about the sentence they carry is the
+// same rule — required, trimmed, 500 characters, shown to the organizer — and it
+// is enforced by ONE CHECK in the schema (payout_requests_resolution_has_reason,
+// migration 046). A second copy here would be a second chance to tighten one and
+// not the other, which nobody would notice until an operator hit it.
+func validateResolutionReason(raw string) (string, []platform.FieldError) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", []platform.FieldError{{
@@ -357,11 +446,11 @@ func validateDeclineReason(raw string) (string, []platform.FieldError) {
 			Message: "is required — the Organization is shown this",
 		}}
 	}
-	if len([]rune(trimmed)) > declineReasonMaxLength {
+	if len([]rune(trimmed)) > resolutionReasonMaxLength {
 		return "", []platform.FieldError{{
 			Field:   "reason",
 			Code:    platform.CodeTooLong,
-			Message: "must be at most " + strconv.Itoa(declineReasonMaxLength) + " characters",
+			Message: "must be at most " + strconv.Itoa(resolutionReasonMaxLength) + " characters",
 		}}
 	}
 	return trimmed, nil

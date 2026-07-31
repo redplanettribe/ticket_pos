@@ -67,10 +67,19 @@ const (
 	// Collapsing them would tell an organizer with a typo that the platform
 	// refused them.
 	//
-	// NO TRANSITION REACHES IT YET. The state is named here and permitted by
-	// migration 045's CHECK because the vocabulary is written once; the
-	// compare-and-swap that marks a `processing` request failed, with the reason
-	// its asker reads, is #185.
+	// IT IS REACHED ONLY FROM `processing`, and it is TERMINAL. Only a transfer
+	// somebody submitted can bounce, so the compare-and-swap that writes it
+	// guards on `processing` and refuses a merely `pending` request. It is not
+	// retried and cannot be reopened: the bank details on a request are a frozen
+	// snapshot and a request cannot be edited, so the commonest failure is
+	// unfixable inside the request it happened to. The Organization corrects its
+	// Payout Profile and asks again, which the partial unique index permits the
+	// instant the failure is recorded (#185, ADR 0026 amendment).
+	//
+	// A failure CARRIES A REASON, structurally: migration 046's
+	// payout_requests_resolution_has_reason requires one here exactly as it does
+	// on a decline, because "failed" on its own tells an organizer nothing they
+	// can act on.
 	PayoutRequestFailed = "failed"
 )
 

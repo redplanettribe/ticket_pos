@@ -1053,3 +1053,344 @@ func TestOperatorPaidDirectlyCarriesNoTransferStamp(t *testing.T) {
 		t.Fatalf("a request paid in one step carries a transfer stamp: by=%v at=%v ref=%v", by, at, reference)
 	}
 }
+
+// The `failed` state: the bank sent the transfer back (#185, ADR 0026
+// amendment).
+//
+// `failed` is the second half of the honest answer `processing` opened up. Its
+// invariants are all ABSENCES and REFUSALS — no `payouts` row, no reopening, no
+// collapse into `declined` — so every test below either counts rows in the
+// ledger or presses a button that must not work.
+
+func failedPath(requestID string) string {
+	return operatorPayoutRequestsPath + "/" + requestID + "/failed"
+}
+
+func markFailed(t *testing.T, env *testEnv, sessionID, requestID string, body map[string]any) (*http.Response, envelope) {
+	t.Helper()
+	return env.post(t, failedPath(requestID), body, authHeader(sessionID))
+}
+
+func markFailedOK(t *testing.T, env *testEnv, sessionID, requestID string, body map[string]any) payoutRequest {
+	t.Helper()
+	resp, envBody := markFailed(t, env, sessionID, requestID, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("mark failed status=%d; want 200; error=%+v", resp.StatusCode, envBody.Error)
+	}
+	var request payoutRequest
+	if err := json.Unmarshal(envBody.Data, &request); err != nil {
+		t.Fatalf("decode failed request: %v", err)
+	}
+	return request
+}
+
+// TestOperatorMarksATransferFailedAndTheLedgerStaysEmpty is the invariant the
+// `processing` state was built to make possible, asserted by COUNTING `payouts`
+// rows across the whole of `pending → processing → failed`.
+//
+// A rejected transfer must leave NOTHING behind. Counting is the only assertion
+// that can see it: a Payout written on submission and deleted on failure would
+// leave every request-shaped read agreeing with this test and the books telling
+// a story of money that moved and then un-moved. The count is zero at both
+// steps, and the second zero is the one that matters — it says nothing had to be
+// unwound because nothing was ever written.
+//
+// The reason travels with the failure and is what the organizer reads. It is not
+// decoration: "failed" alone is unactionable, and the account number is the
+// commonest cause, so the sentence is also the instruction.
+func TestOperatorMarksATransferFailedAndTheLedgerStaysEmpty(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Bounce Fest", "bounce-fest", 5, 1)
+	senderSessionID := operatorSession(t, env, "sender@example.com")
+	// The operator who learns the outcome need not be the one who sent it, which
+	// is why transfer_submitted_by and resolved_by are two columns.
+	confirmerSessionID := operatorSession(t, env, "confirmer@example.com")
+
+	markProcessingOK(t, env, senderSessionID, request.ID, map[string]any{"transfer_reference": "PP-BOUNCE"})
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows while the transfer was in flight = %d; want none", count)
+	}
+
+	failed := markFailedOK(t, env, confirmerSessionID, request.ID,
+		map[string]any{"reason": "The bank rejected the account number."})
+
+	if failed.ID != request.ID || failed.Status != "failed" {
+		t.Fatalf("failed request = %+v; want the same ask, failed", failed)
+	}
+	// THE ASSERTION. Counted, never inferred: nothing was written, so nothing had
+	// to be deleted or negated.
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows after a rejected transfer = %d; want none — the money never moved", count)
+	}
+	if failed.PayoutID != nil {
+		t.Fatalf("payout_id on a failed request = %v; want null", failed.PayoutID)
+	}
+
+	// A failure IS a resolution: the request has ended, and the stamp says who
+	// ended it and when — the same pair a decline writes, from the Staff Session
+	// and the injected clock.
+	if failed.ResolutionReason == nil || *failed.ResolutionReason != "The bank rejected the account number." {
+		t.Fatalf("resolution_reason = %v; want the sentence the organizer reads", failed.ResolutionReason)
+	}
+	if failed.ResolvedBy == nil || *failed.ResolvedBy != "confirmer@example.com" {
+		t.Fatalf("resolved_by = %v; want the acting operator's email, never a body value", failed.ResolvedBy)
+	}
+	if failed.ResolvedAt == nil || *failed.ResolvedAt == "" {
+		t.Fatalf("resolved_at = %v; want the instant from the injected clock", failed.ResolvedAt)
+	}
+
+	// The record of the transfer that failed survives, so an operator asked
+	// "which transfer bounced?" has the reference to give the provider.
+	by, reference, at := transferStamp(t, env, request.ID)
+	if by == nil || *by != "sender@example.com" || reference == nil || *reference != "PP-BOUNCE" || at == nil {
+		t.Fatalf("transfer stamp after a failure = by %v ref %v at %v; want the submitter's own record kept", by, reference, at)
+	}
+
+	// It leaves the queue and the badge: a failure is an ANSWER, and the work is
+	// no longer outstanding.
+	if count := operatorPendingPayoutRequestCount(t, env, senderSessionID); count != 0 {
+		t.Fatalf("pending count after a failure = %d; want 0 — the request has been answered", count)
+	}
+	queue := operatorQueue(t, env, senderSessionID, "")
+	if len(queue.Data) != 0 {
+		t.Fatalf("queue after a failure = %+v; want it empty", queue.Data)
+	}
+
+	// And the organizer reads it as a FAILURE rather than a refusal. The two are
+	// different states and must not be collapsed anywhere, this history least of
+	// all: a decline is a judgement a person made, and telling an organizer with
+	// a typo that the platform refused them is the exact misreading the separate
+	// state exists to prevent.
+	history := listPayoutRequests(t, env, adminSessionID)
+	if len(history) != 1 || history[0].Status != "failed" {
+		t.Fatalf("organization history = %+v; want the ask, failed and not declined", history)
+	}
+	if history[0].ResolutionReason == nil || *history[0].ResolutionReason != "The bank rejected the account number." {
+		t.Fatalf("the organizer cannot read why it failed: %+v", history[0])
+	}
+	// No balance moved either. A rejected transfer changes nothing about what the
+	// platform owes.
+	if orgView := getPayouts(t, env, adminSessionID); len(orgView.Payouts) != 0 {
+		t.Fatalf("organization payouts after a failure = %+v; want none", orgView.Payouts)
+	}
+}
+
+// TestOperatorCannotFailARequestNobodySubmittedATransferFor is the guard the
+// ticket is really about: the compare-and-swap is on `processing`, NOT `pending`.
+//
+// A request nobody submitted a transfer for cannot have had one bounce. Marking
+// one `failed` would be an operator refusing an untouched ask in a word that
+// blames the bank — which the organizer reads as "your account number is wrong"
+// about an account nobody tried to pay, and which makes every failure figure
+// count refusals as bank errors.
+//
+// The refusal is its own code and not the already-resolved one, because a
+// `pending` request has not been resolved by anybody: that message would name
+// "another operator" for an event that never happened, and tell the reader to
+// record a Payout for money nobody sent. Widening the guard to `pending` — the
+// single most plausible "simplification" of this transition — is what this test
+// exists to fail.
+func TestOperatorCannotFailARequestNobodySubmittedATransferFor(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Untouched Fest", "untouched-fest", 5, 1)
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+
+	resp, body := markFailed(t, env, operatorSessionID, request.ID,
+		map[string]any{"reason": "the account number is wrong"})
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED" {
+		t.Fatalf("failing a pending request status=%d error=%+v; want 409 PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED",
+			resp.StatusCode, body.Error)
+	}
+	// The operator is pointed at the button they actually wanted. An untouched
+	// ask an operator means to refuse is DECLINED, with their name on it.
+	if !strings.Contains(strings.ToLower(body.Error.Message), "decline") {
+		t.Fatalf("refusal message = %q; want it to name the decline as the way out", body.Error.Message)
+	}
+	assertNoBankDetails(t, body.Error)
+
+	// Nothing was written: not the status, not the reason, not a resolution.
+	history := listPayoutRequests(t, env, adminSessionID)
+	if len(history) != 1 || history[0].Status != "pending" {
+		t.Fatalf("request after a refused failure = %+v; want it untouched and pending", history)
+	}
+	if history[0].ResolutionReason != nil || history[0].ResolvedBy != nil || history[0].ResolvedAt != nil {
+		t.Fatalf("a refused failure left a resolution behind: %+v", history[0])
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows = %d; want none", count)
+	}
+
+	// And it is still answerable in every way it was before — the refusal cost
+	// the request nothing.
+	markProcessingOK(t, env, operatorSessionID, request.ID, nil)
+	markFailedOK(t, env, operatorSessionID, request.ID, map[string]any{"reason": "now it really bounced"})
+}
+
+// TestOperatorMarkingFailedRequiresAReason: a failure without a sentence is a
+// dead end for the organizer, so the reason is required — in the handler, and
+// under it in the schema (payout_requests_resolution_has_reason, migration 046).
+//
+// The refusal is a FIELD ERROR in the same shape the decline's is, because it is
+// the same field, the same column and the same rule; the staff app renders one
+// dialog for both. Missing, empty and whitespace-only are one failure and not
+// three: all of them reach the organizer as a blank, which is the outcome the
+// requirement exists to prevent.
+func TestOperatorMarkingFailedRequiresAReason(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Blank Reason Fest", "blank-reason-fest", 5, 1)
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	markProcessingOK(t, env, operatorSessionID, request.ID, nil)
+
+	cases := []struct {
+		name string
+		body map[string]any
+		code string
+	}{
+		{"missing", map[string]any{}, "REQUIRED"},
+		{"empty", map[string]any{"reason": ""}, "REQUIRED"},
+		{"whitespace", map[string]any{"reason": "   "}, "REQUIRED"},
+		// The bound is the column's, and an over-long reason is a field error
+		// naming the field rather than a constraint violation an operator cannot
+		// act on.
+		{"beyond the bound", map[string]any{"reason": strings.Repeat("x", 501)}, "TOO_LONG"},
+	}
+	for _, tc := range cases {
+		resp, envBody := markFailed(t, env, operatorSessionID, request.ID, tc.body)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s reason status=%d; want 400; error=%+v", tc.name, resp.StatusCode, envBody.Error)
+		}
+		if envBody.Error == nil || envBody.Error.Code != "VALIDATION_FAILED" || !isNullData(envBody.Data) {
+			t.Fatalf("%s reason envelope: data=%s error=%+v", tc.name, envBody.Data, envBody.Error)
+		}
+		// Read out of details exactly as the decline's own test reads it: the
+		// shape is the assertion, because the staff app renders one dialog for
+		// both answers and a divergence here is a dialog that stops showing the
+		// message on one of them.
+		details, _ := json.Marshal(envBody.Error.Details)
+		var parsed struct {
+			Fields []struct {
+				Field string `json:"field"`
+				Code  string `json:"code"`
+			} `json:"fields"`
+		}
+		if err := json.Unmarshal(details, &parsed); err != nil {
+			t.Fatalf("%s decode details: %v", tc.name, err)
+		}
+		if len(parsed.Fields) != 1 || parsed.Fields[0].Field != "reason" || parsed.Fields[0].Code != tc.code {
+			t.Fatalf("%s fields = %+v; want one %s on `reason`", tc.name, parsed.Fields, tc.code)
+		}
+	}
+
+	// And the rule is the DATABASE's, not the handler's. This UPDATE goes around
+	// every validator on purpose: the service is one writer among several — a
+	// console session, a later migration, a future job — and the difference
+	// between an organizer reading a sentence and an organizer reading a blank
+	// must not depend on which of them wrote the row
+	// (payout_requests_resolution_has_reason, migration 046). The resolution
+	// stamp is supplied so the only rule left to break is the reason's.
+	if _, err := env.db.Exec(`
+		UPDATE payout_requests
+		SET status = 'failed', resolution_reason = NULL, resolved_by = 'sneaky@example.com', resolved_at = NOW()
+		WHERE id = $1
+	`, request.ID); err == nil {
+		t.Fatal("the database accepted a failed request with no reason; the reason CHECK was not widened to cover `failed`")
+	}
+
+	// Every refusal left the request exactly where it was: still in flight, still
+	// answerable, and still with no Payout behind it.
+	if history := listPayoutRequests(t, env, adminSessionID); history[0].Status != "processing" {
+		t.Fatalf("request after refused failures = %+v; want it still processing", history[0])
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows = %d; want none", count)
+	}
+}
+
+// TestFailedPayoutRequestIsTerminal: a failure is final in every direction.
+//
+// It cannot be fulfilled, declined, cancelled, marked processing, or failed a
+// second time. That is not tidiness — reopening a failed request would have an
+// operator retrying against the SAME BAD ACCOUNT NUMBER forever, because the
+// bank details on a request are a frozen snapshot and a request cannot be
+// edited. The organizer's route out is a fresh ask against a corrected Payout
+// Profile, which the test below this one holds.
+//
+// The fulfilment attempt is the one worth counting the ledger after: it is the
+// only one of the five that would write a `payouts` row if the compare-and-swap
+// let it through, and the guard's rollback is what keeps a rejected transfer
+// from becoming a settlement.
+func TestFailedPayoutRequestIsTerminal(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Terminal Fest", "terminal-fest", 5, 1)
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	otherSessionID := operatorSession(t, env, "other@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{"transfer_reference": "PP-TERM"})
+	markFailedOK(t, env, operatorSessionID, request.ID, map[string]any{"reason": "wrong account number"})
+
+	// Fulfilment. The one that could otherwise put money in the ledger.
+	resp, body := fulfilPayoutRequest(t, env, otherSessionID, request.ID, fulfilBody(payable, "2026-07-22", ""))
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_ALREADY_RESOLVED" {
+		t.Fatalf("fulfilling a failed request status=%d error=%+v; want 409 PAYOUT_REQUEST_ALREADY_RESOLVED",
+			resp.StatusCode, body.Error)
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows after fulfilling a failed request = %d; want none — the CAS rolled the INSERT back", count)
+	}
+
+	// Decline. A failure is not a refusal and cannot be turned into one after the
+	// fact; the state that reached the organizer stays the one that happened.
+	resp, body = declinePayoutRequest(t, env, otherSessionID, request.ID, map[string]any{"reason": "on second thoughts"})
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_ALREADY_RESOLVED" {
+		t.Fatalf("declining a failed request status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+
+	// Marked processing again. This is the "retry" door, and it is shut: a
+	// re-submitted transfer against a frozen snapshot aims at the same bad
+	// account.
+	resp, body = markProcessing(t, env, otherSessionID, request.ID, map[string]any{"transfer_reference": "PP-RETRY"})
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_ALREADY_RESOLVED" {
+		t.Fatalf("re-processing a failed request status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+
+	// Failed a second time. The refusal names the state it is already in rather
+	// than silently overwriting the first reason with a later one.
+	resp, body = markFailed(t, env, otherSessionID, request.ID, map[string]any{"reason": "it bounced again"})
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_ALREADY_RESOLVED" {
+		t.Fatalf("failing a failed request status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+	if !strings.Contains(body.Error.Message, "failed") {
+		t.Fatalf("refusal message = %q; want it to name the state the request is in", body.Error.Message)
+	}
+
+	// Cancelled by the Organization. All four end states are final, and this one
+	// is no exception just because nothing was paid.
+	resp, body = cancelPayoutRequest(t, env, adminSessionID, request.ID)
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_NOT_PENDING" {
+		t.Fatalf("cancelling a failed request status=%d error=%+v; want 409 PAYOUT_REQUEST_NOT_PENDING",
+			resp.StatusCode, body.Error)
+	}
+
+	// Through all five, the record is exactly what the first failure wrote.
+	history := listPayoutRequests(t, env, adminSessionID)
+	if len(history) != 1 || history[0].Status != "failed" ||
+		history[0].ResolutionReason == nil || *history[0].ResolutionReason != "wrong account number" {
+		t.Fatalf("failed request after five refused answers = %+v; want the original failure intact", history)
+	}
+	if history[0].ResolvedBy == nil || *history[0].ResolvedBy != "operator@example.com" {
+		t.Fatalf("resolved_by = %v; want whoever recorded the failure, not whoever tried afterwards", history[0].ResolvedBy)
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows after five refused answers = %d; want none", count)
+	}
+}

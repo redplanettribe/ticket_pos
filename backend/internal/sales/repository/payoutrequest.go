@@ -436,8 +436,9 @@ func (r *Repository) FulfilPayoutRequest(ctx context.Context, input FulfilPayout
 //
 // The reason is not optional here or anywhere. A decline that swallowed the
 // request silently would generate the support thread the queue was built to
-// prevent, and the schema's payout_requests_decline_has_reason CHECK is the
-// backstop under this argument (migration 043, ADR 0026).
+// prevent, and the schema's payout_requests_resolution_has_reason CHECK is the
+// backstop under this argument — the same one that requires a failure to carry
+// one (migrations 043, 046, ADR 0026).
 //
 // THE GUARD SAYS `status = 'pending'` AND IS NOT THE OUTSTANDING PREDICATE. What
 // it means is UNTOUCHED BY AN OPERATOR: a decline is a judgement made before
@@ -450,6 +451,58 @@ func (r *Repository) DeclinePayoutRequest(ctx context.Context, requestID, reason
 		UPDATE payout_requests
 		SET status = 'declined', resolution_reason = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
 		WHERE id = $1 AND status = 'pending'
+		RETURNING `+payoutRequestColumns,
+		requestID, reason, resolvedBy, now,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return row, err
+}
+
+// MarkPayoutRequestFailed records that the bank sent the transfer back, with the
+// reason its asker reads, or returns nil when the request was not one a transfer
+// had been submitted for.
+//
+// THE GUARD SAYS `status = 'processing'` AND NOT `pending`, AND THAT IS THE
+// WHOLE DIFFERENCE BETWEEN THIS AND EVERY OTHER CAS IN THIS FILE. A request
+// nobody submitted a transfer for cannot have had one bounce: there is no
+// transfer to have failed, and a `pending` request marked `failed` would be an
+// operator declining somebody in a word that says the bank did it. The refusal
+// is deliberate and the ADR says so (0026, amendment) — an operator who means to
+// refuse an untouched ask declines it, which is a judgement with a name on it.
+//
+// It is also what makes the resolution stamp below honest: the schema requires
+// transfer_submitted_by on a `processing` row (payout_requests_transfer_submission_is_whole,
+// migration 045), so every `failed` row carries the record of the transfer that
+// failed. Widening this guard to `pending` would produce failures with no
+// transfer behind them.
+//
+// NOTHING IS WRITTEN TO `payouts` AND NOTHING IS DELETED FROM IT. There is
+// nothing to unwind precisely because marking a request `processing` wrote no
+// ledger row: the money never moved and the books never claimed it did. That is
+// why this is a bare UPDATE where fulfilment is a transaction — a future reader
+// tempted to negate or delete a Payout here should find there is none.
+//
+// `failed` IS TERMINAL. It stamps resolved_by and resolved_at exactly as a
+// decline does, because a failure IS a resolution — the request has ended, and
+// the schema's payout_requests_resolution_matches_status requires the pair on
+// every state outside ('pending', 'processing'). The Organization is freed to
+// ask again by the partial unique index, which counts only those two states, so
+// there is deliberately no reopening path.
+//
+// The reason is not optional here or anywhere, and
+// payout_requests_resolution_has_reason (migration 046) is the backstop under
+// this argument: "failed" alone tells an organizer nothing, while "the account
+// number was rejected" is also the instruction.
+//
+// Zero rows means the request was `pending`, or had already ended, or another
+// operator got there first. The caller reads it back to say which.
+func (r *Repository) MarkPayoutRequestFailed(ctx context.Context, requestID, reason, resolvedBy string, now time.Time) (*PayoutRequestRow, error) {
+	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
+		UPDATE payout_requests
+		SET status = 'failed', resolution_reason = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
+		WHERE id = $1 AND status = 'processing'
 		RETURNING `+payoutRequestColumns,
 		requestID, reason, resolvedBy, now,
 	))

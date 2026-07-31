@@ -154,6 +154,14 @@ func domainHTTPStatus(code string) int {
 	// Payout for money that might come back.
 	case "PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED":
 		return http.StatusConflict
+	// Its mirror (#185): marking `failed` a request no transfer was submitted
+	// for. 409 again — the request was well formed and the operator entitled to
+	// make it, and what stands in the way is the request's own state. It is its
+	// own code rather than PAYOUT_REQUEST_ALREADY_RESOLVED because the request
+	// most often has NOT ended: it is `pending`, nobody has touched it, and the
+	// answer is to decline it or to submit a transfer first.
+	case "PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED":
+		return http.StatusConflict
 	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
 	// the caller was entitled to make it, but the catalog is not in a state that
 	// admits it — the one slot is taken, or the price would break the invariant

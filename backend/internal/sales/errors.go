@@ -375,6 +375,41 @@ func ErrPayoutRequestTransferAlreadySubmitted(submittedBy *string) apperror.Doma
 	)
 }
 
+// ErrPayoutRequestTransferNotSubmitted is returned to a Platform Operator who
+// marks a request `failed` when no transfer was ever submitted for it (#185,
+// ADR 0026 amendment).
+//
+// It is the mirror of the refusal above, and it exists for the same reason that
+// one does: `failed` is the bank's answer to a transfer, so a request nobody
+// submitted a transfer for cannot have had one bounce. Recording it would be an
+// operator refusing an untouched ask in a word that blames the bank — which the
+// organizer reads as "your account number is wrong" about an account nobody
+// tried to pay, and which makes every failure figure count refusals as bank
+// errors.
+//
+// It is deliberately NOT ErrPayoutRequestAlreadyResolved, which would be false
+// on the ordinary way of arriving here: a `pending` request has not been
+// resolved by anybody, and that message would name "another operator" for an
+// event that never happened while telling the reader to record a Payout for
+// money nobody sent.
+//
+// The way out is named, because it is a different button and the operator is one
+// click from the wrong one: an untouched ask an operator wants to refuse is
+// DECLINED, with a judgement and their name on it. The current status travels in
+// details so a caller can key on it; it is `pending` in the case worth having a
+// message for, and one of the end states when somebody got there first.
+func ErrPayoutRequestTransferNotSubmitted(status string) apperror.DomainError {
+	return apperror.New(
+		"PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED",
+		fmt.Sprintf(
+			"No transfer has been submitted for this Payout Request (it is %s), so there is none to have failed. "+
+				"Mark it processing once you submit one — or decline it, if the answer is no.",
+			status,
+		),
+		map[string]any{"status": status},
+	)
+}
+
 // ErrPayoutRequestAlreadyResolved is returned to a Platform Operator whose
 // fulfilment or decline reached a request that had already ended (#177,
 // ADR 0026).
