@@ -36,14 +36,38 @@ import {
 } from "@/lib/events-api";
 import {
   type OperatorOrganizationDetail,
+  type OperatorPayoutRequestRow,
   fetchOperatorOrganization,
   recordOperatorPayout,
 } from "@/lib/operator-api";
 import { isOutstanding, payoutRequestStatusLabel } from "@/lib/payout-requests";
-import { exceedsWithdrawableBalance, formatPaidAtDate, todayISODate } from "@/lib/payouts";
+import {
+  exceedsWithdrawableBalance,
+  formatPaidAtDate,
+  outstandingPayoutRequest,
+  todayISODate,
+} from "@/lib/payouts";
 
 type OperatorOrganizationClientProps = {
   organizationId: string;
+};
+
+/**
+ * A Payout the operator has typed and the form has not written yet, because
+ * something about it deserves a second look first.
+ *
+ * The two reasons travel together in one state rather than in two dialogs
+ * because they can both be true at once, and an operator shown them one after
+ * the other would answer the second without the first still in front of them.
+ * Neither is a gate: recording a Payout is unconditional on the API side, over
+ * the balance (ADR 0015) and against an outstanding request alike (ADR 0026).
+ */
+type PendingPayout = {
+  amountCents: number;
+  /** Over the Withdrawable Balance: this settlement leaves it negative. */
+  exceedsBalance: boolean;
+  /** The Organization's outstanding ask, when it has one (#178). */
+  outstandingRequest: OperatorPayoutRequestRow | null;
 };
 
 export function OperatorOrganizationClient({ organizationId }: OperatorOrganizationClientProps) {
@@ -57,9 +81,9 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
   const [note, setNote] = useState("");
   const [amountError, setAmountError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Set only while the operator is being asked to confirm an over-balance
-  // amount; carrying the parsed cents avoids re-parsing the field behind them.
-  const [pendingAmountCents, setPendingAmountCents] = useState<number | null>(null);
+  // Set only while the operator is being asked to confirm; carrying the parsed
+  // cents avoids re-parsing the field behind them.
+  const [pending, setPending] = useState<PendingPayout | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,7 +117,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
       });
       setAmount("");
       setNote("");
-      setPendingAmountCents(null);
+      setPending(null);
       toast.success("Payout recorded");
       // Re-read rather than patch locally: the Withdrawable Balance is the
       // server's arithmetic, and this page shows it in two places.
@@ -121,10 +145,21 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
       return;
     }
     setAmountError(null);
-    // Over the balance is allowed — the money has already moved — but it gets a
-    // second look before it is written (ADR 0015).
-    if (exceedsWithdrawableBalance(amountCents, detail.withdrawable_balance_cents)) {
-      setPendingAmountCents(amountCents);
+    // Two second looks, either of which stops the write until the operator says
+    // so, and neither of which can refuse it.
+    //
+    // Over the balance is allowed — the money has already moved (ADR 0015).
+    // Recording directly while the Organization has an outstanding ask is
+    // allowed for the same reason, and warned about because the failure it
+    // invites is paying the same Organization twice: the colleague who is about
+    // to fulfil that request has no way to see this form (#178, ADR 0026).
+    const exceedsBalance = exceedsWithdrawableBalance(
+      amountCents,
+      detail.withdrawable_balance_cents,
+    );
+    const outstanding = outstandingPayoutRequest(detail.payout_requests);
+    if (exceedsBalance || outstanding) {
+      setPending({ amountCents, exceedsBalance, outstandingRequest: outstanding });
       return;
     }
     void submitPayout(amountCents);
@@ -161,6 +196,10 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
     payout_requests: payoutRequests,
   } = detail;
   const currency = organization.currency;
+  // The ask this Organization is waiting on, if any. It survives a direct
+  // Payout — nothing here auto-closes a request (ADR 0026) — so an operator who
+  // records one settlement and comes back for another is warned both times.
+  const outstanding = outstandingPayoutRequest(payoutRequests);
 
   return (
     <div className="space-y-6">
@@ -235,7 +274,36 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
             .
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/*
+            Said before the form is touched as well as on submit, because an
+            operator who learns about the outstanding ask only after typing an
+            amount has already decided what to do. The fulfilment route is the
+            better door: it records the same Payout and answers the request in
+            one transaction, which is what stops the second operator recording
+            the same transfer twice (ADR 0026).
+          */}
+          {outstanding ? (
+            <Alert variant="warning">
+              <AlertTitle>This organization is already waiting on a payout request</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <p>
+                  {organization.name} asked for{" "}
+                  <span className="font-medium tabular-nums">
+                    {formatPriceCents(outstanding.amount_cents, currency)}
+                  </span>{" "}
+                  on {new Date(outstanding.requested_at).toLocaleDateString()}. Fulfilling the
+                  request records the payout and answers the ask in one step. Recording here leaves
+                  the request open, and risks paying twice.
+                </p>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/operator/payout-requests/${outstanding.id}`}>
+                    Fulfil the request instead
+                  </Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <form className="grid gap-4 sm:grid-cols-[1fr_1fr_2fr_auto] sm:items-end" onSubmit={handleSubmit}>
             <FormField id="payout-amount" label={`Amount (${currency})`} error={amountError}>
               <Input
@@ -411,37 +479,75 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
         </CardContent>
       </Card>
 
+      {/*
+        The confirmation, carrying whichever of the two second looks apply. It
+        is dismissible in every case and refuses nothing: the transfer already
+        happened, and a form that would not write it down has not prevented
+        anything, it has only stopped knowing (ADR 0019, ADR 0026).
+      */}
       <Dialog
-        open={pendingAmountCents !== null}
+        open={pending !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setPendingAmountCents(null);
+            setPending(null);
           }
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Amount exceeds the withdrawable balance</DialogTitle>
-            <DialogDescription>
-              You are recording {formatPriceCents(pendingAmountCents ?? 0, currency)} against a balance of{" "}
-              {formatPriceCents(balanceCents, currency)}. This is accepted and will leave{" "}
-              {organization.name} with a negative balance. Record it only if the money really moved.
+            <DialogTitle>
+              {pending?.outstandingRequest
+                ? "This organization is waiting on a payout request"
+                : "Amount exceeds the withdrawable balance"}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                {pending?.outstandingRequest ? (
+                  <p>
+                    {organization.name} has an outstanding request for{" "}
+                    <span className="font-medium tabular-nums">
+                      {formatPriceCents(pending.outstandingRequest.amount_cents, currency)}
+                    </span>
+                    , asked for on{" "}
+                    {new Date(pending.outstandingRequest.requested_at).toLocaleDateString()} by{" "}
+                    {pending.outstandingRequest.requested_by}. Recording{" "}
+                    {formatPriceCents(pending.amountCents, currency)} here does not answer it — the
+                    request stays open, and another operator may still fulfil it. Only record
+                    directly if this is a different transfer.
+                  </p>
+                ) : null}
+                {pending?.exceedsBalance ? (
+                  <p>
+                    You are recording {formatPriceCents(pending.amountCents, currency)} against a
+                    balance of {formatPriceCents(balanceCents, currency)}. This is accepted and will
+                    leave {organization.name} with a negative balance. Record it only if the money
+                    really moved.
+                  </p>
+                ) : null}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setPendingAmountCents(null)}
+              onClick={() => setPending(null)}
               disabled={submitting}
             >
               Cancel
             </Button>
+            {pending?.outstandingRequest ? (
+              <Button asChild variant="secondary">
+                <Link href={`/operator/payout-requests/${pending.outstandingRequest.id}`}>
+                  Fulfil the request instead
+                </Link>
+              </Button>
+            ) : null}
             <Button
               type="button"
               onClick={() => {
-                if (pendingAmountCents !== null) {
-                  void submitPayout(pendingAmountCents);
+                if (pending !== null) {
+                  void submitPayout(pending.amountCents);
                 }
               }}
               disabled={submitting}
