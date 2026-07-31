@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // SaleConfirmation is the receipt emailed to a Customer when a Ticket Sale is
@@ -63,16 +64,16 @@ type SaleReversalRefused struct {
 	Reference    string
 }
 
-// The three Payout Request notices (#179, ADR 0026), and the platform's first
-// organizer-facing email: every message above this line is a Customer's receipt
-// or a staff sign-in code.
+// The five Payout Request notices (#179 and #188, ADR 0026), and the platform's
+// first organizer-facing email: every message above this line is a Customer's
+// receipt or a staff sign-in code.
 //
-// Two things are true of all three and are enforced by their Text() methods
+// Two things are true of all five and are enforced by their Text() methods
 // rather than by their callers. NONE of them carries a bank detail — the
 // database now holds account numbers, and an email is the one place they could
 // leak into a mail-server log, a phone notification and a screenshot at once, so
 // they say "the account on your Payout Profile" and never which one. And all
-// three are BEST-EFFORT: the money record is the fact and the email is the
+// five are BEST-EFFORT: the money record is the fact and the email is the
 // courtesy, so a delivery failure is swallowed by the caller exactly as every
 // other notice on this path is (ADR 0019).
 
@@ -133,10 +134,55 @@ type PayoutRequestDeclined struct {
 	Reason           string
 }
 
+// PayoutRequestTransferSent tells the asking Member that an operator has
+// submitted the transfer to the bank, and that the money is not there yet
+// (#188, ADR 0026 amendment).
+//
+// This is the notice that stops the "where is my money" message on day one. A
+// request that has been read and acted on and one nobody has opened both read as
+// waiting from the organizer's side, and only one of them deserves patience.
+//
+// SubmittedAt is the instant the transfer was submitted, and the notice states
+// it as a DATE. It is carried rather than left implicit because the 48-hour
+// expectation is only checkable against a day the organizer can count from; a
+// message saying "up to 48 hours" with no starting point is a message they
+// cannot act on, which is what "we sent it recently" already is.
+type PayoutRequestTransferSent struct {
+	To               string
+	OrganizationName string
+	// AmountCents is what was ASKED for. Nothing has moved yet, so there is no
+	// second figure to reconcile against: what the transfer actually settles at
+	// belongs to the paid notice, which is written when the money lands.
+	AmountCents int
+	Currency    string
+	SubmittedAt time.Time
+}
+
+// PayoutRequestTransferFailed tells the asking Member that the bank sent the
+// transfer back, and why (#188, ADR 0026 amendment).
+//
+// This is the one notice of the five that is ACTIONABLE, and the only one whose
+// absence costs the organizer money: the commonest failure is a wrong account
+// number on their own Payout Profile, and a failure that only appears on a page
+// they would have to think to visit is a week of waiting followed by the support
+// thread this feature exists to prevent.
+//
+// Reason is the operator's free text and is rendered verbatim by Text(). It is a
+// BANK's answer, not a judgement, and `failed` and `declined` share a column
+// precisely so that they must never come out sharing a sentence — nothing here
+// prefixes, softens or reframes it into a refusal.
+type PayoutRequestTransferFailed struct {
+	To               string
+	OrganizationName string
+	AmountCents      int
+	Currency         string
+	Reason           string
+}
+
 // EmailSender delivers transactional email: staff one-time passcodes,
 // Customer Sale Confirmations, Sale void/cancellation notices, the notice
 // that a refund the Customer was told was being processed could not be made, and
-// the three Payout Request notices. A real provider is deferred; development and
+// the five Payout Request notices. A real provider is deferred; development and
 // tests use the logging and capture implementations below.
 type EmailSender interface {
 	SendOTP(ctx context.Context, to string, code string) error
@@ -146,6 +192,8 @@ type EmailSender interface {
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
+	SendPayoutRequestTransferSent(ctx context.Context, sent PayoutRequestTransferSent) error
+	SendPayoutRequestTransferFailed(ctx context.Context, failed PayoutRequestTransferFailed) error
 }
 
 // LoggingEmailSender logs email delivery to the configured logger (development use).
@@ -203,6 +251,21 @@ func (s *LoggingEmailSender) SendPayoutRequestDeclined(_ context.Context, p Payo
 	return nil
 }
 
+// SendPayoutRequestTransferSent logs the asker's notice that the transfer has
+// been submitted to the bank.
+func (s *LoggingEmailSender) SendPayoutRequestTransferSent(_ context.Context, p PayoutRequestTransferSent) error {
+	s.Logger.Info("payout request transfer sent notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+	return nil
+}
+
+// SendPayoutRequestTransferFailed logs the asker's notice that the bank sent the
+// transfer back. The reason is not logged, for the reason the decline's is not:
+// it is the operator's message to one Organization.
+func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, p PayoutRequestTransferFailed) error {
+	s.Logger.Info("payout request transfer failed notice sent", "email", p.To, "organization", p.OrganizationName, "amount_cents", p.AmountCents)
+	return nil
+}
+
 // NoopEmailSender discards delivery (tests).
 type NoopEmailSender struct{}
 
@@ -241,6 +304,16 @@ func (NoopEmailSender) SendPayoutRequestDeclined(_ context.Context, _ PayoutRequ
 	return nil
 }
 
+// SendPayoutRequestTransferSent discards the asker's transfer-sent notice.
+func (NoopEmailSender) SendPayoutRequestTransferSent(_ context.Context, _ PayoutRequestTransferSent) error {
+	return nil
+}
+
+// SendPayoutRequestTransferFailed discards the asker's transfer-failed notice.
+func (NoopEmailSender) SendPayoutRequestTransferFailed(_ context.Context, _ PayoutRequestTransferFailed) error {
+	return nil
+}
+
 // CaptureEmailSender records delivered email for integration tests. It is safe
 // for concurrent use so tests can exercise concurrent sales.
 type CaptureEmailSender struct {
@@ -251,10 +324,12 @@ type CaptureEmailSender struct {
 	SaleConfirmations []SaleConfirmation
 	VoidedSales       []SaleVoided
 	RefusedReversals  []SaleReversalRefused
-	// The three Payout Request notices (#179).
-	SubmittedPayoutRequests []PayoutRequestSubmitted
-	PaidPayoutRequests      []PayoutRequestPaid
-	DeclinedPayoutRequests  []PayoutRequestDeclined
+	// The five Payout Request notices (#179, #188).
+	SubmittedPayoutRequests    []PayoutRequestSubmitted
+	PaidPayoutRequests         []PayoutRequestPaid
+	DeclinedPayoutRequests     []PayoutRequestDeclined
+	TransferSentPayoutRequests []PayoutRequestTransferSent
+	FailedPayoutRequests       []PayoutRequestTransferFailed
 	// failure, when set, makes every send fail with it and record nothing —
 	// a provider outage, as the calling code would meet one.
 	//
@@ -367,6 +442,28 @@ func (s *CaptureEmailSender) SendPayoutRequestDeclined(_ context.Context, p Payo
 	return nil
 }
 
+// SendPayoutRequestTransferSent records a delivered transfer-sent notice.
+func (s *CaptureEmailSender) SendPayoutRequestTransferSent(_ context.Context, p PayoutRequestTransferSent) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TransferSentPayoutRequests = append(s.TransferSentPayoutRequests, p)
+	return nil
+}
+
+// SendPayoutRequestTransferFailed records a delivered transfer-failed notice.
+func (s *CaptureEmailSender) SendPayoutRequestTransferFailed(_ context.Context, p PayoutRequestTransferFailed) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.FailedPayoutRequests = append(s.FailedPayoutRequests, p)
+	return nil
+}
+
 // Confirmations returns a copy of the captured Sale Confirmations.
 func (s *CaptureEmailSender) Confirmations() []SaleConfirmation {
 	s.mu.Lock()
@@ -426,6 +523,28 @@ func (s *CaptureEmailSender) PayoutRequestsDeclined() []PayoutRequestDeclined {
 	return out
 }
 
+// PayoutRequestTransfersSent returns a copy of the captured transfer-sent
+// notices. Tests assert on its LENGTH as much as on its contents: the notice
+// belongs to the transition and not to the button, so a compare-and-swap that
+// lost its race must add nothing here.
+func (s *CaptureEmailSender) PayoutRequestTransfersSent() []PayoutRequestTransferSent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]PayoutRequestTransferSent, len(s.TransferSentPayoutRequests))
+	copy(out, s.TransferSentPayoutRequests)
+	return out
+}
+
+// PayoutRequestTransfersFailed returns a copy of the captured transfer-failed
+// notices, on the same terms.
+func (s *CaptureEmailSender) PayoutRequestTransfersFailed() []PayoutRequestTransferFailed {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]PayoutRequestTransferFailed, len(s.FailedPayoutRequests))
+	copy(out, s.FailedPayoutRequests)
+	return out
+}
+
 // OTPSendCount returns how many passcode emails were delivered. Tests that care
 // about a send being suppressed assert on this rather than on the last code,
 // which a refused request leaves untouched either way.
@@ -448,5 +567,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil
+	s.TransferSentPayoutRequests = nil
+	s.FailedPayoutRequests = nil
 	s.failure = nil
 }

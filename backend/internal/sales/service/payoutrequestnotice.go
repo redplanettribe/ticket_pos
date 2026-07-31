@@ -7,18 +7,18 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
 
-// The three emails a Payout Request sends (#179, ADR 0026), and the platform's
-// first organizer-facing notification channel — ADR 0019 recorded that none
-// existed.
+// The five emails a Payout Request sends (#179 and #188, ADR 0026), and the
+// platform's first organizer-facing notification channel — ADR 0019 recorded
+// that none existed.
 //
-// They close the three loops that would otherwise each become a support
-// message: the operator allowlist learns an ask arrived, and the asker learns it
-// was paid, or why it was not. They are three notices and not a notification
-// system. There are no preferences, no digest and no inbox, and the next
-// organizer-facing notice will find a path already cut; widening it into
-// something general is a decision nobody has made (ADR 0026).
+// They close the loops that would otherwise each become a support message: the
+// operator allowlist learns an ask arrived, and the asker learns their transfer
+// was sent, and then that it landed, or why it did not. They are five notices
+// and not a notification system. There are no preferences, no digest and no
+// inbox; the amendment's two found the path already cut, and widening it into
+// something general is still a decision nobody has made (ADR 0026).
 //
-// FOUR RULES HOLD ACROSS ALL THREE.
+// FOUR RULES HOLD ACROSS ALL FIVE.
 //
 // EVERY FAILURE IS SWALLOWED. Not one of these functions returns an error, and
 // that is the interface rather than an oversight. Each is called AFTER the
@@ -142,7 +142,77 @@ func (s *Service) notifyPayoutRequestDeclined(ctx context.Context, request *repo
 	})
 }
 
-// payoutNoticeOrganization reads what all three notices need and none of them
+// notifyPayoutRequestTransferSent tells the asker that an operator has submitted
+// the transfer and the bank has not confirmed it yet (#188, ADR 0026 amendment).
+//
+// This is the sentence that stops the "where is my money" message on day one.
+// Until it exists, a request that has been read and acted on and one nobody has
+// opened both read the same way from the organizer's side.
+//
+// The instant it names is read off the row that was just written rather than
+// from the service clock again, for the reason the decline's reason is: the
+// email and the payouts page must be quoting the same fact. A `processing` row
+// without one is impossible — the CAS stamps them together and a CHECK ties them
+// (migration 046) — so a missing stamp means something is wrong with the write
+// path rather than with this notice, and it is logged and nothing is sent. A
+// 48-hour promise counted from a date the platform had to guess at is worse than
+// silence.
+func (s *Service) notifyPayoutRequestTransferSent(ctx context.Context, request *repository.PayoutRequestRow) {
+	if request.TransferSubmittedAt == nil {
+		s.logger.Error("payout request transfer sent notice: no submission instant on the processing request", "request_id", request.ID)
+		return
+	}
+	org, ok := s.payoutNoticeOrganization(ctx, request, "transfer sent")
+	if !ok {
+		return
+	}
+	_ = s.email.SendPayoutRequestTransferSent(ctx, platform.PayoutRequestTransferSent{
+		To:               request.RequestedBy,
+		OrganizationName: org.Name,
+		// What was ASKED for. Nothing has moved, so there is no second figure:
+		// what actually settles is the paid notice's to state, later.
+		AmountCents: request.AmountCents,
+		Currency:    org.Currency,
+		SubmittedAt: *request.TransferSubmittedAt,
+	})
+}
+
+// notifyPayoutRequestTransferFailed tells the asker the bank sent the transfer
+// back, and why (#188, ADR 0026 amendment).
+//
+// This is the one notice of the five that is ACTIONABLE, and the only one whose
+// absence costs the organizer money: the commonest cause is a wrong account
+// number on their own Payout Profile, and a failure that only appears on a page
+// they would have to think to visit is a week of waiting followed by the support
+// thread this feature exists to prevent.
+//
+// The reason is read off the written row rather than from the operator's input,
+// exactly as the decline's is, so the email and the payouts page cannot disagree.
+// A row somehow carrying none sends nothing: "your transfer failed" with no
+// reason is unactionable, which is the whole failure mode requiring a reason
+// exists to prevent.
+func (s *Service) notifyPayoutRequestTransferFailed(ctx context.Context, request *repository.PayoutRequestRow) {
+	if request.ResolutionReason == nil || *request.ResolutionReason == "" {
+		s.logger.Error("payout request transfer failed notice: no reason on the failed request", "request_id", request.ID)
+		return
+	}
+	org, ok := s.payoutNoticeOrganization(ctx, request, "transfer failed")
+	if !ok {
+		return
+	}
+	_ = s.email.SendPayoutRequestTransferFailed(ctx, platform.PayoutRequestTransferFailed{
+		To:               request.RequestedBy,
+		OrganizationName: org.Name,
+		AmountCents:      request.AmountCents,
+		Currency:         org.Currency,
+		// Verbatim. A bank's rejection and an operator's refusal share this
+		// column and must never share a sentence, so nothing here prefixes or
+		// paraphrases it into a judgement (ADR 0026 amendment).
+		Reason: *request.ResolutionReason,
+	})
+}
+
+// payoutNoticeOrganization reads what all five notices need and none of them
 // carries: the Organization's name, and the currency its money is stated in.
 //
 // A request's own row has neither — it names an Organization by id, and every

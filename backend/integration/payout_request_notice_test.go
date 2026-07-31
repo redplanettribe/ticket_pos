@@ -6,15 +6,16 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
-// The three emails a Payout Request sends (#179, ADR 0026).
+// The five emails a Payout Request sends (#179 and #188, ADR 0026).
 //
 // This is the platform's FIRST organizer-facing notification channel: every
 // other transactional email is a Customer's receipt or a staff sign-in code. The
-// three close the three loops that would otherwise each become a support
-// message — the operator allowlist learns an ask arrived, and the person who
-// asked learns it was paid, or why it was not.
+// five close the loops that would otherwise each become a support message — the
+// operator allowlist learns an ask arrived, and the person who asked learns
+// their transfer was sent, and then that it landed, or why it did not.
 //
 // Four properties are pinned here rather than in a unit test, because only real
 // HTTP over a real Postgres sees all of them at once:
@@ -24,9 +25,16 @@ import (
 //     ONE email recorded on the request as `requested_by`, never to every Org
 //     Admin. One request, one asker, one reply.
 //
-//   - THE DECLINE CARRIES ITS REASON. A queue that swallows requests silently
-//     generates the support thread it was built to prevent, and the reason only
-//     does that job if it reaches the asker's inbox.
+//   - THE DECLINE AND THE FAILURE CARRY THEIR REASON. A queue that swallows
+//     requests silently generates the support thread it was built to prevent,
+//     and the reason only does that job if it reaches the asker's inbox. The
+//     failure's reason is the one an organizer must ACT on: it names the account
+//     number that stopped their money.
+//
+//   - A NOTICE BELONGS TO A TRANSITION, NOT TO A BUTTON. Every one of the five
+//     is sent only when a row actually changed — the submission on `created`,
+//     the four answers on a compare-and-swap that WON. A refused press tells
+//     nobody anything, or the platform is emailing promises no row backs.
 //
 //   - NO BANK DETAILS IN ANY BODY. The database now holds account numbers and
 //     the rule that they never leave it is otherwise enforced by review alone
@@ -233,9 +241,178 @@ func TestPayoutRequestNoticeTellsTheAskerWhyItWasDeclined(t *testing.T) {
 	}
 }
 
+// TestPayoutRequestNoticeTellsTheAskerTheTransferWasSent closes the loop that
+// opens the moment `processing` exists (#188, ADR 0026 amendment).
+//
+// Before this notice, a request an operator has read and acted on and one nobody
+// has opened read identically from the organizer's side: both say "waiting". The
+// email is the sentence that stops the "where is my money" message on day one,
+// and the DATE is what makes it worth sending — "up to 48 hours" counted from
+// nothing is a claim the organizer cannot check, and one they cannot check is
+// one they will write to ask about.
+func TestPayoutRequestNoticeTellsTheAskerTheTransferWasSent(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Sent Fest", "sent-fest", 5, 1)
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{"transfer_reference": "PP-77120"})
+
+	notices := env.email.PayoutRequestTransfersSent()
+	if len(notices) != 1 {
+		t.Fatalf("captured %d transfer-sent notices, want exactly one", len(notices))
+	}
+	notice := notices[0]
+	// The one address on the request, as both other answers are: one request, one
+	// asker, one reply.
+	if notice.To != "admin@example.com" {
+		t.Fatalf("transfer-sent notice addressed to %q, want the Member who asked", notice.To)
+	}
+
+	// The instant the notice states is the one STORED against the request, not a
+	// second reading of the clock: the organizer counts 48 hours from the date on
+	// this email, and their payouts page must show them the same day.
+	_, _, submittedAt := transferStamp(t, env, request.ID)
+	if submittedAt == nil {
+		t.Fatalf("a processing request carries no transfer_submitted_at")
+	}
+	if !notice.SubmittedAt.Equal(*submittedAt) {
+		t.Fatalf("transfer-sent notice states %s, want the stored submission instant %s",
+			notice.SubmittedAt.UTC(), submittedAt.UTC())
+	}
+	// The date as an organizer in Guayaquil reads it. A transfer submitted at
+	// 03:00 UTC was submitted the previous evening there, and a notice quoting UTC
+	// would hand them a day to count from that their bank does not agree with.
+	guayaquil, err := time.LoadLocation("America/Guayaquil")
+	if err != nil {
+		t.Fatalf("load Ecuador zone: %v", err)
+	}
+	wantDate := submittedAt.In(guayaquil).Format("2 January 2006")
+
+	subject, body := notice.Subject(), notice.Text()
+	for _, want := range []string{
+		// What is on its way, and how much of it.
+		noticeMoney(payable, "USD"),
+		wantDate,
+		// The expectation, without which the date is just a date.
+		"48 hours",
+	} {
+		if !strings.Contains(subject+"\n"+body, want) {
+			t.Fatalf("transfer-sent notice does not mention %q:\nsubject: %s\n%s", want, subject, body)
+		}
+	}
+	// The bank's own reference is an operational fact for operators chasing a
+	// stalled transfer, and means nothing to the organizer. It is not a bank
+	// DETAIL, but it has no business in this email either.
+	if strings.Contains(subject+"\n"+body, "PP-77120") {
+		t.Fatalf("transfer-sent notice quotes the bank's transfer reference:\nsubject: %s\n%s", subject, body)
+	}
+	assertNoBankDetailsInEmail(t, "transfer sent", subject, body)
+
+	// Nothing has moved, so nobody has been told it did — and a transfer that was
+	// sent is not one that was refused.
+	if paid, declined := env.email.PayoutRequestsPaid(), env.email.PayoutRequestsDeclined(); len(paid) != 0 || len(declined) != 0 {
+		t.Fatalf("marking a transfer processing sent %d paid and %d declined notices, want none", len(paid), len(declined))
+	}
+	if failed := env.email.PayoutRequestTransfersFailed(); len(failed) != 0 {
+		t.Fatalf("marking a transfer processing sent %d transfer-failed notices, want none", len(failed))
+	}
+
+	// A SECOND operator pressing the same button loses the compare-and-swap, and a
+	// swap that wrote nothing tells nobody anything. This is the property that
+	// keeps the notice attached to the transition rather than to the request.
+	secondOperator := operatorSession(t, env, "second.operator@example.com")
+	resp, envBody := markProcessing(t, env, secondOperator, request.ID, map[string]any{})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("a second mark-processing succeeded against an already-submitted transfer: %+v", envBody)
+	}
+	if again := env.email.PayoutRequestTransfersSent(); len(again) != 1 {
+		t.Fatalf("captured %d transfer-sent notices after a lost compare-and-swap, want the original 1", len(again))
+	}
+}
+
+// TestPayoutRequestNoticeTellsTheAskerWhyTheTransferFailed carries the one thing
+// of the five that the organizer has to ACT on (#188, ADR 0026 amendment).
+//
+// The commonest failure is a wrong account number on the Organization's own
+// Payout Profile, and this request's copy of it is a frozen snapshot: the fix is
+// on the profile and the next attempt is a new ask. A failure that appears only
+// on a page the organizer would have to think to visit is a week of waiting
+// followed by the support thread this whole feature exists to prevent.
+//
+// It also pins the distinction `resolution_reason` was renamed for. A bank
+// sending money back and an operator refusing an ask share that column, and this
+// notice must not read as the latter: an organizer who believes the platform
+// judged them over a typo corrects nothing.
+func TestPayoutRequestNoticeTellsTheAskerWhyTheTransferFailed(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Bounced Fest", "bounced-fest", 5, 1)
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{})
+	reason := "The bank rejected the transfer: account number does not exist at Banco del Pacífico."
+	markFailedOK(t, env, operatorSessionID, request.ID, map[string]any{"reason": reason})
+
+	notices := env.email.PayoutRequestTransfersFailed()
+	if len(notices) != 1 {
+		t.Fatalf("captured %d transfer-failed notices, want exactly one", len(notices))
+	}
+	notice := notices[0]
+	if notice.To != "admin@example.com" {
+		t.Fatalf("transfer-failed notice addressed to %q, want the Member who asked", notice.To)
+	}
+
+	subject, body := notice.Subject(), notice.Text()
+	// VERBATIM. The operator's sentence is the only thing standing between a
+	// bounced transfer and a support thread, and nothing summarises or softens it.
+	if !strings.Contains(body, reason) {
+		t.Fatalf("transfer-failed notice does not carry the operator's reason verbatim:\n%s", body)
+	}
+	if !strings.Contains(subject+"\n"+body, noticeMoney(payable, "USD")) {
+		t.Fatalf("transfer-failed notice does not name the ask it answers (%s):\nsubject: %s\n%s",
+			noticeMoney(payable, "USD"), subject, body)
+	}
+	// The one click that fixes it.
+	if !strings.Contains(body, "Payout Profile") {
+		t.Fatalf("transfer-failed notice does not point at the Payout Profile:\n%s", body)
+	}
+	// A failure is not a refusal. `declined` and `failed` share a column and must
+	// not share a sentence.
+	for _, forbidden := range []string{"declined", "refused", "rejected your"} {
+		if strings.Contains(strings.ToLower(subject+"\n"+body), forbidden) {
+			t.Fatalf("transfer-failed notice reads as a refusal (%q):\nsubject: %s\n%s", forbidden, subject, body)
+		}
+	}
+	assertNoBankDetailsInEmail(t, "transfer failed", subject, body)
+
+	// The decline notice is a different email for a different event, and neither
+	// transition sent the other's.
+	if declined := env.email.PayoutRequestsDeclined(); len(declined) != 0 {
+		t.Fatalf("a failed transfer sent %d decline notices, want none — nobody judged this ask", len(declined))
+	}
+	if paid := env.email.PayoutRequestsPaid(); len(paid) != 0 {
+		t.Fatalf("a failed transfer sent %d paid notices, want none — the money came back", len(paid))
+	}
+	// And nothing was ever written to the ledger to have to be unwound.
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payouts rows after a failed transfer = %d, want 0", count)
+	}
+
+	// `failed` is terminal: a second marking loses its swap and tells nobody
+	// twice.
+	resp, envBody := markFailed(t, env, operatorSessionID, request.ID, map[string]any{"reason": "again"})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("a second mark-failed succeeded against an already-failed request: %+v", envBody)
+	}
+	if again := env.email.PayoutRequestTransfersFailed(); len(again) != 1 {
+		t.Fatalf("captured %d transfer-failed notices after a lost compare-and-swap, want the original 1", len(again))
+	}
+}
+
 // TestPayoutRequestNoticeFailureNeverBlocksTheAnswer is the acceptance criterion
-// with the most consequence: with the email provider down, all three actions
-// still happen and still stand.
+// with the most consequence: with the email provider down, every one of the five
+// actions still happens and still stands.
 //
 // The money record is the fact and the email is a courtesy (ADR 0019). A Resend
 // outage that rolled back a fulfilment would mean an operator who had already
@@ -267,14 +444,41 @@ func TestPayoutRequestNoticeFailureNeverBlocksTheAnswer(t *testing.T) {
 		t.Fatalf("decline during an email outage status=%d error=%+v", resp.StatusCode, envBody.Error)
 	}
 
-	// Fulfilment: the Payout row is the one that must survive. A decline frees
-	// the Organization to ask again immediately, which is how there is a second
-	// pending request to pay.
+	// The transfer: submitted, and STILL submitted with nobody told. A decline
+	// frees the Organization to ask again immediately, which is how there is a
+	// second request to send money against.
+	//
+	// This is the transition where a returned delivery error would do the most
+	// damage. The money has left the platform's bank account by the time an
+	// operator presses this, and a 500 from an email outage would leave them
+	// looking at a `pending` request for a transfer that is genuinely in flight —
+	// which is exactly how the same request gets transferred twice.
 	second, createdAgain := submitPayoutRequestOK(t, env, adminSessionID, requestBody(payable, "outage, again"))
 	if !createdAgain {
 		t.Fatalf("the re-ask after a decline was answered as an existing request")
 	}
-	result := fulfilPayoutRequestOK(t, env, operatorSessionID, second.ID, fulfilBody(payable, "2026-07-20", ""))
+	processing := markProcessingOK(t, env, operatorSessionID, second.ID, map[string]any{"transfer_reference": "PP-OUTAGE"})
+	if processing.Status != "processing" {
+		t.Fatalf("mark processing during an email outage = %+v, want a processing request", processing)
+	}
+
+	// Failure: the answer stands, reason and all, with nobody told. The notice
+	// nobody received is the ACTIONABLE one, and it still cannot touch the state.
+	failed := markFailedOK(t, env, operatorSessionID, second.ID, map[string]any{"reason": "the account number was rejected"})
+	if failed.Status != "failed" {
+		t.Fatalf("mark failed during an email outage = %+v, want a failed request", failed)
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payouts rows after a failed transfer during an email outage = %d, want 0", count)
+	}
+
+	// Fulfilment: the Payout row is the one that must survive. A failed request
+	// frees the Organization to ask again, exactly as a declined one does.
+	third, createdThird := submitPayoutRequestOK(t, env, adminSessionID, requestBody(payable, "outage, once more"))
+	if !createdThird {
+		t.Fatalf("the re-ask after a failed transfer was answered as an existing request")
+	}
+	result := fulfilPayoutRequestOK(t, env, operatorSessionID, third.ID, fulfilBody(payable, "2026-07-20", ""))
 	if result.Payout.ID == "" || result.Request.Status != "paid" {
 		t.Fatalf("fulfilment during an email outage = %+v, want a recorded Payout and a paid request", result)
 	}
@@ -287,14 +491,20 @@ func TestPayoutRequestNoticeFailureNeverBlocksTheAnswer(t *testing.T) {
 	if s, p, d := env.email.PayoutRequestsSubmitted(), env.email.PayoutRequestsPaid(), env.email.PayoutRequestsDeclined(); len(s)+len(p)+len(d) != 0 {
 		t.Fatalf("captured %d/%d/%d submitted/paid/declined notices from a failing sender, want none delivered", len(s), len(p), len(d))
 	}
+	if sent, bounced := env.email.PayoutRequestTransfersSent(), env.email.PayoutRequestTransfersFailed(); len(sent)+len(bounced) != 0 {
+		t.Fatalf("captured %d/%d transfer-sent/transfer-failed notices from a failing sender, want none delivered", len(sent), len(bounced))
+	}
 
 	// And the records the organizer reads back agree with what the API said.
 	history := listPayoutRequests(t, env, adminSessionID)
-	if len(history) != 2 {
-		t.Fatalf("request history = %d rows, want the declined ask and the paid one", len(history))
+	if len(history) != 3 {
+		t.Fatalf("request history = %d rows, want the declined ask, the failed one and the paid one", len(history))
 	}
-	statuses := map[string]bool{history[0].Status: true, history[1].Status: true}
-	if !statuses["paid"] || !statuses["declined"] {
-		t.Fatalf("request history statuses = %+v, want one paid and one declined", statuses)
+	statuses := map[string]bool{}
+	for _, row := range history {
+		statuses[row.Status] = true
+	}
+	if !statuses["paid"] || !statuses["declined"] || !statuses["failed"] {
+		t.Fatalf("request history statuses = %+v, want one paid, one declined and one failed", statuses)
 	}
 }

@@ -179,3 +179,31 @@ func (s *ResendEmailSender) SendPayoutRequestDeclined(ctx context.Context, p Pay
 	}
 	return nil
 }
+
+// SendPayoutRequestTransferSent delivers the asker's notice that the transfer
+// has been submitted to the bank. Best-effort: the request is `processing`
+// whether or not anybody was told, and the organizer's own payouts page carries
+// the same date and the same expectation.
+func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p PayoutRequestTransferSent) error {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+		s.logger.Error("resend send payout request transfer sent failed", "email", p.To, "organization", p.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendPayoutRequestTransferFailed delivers the asker's notice that the bank sent
+// the transfer back, carrying the operator's reason.
+//
+// Best-effort like the rest, and the log line matters more here than on any of
+// the other four: this is the only notice the organizer must ACT on, and one
+// that never arrives is an organizer waiting a week on money that is not coming.
+// The reason itself is not logged — it is a message to one Organization, not an
+// operational fact.
+func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
+	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
+		s.logger.Error("resend send payout request transfer failed failed", "email", p.To, "organization", p.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}

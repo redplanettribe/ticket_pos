@@ -366,6 +366,15 @@ func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID str
 		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
 	}
 
+	// Told AFTER the swap and only because the swap WON. A caller that lost the
+	// race has just been refused, and telling an organizer their transfer was sent
+	// on the strength of an update that wrote nothing would be a promise no row
+	// backs (#188).
+	//
+	// The row that was written is what is passed, not the row read before, so the
+	// date the organizer is asked to count 48 hours from is the one stored.
+	s.notifyPayoutRequestTransferSent(ctx, row)
+
 	return payoutRequestView(*row), nil
 }
 
@@ -404,6 +413,15 @@ func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string,
 	if row == nil {
 		return nil, s.payoutRequestNotProcessing(ctx, requestID, existing)
 	}
+
+	// The reason travels to the asker, gated on the swap having won and swallowed
+	// like every other notice here. This is the one notice of the five that is
+	// ACTIONABLE — the commonest cause is a wrong account number on the
+	// Organization's own Payout Profile — and it is also the one whose delivery
+	// must least be allowed to touch the answer: a failure that could not be
+	// emailed is still a failure, and it is still readable on the payouts page
+	// (#188).
+	s.notifyPayoutRequestTransferFailed(ctx, row)
 
 	return payoutRequestView(*row), nil
 }
