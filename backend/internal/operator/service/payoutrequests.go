@@ -195,6 +195,19 @@ type DeclinePayoutRequestInput struct {
 	Operator string
 }
 
+// MarkPayoutRequestProcessingInput is an operator answering with a transfer they
+// cannot yet confirm: whatever reference the bank handed back, and who submitted
+// it (#184).
+//
+// The reference is optional and nil is ordinary. The instant is not here at all
+// — it is the service's injected clock, taken when the row is written, because
+// it is the figure the 72-hour stale flag is measured against and an operator
+// must not be its source.
+type MarkPayoutRequestProcessingInput struct {
+	Reference *string
+	Operator  string
+}
+
 // FulfilPayoutRequest records the Payout and marks the request paid, in one
 // transaction, so there is no second step to forget.
 //
@@ -210,6 +223,22 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 		PaidAt:      in.PaidAt,
 		Note:        in.Note,
 		Operator:    in.Operator,
+	})
+}
+
+// MarkPayoutRequestProcessing records that the transfer has been submitted and
+// the bank has not confirmed it, leaving the request outstanding.
+//
+// NOTHING IS RECORDED IN THE LEDGER. This is the one write on this surface that
+// answers a request without producing a Payout, and that is the point: a Payout
+// is money that moved (ADR 0014), and a PayPhone transfer can take 48 hours and
+// can come back rejected. The request keeps the Organization's single slot while
+// it is in flight, so nobody can ask again for the same money (ADR 0026
+// amendment).
+func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*PayoutRequestWhole, error) {
+	return s.money.MarkPayoutRequestProcessing(ctx, requestID, salessvc.MarkPayoutRequestProcessingInput{
+		Reference: in.Reference,
+		Operator:  in.Operator,
 	})
 }
 

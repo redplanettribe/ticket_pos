@@ -38,6 +38,22 @@ type PayoutRequestRow struct {
 	ResolvedBy          *string
 	ResolvedAt          *time.Time
 	PayoutID            *string
+	// The transfer an operator submitted and the bank has not confirmed (#184).
+	// All three are null on a request that never went through `processing` —
+	// including one that went `pending → paid` directly, which is an instant
+	// transfer and legal.
+	//
+	// TransferSubmittedBy is a DIFFERENT actor from ResolvedBy and must not be
+	// folded into it: the operator who submits and the operator who confirms may
+	// be different people days apart, and ResolvedBy keeps meaning who ENDED the
+	// request (migration 045).
+	//
+	// They are read on every path because payoutRequestColumns is shared, and
+	// deliberately not yet on any wire shape: exposing them, with the 72-hour
+	// stale flag computed from the injected clock, is #186's contract change.
+	TransferSubmittedBy *string
+	TransferSubmittedAt *time.Time
+	TransferReference   *string
 }
 
 // payoutRequestColumns is the one column list every read of this table uses, in
@@ -47,23 +63,27 @@ type PayoutRequestRow struct {
 const payoutRequestColumns = `
 	id, organization_id, amount_cents, note, status, requested_by, created_at, payable_balance_cents,
 	bank_name, account_type, account_number, account_holder_name, tax_id_type, tax_id_number,
-	resolution_reason, resolved_by, resolved_at, payout_id
+	resolution_reason, resolved_by, resolved_at, payout_id,
+	transfer_submitted_by, transfer_submitted_at, transfer_reference
 `
 
 // outstandingPayoutRequest is THE definition of an OUTSTANDING Payout Request —
 // one still awaiting an answer — as a SQL predicate over payout_requests.
 //
 // It is stated ONCE, here, and every read that means *outstanding* is written
-// against it. `outstanding` and `pending` are NOT synonyms, even though today
-// they describe exactly the same rows: `pending` means nobody has touched the
-// request yet, and `outstanding` means the Organization's single slot is still
-// occupied. The two came apart when `processing` was designed (#181), and this
-// constant is where that widening lands — `IN ('pending', 'processing')`, one
-// line, once.
+// against it. `outstanding` and `pending` are NOT synonyms: `pending` means
+// nobody has touched the request yet, and `outstanding` means the Organization's
+// single slot is still occupied. They described the same rows until `processing`
+// arrived — an operator has submitted the transfer and the bank has not
+// confirmed it, which is emphatically not untouched, and just as emphatically
+// still occupies the slot. Without `processing` in this list an Organization
+// whose transfer is in flight could ask again for money already on its way to
+// them, because no balance has moved to stop them (#184, ADR 0026 amendment).
 //
-// IT IS ALSO THE PREDICATE OF MIGRATION 043's PARTIAL UNIQUE INDEX
-// payout_requests_one_pending_per_org_idx, and of the queue index
-// payout_requests_pending_queue_idx beside it. The three must stay in step:
+// IT IS ALSO THE PREDICATE OF THE PARTIAL UNIQUE INDEX
+// payout_requests_one_outstanding_per_organization_key, and of the queue index
+// payout_requests_pending_queue_idx beside it (migrations 043, 045). The three
+// must stay in step:
 //
 //   - CreatePayoutRequest's ON CONFLICT names that unique index by its columns
 //     AND its predicate, which is how Postgres infers a partial index. Change
@@ -73,11 +93,12 @@ const payoutRequestColumns = `
 //     the size of the backlog rather than the size of the history. Change one
 //     without the other and the queue quietly stops using its index.
 //
-// The single-element IN is deliberate rather than clumsy: it is the shape the
-// widened predicate has, so widening changes the list and nothing else. Postgres
-// proves `status IN ('pending')` implies `status = 'pending'`, which is what the
-// index inference and the partial-index match both need.
-const outstandingPayoutRequest = `status IN ('pending')`
+// The two guards that are NOT written against it stay that way, and both say so
+// where they live: cancelling and declining mean UNTOUCHED BY AN OPERATOR, and
+// fulfilment means ANSWERABLE WITH MONEY. Each widens — or refuses to — on its
+// own terms, because a state added to this list must not silently become a state
+// an ask can be withdrawn from or a Payout written against.
+const outstandingPayoutRequest = `status IN ('pending', 'processing')`
 
 // CreatePayoutRequestInput is one ask, already validated: the amount is within
 // the Payable Balance and the profile is complete and normalised. The repository
@@ -96,7 +117,7 @@ type CreatePayoutRequestInput struct {
 // outstanding one — returns that instead, reporting created=false.
 //
 // The one-outstanding rule is the DATABASE's, not this function's. The INSERT
-// aims straight at the partial unique index from migration 043 and lets it
+// aims straight at the partial unique index (migrations 043, 045) and lets it
 // decide: ON CONFLICT names the index by its columns AND its predicate, which is
 // how Postgres infers a partial index, so a second ask writes nothing and comes
 // back empty. That is the whole of the race protection — a SELECT-then-INSERT
@@ -239,6 +260,73 @@ func (r *Repository) CancelPayoutRequest(ctx context.Context, orgID, requestID, 
 	return row, err
 }
 
+// MarkPayoutRequestProcessingInput is an operator saying they submitted the
+// transfer and cannot yet confirm it: who submitted it, when, and whatever the
+// bank handed back.
+//
+// Operator comes from the Staff Session and never from a request body, exactly
+// as the fulfilment's does (ADR 0015). Now is the service's injected clock and
+// never NOW() in SQL — the same rule the Payable Balance's day boundary follows,
+// and the reason a test can move a request to 73 hours old (ADR 0026).
+//
+// Reference is a pointer because it is genuinely optional: the provider does not
+// always give one synchronously, and a required reference an operator cannot
+// fill becomes a column full of dashes. The caller has already trimmed it, and
+// an empty one arrives here as nil rather than as "".
+type MarkPayoutRequestProcessingInput struct {
+	RequestID string
+	Operator  string
+	Reference *string
+	Now       time.Time
+}
+
+// MarkPayoutRequestProcessing records that the transfer has been submitted and
+// the bank has not confirmed it, or returns nil when the request was no longer
+// pending.
+//
+// NOTHING IS WRITTEN TO `payouts` HERE, AND NOTHING MAY BE. A Payout has meant
+// money that MOVED since ADR 0014, and this state exists precisely because the
+// operator cannot yet say that it did. Writing the ledger row on submission
+// would mean deleting or negating it when the bank sends the money back, and
+// inventing a voided-Payout concept every balance in the system would then have
+// to understand. That is why this is a bare UPDATE where fulfilment is a
+// transaction: there is no second statement to keep it honest with.
+//
+// The compare-and-swap is the house shape (see FulfilPayoutRequest): the guard
+// lives in the WHERE, so it is the ROW's own state that decides rather than a
+// read taken a moment earlier, and nothing is ever held. Zero rows means
+// somebody got there first — another operator submitting a transfer for the same
+// ask, the Organization cancelling it, an operator declining it — and the caller
+// reads the request back to say which.
+//
+// THE GUARD SAYS `status = 'pending'` AND IS NOT THE OUTSTANDING PREDICATE.
+// What it means is UNTOUCHED BY AN OPERATOR, the same thing cancel and decline
+// mean: a transfer is submitted against an ask nobody has answered. It must NOT
+// widen to `processing`, or a second operator could overwrite the first's stamp
+// and the record of who to ask about a transfer in flight would be lost.
+//
+// resolved_by and resolved_at stay NULL, and the schema requires it
+// (payout_requests_resolution_matches_status, migration 045). A `processing`
+// request has not been resolved, it has been ACTED ON; who resolves it is a
+// later, possibly different, operator.
+func (r *Repository) MarkPayoutRequestProcessing(ctx context.Context, input MarkPayoutRequestProcessingInput) (*PayoutRequestRow, error) {
+	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
+		UPDATE payout_requests
+		SET status = 'processing',
+		    transfer_submitted_by = $2,
+		    transfer_submitted_at = $3,
+		    transfer_reference = $4,
+		    updated_at = $3
+		WHERE id = $1 AND status = 'pending'
+		RETURNING `+payoutRequestColumns,
+		input.RequestID, input.Operator, input.Now, input.Reference,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return row, err
+}
+
 // FulfilPayoutRequestInput is an operator answering a request with money: what
 // actually left the bank, the day it did, an optional note, and the operator's
 // own email — which stamps BOTH the Payout's recorded_by and the request's
@@ -286,14 +374,14 @@ type FulfilPayoutRequestInput struct {
 //     who opens a request and goes to lunch leaves nothing stale behind, which is
 //     precisely what a claim lock could not promise.
 //
-// THE GUARD SAYS `status = 'pending'` AND IS DELIBERATELY NOT WRITTEN AGAINST
-// outstandingPayoutRequest, even though the two match the same rows today. What
-// this one means is ANSWERABLE WITH MONEY. It does widen — #184 adds
-// `processing`, because money landing is exactly how a submitted transfer ends —
-// but it must widen ON ITS OWN TERMS, by someone deciding that a Payout may be
-// recorded against that state. Borrowing the queue's definition would let any
-// state later called outstanding become a state the ledger can be written
-// against, without anybody deciding so.
+// THE GUARD SAYS `status IN ('pending', 'processing')` AND IS DELIBERATELY NOT
+// WRITTEN AGAINST outstandingPayoutRequest, even though the two match the same
+// rows. What this one means is ANSWERABLE WITH MONEY, and it now names both
+// states money can land against: an instant transfer recorded in one sitting,
+// and one submitted days ago that the bank has finally confirmed (#184). It
+// widened ON ITS OWN TERMS — somebody decided a Payout may be recorded against a
+// submitted transfer — and the next state added to the outstanding list must be
+// decided about here again rather than arriving through a shared constant.
 //
 // It stops a double RECORD, not a double TRANSFER: if two operators both wired
 // the money at the bank, the loser must record their Payout directly or the
@@ -320,7 +408,7 @@ func (r *Repository) FulfilPayoutRequest(ctx context.Context, input FulfilPayout
 	request, err := payoutRequestScan(tx.QueryRowContext(ctx, `
 		UPDATE payout_requests
 		SET status = 'paid', payout_id = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
-		WHERE id = $1 AND status = 'pending'
+		WHERE id = $1 AND status IN ('pending', 'processing')
 		RETURNING `+payoutRequestColumns,
 		input.RequestID, payout.ID, input.Operator, input.Now,
 	))
@@ -537,7 +625,8 @@ func (s trailingScanner) Scan(dest ...any) error {
 func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 	var row PayoutRequestRow
 	var note, resolutionReason, resolvedBy, payoutID sql.NullString
-	var resolvedAt sql.NullTime
+	var transferSubmittedBy, transferReference sql.NullString
+	var resolvedAt, transferSubmittedAt sql.NullTime
 
 	if err := scanner.Scan(
 		&row.ID,
@@ -558,6 +647,9 @@ func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 		&resolvedBy,
 		&resolvedAt,
 		&payoutID,
+		&transferSubmittedBy,
+		&transferSubmittedAt,
+		&transferReference,
 	); err != nil {
 		return nil, err
 	}
@@ -577,6 +669,16 @@ func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 	}
 	if payoutID.Valid {
 		row.PayoutID = &payoutID.String
+	}
+	if transferSubmittedBy.Valid {
+		row.TransferSubmittedBy = &transferSubmittedBy.String
+	}
+	if transferSubmittedAt.Valid {
+		at := transferSubmittedAt.Time
+		row.TransferSubmittedAt = &at
+	}
+	if transferReference.Valid {
+		row.TransferReference = &transferReference.String
 	}
 	return &row, nil
 }

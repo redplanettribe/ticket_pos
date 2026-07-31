@@ -219,6 +219,25 @@ type FulfilledPayoutRequest struct {
 	Request PayoutRequest  `json:"request"`
 }
 
+// MarkPayoutRequestProcessingInput is an operator saying they submitted the
+// transfer and cannot yet confirm it: whatever reference the bank handed back,
+// and who submitted it.
+//
+// There is no instant here. The moment of submission is the service's injected
+// clock, taken at the moment of writing, because an operator cannot be trusted
+// to be the source of a timestamp the 72-hour stale flag is computed against —
+// and because every other money instant in this system comes from the same clock
+// (ADR 0026). Operator comes from the Staff Session and never from a body
+// (ADR 0015).
+//
+// Reference is a pointer and nil is ordinary: PayPhone does not always hand one
+// back synchronously, and a required reference an operator cannot fill is a
+// field they will type "-" into.
+type MarkPayoutRequestProcessingInput struct {
+	Reference *string
+	Operator  string
+}
+
 // DeclinePayoutRequestInput is an operator answering without money: why, and who
 // said it.
 //
@@ -290,6 +309,47 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 	}, nil
 }
 
+// MarkPayoutRequestProcessing records that the transfer has been submitted and
+// the bank has not confirmed it, or refuses because the request was no longer
+// pending (#184, ADR 0026 amendment).
+//
+// NO PAYOUT IS RECORDED HERE. That is the whole reason the state exists: a
+// Payout is money that MOVED (ADR 0014), and a transfer PayPhone may send back
+// in 48 hours has not moved anything yet. The operator says what they actually
+// did — submitted a transfer — and the ledger stays untouched until somebody
+// finds out what the bank did with it. A future reader tempted to write the
+// Payout here, "so the balance is right sooner", would be buying two days of
+// accuracy with a voided-Payout concept every balance in the system would then
+// have to understand.
+//
+// It is the same shape as the decline below: look the request up so an unknown
+// id is a 404 before anything is attempted, compare-and-swap, and read back on
+// zero rows to say who got there first. No balance is consulted — none is at any
+// transition, and it matters more here than anywhere, because a request can now
+// sit outstanding for three days while the Payable Balance moves under it
+// (ADR 0026).
+func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*PayoutRequest, error) {
+	existing, err := s.lookUpPayoutRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.MarkPayoutRequestProcessing(ctx, repository.MarkPayoutRequestProcessingInput{
+		RequestID: existing.ID,
+		Operator:  in.Operator,
+		Reference: in.Reference,
+		Now:       s.now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
+	}
+
+	return payoutRequestView(*row), nil
+}
+
 // DeclinePayoutRequest refuses the ask with a reason its asker can read, and
 // frees the Organization to ask again.
 //
@@ -343,18 +403,34 @@ func (s *Service) lookUpPayoutRequest(ctx context.Context, requestID string) (*r
 }
 
 // payoutRequestAlreadyResolved builds the refusal a lost compare-and-swap earns,
-// re-reading the request so the state and the resolver it names are the ones
-// that actually stand rather than the ones read before the attempt.
+// re-reading the request so the state and the person it names are the ones that
+// actually stand rather than the ones read before the attempt.
 //
 // The pre-attempt row is the fallback for the read failing. It is stale by
 // construction — if it were current the CAS would have succeeded — but a refusal
 // naming a slightly older answer is better than a database error swallowing the
 // instruction to record the Payout directly, which is the one sentence on this
 // path that must always be delivered.
+//
+// A `processing` request gets its own refusal, and the branch is not cosmetic. A
+// request whose transfer is in flight HAS NOT BEEN RESOLVED — nothing has ended,
+// nobody has judged it, and resolved_by is null, so the resolved-by-whom sentence
+// would come out naming "another operator" for an event that did not happen.
+// Worse, that sentence tells the reader to record the Payout directly, which
+// against a transfer the bank has not confirmed is precisely the ledger entry
+// this whole state exists to prevent. Who they need is the operator who SUBMITTED
+// the transfer (ADR 0026 amendment).
+//
+// Fulfilment never arrives here for a `processing` request — its guard accepts
+// one — so in practice this branch answers a decline, and a second operator
+// marking an already-submitted request processing.
 func (s *Service) payoutRequestAlreadyResolved(ctx context.Context, requestID string, before *repository.PayoutRequestRow) error {
 	current, err := s.repo.GetPayoutRequestByID(ctx, requestID)
 	if err != nil || current == nil {
-		return sales.ErrPayoutRequestAlreadyResolved(before.Status, before.ResolvedBy)
+		current = before
+	}
+	if current.Status == sales.PayoutRequestProcessing {
+		return sales.ErrPayoutRequestTransferAlreadySubmitted(current.TransferSubmittedBy)
 	}
 	return sales.ErrPayoutRequestAlreadyResolved(current.Status, current.ResolvedBy)
 }

@@ -237,8 +237,15 @@ func (s *Service) ListPayoutRequests(ctx context.Context, actor ActorContext) ([
 //
 // The two refusals say different things and both are worth saying. A request
 // that is not this Organization's — or does not exist — is not found; one that
-// has already been paid, declined or cancelled names the state it reached, so
-// the organizer learns what happened to it rather than being told to try again.
+// has already ended names the state it reached, so the organizer learns what
+// happened to it rather than being told to try again.
+//
+// A `processing` request is refused too, and the CAS guard in the repository is
+// what refuses it: once an operator has submitted the transfer, the bank is
+// acting on the ask and the organizer may not withdraw it — that would leave a
+// confirmed transfer with nothing to attach it to, and free them to ask again
+// for money already on its way (ADR 0026 amendment). The refusal says exactly
+// that instead of restating a status; see sales.ErrPayoutRequestNotPending.
 func (s *Service) CancelPayoutRequest(ctx context.Context, actor ActorContext, requestID string) (*PayoutRequest, error) {
 	row, err := s.repo.CancelPayoutRequest(ctx, actor.OrganizationID, requestID, actor.Email, s.now())
 	if err != nil {

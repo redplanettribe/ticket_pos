@@ -113,6 +113,12 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// transaction, and the guarded update inside it is what makes this path
 	// strictly safer than recording directly (ADR 0026).
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/fulfil", operator(http.HandlerFunc(h.FulfilPayoutRequest)))
+	// Saying the transfer is submitted and the bank has not confirmed it (#184).
+	// It is the one write on this surface that answers a request WITHOUT writing
+	// to the ledger, and the path is a state name rather than a verb because the
+	// action has no verb — "mark as processing" is what an operator does, and
+	// #185's counterpart will be /failed for the same reason.
+	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/processing", operator(http.HandlerFunc(h.MarkPayoutRequestProcessing)))
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
 }
 

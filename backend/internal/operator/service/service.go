@@ -72,6 +72,12 @@ type Money interface {
 	// first — in which case NOTHING was written, the Payout included, because the
 	// compare-and-swap rolls the whole transaction back (ADR 0026).
 	FulfilPayoutRequest(ctx context.Context, requestID string, input salessvc.FulfilPayoutRequestInput) (*salessvc.FulfilledPayoutRequest, error)
+	// MarkPayoutRequestProcessing records that the operator submitted the bank
+	// transfer and cannot yet confirm it (#184). It writes NO Payout — a Payout
+	// is money that moved, and this is money that has been sent — and answers
+	// PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED when another operator submitted
+	// one first, or PAYOUT_REQUEST_ALREADY_RESOLVED when the request had ended.
+	MarkPayoutRequestProcessing(ctx context.Context, requestID string, input salessvc.MarkPayoutRequestProcessingInput) (*salessvc.PayoutRequest, error)
 	// DeclinePayoutRequest refuses the ask with a reason its asker can read, and
 	// answers the same two refusals. A decline moves no money and frees the
 	// Organization to ask again.

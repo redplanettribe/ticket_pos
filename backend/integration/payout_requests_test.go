@@ -829,3 +829,105 @@ func TestPayoutRequestRecordsTheAskingInstant(t *testing.T) {
 		t.Fatalf("requested_at = %v; want the moment of asking", at)
 	}
 }
+
+// A processing request holds the Organization's single slot, and neither party
+// may take it back (#184, ADR 0026 amendment).
+//
+// These two tests are the organizer's half of the widened partial unique index.
+// Without it an Organization whose transfer is in flight could ask again for the
+// same money — the first request is no longer `pending`, and NO BALANCE HAS
+// MOVED to stop them, because a request moves nothing and counts for nothing.
+// The index is the only thing standing there.
+
+// TestPayoutRequestProcessingStillOccupiesTheOutstandingSlot: an Organization
+// with a transfer in flight cannot ask again, and is handed its existing request
+// back exactly as a pending one does.
+//
+// The same courtesy, deliberately: an organizer pressing submit while their
+// money is on its way has not asked twice, and telling them "conflict" would
+// leave them wondering where their earlier ask went. The raw INSERT at the end
+// is what proves the rule is the DATABASE's rather than a service check the
+// application could race past.
+func TestPayoutRequestProcessingStillOccupiesTheOutstandingSlot(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Slot Fest", "slot-fest", 6, 1)
+	operatorSessionID := operatorSession(t, env, "sender@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{"transfer_reference": "PP-SLOT"})
+
+	// The second ask, for a different amount and a different note. It writes
+	// nothing and edits nothing.
+	resp, body := submitPayoutRequest(t, env, adminSessionID, requestBody(1, "asking again while it is in flight"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("second submission while processing status=%d error=%+v; want 200 with the existing request",
+			resp.StatusCode, body.Error)
+	}
+	var second payoutRequest
+	if err := json.Unmarshal(body.Data, &second); err != nil {
+		t.Fatalf("decode second submission: %v", err)
+	}
+	if second.ID != request.ID || second.Status != "processing" {
+		t.Fatalf("second submission returned %+v; want the outstanding processing request %q", second, request.ID)
+	}
+	if second.AmountCents != payable {
+		t.Fatalf("the outstanding request was edited by the second ask: %+v", second)
+	}
+	if history := listPayoutRequests(t, env, adminSessionID); len(history) != 1 {
+		t.Fatalf("history = %+v; want exactly one request", history)
+	}
+
+	// And structurally: the partial unique index covers `processing`, so even a
+	// writer going around the API cannot open a second slot.
+	_, err := env.db.Exec(`
+		INSERT INTO payout_requests
+			(organization_id, amount_cents, status, requested_by, payable_balance_cents,
+			 bank_name, account_type, account_number, account_holder_name, tax_id_type, tax_id_number)
+		SELECT organization_id, 100, 'pending', 'sneaky@example.com', payable_balance_cents,
+		       bank_name, account_type, account_number, account_holder_name, tax_id_type, tax_id_number
+		FROM payout_requests WHERE id = $1
+	`, request.ID)
+	if err == nil {
+		t.Fatal("the database accepted a pending request beside a processing one; the partial unique index was not widened")
+	}
+}
+
+// TestPayoutRequestCannotBeCancelledOnceTheTransferIsSubmitted: cancelling would
+// withdraw an ask that is thirty seconds from landing, leaving a confirmed
+// transfer with nothing to attach it to and the Organization free to ask again
+// for money already on its way to them (ADR 0026 amendment).
+//
+// The refusal must say THAT, not restate a status. "Already resolved" is false —
+// nothing has been resolved — and an organizer who reads it will believe their
+// money is not coming.
+func TestPayoutRequestCannotBeCancelledOnceTheTransferIsSubmitted(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Nocancel Fest", "nocancel-fest", 6, 1)
+	operatorSessionID := operatorSession(t, env, "sender@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, nil)
+
+	resp, body := cancelPayoutRequest(t, env, adminSessionID, request.ID)
+	if resp.StatusCode != http.StatusConflict || body.Error == nil ||
+		body.Error.Code != "PAYOUT_REQUEST_NOT_PENDING" {
+		t.Fatalf("cancelling a processing request status=%d error=%+v; want 409 PAYOUT_REQUEST_NOT_PENDING",
+			resp.StatusCode, body.Error)
+	}
+	message := strings.ToLower(body.Error.Message)
+	if !strings.Contains(message, "being processed") {
+		t.Fatalf("refusal message = %q; want it to say the transfer is already being processed", body.Error.Message)
+	}
+	if strings.Contains(message, "already been resolved") {
+		t.Fatalf("refusal message = %q; a request in flight has not been resolved", body.Error.Message)
+	}
+
+	// The ask is exactly where it was, and no money has moved either way.
+	history := listPayoutRequests(t, env, adminSessionID)
+	if len(history) != 1 || history[0].Status != "processing" {
+		t.Fatalf("request after a refused cancellation = %+v; want it still processing", history)
+	}
+	if count := payoutRowCount(t, env, "test-org"); count != 0 {
+		t.Fatalf("payout rows = %d; want none — nothing has been confirmed", count)
+	}
+}

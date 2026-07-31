@@ -146,6 +146,14 @@ func domainHTTPStatus(code string) int {
 	// directly (ADR 0026).
 	case "PAYOUT_REQUEST_ALREADY_RESOLVED":
 		return http.StatusConflict
+	// A decline — or a second submitted transfer — against a request whose
+	// transfer is already in flight (#184, ADR 0026 amendment). 409 like its two
+	// neighbours, and its own code because it is the one refusal here that is
+	// NOT about a request that ended: nothing has been resolved, the money is on
+	// its way, and the answer is to wait for the bank rather than to record a
+	// Payout for money that might come back.
+	case "PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED":
+		return http.StatusConflict
 	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
 	// the caller was entitled to make it, but the catalog is not in a state that
 	// admits it — the one slot is taken, or the price would break the invariant

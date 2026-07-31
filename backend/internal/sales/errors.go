@@ -308,13 +308,71 @@ func ErrPayoutRequestNotFound() apperror.DomainError {
 }
 
 // ErrPayoutRequestNotPending is returned when a cancellation reaches a request
-// that has already ended. All three end states are final (ADR 0026), so this is
-// a 409 the caller cannot retry into success rather than a silent no-op — the
-// current status is named so the asker learns what actually happened to it.
+// that is no longer the Organization's to withdraw. All four end states are
+// final (ADR 0026), so this is a 409 the caller cannot retry into success rather
+// than a silent no-op — the current status is named so the asker learns what
+// actually happened to it.
+//
+// A `processing` request gets a DIFFERENT SENTENCE, and that difference is the
+// point of the branch. It has not been resolved: an operator has submitted the
+// transfer and the bank has not confirmed it, so telling the organizer their ask
+// was "already resolved" would be false, and telling them a status code would
+// leave them to guess whether their money is coming. What they need to know is
+// that it is on its way and cannot be called back — a cancellation here would
+// withdraw an ask that is thirty seconds from landing, leaving a confirmed
+// transfer with nothing to attach it to (ADR 0026 amendment). The 48 hours is
+// the provider's advertised worst case and is what makes the sentence
+// checkable rather than a shrug.
+//
+// The CODE is deliberately the same. It is the same refusal — this request is
+// not yours to cancel — and a second code would make every caller branch on two
+// things to render one banner. The status in details is what a caller keys on.
 func ErrPayoutRequestNotPending(status string) apperror.DomainError {
-	return apperror.New("PAYOUT_REQUEST_NOT_PENDING", "This Payout Request has already been resolved.", map[string]any{
+	message := "This Payout Request has already been resolved."
+	if status == PayoutRequestProcessing {
+		message = "Your transfer is already being processed and can no longer be cancelled. " +
+			"It can take up to 48 hours to reach the account."
+	}
+	return apperror.New("PAYOUT_REQUEST_NOT_PENDING", message, map[string]any{
 		"status": status,
 	})
+}
+
+// ErrPayoutRequestTransferAlreadySubmitted is returned to a Platform Operator
+// whose decline — or whose own mark-as-processing — reached a request whose
+// transfer another operator has already submitted (#184, ADR 0026 amendment).
+//
+// It is deliberately NOT ErrPayoutRequestAlreadyResolved, whose whole message is
+// about a request that ENDED and about recording a Payout directly. Neither
+// sentence is true here: nothing has ended, no Payout may exist yet for a
+// transfer the bank has not confirmed, and telling an operator to record one
+// directly would put money in the ledger that might still come back — the one
+// thing the `processing` state exists to prevent.
+//
+// The platform cannot refuse an ask its own operator is already acting on. The
+// answer to a transfer that bounces is `failed` with a reason, not `declined`,
+// and the answer to one that lands is a Payout.
+//
+// It names who submitted, because that is what turns "somebody got there first"
+// into a colleague to go and ask about a transfer nobody can see from here.
+func ErrPayoutRequestTransferAlreadySubmitted(submittedBy *string) apperror.DomainError {
+	who := "another operator"
+	if submittedBy != nil && *submittedBy != "" {
+		who = *submittedBy
+	}
+	details := map[string]any{"status": PayoutRequestProcessing}
+	if submittedBy != nil {
+		details["transfer_submitted_by"] = *submittedBy
+	}
+	return apperror.New(
+		"PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED",
+		fmt.Sprintf(
+			"The transfer for this Payout Request was already submitted by %s and is being processed. "+
+				"Wait for the bank to confirm it — then record the Payout that answers it.",
+			who,
+		),
+		details,
+	)
 }
 
 // ErrPayoutRequestAlreadyResolved is returned to a Platform Operator whose
