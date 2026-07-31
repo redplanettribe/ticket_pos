@@ -66,7 +66,8 @@ Orthogonal to Membership — a Platform Operator need not be a Member of any Org
 _Avoid_: Platform admin, super admin, site admin, root
 
 **Operator Dashboard**:
-The Platform Operator's surface inside the staff app: every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, where Payouts are recorded, where the outstanding Payout Requests of every Organization queue up to be answered, and where a Ticket Sale is looked up by its Sale Confirmation reference — across every Organization — to be read or reversed as an Operator Reversal.
+The Platform Operator's surface inside the staff app, entered by switching to Platform rather than to an Organization: it holds every Organization with its Events and Withdrawable Balance, platform revenue totals per currency, where Payouts are recorded, where the outstanding Payout Requests of every Organization queue up to be answered, and where a Ticket Sale is looked up by its Sale Confirmation reference — across every Organization — to be read or reversed as an Operator Reversal.
+A whole surface, not a single screen: what it holds is spread across pages of its own, and it is the authority that makes them one thing, not the layout.
 Does not exist for non-operators.
 _Avoid_: Admin panel, back office, console
 
