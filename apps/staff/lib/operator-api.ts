@@ -236,8 +236,13 @@ export type OperatorPayoutRequestSnapshot = {
   tax_id_number: string;
 };
 
-/** One payout request in full, as the detail view reads it. */
-export type OperatorPayoutRequestFull = {
+/**
+ * One payout request in full, as the detail view reads it.
+ *
+ * Named for the server's own `PayoutRequestWhole` (operator/service), because
+ * one wire object with two names is one more thing a reader has to hold.
+ */
+export type OperatorPayoutRequestWhole = {
   id: string;
   amount_cents: number;
   note: string | null;
@@ -269,7 +274,7 @@ export type OperatorPayoutRequestFull = {
  * about it gates anything — the operator at the bank decides (ADR 0026).
  */
 export type OperatorPayoutRequestDetail = {
-  request: OperatorPayoutRequestFull;
+  request: OperatorPayoutRequestWhole;
   organization: OperatorOrganization;
   withdrawable_balance_cents: number;
   payable_balance_cents: number;
@@ -340,7 +345,7 @@ export type FulfilPayoutRequestBody = {
  */
 export type OperatorPayoutFulfilment = {
   payout: OperatorPayout;
-  request: OperatorPayoutRequestFull;
+  request: OperatorPayoutRequestWhole;
 };
 
 /**
@@ -372,8 +377,8 @@ export async function fulfilOperatorPayoutRequest(
 export async function declineOperatorPayoutRequest(
   requestId: string,
   reason: string,
-): Promise<OperatorPayoutRequestFull> {
-  return fetchEventsJSON<OperatorPayoutRequestFull>(
+): Promise<OperatorPayoutRequestWhole> {
+  return fetchEventsJSON<OperatorPayoutRequestWhole>(
     `/api/operator/payout-requests/${encodeURIComponent(requestId)}/decline`,
     { method: "POST", body: JSON.stringify({ reason }) },
   );
@@ -401,8 +406,8 @@ export async function declineOperatorPayoutRequest(
 export async function markOperatorPayoutRequestProcessing(
   requestId: string,
   transferReference?: string,
-): Promise<OperatorPayoutRequestFull> {
-  return fetchEventsJSON<OperatorPayoutRequestFull>(
+): Promise<OperatorPayoutRequestWhole> {
+  return fetchEventsJSON<OperatorPayoutRequestWhole>(
     `/api/operator/payout-requests/${encodeURIComponent(requestId)}/processing`,
     {
       method: "POST",
@@ -428,8 +433,8 @@ export async function markOperatorPayoutRequestProcessing(
 export async function markOperatorPayoutRequestFailed(
   requestId: string,
   reason: string,
-): Promise<OperatorPayoutRequestFull> {
-  return fetchEventsJSON<OperatorPayoutRequestFull>(
+): Promise<OperatorPayoutRequestWhole> {
+  return fetchEventsJSON<OperatorPayoutRequestWhole>(
     `/api/operator/payout-requests/${encodeURIComponent(requestId)}/failed`,
     { method: "POST", body: JSON.stringify({ reason }) },
   );

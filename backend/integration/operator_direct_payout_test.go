@@ -212,23 +212,31 @@ func TestOperatorDirectPayoutStaysUnconditionalWhileARequestIsPending(t *testing
 	}
 }
 
-// TestOperatorDirectPayoutWarnsWhileATransferIsProcessing: the warning's one
-// input is still there when the request's transfer is already in flight (#186,
-// ADR 0026 amendment).
+// TestOperatorDirectPayoutKeepsAProcessingRequestInTheDetailPayload: the
+// Organization detail payload the direct-payout warning reads still carries a
+// request whose transfer has already been submitted (#186, ADR 0026 amendment).
+//
+// THIS TEST DOES NOT ASSERT THE WARNING, and its name no longer claims to. It
+// asserts the PRECONDITION the warning hangs off, which is a real one and worth
+// a test of its own: if the payload dropped that request — or returned it in a
+// status the client's outstanding predicate did not recognise — the warning
+// could not fire however correct its own logic was.
+//
+// The warning itself is decided by outstandingPayoutRequest in
+// apps/staff/lib/payouts.ts, and it is covered by the
+// "outstandingPayoutRequest warns while a transfer is submitted but
+// unconfirmed" test in apps/staff/lib/payouts.test.ts, which feeds it exactly
+// the `processing` row this test proves the server sends. A reader chasing the
+// acceptance criterion needs both halves: this one for the payload, that one
+// for the decision.
 //
 // This is the case where double-paying stops being theoretical. A `pending`
 // request is a colleague who MIGHT transfer; a `processing` one is a colleague
-// who ALREADY DID, and the money may be hours from landing. If the Organization
-// detail payload dropped that request — or if it came back in a status the
-// client's outstanding predicate did not recognise — the operator would record a
-// second transfer with nothing on the screen to stop them.
+// who ALREADY DID, and the money may be hours from landing.
 //
-// The warning itself is copy, decided by outstandingPayoutRequest in
-// apps/staff/lib/payouts.ts and tested beside it. What is asserted here is the
-// fact the copy hangs off: the request is IN the payload, carrying `processing`,
-// with its transfer readable. The endpoint still refuses nothing and still
-// closes nothing, which is unchanged and deliberate.
-func TestOperatorDirectPayoutWarnsWhileATransferIsProcessing(t *testing.T) {
+// The endpoint still refuses nothing and still closes nothing, which is
+// unchanged and deliberate.
+func TestOperatorDirectPayoutKeepsAProcessingRequestInTheDetailPayload(t *testing.T) {
 	env := setupTest(t)
 	adminSessionID := orgAdminSession(t, env)
 	request, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Flight Fest", "flight-fest", 6, 1)
@@ -240,7 +248,7 @@ func TestOperatorDirectPayoutWarnsWhileATransferIsProcessing(t *testing.T) {
 	var before operatorOrganizationDetail
 	operatorGetOK(t, env, operatorSessionID, "/api/v1/operator/organizations/"+orgID, &before)
 	if len(before.PayoutRequests) != 1 || before.PayoutRequests[0].ID != request.ID {
-		t.Fatalf("requests on the detail page = %+v; want the in-flight ask", before.PayoutRequests)
+		t.Fatalf("requests on the detail page = %+v; want the submitted-transfer ask", before.PayoutRequests)
 	}
 	// THE ASSERTION the warning depends on: the ask is on the page, and it says
 	// what state it is in.
@@ -249,7 +257,7 @@ func TestOperatorDirectPayoutWarnsWhileATransferIsProcessing(t *testing.T) {
 			before.PayoutRequests[0].Status)
 	}
 	if before.PayoutRequests[0].TransferSubmittedBy == nil {
-		t.Fatalf("the in-flight ask carries no transfer: %+v", before.PayoutRequests[0])
+		t.Fatalf("the processing ask carries no transfer: %+v", before.PayoutRequests[0])
 	}
 
 	// The direct path is unchanged: it records what the operator says moved, and
@@ -258,7 +266,7 @@ func TestOperatorDirectPayoutWarnsWhileATransferIsProcessing(t *testing.T) {
 	part := payable / 3
 	payout := directPayoutOK(t, env, operatorSessionID, orgID, part, "2026-07-22", "unrelated advance")
 	if payout.AmountCents != part {
-		t.Fatalf("direct payout while a transfer is in flight = %+v; want it recorded as stated", payout)
+		t.Fatalf("direct payout while a transfer is unconfirmed = %+v; want it recorded as stated", payout)
 	}
 
 	var after operatorOrganizationDetail
@@ -270,7 +278,7 @@ func TestOperatorDirectPayoutWarnsWhileATransferIsProcessing(t *testing.T) {
 		t.Fatalf("the ask after a direct Payout = %+v; want it still processing and still unanswered", after.PayoutRequests[0])
 	}
 	if count := operatorPendingPayoutRequestCount(t, env, operatorSessionID); count != 1 {
-		t.Fatalf("badge count = %d; want the in-flight ask still counted as work", count)
+		t.Fatalf("badge count = %d; want the processing ask still counted as work", count)
 	}
 	// The ledger holds ONLY the direct Payout. Marking a transfer processing
 	// wrote nothing, and that is what a rejection would leave nothing to unwind.

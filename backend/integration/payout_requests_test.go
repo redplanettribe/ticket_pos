@@ -861,13 +861,13 @@ func TestPayoutRequestRecordsTheAskingInstant(t *testing.T) {
 // may take it back (#184, ADR 0026 amendment).
 //
 // These two tests are the organizer's half of the widened partial unique index.
-// Without it an Organization whose transfer is in flight could ask again for the
+// Without it an Organization whose transfer has been submitted could ask again for the
 // same money — the first request is no longer `pending`, and NO BALANCE HAS
 // MOVED to stop them, because a request moves nothing and counts for nothing.
 // The index is the only thing standing there.
 
 // TestPayoutRequestProcessingStillOccupiesTheOutstandingSlot: an Organization
-// with a transfer in flight cannot ask again, and is handed its existing request
+// whose transfer is submitted but unconfirmed cannot ask again, and is handed its existing request
 // back exactly as a pending one does.
 //
 // The same courtesy, deliberately: an organizer pressing submit while their
@@ -885,7 +885,7 @@ func TestPayoutRequestProcessingStillOccupiesTheOutstandingSlot(t *testing.T) {
 
 	// The second ask, for a different amount and a different note. It writes
 	// nothing and edits nothing.
-	resp, body := submitPayoutRequest(t, env, adminSessionID, requestBody(1, "asking again while it is in flight"))
+	resp, body := submitPayoutRequest(t, env, adminSessionID, requestBody(1, "asking again while the transfer is unconfirmed"))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("second submission while processing status=%d error=%+v; want 200 with the existing request",
 			resp.StatusCode, body.Error)
@@ -946,7 +946,7 @@ func TestPayoutRequestCannotBeCancelledOnceTheTransferIsSubmitted(t *testing.T) 
 		t.Fatalf("refusal message = %q; want it to say the transfer is already being processed", body.Error.Message)
 	}
 	if strings.Contains(message, "already been resolved") {
-		t.Fatalf("refusal message = %q; a request in flight has not been resolved", body.Error.Message)
+		t.Fatalf("refusal message = %q; a request awaiting the bank has not been resolved", body.Error.Message)
 	}
 
 	// The ask is exactly where it was, and no money has moved either way.

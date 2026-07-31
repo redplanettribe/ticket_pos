@@ -193,8 +193,8 @@ export function OperatorPayoutRequestsClient() {
           <CardTitle>Waiting for an answer</CardTitle>
           <CardDescription>
             Every outstanding request across every organization — the ones nobody has answered and the
-            ones whose transfer is already in flight. Account numbers are shown in part here; open a
-            request to see the full bank details and pay it.
+            ones whose transfer has been submitted but not yet confirmed. Account numbers are shown in
+            part here; open a request to see the full bank details and pay it.
           </CardDescription>
         </CardHeader>
         <CardContent>

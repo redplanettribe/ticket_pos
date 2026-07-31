@@ -39,7 +39,7 @@ import {
   markOperatorPayoutRequestProcessing,
 } from "@/lib/operator-api";
 import {
-  DECLINE_REASON_MAX_LENGTH,
+  RESOLUTION_REASON_MAX_LENGTH,
   TRANSFER_REFERENCE_MAX_LENGTH,
   canDecline,
   canFulfil,
@@ -363,7 +363,8 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
   //
   // It no longer drives what the page OFFERS, and that split is the whole of
   // #186. "Still awaiting an answer" and "answerable in this particular way" are
-  // different questions the moment `processing` exists: an in-flight request is
+  // different questions the moment `processing` exists: a request whose transfer
+  // has been submitted but not confirmed is
   // outstanding and undeclinable, and a single gate cannot say both. So the four
   // answers are asked for one at a time, each against the transition it enables,
   // and each mirroring the compare-and-swap guarding that transition on the
@@ -653,7 +654,7 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
 
             {/*
               MARKING THE TRANSFER SUBMITTED (#186). Offered only from `pending`:
-              a request whose transfer is already in flight must not offer a
+              a request whose transfer has already been submitted must not offer a
               second operator the chance to submit another.
 
               This writes NO Payout, which the copy says outright, because an
@@ -706,7 +707,7 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                   <Textarea
                     value={failureReason}
                     onChange={(event) => setFailureReason(event.target.value)}
-                    maxLength={DECLINE_REASON_MAX_LENGTH}
+                    maxLength={RESOLUTION_REASON_MAX_LENGTH}
                     rows={3}
                     placeholder="Banco Pichincha returned it: the account number does not exist."
                     disabled={submitting}
@@ -737,7 +738,7 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                   <Textarea
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
-                    maxLength={DECLINE_REASON_MAX_LENGTH}
+                    maxLength={RESOLUTION_REASON_MAX_LENGTH}
                     rows={3}
                     placeholder="Your event is three months out — ask again once the doors have opened."
                     disabled={submitting}

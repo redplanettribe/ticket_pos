@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
-import type { OperatorPayoutRequestFull } from "@/lib/operator-api";
+import type { OperatorPayoutRequestWhole } from "@/lib/operator-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 type RouteContext = {
@@ -27,7 +27,7 @@ export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
     const body = await request.json();
-    const envelope = await callBackend<OperatorPayoutRequestFull>(
+    const envelope = await callBackend<OperatorPayoutRequestWhole>(
       `/api/v1/operator/payout-requests/${encodeURIComponent(id)}/failed`,
       { method: "POST", sessionToken: token, body: JSON.stringify(body) },
     );

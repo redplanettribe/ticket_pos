@@ -423,6 +423,17 @@ func TestPayoutRequestNoticeTellsTheAskerWhyTheTransferFailed(t *testing.T) {
 // Every session is established BEFORE the sender starts failing, because the
 // one email in this system that is NOT best-effort is the staff passcode: it is
 // a credential, and a login that could not deliver one is a login that failed.
+//
+// THIS TEST HAS TEETH, AND THAT WAS CHECKED RATHER THAN ASSUMED (#188). A test
+// asserting that something does NOT break passes just as happily when the code
+// it guards has been deleted, so the swallow was removed and the failure
+// observed, once for each of the two dispatch functions this ticket added:
+// propagating the error out of the transfer-submitted dispatch made this test
+// fail with `mark processing status=500; want 200`, and propagating it out of
+// the transfer-failed dispatch made it fail with `mark failed status=500; want
+// 200`. Both were restored afterwards. Anyone adding a sixth best-effort notice
+// should do the same for it — the assertion is only worth its lines if it can
+// be made to fail.
 func TestPayoutRequestNoticeFailureNeverBlocksTheAnswer(t *testing.T) {
 	env := setupTest(t)
 	adminSessionID := orgAdminSession(t, env)
@@ -451,7 +462,7 @@ func TestPayoutRequestNoticeFailureNeverBlocksTheAnswer(t *testing.T) {
 	// This is the transition where a returned delivery error would do the most
 	// damage. The money has left the platform's bank account by the time an
 	// operator presses this, and a 500 from an email outage would leave them
-	// looking at a `pending` request for a transfer that is genuinely in flight —
+	// looking at a `pending` request for a transfer that was genuinely submitted —
 	// which is exactly how the same request gets transferred twice.
 	second, createdAgain := submitPayoutRequestOK(t, env, adminSessionID, requestBody(payable, "outage, again"))
 	if !createdAgain {

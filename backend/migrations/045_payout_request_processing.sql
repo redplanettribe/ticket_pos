@@ -56,8 +56,12 @@
 -- transfer_reference is whatever the bank handed back. OPTIONAL, because it is
 -- not always given synchronously, and a required field an operator cannot fill is
 -- a field they will type `-` into — at which point the column holds noise that
--- looks like data. Bounded at 200 like every other operator-read free-text field
--- here, and it stays on the REQUEST rather than on `payouts`: the ledger is
+-- looks like data. Bounded at 200 because a provider reference is an identifier,
+-- not prose: PayPhone's are short codes, and the bound is generous for one while
+-- still being small enough that a paragraph pasted in here is rejected rather
+-- than stored. It is deliberately NOT the 500 that `note` and `resolution_reason`
+-- carry — those two are sentences a person writes for another person to read.
+-- It stays on the REQUEST rather than on `payouts`: the ledger is
 -- shared with the direct-record path, which has no request and no reference, and
 -- widening it is a larger change than this needs.
 ALTER TABLE payout_requests
@@ -67,8 +71,8 @@ ALTER TABLE payout_requests
 
 -- THE MOST LOAD-BEARING LINES IN THIS MIGRATION.
 --
--- `outstanding` stops meaning `pending`. A request whose transfer is in flight
--- still occupies the Organization's single slot: without this widening an
+-- `outstanding` stops meaning `pending`. A request whose transfer has been
+-- submitted still occupies the Organization's single slot: without this widening an
 -- Organization could immediately ask again for money already on its way to them,
 -- because the first request would no longer be `pending` and NO BALANCE HAS MOVED
 -- to stop them — a request moves nothing and counts for nothing (migration 043),
@@ -158,7 +162,7 @@ ALTER TABLE payout_requests ADD CONSTRAINT payout_requests_resolution_matches_st
 --     the two directions of the same fact: the stamp is what marking a request
 --     processing writes, so a `pending` row carrying one would mean a transfer was
 --     submitted and the state forgot, and a `processing` row without one would
---     mean a transfer is in flight and nobody knows whose.
+--     mean a transfer was submitted and nobody knows by whom.
 --
 -- A request that went `pending → paid` DIRECTLY has neither, which is legal and
 -- stays legal: an instant transfer skips `processing`, and requiring the stamp on

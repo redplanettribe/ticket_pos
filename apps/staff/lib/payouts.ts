@@ -59,7 +59,7 @@ export function exceedsWithdrawableBalance(amountCents: number, balanceCents: nu
  * ask. The question here is genuinely "is this Organization waiting on money?" —
  * NOT "has anybody looked at their ask yet?" — because the mistake being
  * defended against is paying twice, and an Organization whose transfer is
- * already in flight is the case where double-paying is concrete rather than
+ * already been submitted is the case where double-paying is concrete rather than
  * theoretical (#181). So it widens with the definition, deliberately.
  */
 export function outstandingPayoutRequest<T extends { status: string }>(

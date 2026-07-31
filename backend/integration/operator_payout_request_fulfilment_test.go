@@ -851,7 +851,7 @@ func TestOperatorFulfilsAProcessingRequestAndRecordsExactlyOnePayout(t *testing.
 	}
 
 	// The Organization sees one ordinary Payout and a settled balance. Nothing
-	// on that surface knows a transfer was ever in flight.
+	// on that surface knows a transfer was ever awaiting the bank.
 	orgView := getPayouts(t, env, adminSessionID)
 	if len(orgView.Payouts) != 1 || orgView.Payouts[0].AmountCents != payable ||
 		orgView.WithdrawableBalanceCents != 0 {
@@ -1109,7 +1109,7 @@ func TestOperatorMarksATransferFailedAndTheLedgerStaysEmpty(t *testing.T) {
 
 	markProcessingOK(t, env, senderSessionID, request.ID, map[string]any{"transfer_reference": "PP-BOUNCE"})
 	if count := payoutRowCount(t, env, "test-org"); count != 0 {
-		t.Fatalf("payout rows while the transfer was in flight = %d; want none", count)
+		t.Fatalf("payout rows while the transfer was unconfirmed = %d; want none", count)
 	}
 
 	failed := markFailedOK(t, env, confirmerSessionID, request.ID,
@@ -1300,7 +1300,7 @@ func TestOperatorMarkingFailedRequiresAReason(t *testing.T) {
 		t.Fatal("the database accepted a failed request with no reason; the reason CHECK was not widened to cover `failed`")
 	}
 
-	// Every refusal left the request exactly where it was: still in flight, still
+	// Every refusal left the request exactly where it was: still processing, still
 	// answerable, and still with no Payout behind it.
 	if history := listPayoutRequests(t, env, adminSessionID); history[0].Status != "processing" {
 		t.Fatalf("request after refused failures = %+v; want it still processing", history[0])

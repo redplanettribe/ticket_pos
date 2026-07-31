@@ -246,7 +246,8 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 // answers a request without producing a Payout, and that is the point: a Payout
 // is money that moved (ADR 0014), and a PayPhone transfer can take 48 hours and
 // can come back rejected. The request keeps the Organization's single slot while
-// it is in flight, so nobody can ask again for the same money (ADR 0026
+// the bank has it and nobody has confirmed it, so nobody can ask again for the
+// same money (ADR 0026
 // amendment).
 func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*PayoutRequestWhole, error) {
 	return s.money.MarkPayoutRequestProcessing(ctx, requestID, salessvc.MarkPayoutRequestProcessingInput{

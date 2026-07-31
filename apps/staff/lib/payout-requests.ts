@@ -98,7 +98,8 @@ export function isOutstanding(status: string): boolean {
 
 /**
  * Whether the Organization may still withdraw the ask — the OTHER question,
- * asked of the same row, with a different answer once a transfer is in flight.
+ * asked of the same row, with a different answer once a transfer has been
+ * submitted.
  *
  * Only a `pending` request can be cancelled. Once an operator has submitted the
  * transfer the bank is acting on the ask, and withdrawing it would leave a
@@ -115,7 +116,7 @@ export function isCancellable(status: string): boolean {
   return status === "pending";
 }
 
-// --- what a transfer in flight, and one that bounced, say (#187) ----------
+// --- what a submitted transfer, and one that bounced, say (#187) ----------
 
 /**
  * The sentence under "Processing": the transfer was sent on a stated date, and
@@ -292,32 +293,50 @@ export function fulfilmentAmountDefault(amountCents: number): string {
 }
 
 /**
- * The bound on a decline reason, matching the column's own CHECK.
+ * The bound on a resolution reason, matching the column's own CHECK
+ * (`resolution_reason`, migration 044).
  *
- * It bounds a FAILURE's reason too, because both are the same `resolution_reason`
- * column and the same sentence to the same reader — the server states it once
- * for the same reason (resolutionReasonMaxLength in the operator handler). Two
- * constants would be two chances to drift from one CHECK.
+ * ONE CONSTANT BECAUSE THERE IS ONE COLUMN. A decline's reason and a bank
+ * failure's reason are the same `resolution_reason` (#182), the same sentence to
+ * the same reader, and the server states the bound once for the same reason
+ * (resolutionReasonMaxLength in the operator handler). Two constants would be
+ * two chances to drift from one CHECK.
  */
-export const DECLINE_REASON_MAX_LENGTH = 500;
+export const RESOLUTION_REASON_MAX_LENGTH = 500;
+
+/**
+ * Why a resolution reason cannot be submitted, or null when it can — the shared
+ * body behind the two exports below.
+ *
+ * The two answers that carry a reason ask for it differently and share
+ * everything else. What differs is only the sentence shown when the box is
+ * empty, because an operator declining an ask and an operator recording a bank
+ * rejection are being asked for different things; what does not differ is the
+ * length rule, which is one column's CHECK and must stay one statement of it.
+ *
+ * Blank and whitespace-only are the same failure as missing, because all three
+ * reach the organizer as a blank, which is the exact outcome requiring a reason
+ * exists to prevent (ADR 0026).
+ */
+function resolutionReasonProblem(reason: string, whenEmpty: string): string | null {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return whenEmpty;
+  }
+  if (trimmed.length > RESOLUTION_REASON_MAX_LENGTH) {
+    return `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`;
+  }
+  return null;
+}
 
 /**
  * Why a decline cannot be submitted, or null when it can.
  *
  * A reason is required and the API refuses without one, so this is not a gate —
- * it is the form saying so before a round trip. Blank and whitespace-only are
- * the same failure as missing, because all three reach the asker as a blank,
- * which is the exact outcome requiring a reason exists to prevent (ADR 0026).
+ * it is the form saying so before a round trip.
  */
 export function declineReasonProblem(reason: string): string | null {
-  const trimmed = reason.trim();
-  if (!trimmed) {
-    return "Say why. The organization is shown this.";
-  }
-  if (trimmed.length > DECLINE_REASON_MAX_LENGTH) {
-    return `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`;
-  }
-  return null;
+  return resolutionReasonProblem(reason, "Say why. The organization is shown this.");
 }
 
 /**
@@ -443,16 +462,11 @@ export function transferReferenceProblem(reference: string): string | null {
  * an organizer nothing; "the account number was rejected" is also the
  * instruction — go and correct the Payout Profile, because this request's copy
  * of it is frozen and the next move is a fresh ask, never a retry of this one
- * (ADR 0026 amendment). Blank and whitespace-only are the same failure as
- * missing, because all three reach the organizer as a blank.
+ * (ADR 0026 amendment).
  */
 export function failureReasonProblem(reason: string): string | null {
-  const trimmed = reason.trim();
-  if (!trimmed) {
-    return "Say what the bank said. The organization is shown this, and it is what they act on.";
-  }
-  if (trimmed.length > DECLINE_REASON_MAX_LENGTH) {
-    return `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`;
-  }
-  return null;
+  return resolutionReasonProblem(
+    reason,
+    "Say what the bank said. The organization is shown this, and it is what they act on.",
+  );
 }

@@ -68,10 +68,15 @@ test("outstandingPayoutRequest is null when every ask has been answered", () => 
 // It works through isOutstanding and through nothing else — there is no second
 // copy of the definition here to widen — which is why this test is three lines
 // and the prefactor that made it so (#183) was the whole of the work.
-test("outstandingPayoutRequest warns while a transfer is already in flight", () => {
-  const inFlight = { id: "b", status: "processing", amount_cents: 90_000 };
-  const history = [{ id: "a", status: "paid" }, inFlight];
-  assert.equal(outstandingPayoutRequest(history), inFlight);
+//
+// This is the node half of the coverage for the direct-payout warning; the Go
+// half is TestOperatorDirectPayoutKeepsAProcessingRequestInTheDetailPayload in
+// backend/integration/operator_direct_payout_test.go, which proves the payload
+// this hangs off really carries the `processing` request.
+test("outstandingPayoutRequest warns while a transfer is submitted but unconfirmed", () => {
+  const submitted = { id: "b", status: "processing", amount_cents: 90_000 };
+  const history = [{ id: "a", status: "paid" }, submitted];
+  assert.equal(outstandingPayoutRequest(history), submitted);
 });
 
 test("outstandingPayoutRequest finds the outstanding ask among answered ones", () => {

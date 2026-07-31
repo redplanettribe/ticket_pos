@@ -77,7 +77,7 @@ const payoutRequestColumns = `
 // arrived — an operator has submitted the transfer and the bank has not
 // confirmed it, which is emphatically not untouched, and just as emphatically
 // still occupies the slot. Without `processing` in this list an Organization
-// whose transfer is in flight could ask again for money already on its way to
+// whose transfer has been submitted could ask again for money already on its way to
 // them, because no balance has moved to stop them (#184, ADR 0026 amendment).
 //
 // IT IS ALSO THE PREDICATE OF THE PARTIAL UNIQUE INDEX
@@ -303,7 +303,7 @@ type MarkPayoutRequestProcessingInput struct {
 // What it means is UNTOUCHED BY AN OPERATOR, the same thing cancel and decline
 // mean: a transfer is submitted against an ask nobody has answered. It must NOT
 // widen to `processing`, or a second operator could overwrite the first's stamp
-// and the record of who to ask about a transfer in flight would be lost.
+// and the record of who to ask about a submitted transfer would be lost.
 //
 // resolved_by and resolved_at stay NULL, and the schema requires it
 // (payout_requests_resolution_matches_status, migration 045). A `processing`

@@ -673,7 +673,7 @@ func TestOperatorQueueAndBadgeCountAProcessingRequest(t *testing.T) {
 	markProcessingOK(t, env, operatorSessionID, first.ID, map[string]any{"transfer_reference": "PP-2026-0186"})
 
 	// THE ASSERTION. The badge is unmoved: two requests are still outstanding,
-	// one untouched and one in flight.
+	// one untouched and one with its transfer submitted.
 	if count := operatorPendingPayoutRequestCount(t, env, operatorSessionID); count != 2 {
 		t.Fatalf("count after a transfer was submitted = %d; want 2 — the badge counts work OUTSTANDING, not work untouched", count)
 	}
@@ -683,11 +683,11 @@ func TestOperatorQueueAndBadgeCountAProcessingRequest(t *testing.T) {
 		t.Fatalf("queue = %+v (total %d); want both asks", queue.Data, queue.Pagination.Total)
 	}
 	if queue.Data[0].Request.ID != first.ID || queue.Data[1].Request.ID != second.ID {
-		t.Fatalf("queue order = %q, %q; want the oldest ask still first even though its transfer is in flight",
+		t.Fatalf("queue order = %q, %q; want the oldest ask still first even though its transfer was submitted",
 			queue.Data[0].Request.ID, queue.Data[1].Request.ID)
 	}
 
-	// Status per row, so the in-flight ask does not read as unactioned work.
+	// Status per row, so the processing ask does not read as unactioned work.
 	row := queue.Data[0].Request
 	if row.Status != "processing" {
 		t.Fatalf("row status = %q; want processing", row.Status)

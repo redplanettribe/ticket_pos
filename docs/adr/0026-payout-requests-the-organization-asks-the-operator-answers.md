@@ -336,7 +336,7 @@ then have to understand. The cost of this choice is stated plainly under Consequ
 
 **`processing` counts as outstanding, and "outstanding" stops meaning "pending".** The partial
 unique index widens to `status IN ('pending', 'processing')`. Without this an Organization whose
-transfer is in flight could immediately ask again for the same money — the first request would no
+transfer has already been submitted could immediately ask again for the same money — the first request would no
 longer be `pending`, and no balance has moved to stop them. This is the single most load-bearing
 line of the amendment.
 
@@ -395,5 +395,25 @@ as somebody reads the queue.
 
 **`outstanding` and `pending` are now different words for different things,** in a codebase where
 they were interchangeable for the whole of the original feature's life. Every future reader adding
-a query about requests in flight has to know which they mean; the glossary says so, and the partial
+a query about unanswered requests has to know which they mean; the glossary says so, and the partial
 unique index is the definition of record.
+
+**None of the copy this amendment adds is covered by a test that renders it.** The repository has no
+component-testing seam — no jsdom, no Testing Library, no renderer for a React Server Component —
+and this amendment deliberately did not introduce one, because a first component-testing setup is
+its own decision and not a rider on a payout state. So the pure helpers are tested directly under
+`node --test` (`apps/staff/lib/payout-requests.test.ts`, `payouts.test.ts`) and the payloads those
+helpers read are tested end to end in Go, but the wiring between them is covered only by reading
+it. Specifically, NOTHING ASSERTS:
+
+- that the organizer's outstanding-request card renders the transfer sentence
+  (`transferSentSentence`) when the request is `processing`;
+- that the cancel button is really absent while a request is `processing`, as opposed to
+  `isCancellable` merely returning false;
+- that the failure banner's button really opens the Payout Profile editor;
+- that the operator's mark-processing confirmation dialog really says no Payout is written and the
+  ledger is untouched.
+
+Each of those is a sentence a reader has to check by eye, and each would survive a refactor that
+dropped it. The helpers below them and the API above them would both stay green. Whoever adds the
+first component test to this repository should start here.

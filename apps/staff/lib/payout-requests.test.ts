@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  DECLINE_REASON_MAX_LENGTH,
+  RESOLUTION_REASON_MAX_LENGTH,
   TRANSFER_FAILED_NEXT_STEP,
   TRANSFER_REFERENCE_MAX_LENGTH,
   canDecline,
@@ -24,6 +24,17 @@ import {
   transferSentSentence,
   waitingLabel,
 } from "./payout-requests.ts";
+
+// WHAT THIS FILE DOES NOT COVER, stated because the gap is easy to mistake for
+// coverage. These tests exercise the helpers that DECIDE the copy; nothing here
+// or anywhere else renders a component, because the repository has no
+// component-testing seam and #187 deliberately did not add one (ADR 0026,
+// "Consequences of the amendment"). So no test asserts that the outstanding
+// card actually shows transferSentSentence, that the cancel button is really
+// absent while a request is `processing`, that the failure banner's button
+// really opens the Payout Profile editor, or that the operator's
+// mark-processing dialog really says the ledger is untouched. Each of those
+// would survive a refactor that dropped it, with this file still green.
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -63,7 +74,7 @@ test("an unknown status is shown raw rather than swallowed", () => {
 // #183 and #184 exists to keep.
 test("pending and processing are outstanding: the four end states free the slot", () => {
   assert.equal(isOutstanding("pending"), true);
-  // The one that matters: an in-flight transfer still occupies the slot, so the
+  // The one that matters: a submitted, unconfirmed transfer still occupies the slot, so the
   // Organization cannot ask again and the direct-payout warning still fires.
   assert.equal(isOutstanding("processing"), true);
   // `failed` is terminal and frees the Organization to correct its details and
@@ -153,14 +164,14 @@ test("a decline reason is required, and bounded", () => {
   for (const blank of ["", "   ", "\n\t"]) {
     assert.equal(declineReasonProblem(blank), "Say why. The organization is shown this.");
   }
-  assert.equal(declineReasonProblem("x".repeat(DECLINE_REASON_MAX_LENGTH)), null);
+  assert.equal(declineReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH)), null);
   assert.equal(
-    declineReasonProblem("x".repeat(DECLINE_REASON_MAX_LENGTH + 1)),
-    `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`,
+    declineReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH + 1)),
+    `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`,
   );
   // Trimmed before it is measured, so trailing whitespace is never what tips a
   // reason over the bound.
-  assert.equal(declineReasonProblem(`  ${"x".repeat(DECLINE_REASON_MAX_LENGTH)}  `), null);
+  assert.equal(declineReasonProblem(`  ${"x".repeat(RESOLUTION_REASON_MAX_LENGTH)}  `), null);
 });
 
 test("a partial fulfilment says what it means, not just what it costs", () => {
@@ -210,7 +221,7 @@ test("declining is reachable from pending ONLY: the platform cannot refuse an as
 
 test("marking processing is reachable from pending ONLY", () => {
   assert.equal(canMarkProcessing("pending"), true);
-  // Offering it on a request whose transfer is already in flight is offering a
+  // Offering it on a request whose transfer has already been submitted is offering a
   // second operator the chance to send the same money twice.
   assert.equal(canMarkProcessing("processing"), false);
   for (const status of ["paid", "declined", "cancelled", "failed"]) {
@@ -269,10 +280,10 @@ test("a failure reason is required, and says what the organizer does with it", (
 });
 
 test("a failure reason shares the decline's bound, because it is the same column", () => {
-  assert.equal(failureReasonProblem("x".repeat(DECLINE_REASON_MAX_LENGTH)), null);
+  assert.equal(failureReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH)), null);
   assert.equal(
-    failureReasonProblem("x".repeat(DECLINE_REASON_MAX_LENGTH + 1)),
-    `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`,
+    failureReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH + 1)),
+    `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`,
   );
 });
 
@@ -286,7 +297,7 @@ test("transferSentLabel reads as a sentence at every age, including today", () =
   assert.equal(transferSentLabel(submitted, new Date("2026-07-27T12:00:00Z")), "sent today");
 });
 
-// --- a transfer in flight, and one that bounced (#187) --------------------
+// --- a submitted transfer, and one that bounced (#187) --------------------
 
 const asDate = (date: Date) => date.toISOString().slice(0, 10);
 

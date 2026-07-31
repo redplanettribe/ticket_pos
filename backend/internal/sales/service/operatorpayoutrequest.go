@@ -548,7 +548,7 @@ func (s *Service) lookUpPayoutRequest(ctx context.Context, requestID string) (*r
 // path that must always be delivered.
 //
 // A `processing` request gets its own refusal, and the branch is not cosmetic. A
-// request whose transfer is in flight HAS NOT BEEN RESOLVED — nothing has ended,
+// request whose transfer has been submitted HAS NOT BEEN RESOLVED — nothing has ended,
 // nobody has judged it, and resolved_by is null, so the resolved-by-whom sentence
 // would come out naming "another operator" for an event that did not happen.
 // Worse, that sentence tells the reader to record the Payout directly, which
