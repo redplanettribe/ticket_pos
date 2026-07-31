@@ -12,6 +12,7 @@ import {
   DialogTitle,
   StaffShell,
   cn,
+  isNavItemActive,
 } from "@ticket-pos/ui";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -187,7 +188,7 @@ export function StaffShellWithOrganizationSwitcher({
           showOperator ? (
             <div className="space-y-1">
               <OperatorNavLink
-                active={activePath.startsWith("/operator")}
+                active={isNavItemActive(activePath, "/operator")}
                 pendingPayoutRequests={pendingPayoutRequests}
               />
               {userMenu}

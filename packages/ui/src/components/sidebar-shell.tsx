@@ -3,6 +3,7 @@
 import { Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { isNavItemActive } from "../lib/nav-active";
 import { cn } from "../lib/utils";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 
@@ -40,25 +41,32 @@ type SidebarContentProps = {
 function SidebarContent({ header, brand, navItems, activePath, userMenu, onNavigate }: SidebarContentProps) {
   return (
     <>
-      {brand ? <div className="flex items-center border-b px-4 py-4">{brand}</div> : null}
+      {brand ? <div className="flex shrink-0 items-center border-b px-4 py-4">{brand}</div> : null}
       {typeof header === "function" ? header({ onNavigate }) : header}
-      <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary">
-        {navItems.map((item) => (
-          <a
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            aria-current={activePath === item.href ? "page" : undefined}
-            className={cn(
-              "rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-              activePath === item.href ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-            )}
-          >
-            {item.label}
-          </a>
-        ))}
+      {/*
+        The nav takes the slack and scrolls on its own, so a nav list longer than
+        the panel never pushes the user menu (Sign out) off the foot.
+      */}
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label="Primary">
+        {navItems.map((item) => {
+          const active = isNavItemActive(activePath, item.href);
+          return (
+            <a
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                active ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+              )}
+            >
+              {item.label}
+            </a>
+          );
+        })}
       </nav>
-      {userMenu ? <div className="border-t p-3">{userMenu}</div> : null}
+      {userMenu ? <div className="shrink-0 border-t p-3">{userMenu}</div> : null}
     </>
   );
 }
@@ -82,7 +90,14 @@ export function SidebarShell({
       >
         Skip to main content
       </a>
-      <aside className="hidden w-60 shrink-0 border-r bg-card md:flex md:flex-col">
+      {/*
+        The panel holds the viewport while the content beside it scrolls, so Sign
+        out is never more than a glance away. Sticky rather than fixed: the
+        document stays the scroll container, which keeps `scrollIntoView`,
+        document-relative sticky inside the content, and mobile browser-chrome
+        auto-hide working.
+      */}
+      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-card md:flex md:flex-col">
         <SidebarContent
           header={header}
           brand={brand}
