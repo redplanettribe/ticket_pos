@@ -9,8 +9,19 @@
 // the point of it is that an organizer should not have to press a button to
 // discover an answer the page already knows.
 
-/** The four states a Payout Request can be in. There is deliberately no `approved` (ADR 0026). */
-export const PAYOUT_REQUEST_STATUSES = ["pending", "paid", "declined", "cancelled"] as const;
+/**
+ * The six states a Payout Request can be in. There is deliberately no `approved`
+ * (ADR 0026), and `processing` is not it: it records a transfer that has already
+ * been submitted to a bank, not one an operator intends to make.
+ */
+export const PAYOUT_REQUEST_STATUSES = [
+  "pending",
+  "processing",
+  "paid",
+  "declined",
+  "cancelled",
+  "failed",
+] as const;
 
 export type PayoutRequestStatus = (typeof PAYOUT_REQUEST_STATUSES)[number];
 
@@ -18,17 +29,26 @@ export type PayoutRequestStatus = (typeof PAYOUT_REQUEST_STATUSES)[number];
  * The label a status is shown under. "Waiting" rather than "Pending" because
  * pending is the platform's word for the row's state and waiting is the
  * organizer's word for what is happening to them.
+ *
+ * "Failed" rather than "Rejected", and the distance from "Declined" is the whole
+ * point: a decline is a judgement a person made, and a failure is a bank sending
+ * the money back. An organizer with a typo in their account number must not read
+ * that the platform refused them (ADR 0026 amendment).
  */
 export function payoutRequestStatusLabel(status: string): string {
   switch (status) {
     case "pending":
       return "Waiting";
+    case "processing":
+      return "Processing";
     case "paid":
       return "Paid";
     case "declined":
       return "Declined";
     case "cancelled":
       return "Cancelled";
+    case "failed":
+      return "Failed";
     default:
       // A status this client has not been taught yet. Showing it raw is better
       // than showing nothing: the server is the authority on what states exist.
@@ -44,14 +64,18 @@ export function payoutRequestStatusLabel(status: string): string {
  * `outstandingPayoutRequest` predicate in the sales repository, which is the
  * authority — the server enforces the slot with a partial unique index and this
  * only decides what the staff app says about it. Widening the definition is
- * adding to this list, once (#183); `processing` joins it in #184.
+ * adding to this list, once (#183).
  *
- * `outstanding` is NOT a synonym for `pending`, even though today it names the
- * same rows. `pending` means nobody has looked at the request yet; `outstanding`
- * means it has not been answered. Anything asking "may this be cancelled?" or
- * "has an operator acted?" is asking the first question and must say `pending`.
+ * `outstanding` is NOT a synonym for `pending`. `pending` means nobody has
+ * looked at the request yet; `outstanding` means it has not been answered, and a
+ * `processing` request — whose transfer an operator has submitted and no bank
+ * has confirmed — is emphatically not untouched and just as emphatically still
+ * occupying the slot. Anything asking "may this be cancelled?" or "has an
+ * operator acted?" is asking the first question and must say `pending`; the
+ * per-transition gates below are exactly those questions and are written out one
+ * at a time rather than against this list.
  */
-const OUTSTANDING_STATUSES: readonly string[] = ["pending"];
+const OUTSTANDING_STATUSES: readonly string[] = ["pending", "processing"];
 
 /**
  * Whether a request is the outstanding one — the single slot an Organization
@@ -148,7 +172,14 @@ export function fulfilmentAmountDefault(amountCents: number): string {
   return (Math.round(amountCents) / 100).toFixed(2);
 }
 
-/** The bound on a decline reason, matching the column's own CHECK. */
+/**
+ * The bound on a decline reason, matching the column's own CHECK.
+ *
+ * It bounds a FAILURE's reason too, because both are the same `resolution_reason`
+ * column and the same sentence to the same reader — the server states it once
+ * for the same reason (resolutionReasonMaxLength in the operator handler). Two
+ * constants would be two chances to drift from one CHECK.
+ */
 export const DECLINE_REASON_MAX_LENGTH = 500;
 
 /**
@@ -194,4 +225,115 @@ export function fulfilmentDivergence(
     return `${formatCents(requestedCents - amountCents)} less than was asked for. The request will be marked paid for what you record, and the organization can ask again for the rest.`;
   }
   return `${formatCents(amountCents - requestedCents)} more than was asked for. The request will be marked paid, and the difference stays visible on it.`;
+}
+
+// --- the transfer, and the four answers an operator has (#186) --------------
+
+/**
+ * WHY THESE ARE FOUR PREDICATES AND NOT ONE.
+ *
+ * Until `processing` arrived, "may an operator answer this?" had a single answer
+ * — the request is outstanding — and the detail page asked it once to decide
+ * whether to render its form at all. It is now four different questions with
+ * four different answers, and collapsing any pair of them re-creates a bug the
+ * state machine exists to prevent:
+ *
+ *   - FULFILMENT is reachable from `pending` AND `processing`. An instant
+ *     transfer skips `processing` entirely and is recorded in one step, which is
+ *     the case a state describing uncertainty must not turn into a ritual; and a
+ *     submitted transfer that lands is fulfilled exactly as it always was.
+ *   - DECLINING is reachable from `pending` ONLY. The platform may not refuse an
+ *     ask a bank is currently acting on.
+ *   - MARKING PROCESSING is reachable from `pending` ONLY. A second operator
+ *     pressing it is somebody about to transfer money that is already on its way.
+ *   - MARKING FAILED is reachable from `processing` ONLY. A transfer nobody
+ *     submitted cannot have bounced — and this is also the correction for a
+ *     mis-click into `processing`, recorded with a reason saying so.
+ *
+ * None of these is a gate. The server guards every transition with a
+ * compare-and-swap and will refuse regardless; these decide what the page
+ * OFFERS, so an operator is not invited to press a button whose only possible
+ * outcome is a refusal.
+ */
+
+/** Whether a Payout can be recorded against this ask. Both outstanding states. */
+export function canFulfil(status: string): boolean {
+  return status === "pending" || status === "processing";
+}
+
+/** Whether this ask can be refused. Untouched requests only. */
+export function canDecline(status: string): boolean {
+  return status === "pending";
+}
+
+/** Whether a submitted transfer can be recorded against this ask. */
+export function canMarkProcessing(status: string): boolean {
+  return status === "pending";
+}
+
+/** Whether a bank rejection can be recorded against this ask. */
+export function canMarkFailed(status: string): boolean {
+  return status === "processing";
+}
+
+/**
+ * How long ago the transfer was sent, as a queue row says it: "sent today",
+ * "sent 1 day ago", "sent 4 days ago".
+ *
+ * It reuses the ask's own age arithmetic — whole days, floored at zero — because
+ * an operator triaging a backlog reads both figures in the same glance and two
+ * different roundings between them would be a puzzle rather than a fact.
+ *
+ * IT IS NOT THE STALE FLAG AND MUST NOT BECOME ONE. This counts from the
+ * VIEWER's clock; the flag is the server's answer, computed against the server's
+ * clock and delivered as transfer_stale. A laptop with the wrong date should
+ * garble a sentence, never decide whether a transfer is in trouble.
+ */
+export function transferSentLabel(submittedAt: string, now: Date = new Date()): string {
+  const days = daysWaiting(submittedAt, now);
+  if (days === 0) {
+    return "sent today";
+  }
+  return days === 1 ? "sent 1 day ago" : `sent ${days} days ago`;
+}
+
+/** The bound on a transfer reference, matching the column's CHECK (migration 045). */
+export const TRANSFER_REFERENCE_MAX_LENGTH = 200;
+
+/**
+ * Why a transfer reference cannot be submitted, or null when it can — INCLUDING
+ * when it is blank.
+ *
+ * The reference is optional and its absence is ordinary: PayPhone does not
+ * always hand one back synchronously, and a required field an operator cannot
+ * fill is a field they will type "-" into, at which point the column holds noise
+ * that looks like data. So the only thing that can be wrong with it is being too
+ * long for the column.
+ */
+export function transferReferenceProblem(reference: string): string | null {
+  if (reference.trim().length > TRANSFER_REFERENCE_MAX_LENGTH) {
+    return `Keep it under ${TRANSFER_REFERENCE_MAX_LENGTH} characters.`;
+  }
+  return null;
+}
+
+/**
+ * Why a failure reason cannot be submitted, or null when it can.
+ *
+ * Required, exactly as a decline's is and for a stronger reason. "Failed" tells
+ * an organizer nothing; "the account number was rejected" is also the
+ * instruction — go and correct the Payout Profile, because this request's copy
+ * of it is frozen and the next move is a fresh ask, never a retry of this one
+ * (ADR 0026 amendment). Blank and whitespace-only are the same failure as
+ * missing, because all three reach the organizer as a blank.
+ */
+export function failureReasonProblem(reason: string): string | null {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return "Say what the bank said. The organization is shown this, and it is what they act on.";
+  }
+  if (trimmed.length > DECLINE_REASON_MAX_LENGTH) {
+    return `Keep it under ${DECLINE_REASON_MAX_LENGTH} characters.`;
+  }
+  return null;
 }

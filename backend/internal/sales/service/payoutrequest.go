@@ -42,13 +42,40 @@ type PayoutRequest struct {
 	// PayoutProfile is the frozen copy of where the Organization said to pay. No
 	// later edit of the profile rewrites it (ADR 0026).
 	PayoutProfile PayoutRequestProfile `json:"payout_profile"`
-	// The answer, all null while the request is pending. ResolutionReason says why
-	// the request ended the way it did — today only a decline fills it — and
-	// PayoutID only on a payment (#177).
+	// The answer, all null while the request is outstanding. ResolutionReason says
+	// why the request ended the way it did — a decline or a failure fills it — and
+	// PayoutID only on a payment (#177, #185).
 	ResolutionReason *string    `json:"resolution_reason"`
 	ResolvedBy       *string    `json:"resolved_by"`
 	ResolvedAt       *time.Time `json:"resolved_at"`
 	PayoutID         *string    `json:"payout_id"`
+	// The transfer, as the operator who submitted it knows it (#186).
+	//
+	// All null on a request that never went through `processing`, INCLUDING one
+	// that went `pending → paid` directly — an instant transfer, and legal.
+	//
+	// TransferSubmittedBy is a different actor from ResolvedBy and is exposed
+	// beside it rather than folded into it: the operator who submits and the
+	// operator who confirms may be different people days apart, and an operator
+	// picking up a three-day-old request needs to know which colleague to ask.
+	// It is no new kind of disclosure on the Organization's own surface, which
+	// has always read ResolvedBy — an operator email — off a resolved request.
+	TransferSubmittedBy *string    `json:"transfer_submitted_by"`
+	TransferSubmittedAt *time.Time `json:"transfer_submitted_at"`
+	TransferReference   *string    `json:"transfer_reference"`
+	// TransferStale is the 72-hour flag: true when this request is `processing`
+	// and the transfer was submitted more than sales.PayoutTransferStaleAfter
+	// before the service's injected clock.
+	//
+	// COMPUTED AT READ TIME AND STORED NOWHERE. It is false for every other
+	// status by construction, so a paid request that took four days does not read
+	// as a problem after the fact — the flag is about a transfer nobody has
+	// confirmed, not about one that was slow.
+	//
+	// It is an OPERATOR's flag. The organizer's surface does not render it (#187
+	// tells them the 48-hour expectation instead), and the field travels on this
+	// shared shape because the operator's detail view is this same shape (#186).
+	TransferStale bool `json:"transfer_stale"`
 }
 
 // PayoutRequestProfile is the six-field snapshot on a request. It is a separate
@@ -176,7 +203,7 @@ func (s *Service) RequestPayout(ctx context.Context, actor ActorContext, input R
 		s.notifyPayoutRequestSubmitted(ctx, row)
 	}
 
-	return &PayoutRequestResult{Request: payoutRequestView(*row), Created: created}, nil, nil
+	return &PayoutRequestResult{Request: s.payoutRequestView(*row), Created: created}, nil, nil
 }
 
 // resolvePayoutProfile decides which bank details this request is made against:
@@ -223,7 +250,7 @@ func (s *Service) ListPayoutRequests(ctx context.Context, actor ActorContext) ([
 	}
 	out := make([]PayoutRequest, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, *payoutRequestView(row))
+		out = append(out, *s.payoutRequestView(row))
 	}
 	return out, nil
 }
@@ -252,7 +279,7 @@ func (s *Service) CancelPayoutRequest(ctx context.Context, actor ActorContext, r
 		return nil, err
 	}
 	if row != nil {
-		return payoutRequestView(*row), nil
+		return s.payoutRequestView(*row), nil
 	}
 
 	// The compare-and-swap wrote nothing. Which of the two reasons that was is a
@@ -271,7 +298,13 @@ func (s *Service) CancelPayoutRequest(ctx context.Context, actor ActorContext, r
 // payoutRequestView renders a stored request for the wire. Every entry point
 // goes through it, so a submission, a cancellation and the history can never
 // describe the same row differently.
-func payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
+//
+// It is a METHOD rather than a function because of one field: TransferStale is
+// computed here, from s.now(), and a package-level renderer would have had to be
+// handed an instant by every caller — which is the shape in which one caller
+// eventually passes time.Now() and the whole rule quietly stops being testable
+// (#186).
+func (s *Service) payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
 	return &PayoutRequest{
 		ID:                  row.ID,
 		OrganizationID:      row.OrganizationID,
@@ -289,9 +322,33 @@ func payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
 			TaxIDType:         row.Profile.TaxIDType,
 			TaxIDNumber:       row.Profile.TaxIDNumber,
 		},
-		ResolutionReason: row.ResolutionReason,
-		ResolvedBy:       row.ResolvedBy,
-		ResolvedAt:       row.ResolvedAt,
-		PayoutID:         row.PayoutID,
+		ResolutionReason:    row.ResolutionReason,
+		ResolvedBy:          row.ResolvedBy,
+		ResolvedAt:          row.ResolvedAt,
+		PayoutID:            row.PayoutID,
+		TransferSubmittedBy: row.TransferSubmittedBy,
+		TransferSubmittedAt: row.TransferSubmittedAt,
+		TransferReference:   row.TransferReference,
+		TransferStale:       payoutTransferStale(row, s.now()),
 	}
+}
+
+// payoutTransferStale answers the 72-hour question for one row, and is the
+// single place either wire shape asks it — the queue row and the whole request
+// must not be able to disagree about whether the same transfer is stale.
+//
+// A request that is not `processing` is never stale, whatever its timestamps
+// say: a paid request that took four days is a transfer that ARRIVED, and
+// flagging it after the fact would be flagging work nobody has to do. The nil
+// guard is belt-and-braces over a CHECK constraint that already ties the pair to
+// the status (migration 045), and it is here so a future migration relaxing that
+// constraint produces a false flag rather than a panic.
+//
+// STRICTLY GREATER, so the boundary belongs to "not stale yet". A transfer at
+// exactly 72 hours is on time by the rule as stated.
+func payoutTransferStale(row repository.PayoutRequestRow, now time.Time) bool {
+	if row.Status != sales.PayoutRequestProcessing || row.TransferSubmittedAt == nil {
+		return false
+	}
+	return now.Sub(*row.TransferSubmittedAt) > sales.PayoutTransferStaleAfter
 }

@@ -211,3 +211,70 @@ func TestOperatorDirectPayoutStaysUnconditionalWhileARequestIsPending(t *testing
 		t.Fatalf("requests for an Organization that never asked = %+v; want none", other.PayoutRequests)
 	}
 }
+
+// TestOperatorDirectPayoutWarnsWhileATransferIsProcessing: the warning's one
+// input is still there when the request's transfer is already in flight (#186,
+// ADR 0026 amendment).
+//
+// This is the case where double-paying stops being theoretical. A `pending`
+// request is a colleague who MIGHT transfer; a `processing` one is a colleague
+// who ALREADY DID, and the money may be hours from landing. If the Organization
+// detail payload dropped that request — or if it came back in a status the
+// client's outstanding predicate did not recognise — the operator would record a
+// second transfer with nothing on the screen to stop them.
+//
+// The warning itself is copy, decided by outstandingPayoutRequest in
+// apps/staff/lib/payouts.ts and tested beside it. What is asserted here is the
+// fact the copy hangs off: the request is IN the payload, carrying `processing`,
+// with its transfer readable. The endpoint still refuses nothing and still
+// closes nothing, which is unchanged and deliberate.
+func TestOperatorDirectPayoutWarnsWhileATransferIsProcessing(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, payable := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Flight Fest", "flight-fest", 6, 1)
+	orgID := operatorOrgIDBySlug(t, env, "test-org")
+	operatorSessionID := operatorSession(t, env, "sender@example.com")
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{"transfer_reference": "PP-2026-0178"})
+
+	var before operatorOrganizationDetail
+	operatorGetOK(t, env, operatorSessionID, "/api/v1/operator/organizations/"+orgID, &before)
+	if len(before.PayoutRequests) != 1 || before.PayoutRequests[0].ID != request.ID {
+		t.Fatalf("requests on the detail page = %+v; want the in-flight ask", before.PayoutRequests)
+	}
+	// THE ASSERTION the warning depends on: the ask is on the page, and it says
+	// what state it is in.
+	if before.PayoutRequests[0].Status != "processing" {
+		t.Fatalf("status = %q; want processing — this is what the direct form warns about",
+			before.PayoutRequests[0].Status)
+	}
+	if before.PayoutRequests[0].TransferSubmittedBy == nil {
+		t.Fatalf("the in-flight ask carries no transfer: %+v", before.PayoutRequests[0])
+	}
+
+	// The direct path is unchanged: it records what the operator says moved, and
+	// argues with nothing. Blocking it would not have prevented a second
+	// transfer, only stopped knowing about it (ADR 0026).
+	part := payable / 3
+	payout := directPayoutOK(t, env, operatorSessionID, orgID, part, "2026-07-22", "unrelated advance")
+	if payout.AmountCents != part {
+		t.Fatalf("direct payout while a transfer is in flight = %+v; want it recorded as stated", payout)
+	}
+
+	var after operatorOrganizationDetail
+	operatorGetOK(t, env, operatorSessionID, "/api/v1/operator/organizations/"+orgID, &after)
+	// And it auto-closes nothing. A direct Payout is not an answer to an ask
+	// whose transfer somebody else already submitted, and guessing that it was
+	// would turn one event into another.
+	if after.PayoutRequests[0].Status != "processing" || after.PayoutRequests[0].PayoutID != nil {
+		t.Fatalf("the ask after a direct Payout = %+v; want it still processing and still unanswered", after.PayoutRequests[0])
+	}
+	if count := operatorPendingPayoutRequestCount(t, env, operatorSessionID); count != 1 {
+		t.Fatalf("badge count = %d; want the in-flight ask still counted as work", count)
+	}
+	// The ledger holds ONLY the direct Payout. Marking a transfer processing
+	// wrote nothing, and that is what a rejection would leave nothing to unwind.
+	if count := payoutRowCount(t, env, "test-org"); count != 1 {
+		t.Fatalf("payout rows = %d; want only the direct settlement", count)
+	}
+}
