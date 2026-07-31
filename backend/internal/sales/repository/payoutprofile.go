@@ -58,7 +58,7 @@ func (r *Repository) GetPayoutProfile(ctx context.Context, orgID string) (*Payou
 // Organization's bank account" a phrase with one referent: an organizer changing
 // banks corrects their profile in place, and there is never a second row to
 // choose between. Every column is replaced — the profile is stated whole or not
-// at all (ADR 0025) — and created_at deliberately is not, so the row keeps
+// at all (ADR 0026) — and created_at deliberately is not, so the row keeps
 // saying when this Organization first told the platform where to pay it.
 func (r *Repository) SavePayoutProfile(ctx context.Context, orgID string, profile sales.PayoutProfile) (*PayoutProfileRow, error) {
 	var row PayoutProfileRow

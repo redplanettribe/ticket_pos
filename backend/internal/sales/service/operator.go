@@ -62,7 +62,7 @@ type RecordPayoutInput struct {
 // The operator sees both for the same reason the Organization does, and one
 // reason more: an operator settling a Payout Request is the last person who can
 // notice that the figure asked against has moved since the ask, and the smaller
-// number is the one that says whether the money has cleared (ADR 0025). Neither
+// number is the one that says whether the money has cleared (ADR 0026). Neither
 // figure ever gates the operator's write — a Payout is a record of money that
 // already moved, and recording it is unconditional (ADR 0015).
 func (s *Service) OrganizationBalances(ctx context.Context, orgID string) (OrganizationBalances, error) {

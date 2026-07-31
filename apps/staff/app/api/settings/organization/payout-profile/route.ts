@@ -5,7 +5,7 @@ import { callBackend } from "@/lib/api";
 import { jsonFromAPIError, unauthorizedResponse } from "@/lib/bff";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
-/** Where the Organization is paid (ADR 0025). Null when it has never said. */
+/** Where the Organization is paid (ADR 0026). Null when it has never said. */
 type PayoutProfile = {
   bank_name: string;
   account_type: string;

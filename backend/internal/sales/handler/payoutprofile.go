@@ -9,7 +9,7 @@ import (
 )
 
 // payoutProfileBody is a Payout Profile as an Org Admin states it. Every field
-// is required — the profile is stated whole or not at all (ADR 0025) — so there
+// is required — the profile is stated whole or not at all (ADR 0026) — so there
 // are no pointers here to tell "left out" from "cleared": both are simply
 // missing, and both are refused by name.
 type payoutProfileBody struct {
@@ -24,7 +24,7 @@ type payoutProfileBody struct {
 // GetOrganizationPayoutProfile returns where the Organization is paid.
 //
 // @Summary      Get the Organization's Payout Profile
-// @Description  Returns the acting Member's Organization's Payout Profile — the bank, whether the account is `ahorros` or `corriente`, the account number, the name on the account, and the Organization's own Tax ID for the factura (ADR 0025). The data payload is `null` when the Organization has never recorded one, which is an ordinary state rather than an error. The account number is returned whole, because this is the Organization's own editor; masking belongs to the operator surfaces that show many Organizations at once. Org Admin only — an Event Owner or Event Staff is refused.
+// @Description  Returns the acting Member's Organization's Payout Profile — the bank, whether the account is `ahorros` or `corriente`, the account number, the name on the account, and the Organization's own Tax ID for the factura (ADR 0026). The data payload is `null` when the Organization has never recorded one, which is an ordinary state rather than an error. The account number is returned whole, because this is the Organization's own editor; masking belongs to the operator surfaces that show many Organizations at once. Org Admin only — an Event Owner or Event Staff is refused.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -51,7 +51,7 @@ func (h *Handler) GetOrganizationPayoutProfile(w http.ResponseWriter, r *http.Re
 // account, it is one nobody can transfer to.
 //
 // @Summary      Set the Organization's Payout Profile
-// @Description  Records where the acting Member's Organization is paid, replacing any existing profile — there is at most one per Organization (ADR 0025). Every field is required. The account number is normalised by stripping spaces and dashes and must then be digits only; its leading zeros are preserved exactly, because an account number that loses one reaches the wrong account. The Tax ID identifies the party being paid and invoiced, so it is `cedula` or `ruc` and never `passport`, validated with the same check digits as a buyer's Tax ID (ADR 0016). Bad fields come back one by one as VALIDATION_FAILED, naming the field and never echoing what was typed. Org Admin only.
+// @Description  Records where the acting Member's Organization is paid, replacing any existing profile — there is at most one per Organization (ADR 0026). Every field is required. The account number is normalised by stripping spaces and dashes and must then be digits only; its leading zeros are preserved exactly, because an account number that loses one reaches the wrong account. The Tax ID identifies the party being paid and invoiced, so it is `cedula` or `ruc` and never `passport`, validated with the same check digits as a buyer's Tax ID (ADR 0016). Bad fields come back one by one as VALIDATION_FAILED, naming the field and never echoing what was typed. Org Admin only.
 // @Tags         staff
 // @Accept       json
 // @Produce      json

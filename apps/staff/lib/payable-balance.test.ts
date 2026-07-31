@@ -19,7 +19,7 @@ test("says so plainly when the whole balance has cleared", () => {
   assert.doesNotMatch(sentence, /tomorrow/);
 });
 
-// The case ADR 0025 says is correct rather than a bug: settled in full against
+// The case ADR 0026 says is correct rather than a bug: settled in full against
 // money that had not cleared, then sold again the same day. The Organization is
 // owed something and may ask for none of it, and printing a negative number on
 // its own would tell them nothing they can act on.

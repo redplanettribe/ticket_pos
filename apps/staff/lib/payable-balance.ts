@@ -1,5 +1,5 @@
 // The prose that explains the gap between the two balances an Organization is
-// shown (#174, ADR 0025). Dependency-free so it runs directly under
+// shown (#174, ADR 0026). Dependency-free so it runs directly under
 // `node --test` (see payable-balance.test.ts), and so the money formatter is the
 // caller's — the staff app already has one and this must not grow a second.
 //

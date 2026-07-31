@@ -40,7 +40,7 @@ type Events interface {
 // it next is decide what happened to somebody's payment.
 type Money interface {
 	// OrganizationBalances returns both money figures for one Organization: the
-	// Withdrawable Balance and the Payable Balance, each signed (ADR 0025).
+	// Withdrawable Balance and the Payable Balance, each signed (ADR 0026).
 	OrganizationBalances(ctx context.Context, orgID string) (salessvc.OrganizationBalances, error)
 	WithdrawableBalances(ctx context.Context, orgIDs []string) (map[string]int, error)
 	PlatformTotals(ctx context.Context) ([]salessvc.CurrencyTotals, error)
@@ -104,7 +104,7 @@ type OrganizationDetail struct {
 	WithdrawableBalanceCents int          `json:"withdrawable_balance_cents"`
 	// PayableBalanceCents is the part of the Withdrawable Balance that has
 	// cleared — sales recorded before today in Ecuador with no Reversal Request
-	// still open (ADR 0025). Signed, never clamped, and never larger than the
+	// still open (ADR 0026). Signed, never clamped, and never larger than the
 	// figure above it. It is shown to the operator and gates nothing they do.
 	PayableBalanceCents int      `json:"payable_balance_cents"`
 	Events              []Event  `json:"events"`

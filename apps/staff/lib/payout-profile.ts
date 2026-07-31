@@ -1,4 +1,4 @@
-// Pure Payout Profile helpers: where an Organization is paid (ADR 0025).
+// Pure Payout Profile helpers: where an Organization is paid (ADR 0026).
 // Dependency-free — no DOM, no fetch — so they run directly under `node --test`
 // (see payout-profile.test.ts) and can be reused by any surface that shows an
 // account number.

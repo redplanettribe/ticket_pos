@@ -26,7 +26,7 @@ type payoutEntry struct {
 type payoutsSummary struct {
 	WithdrawableBalanceCents int `json:"withdrawable_balance_cents"`
 	// PayableBalanceCents is the part of it the Organization may ask for today
-	// (#174, ADR 0025). Exercised in payable_balance_test.go.
+	// (#174, ADR 0026). Exercised in payable_balance_test.go.
 	PayableBalanceCents int           `json:"payable_balance_cents"`
 	Currency            string        `json:"currency"`
 	Payouts             []payoutEntry `json:"payouts"`

@@ -8,7 +8,7 @@ import "time"
 // It is the second rule this platform states in Ecuadorian local time rather
 // than in elapsed hours (see EcuadorTimeZone). The Reversal Window's 20:00
 // cutoff was the first; this one bounds the Payable Balance, which counts only
-// the sales recorded BEFORE today (ADR 0025). Both are properties of the
+// the sales recorded BEFORE today (ADR 0026). Both are properties of the
 // operator rather than of any Event, so neither ever reads an Event's own
 // timezone.
 //

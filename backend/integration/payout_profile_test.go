@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The Payout Profile (issue #173, ADR 0025): where an Organization is paid.
+// The Payout Profile (issue #173, ADR 0026): where an Organization is paid.
 // The bank, whether the account is `ahorros` or `corriente`, the account
 // number, the name on the account, and the Organization's own Tax ID for the
 // factura — set by an Org Admin and by nobody else.
@@ -230,7 +230,7 @@ func TestPayoutProfileRejectsBadFields(t *testing.T) {
 		if got.Code != tc.wantCode {
 			t.Fatalf("%s: code on %s = %q; want %q", tc.name, tc.wantField, got.Code, tc.wantCode)
 		}
-		// Bank details never travel back out in an error (ADR 0025): the
+		// Bank details never travel back out in an error (ADR 0026): the
 		// message says what the rule is, never what was typed.
 		if submitted, isString := tc.value.(string); isString && len(strings.TrimSpace(submitted)) > 2 {
 			if strings.Contains(got.Message, strings.TrimSpace(submitted)) {
@@ -251,7 +251,7 @@ func TestPayoutProfileRejectsBadFields(t *testing.T) {
 
 // TestPayoutProfileTaxIDIsNeverAPassport: the profile's Tax ID identifies the
 // party holding the Ecuadorian bank account being wired to, and a passport
-// holder has none (ADR 0025). The buyer's Tax ID at checkout answers a
+// holder has none (ADR 0026). The buyer's Tax ID at checkout answers a
 // different question and still takes all three types — this test asserts both
 // halves, because narrowing one surface must not narrow the other (ADR 0016).
 func TestPayoutProfileTaxIDIsNeverAPassport(t *testing.T) {

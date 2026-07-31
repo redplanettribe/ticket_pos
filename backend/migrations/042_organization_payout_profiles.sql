@@ -1,4 +1,4 @@
--- The Payout Profile: where an Organization is paid (ADR 0025). Until now an
+-- The Payout Profile: where an Organization is paid (ADR 0026). Until now an
 -- Organization had a name, a slug, a currency and a logo, and nowhere to say
 -- which bank account its settlement should reach — so every Payout began with a
 -- WhatsApp thread asking which bank, savings or current, and whose cédula goes

@@ -9,7 +9,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// The Payout Profile: where an Organization is paid (ADR 0025, CONTEXT.md
+// The Payout Profile: where an Organization is paid (ADR 0026, CONTEXT.md
 // "Payout Profile").
 //
 // This file is the whole of what makes a set of bank details acceptable. It sits
@@ -136,7 +136,7 @@ func (p PayoutProfile) Normalize() (PayoutProfile, []platform.FieldError) {
 // field has.
 //
 // Leading zeros survive untouched, which is the entire reason the column is TEXT
-// (ADR 0025). The Staff app mirrors this in apps/staff/lib/payout-profile.ts so
+// (ADR 0026). The Staff app mirrors this in apps/staff/lib/payout-profile.ts so
 // the field an organizer sees while typing matches what is stored.
 func NormalizeAccountNumber(number string) string {
 	var b strings.Builder

@@ -27,7 +27,7 @@ type Payout struct {
 // They travel as a pair because they only make sense as one. An organizer shown
 // the smaller figure alone asks why, and the answer is the other one; an
 // operator shown only the larger one settles against money that has not cleared,
-// which is the hazard the Payable Balance exists to end (ADR 0025).
+// which is the hazard the Payable Balance exists to end (ADR 0026).
 type OrganizationBalances struct {
 	// WithdrawableBalanceCents is the Net Proceeds of the Organization's active
 	// Online Sales minus every Payout recorded against it. It is signed on
@@ -42,7 +42,7 @@ type OrganizationBalances struct {
 	// had not cleared, which then sold nothing more that day, is owed a positive
 	// balance and may ask for none of it. That reads oddly and is correct — it
 	// is the conservative half of the ledger saying the settlement got ahead of
-	// itself (ADR 0025).
+	// itself (ADR 0026).
 	//
 	// Cleared sales are a subset of all sales and the subtraction is identical,
 	// so this never exceeds WithdrawableBalanceCents, including when both are
@@ -102,7 +102,7 @@ func (s *Service) OrganizationPayouts(ctx context.Context, actor ActorContext) (
 // surface that shows a balance goes through it, so there is exactly one place
 // that decides when today began and exactly one thing a test has to move to
 // change the answer. See repository.GetOrganizationBalance for why the boundary
-// is a query parameter (ADR 0025).
+// is a query parameter (ADR 0026).
 func (s *Service) organizationBalance(ctx context.Context, orgID string) (repository.OrganizationBalance, error) {
 	return s.repo.GetOrganizationBalance(ctx, orgID, platform.StartOfEcuadorDay(s.now()))
 }

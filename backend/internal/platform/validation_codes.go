@@ -119,7 +119,7 @@ const (
 	CodeInvalidPaymentMethod = "INVALID_PAYMENT_METHOD"
 	// CodeInvalidAccountType — "must be ahorros or corriente". The Payout
 	// Profile's bank account type, in Spanish because that is the word on the
-	// receiving bank's own form (ADR 0025).
+	// receiving bank's own form (ADR 0026).
 	CodeInvalidAccountType = "INVALID_ACCOUNT_TYPE"
 	// CodeInvalidAccountNumber — "must contain digits only". A Payout Profile
 	// account number after its spaces and dashes have been stripped; separate

@@ -285,7 +285,7 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// and it is Org-Admin-only because the Organization's finances are not hired
 	// staff's business (ADR 0014).
 	mux.Handle("GET /api/v1/staff/organization/payouts", orgAdmin(http.HandlerFunc(sh.GetOrganizationPayouts)))
-	// Where that money goes: the Payout Profile (ADR 0025). It sits beside the
+	// Where that money goes: the Payout Profile (ADR 0026). It sits beside the
 	// balance above and is gated identically — same handler, same Org-Admin-only
 	// authority — because it answers the other half of the same question, and a
 	// bank account is even less hired staff's business than a balance is. It is

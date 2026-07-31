@@ -16,7 +16,7 @@ import {
 
 import { maskAccountNumber, normalizeAccountNumber } from "@/lib/payout-profile";
 
-// The Payout Profile editor: where this Organization is paid (ADR 0025).
+// The Payout Profile editor: where this Organization is paid (ADR 0026).
 //
 // It is the whole of the Organization's side of a settlement. Everything on it
 // exists to spare a person retyping bank details into a WhatsApp thread every

@@ -173,7 +173,7 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
       {/*
         Both balances, beside each other, because the operator about to transfer
         money is the one person who benefits most from knowing which part of it
-        has cleared (ADR 0025). Neither figure gates anything: recording a Payout
+        has cleared (ADR 0026). Neither figure gates anything: recording a Payout
         stays unconditional, and the confirmation below is still checked against
         the Withdrawable Balance, which is what the platform actually owes.
       */}

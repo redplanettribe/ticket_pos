@@ -8,7 +8,7 @@ import (
 )
 
 // PayoutProfile is where an Organization is paid, as its own Org Admin reads it
-// back (ADR 0025).
+// back (ADR 0026).
 //
 // The account number is whole here rather than masked. Masking belongs to the
 // screens that show many Organizations' details at once — the operator queue —

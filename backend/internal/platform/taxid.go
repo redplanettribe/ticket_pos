@@ -183,7 +183,7 @@ func TaxIDFieldErrors(typeField, numberField, taxIDType, number string) (string,
 const BeneficiaryTaxIDTypeMessage = "must be cedula or ruc"
 
 // BeneficiaryTaxIDFieldErrors is TaxIDFieldErrors narrowed to the party being
-// paid: `cedula` or `ruc`, never `passport` (ADR 0025).
+// paid: `cedula` or `ruc`, never `passport` (ADR 0026).
 //
 // The narrowing is about the question being asked, not about rigour. A buyer's
 // Tax ID says how to identify them on a sales declaration, where a foreign

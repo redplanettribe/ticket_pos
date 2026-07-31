@@ -93,7 +93,7 @@ export type OperatorOrganizationDetail = {
   /**
    * What this Organization may ask for today: the same figure counting only
    * sales recorded before today in Ecuador with no Reversal Request still open
-   * (ADR 0025). Signed, and never larger than the balance above it.
+   * (ADR 0026). Signed, and never larger than the balance above it.
    */
   payable_balance_cents: number;
   events: OperatorEventRow[];

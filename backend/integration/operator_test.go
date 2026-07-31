@@ -95,7 +95,7 @@ type operatorOrganizationDetail struct {
 	} `json:"organization"`
 	WithdrawableBalanceCents int `json:"withdrawable_balance_cents"`
 	// PayableBalanceCents is what the Organization may ask for today (#174,
-	// ADR 0025). Exercised in payable_balance_test.go.
+	// ADR 0026). Exercised in payable_balance_test.go.
 	PayableBalanceCents int              `json:"payable_balance_cents"`
 	Events              []operatorEvent  `json:"events"`
 	Payouts             []operatorPayout `json:"payouts"`

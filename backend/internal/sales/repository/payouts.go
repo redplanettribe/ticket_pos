@@ -16,7 +16,7 @@ type OrganizationBalance struct {
 	NetProceedsCents int
 	// ClearedNetProceedsCents is the same sum over the subset of those sales
 	// that have cleared: recorded before today in Ecuador, with no Reversal
-	// Request still open on them (ADR 0025). A subset, so it never exceeds
+	// Request still open on them (ADR 0026). A subset, so it never exceeds
 	// NetProceedsCents — which is what makes the Payable Balance never exceed
 	// the Withdrawable Balance, whatever the Payouts are.
 	ClearedNetProceedsCents int
@@ -53,7 +53,7 @@ type PayoutRow struct {
 //
 // clearedBefore is the instant "today in Ecuador" began, and it is a PARAMETER
 // rather than NOW() or CURRENT_DATE for a reason worth defending: the boundary
-// is computed in Go from the service's injected clock (ADR 0025). SQL asking the
+// is computed in Go from the service's injected clock (ADR 0026). SQL asking the
 // database for the time would ignore that clock entirely, which would make the
 // day rollover — the whole of this rule — untestable at the seam the rule is
 // stated at, and would put the answer at the mercy of the database session's

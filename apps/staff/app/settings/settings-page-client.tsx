@@ -67,7 +67,7 @@ type PayoutsSummary = {
   /** What the platform owes. Signed: negative after a post-settlement reversal. */
   withdrawable_balance_cents: number;
   /**
-   * The part of it that has cleared and may be asked for today (ADR 0025).
+   * The part of it that has cleared and may be asked for today (ADR 0026).
    * Signed too, never larger than the figure above, and negative when a
    * settlement got ahead of what had cleared.
    */
@@ -398,7 +398,7 @@ export function SettingsPageClient() {
               Both balances, side by side, with the gap between them in words.
               Showing only the smaller figure would be simpler and would send
               every organizer who sold this morning to support asking why they
-              are being offered less than they earned (ADR 0025).
+              are being offered less than they earned (ADR 0026).
             */}
             <div>
               <div className="grid gap-4 sm:grid-cols-2">

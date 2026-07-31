@@ -9,7 +9,7 @@ import (
 )
 
 // The Payable Balance: the part of the Withdrawable Balance an Organization may
-// ask for today (#174, ADR 0025).
+// ask for today (#174, ADR 0026).
 //
 // It is the same arithmetic over a subset of the sales — those recorded before
 // today in Ecuador, with no Reversal Request still open on them — so every test
@@ -84,7 +84,7 @@ func assertBalances(t *testing.T, env *testEnv, sessionID string, wantWithdrawab
 // it closes at 20:00 Ecuador time on the date of purchase at the very latest
 // (ADR 0018) — and the Payable Balance is still zero, because the rule is one
 // condition and not two: the settlement lag SUBSUMES the window rather than
-// sitting beside it (ADR 0025). An implementation that checked the window would
+// sitting beside it (ADR 0026). An implementation that checked the window would
 // pass every other assertion in this file and fail here.
 func TestPayableBalanceWaitsForTheEcuadorDayToTurn(t *testing.T) {
 	env := setupTest(t)
@@ -188,7 +188,7 @@ func TestPayableBalanceExcludesASaleWithALiveReversalRequest(t *testing.T) {
 }
 
 // TestPayableBalanceGoesNegativeForASettledOrganizationThatSoldToday is the
-// case ADR 0025 says is correct rather than a bug, and the reason both figures
+// case ADR 0026 says is correct rather than a bug, and the reason both figures
 // are signed and unclamped.
 //
 // The Organization is settled in full against its Withdrawable Balance — the

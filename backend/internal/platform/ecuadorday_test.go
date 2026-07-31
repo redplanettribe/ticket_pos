@@ -8,7 +8,7 @@ import (
 )
 
 // Where "today" begins, which is the boundary the Payable Balance is cut at
-// (ADR 0025). America/Guayaquil is UTC-5 with no DST, so Ecuadorian midnight is
+// (ADR 0026). America/Guayaquil is UTC-5 with no DST, so Ecuadorian midnight is
 // always 05:00 UTC the same date — the arithmetic these cases lean on.
 //
 // The case worth having is the one in between: an instant that is one Ecuadorian
