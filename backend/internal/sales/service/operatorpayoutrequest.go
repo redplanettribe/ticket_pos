@@ -73,10 +73,10 @@ type OperatorPayoutRequest struct {
 	// The answer, all null while the request is pending. They are carried here
 	// because this shape also renders an Organization's request HISTORY, where
 	// most rows have been answered (#177 fills them in).
-	DeclineReason *string    `json:"decline_reason"`
-	ResolvedBy    *string    `json:"resolved_by"`
-	ResolvedAt    *time.Time `json:"resolved_at"`
-	PayoutID      *string    `json:"payout_id"`
+	ResolutionReason *string    `json:"resolution_reason"`
+	ResolvedBy       *string    `json:"resolved_by"`
+	ResolvedAt       *time.Time `json:"resolved_at"`
+	PayoutID         *string    `json:"payout_id"`
 }
 
 // PendingPayoutRequests returns one page of every outstanding Payout Request on
@@ -172,10 +172,10 @@ func operatorPayoutRequestView(row repository.PayoutRequestRow) OperatorPayoutRe
 			AccountNumberMasked: sales.MaskAccountNumber(row.Profile.AccountNumber),
 			AccountHolderName:   row.Profile.AccountHolderName,
 		},
-		DeclineReason: row.DeclineReason,
-		ResolvedBy:    row.ResolvedBy,
-		ResolvedAt:    row.ResolvedAt,
-		PayoutID:      row.PayoutID,
+		ResolutionReason: row.ResolutionReason,
+		ResolvedBy:       row.ResolvedBy,
+		ResolvedAt:       row.ResolvedAt,
+		PayoutID:         row.PayoutID,
 	}
 }
 

@@ -26,7 +26,7 @@ type PayoutRequest = {
     tax_id_type: string;
     tax_id_number: string;
   };
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;

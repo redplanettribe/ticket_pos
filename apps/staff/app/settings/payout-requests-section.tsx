@@ -59,7 +59,7 @@ type PayoutRequest = {
   payable_balance_cents: number;
   /** Where this ask said to pay. A later profile edit does not touch it. */
   payout_profile: PayoutRequestProfileSnapshot;
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
@@ -369,8 +369,8 @@ export function PayoutRequestsSection({
                   {/* A decline always carries its reason: a queue that refuses
                       silently generates the support thread it was built to
                       prevent (ADR 0026). */}
-                  {request.decline_reason ? (
-                    <p className="text-sm text-destructive">Declined: {request.decline_reason}</p>
+                  {request.resolution_reason ? (
+                    <p className="text-sm text-destructive">Declined: {request.resolution_reason}</p>
                   ) : null}
                   <p className="text-sm text-muted-foreground">
                     Paying to {request.payout_profile.bank_name}{" "}

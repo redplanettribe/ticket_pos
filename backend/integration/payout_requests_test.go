@@ -50,7 +50,7 @@ type payoutRequest struct {
 	// "asked for four times what they have".
 	PayableBalanceCents int                  `json:"payable_balance_cents"`
 	PayoutProfile       payoutRequestProfile `json:"payout_profile"`
-	DeclineReason       *string              `json:"decline_reason"`
+	ResolutionReason    *string              `json:"resolution_reason"`
 	ResolvedAt          *string              `json:"resolved_at"`
 	ResolvedBy          *string              `json:"resolved_by"`
 	PayoutID            *string              `json:"payout_id"`
@@ -164,7 +164,7 @@ func TestPayoutRequestSubmitsAndAppearsInHistory(t *testing.T) {
 			request.PayableBalanceCents, payable)
 	}
 	// Nothing has been answered, so every resolution field is empty.
-	if request.ResolvedAt != nil || request.ResolvedBy != nil || request.DeclineReason != nil || request.PayoutID != nil {
+	if request.ResolvedAt != nil || request.ResolvedBy != nil || request.ResolutionReason != nil || request.PayoutID != nil {
 		t.Fatalf("a pending request carries a resolution: %+v", request)
 	}
 

@@ -155,8 +155,8 @@ func TestOperatorFulfilsPayoutRequestAndTheOrganizationSeesThePayout(t *testing.
 	if result.Request.ResolvedAt == nil || *result.Request.ResolvedAt == "" {
 		t.Fatalf("resolved_at = %v; want the instant it was answered", result.Request.ResolvedAt)
 	}
-	if result.Request.DeclineReason != nil {
-		t.Fatalf("decline_reason on a paid request = %v; want null", result.Request.DeclineReason)
+	if result.Request.ResolutionReason != nil {
+		t.Fatalf("resolution_reason on a paid request = %v; want null", result.Request.ResolutionReason)
 	}
 	// The ask keeps what was asked. It is a record of a claim, not of a payment.
 	if result.Request.AmountCents != payable {
@@ -391,8 +391,8 @@ func TestOperatorDeclinesPayoutRequestWithAReasonTheOrganizationReads(t *testing
 	if declined.Status != "declined" || declined.PayoutID != nil {
 		t.Fatalf("declined request = %+v; want declined and no Payout", declined)
 	}
-	if declined.DeclineReason == nil || *declined.DeclineReason != "Your Event is three months out; ask again after the doors open." {
-		t.Fatalf("decline_reason = %v", declined.DeclineReason)
+	if declined.ResolutionReason == nil || *declined.ResolutionReason != "Your Event is three months out; ask again after the doors open." {
+		t.Fatalf("resolution_reason = %v", declined.ResolutionReason)
 	}
 	if declined.ResolvedBy == nil || *declined.ResolvedBy != "operator@example.com" ||
 		declined.ResolvedAt == nil {
@@ -409,8 +409,8 @@ func TestOperatorDeclinesPayoutRequestWithAReasonTheOrganizationReads(t *testing
 	// point of requiring one.
 	requests := listPayoutRequests(t, env, adminSessionID)
 	if len(requests) != 1 || requests[0].Status != "declined" ||
-		requests[0].DeclineReason == nil ||
-		!strings.Contains(*requests[0].DeclineReason, "three months out") {
+		requests[0].ResolutionReason == nil ||
+		!strings.Contains(*requests[0].ResolutionReason, "three months out") {
 		t.Fatalf("organization request history = %+v; want the decline and its reason", requests)
 	}
 

@@ -348,8 +348,8 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
           ) : null}
 
           {/* A decline always carries its reason, and the asker is shown it. */}
-          {request.decline_reason ? (
-            <p className="text-sm text-destructive">Declined: {request.decline_reason}</p>
+          {request.resolution_reason ? (
+            <p className="text-sm text-destructive">Declined: {request.resolution_reason}</p>
           ) : null}
           {request.resolved_by ? (
             <p className="text-sm text-muted-foreground">

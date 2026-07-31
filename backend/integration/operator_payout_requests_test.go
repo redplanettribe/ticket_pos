@@ -65,7 +65,7 @@ type operatorPayoutRequestRow struct {
 	RequestedAt         string                `json:"requested_at"`
 	PayableBalanceCents int                   `json:"payable_balance_cents"`
 	PayoutProfile       operatorMaskedProfile `json:"payout_profile"`
-	DeclineReason       *string               `json:"decline_reason"`
+	ResolutionReason    *string               `json:"resolution_reason"`
 	ResolvedBy          *string               `json:"resolved_by"`
 	ResolvedAt          *string               `json:"resolved_at"`
 	PayoutID            *string               `json:"payout_id"`
@@ -101,7 +101,7 @@ type operatorPayoutRequestDetail struct {
 		RequestedAt         string               `json:"requested_at"`
 		PayableBalanceCents int                  `json:"payable_balance_cents"`
 		PayoutProfile       payoutRequestProfile `json:"payout_profile"`
-		DeclineReason       *string              `json:"decline_reason"`
+		ResolutionReason    *string              `json:"resolution_reason"`
 		ResolvedBy          *string              `json:"resolved_by"`
 		ResolvedAt          *string              `json:"resolved_at"`
 		PayoutID            *string              `json:"payout_id"`
@@ -221,7 +221,7 @@ func TestOperatorPayoutRequestQueueIsOldestFirstAcrossOrganizations(t *testing.T
 	if row.PayableBalanceCents != first.PayableBalanceCents {
 		t.Fatalf("row payable_balance_cents = %d; want the snapshot %d", row.PayableBalanceCents, first.PayableBalanceCents)
 	}
-	if row.DeclineReason != nil || row.ResolvedBy != nil || row.ResolvedAt != nil || row.PayoutID != nil {
+	if row.ResolutionReason != nil || row.ResolvedBy != nil || row.ResolvedAt != nil || row.PayoutID != nil {
 		t.Fatalf("a pending row carries a resolution: %+v", row)
 	}
 

@@ -34,7 +34,7 @@ type PayoutRequestRow struct {
 	// signed and unclamped like the live figure it was copied from.
 	PayableBalanceCents int
 	Profile             sales.PayoutProfile
-	DeclineReason       *string
+	ResolutionReason    *string
 	ResolvedBy          *string
 	ResolvedAt          *time.Time
 	PayoutID            *string
@@ -47,7 +47,7 @@ type PayoutRequestRow struct {
 const payoutRequestColumns = `
 	id, organization_id, amount_cents, note, status, requested_by, created_at, payable_balance_cents,
 	bank_name, account_type, account_number, account_holder_name, tax_id_type, tax_id_number,
-	decline_reason, resolved_by, resolved_at, payout_id
+	resolution_reason, resolved_by, resolved_at, payout_id
 `
 
 // CreatePayoutRequestInput is one ask, already validated: the amount is within
@@ -296,7 +296,7 @@ func (r *Repository) FulfilPayoutRequest(ctx context.Context, input FulfilPayout
 func (r *Repository) DeclinePayoutRequest(ctx context.Context, requestID, reason, resolvedBy string, now time.Time) (*PayoutRequestRow, error) {
 	row, err := payoutRequestScan(r.db.Pool.QueryRowContext(ctx, `
 		UPDATE payout_requests
-		SET status = 'declined', decline_reason = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
+		SET status = 'declined', resolution_reason = $2, resolved_by = $3, resolved_at = $4, updated_at = $4
 		WHERE id = $1 AND status = 'pending'
 		RETURNING `+payoutRequestColumns,
 		requestID, reason, resolvedBy, now,
@@ -460,7 +460,7 @@ func (s trailingScanner) Scan(dest ...any) error {
 // rather than this function inventing a sentinel.
 func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 	var row PayoutRequestRow
-	var note, declineReason, resolvedBy, payoutID sql.NullString
+	var note, resolutionReason, resolvedBy, payoutID sql.NullString
 	var resolvedAt sql.NullTime
 
 	if err := scanner.Scan(
@@ -478,7 +478,7 @@ func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 		&row.Profile.AccountHolderName,
 		&row.Profile.TaxIDType,
 		&row.Profile.TaxIDNumber,
-		&declineReason,
+		&resolutionReason,
 		&resolvedBy,
 		&resolvedAt,
 		&payoutID,
@@ -489,8 +489,8 @@ func payoutRequestScan(scanner rowScanner) (*PayoutRequestRow, error) {
 	if note.Valid {
 		row.Note = &note.String
 	}
-	if declineReason.Valid {
-		row.DeclineReason = &declineReason.String
+	if resolutionReason.Valid {
+		row.ResolutionReason = &resolutionReason.String
 	}
 	if resolvedBy.Valid {
 		row.ResolvedBy = &resolvedBy.String

@@ -99,7 +99,7 @@ func (h *Handler) GetPayoutRequest(w http.ResponseWriter, r *http.Request) {
 // not be something a caller can claim (ADR 0015, ADR 0019).
 
 // declineReasonMaxLength bounds the reason, matching the schema's CHECK on
-// payout_requests.decline_reason (migration 043). It is stated here so an
+// payout_requests.resolution_reason (migrations 043, 044). It is stated here so an
 // over-long reason comes back as a field error naming the field, rather than as
 // a constraint violation the operator cannot act on — the same treatment the
 // Operator Reversal's note gets.

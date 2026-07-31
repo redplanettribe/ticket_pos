@@ -102,7 +102,7 @@ func TestOperatorDirectPayoutLeavesTheOutstandingRequestPending(t *testing.T) {
 	if still.Status != "pending" {
 		t.Fatalf("request status after a direct Payout = %q; want it still pending — nothing is auto-closed", still.Status)
 	}
-	if still.ResolvedBy != nil || still.ResolvedAt != nil || still.PayoutID != nil || still.DeclineReason != nil {
+	if still.ResolvedBy != nil || still.ResolvedAt != nil || still.PayoutID != nil || still.ResolutionReason != nil {
 		t.Fatalf("request answer fields = %+v; want all null on an unanswered ask", still)
 	}
 	if still.AmountCents != payable {

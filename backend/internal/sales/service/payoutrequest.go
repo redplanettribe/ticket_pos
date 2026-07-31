@@ -42,12 +42,13 @@ type PayoutRequest struct {
 	// PayoutProfile is the frozen copy of where the Organization said to pay. No
 	// later edit of the profile rewrites it (ADR 0026).
 	PayoutProfile PayoutRequestProfile `json:"payout_profile"`
-	// The answer, all null while the request is pending. DeclineReason is filled
-	// only on a decline, and PayoutID only on a payment (#177).
-	DeclineReason *string    `json:"decline_reason"`
-	ResolvedBy    *string    `json:"resolved_by"`
-	ResolvedAt    *time.Time `json:"resolved_at"`
-	PayoutID      *string    `json:"payout_id"`
+	// The answer, all null while the request is pending. ResolutionReason says why
+	// the request ended the way it did — today only a decline fills it — and
+	// PayoutID only on a payment (#177).
+	ResolutionReason *string    `json:"resolution_reason"`
+	ResolvedBy       *string    `json:"resolved_by"`
+	ResolvedAt       *time.Time `json:"resolved_at"`
+	PayoutID         *string    `json:"payout_id"`
 }
 
 // PayoutRequestProfile is the six-field snapshot on a request. It is a separate
@@ -281,9 +282,9 @@ func payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
 			TaxIDType:         row.Profile.TaxIDType,
 			TaxIDNumber:       row.Profile.TaxIDNumber,
 		},
-		DeclineReason: row.DeclineReason,
-		ResolvedBy:    row.ResolvedBy,
-		ResolvedAt:    row.ResolvedAt,
-		PayoutID:      row.PayoutID,
+		ResolutionReason: row.ResolutionReason,
+		ResolvedBy:       row.ResolvedBy,
+		ResolvedAt:       row.ResolvedAt,
+		PayoutID:         row.PayoutID,
 	}
 }

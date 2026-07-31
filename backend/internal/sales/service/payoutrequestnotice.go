@@ -125,7 +125,7 @@ func (s *Service) notifyPayoutRequestPaid(ctx context.Context, request *reposito
 // nothing — a decline notice with a blank reason is the outcome requiring a
 // reason exists to prevent (ADR 0026).
 func (s *Service) notifyPayoutRequestDeclined(ctx context.Context, request *repository.PayoutRequestRow) {
-	if request.DeclineReason == nil || *request.DeclineReason == "" {
+	if request.ResolutionReason == nil || *request.ResolutionReason == "" {
 		s.logger.Error("payout request declined notice: no reason on the declined request", "request_id", request.ID)
 		return
 	}
@@ -138,7 +138,7 @@ func (s *Service) notifyPayoutRequestDeclined(ctx context.Context, request *repo
 		OrganizationName: org.Name,
 		AmountCents:      request.AmountCents,
 		Currency:         org.Currency,
-		Reason:           *request.DeclineReason,
+		Reason:           *request.ResolutionReason,
 	})
 }
 

@@ -120,7 +120,7 @@ export type OperatorPayoutRequestRow = {
   payable_balance_cents: number;
   payout_profile: OperatorPayoutRequestProfile;
   /** The answer; all null while the request is outstanding. */
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
@@ -222,7 +222,7 @@ export type OperatorPayoutRequestFull = {
   /** The payable balance at the moment of asking. Compare with the live one. */
   payable_balance_cents: number;
   payout_profile: OperatorPayoutRequestSnapshot;
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
