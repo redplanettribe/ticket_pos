@@ -1317,7 +1317,7 @@ export interface paths {
         };
         /**
          * List every outstanding Payout Request, oldest first
-         * @description Returns a page of every OUTSTANDING (pending) Payout Request across every Organization on the platform — the operator's work queue, and the second cross-Organization view on this surface after sale lookup. Ordered OLDEST FIRST, deliberately breaking the newest-first convention the payout and sale histories use: this is a work queue rather than a history, and the oldest unanswered request is the one about to become a complaint (ADR 0026). Each row carries the ask (amount, note, asker's email, the instant it was made) with the Payable Balance AS IT STOOD when it was made, and the Organization it belongs to. ACCOUNT NUMBERS ARE MASKED here and nowhere unmasked but the single-request endpoint: this is the one screen showing every Organization's bank details at once, so account_number_masked is "····4821" and the payload carries no whole account number and no Tax ID at all. Answered requests — paid, declined or cancelled — are not in the queue; they stay readable by id and on their Organization's detail page. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Read-only. Platform Operator only.
+         * @description Returns a page of every OUTSTANDING Payout Request across every Organization on the platform — `pending` ones nobody has answered, and `processing` ones whose transfer an operator has submitted and the bank has not confirmed — the operator's work queue, and the second cross-Organization view on this surface after sale lookup. Ordered OLDEST FIRST, deliberately breaking the newest-first convention the payout and sale histories use: this is a work queue rather than a history, and the oldest unanswered request is the one about to become a complaint (ADR 0026). Each row carries the ask (amount, note, asker's email, the instant it was made) with the Payable Balance AS IT STOOD when it was made, and the Organization it belongs to. ACCOUNT NUMBERS ARE MASKED here and nowhere unmasked but the single-request endpoint: this is the one screen showing every Organization's bank details at once, so account_number_masked is "····4821" and the payload carries no whole account number and no Tax ID at all. Answered requests — paid, failed, declined or cancelled — are not in the queue; they stay readable by id and on their Organization's detail page. A `processing` request IS in the queue, deliberately: a transfer nobody confirmed is precisely the work that must not fall out of sight, and each row carries its status so it does not read as unactioned. Such a row also carries the transfer: transfer_submitted_by (which operator sent it — a DIFFERENT actor from resolved_by, who ends the request), transfer_submitted_at, and transfer_reference (whatever the bank handed back, often null). All three are null on any request that never went through `processing`, including one paid instantly. transfer_stale is true when a request has been `processing` for more than 72 HOURS: COMPUTED AT READ TIME from the server's clock, never stored and never reconciled by a job — the operator learns what the bank did by looking, and this flag is the only backstop for a transfer that quietly died. 72 rather than 48 because 48 is the advertised worst case, and a flag that fires on healthy transfers stops being read. It is false for every other status, so a paid request that took four days is not flagged after the fact. Response is the ADR-0006 nested envelope { data, pagination }; page_size defaults to 50 (max 100) and page floors at 1. Read-only. Platform Operator only.
          */
         get: {
             parameters: {
@@ -1379,7 +1379,7 @@ export interface paths {
         };
         /**
          * Get one Payout Request with the details needed to pay it
-         * @description Returns everything needed to execute one transfer: the ask (amount, note, the asker's email, the instant), the Organization it belongs to, and the snapshot Payout Profile IN FULL — bank, account type, WHOLE account number, the name on the account and the Organization's Tax ID for the factura. This is the only endpoint that returns an unmasked account number, and it returns one request at a time: an operator who opens a request is about to retype that number into a banking app. The snapshot is frozen and no later edit of the Organization's Payout Profile rewrites it (ADR 0026). Two readings of the money travel with it: request.payable_balance_cents is the Payable Balance AS IT STOOD when the ask was made, while payable_balance_cents and withdrawable_balance_cents are the LIVE figures now — so an operator can tell an Organization that asked for what it had from one that asked for four times as much. The cap was checked at request time and is never checked again; neither live figure gates anything, and the operator at the bank exercises the judgement. Requests in every state are readable here, including paid, declined and cancelled ones that have left the queue. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Read-only. Platform Operator only.
+         * @description Returns everything needed to execute one transfer: the ask (amount, note, the asker's email, the instant), the Organization it belongs to, and the snapshot Payout Profile IN FULL — bank, account type, WHOLE account number, the name on the account and the Organization's Tax ID for the factura. This is the only endpoint that returns an unmasked account number, and it returns one request at a time: an operator who opens a request is about to retype that number into a banking app. The snapshot is frozen and no later edit of the Organization's Payout Profile rewrites it (ADR 0026). Two readings of the money travel with it: request.payable_balance_cents is the Payable Balance AS IT STOOD when the ask was made, while payable_balance_cents and withdrawable_balance_cents are the LIVE figures now — so an operator can tell an Organization that asked for what it had from one that asked for four times as much. The cap was checked at request time and is never checked again; neither live figure gates anything, and the operator at the bank exercises the judgement. Requests in every state are readable here, including paid, declined, failed and cancelled ones that have left the queue. A request whose transfer has been submitted carries it: transfer_submitted_by is WHICH OPERATOR sent it — a different actor from resolved_by, because the colleague who submits and the one who confirms may be days apart — with transfer_submitted_at and the optional transfer_reference. transfer_stale is true once such a request has been `processing` for more than 72 hours, computed at read time from the server's clock and stored nowhere. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Read-only. Platform Operator only.
          */
         get: {
             parameters: {
@@ -1450,7 +1450,7 @@ export interface paths {
         put?: never;
         /**
          * Decline a Payout Request, with a reason the Organization reads
-         * @description Marks the Payout Request `declined` and records why, who said so (taken from the Staff Session, never from the body) and when. THE REASON IS REQUIRED — a blank or whitespace-only one is refused with a field error, and it is bounded at 500 characters — because a queue that swallowed requests silently would generate the support thread it was built to prevent (ADR 0026). The reason is shown to the Organization on its own payouts page, beside the ask it answers. Nothing moves: a decline records no Payout and touches no balance. A decline is a "not this" rather than a lockout — it ends this request, and the Organization may submit a new one immediately, since only a `pending` request occupies its single outstanding slot. All end states are final, so declining a request that was already paid, declined or cancelled is 409 PAYOUT_REQUEST_ALREADY_RESOLVED naming the state and who reached it. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+         * @description Marks the Payout Request `declined` and records why, who said so (taken from the Staff Session, never from the body) and when. THE REASON IS REQUIRED — a blank or whitespace-only one is refused with a field error, and it is bounded at 500 characters — because a queue that swallowed requests silently would generate the support thread it was built to prevent (ADR 0026). The reason is shown to the Organization on its own payouts page, beside the ask it answers. Nothing moves: a decline records no Payout and touches no balance. A decline is a "not this" rather than a lockout — it ends this request, and the Organization may submit a new one immediately, since a resolved request no longer occupies its single outstanding slot. ONLY A `pending` REQUEST MAY BE DECLINED: once an operator has submitted the transfer the request is `processing`, the platform cannot refuse an ask its own operator is acting on, and the answer to a transfer the bank sends back is `failed` rather than `declined` — so it is 409 PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED naming who submitted it. All end states are final, so declining a request that was already paid, declined or cancelled is 409 PAYOUT_REQUEST_ALREADY_RESOLVED naming the state and who reached it. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
          */
         post: {
             parameters: {
@@ -1531,6 +1531,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/payout-requests/{requestID}/failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a Payout Request as failed — the bank rejected the transfer
+         * @description Marks the Payout Request `failed`, recording why, who said so (taken from the Staff Session, NEVER from the body) and when (the server's clock). THE REASON IS REQUIRED — a blank or whitespace-only one is refused with a field error, and it is bounded at 500 characters — because it is the entire content of the news: "failed" tells an organizer nothing, while "the account number was rejected" also tells them what to fix, which is their Payout Profile. ONLY A `processing` REQUEST MAY FAIL: a transfer nobody submitted cannot have bounced, so a request that is merely `pending` is 409 PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED — an untouched ask an operator wants to refuse is DECLINED, which is a judgement with their name on it. NO PAYOUT IS RECORDED AND NONE IS UNDONE: there is none, because marking a request processing wrote nothing to the ledger (ADR 0014), so a rejected transfer leaves the books exactly as they were and no Payout ever has to be deleted or negated. `failed` IS TERMINAL AND IS NOT RETRIED — the bank details on a request are a frozen snapshot and a request cannot be edited, so the commonest failure is unfixable inside the request it happened to; the Organization corrects its Payout Profile and submits a FRESH request, which it may do immediately because a failed request no longer occupies its single outstanding slot. A `failed` request cannot be fulfilled, declined, cancelled, marked processing or failed again: all of those are 409 PAYOUT_REQUEST_ALREADY_RESOLVED. `failed` is NOT `declined` and must never be counted or filtered as one — a decline is a judgement a person made, a failure is a bank sending money back. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Payout Request ID */
+                    requestID: string;
+                };
+                cookie?: never;
+            };
+            /** @description Why the bank rejected the transfer */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.markFailedBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayoutRequest"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/payout-requests/{requestID}/fulfil": {
         parameters: {
             query?: never;
@@ -1542,7 +1634,7 @@ export interface paths {
         put?: never;
         /**
          * Fulfil a Payout Request by recording the Payout that answers it
-         * @description Records a Payout against the requesting Organization AND marks the Payout Request `paid`, in ONE database transaction. The operator transfers the money by hand off-platform first, as they always have, and this records that it happened — there is no second step to forget and no `approved` state in between. The body is the same shape the direct record-payout endpoint takes: amount_cents (what ACTUALLY left the bank, strictly positive), paid_at (the calendar day, YYYY-MM-DD) and an optional note. The amount is PRE-FILLED from the request on the dashboard form and may be overwritten — a deliberate departure from the no-pre-fill rule of ADR 0019, because a payout amount is a figure the Organization already stated rather than an assertion only the operator can make. Transferring less than was asked needs no special handling: the Payout records what moved, the request keeps what was asked, and the divergence stays visible forever. The resulting Payout is INDISTINGUISHABLE from a directly recorded one — same shape, same recorded_by (taken from the Staff Session, never from the body), and it appears unchanged on the Organization's own payouts page and in its Withdrawable Balance; only the request names it, through payout_id. NO balance is consulted in either direction: recording a settlement is unconditional (ADR 0015), and the Payable Balance cap bound the Organization when it asked and is never re-checked (ADR 0026). FULFILMENT IS A COMPARE-AND-SWAP: the request is updated only while it is still pending, and if it is not, the WHOLE transaction rolls back so NO Payout row survives — 409 PAYOUT_REQUEST_ALREADY_RESOLVED, naming the current state and who resolved it first. That refusal tells an operator who also transferred to record the Payout directly, because the compare-and-swap prevents a double RECORD and not a double TRANSFER. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+         * @description Records a Payout against the requesting Organization AND marks the Payout Request `paid`, in ONE database transaction. The operator transfers the money by hand off-platform first, as they always have, and this records that it happened — there is no second step to forget and no `approved` state in between. The body is the same shape the direct record-payout endpoint takes: amount_cents (what ACTUALLY left the bank, strictly positive), paid_at (the calendar day, YYYY-MM-DD) and an optional note. The amount is PRE-FILLED from the request on the dashboard form and may be overwritten — a deliberate departure from the no-pre-fill rule of ADR 0019, because a payout amount is a figure the Organization already stated rather than an assertion only the operator can make. Transferring less than was asked needs no special handling: the Payout records what moved, the request keeps what was asked, and the divergence stays visible forever. The resulting Payout is INDISTINGUISHABLE from a directly recorded one — same shape, same recorded_by (taken from the Staff Session, never from the body), and it appears unchanged on the Organization's own payouts page and in its Withdrawable Balance; only the request names it, through payout_id. NO balance is consulted in either direction: recording a settlement is unconditional (ADR 0015), and the Payable Balance cap bound the Organization when it asked and is never re-checked (ADR 0026). FULFILMENT IS A COMPARE-AND-SWAP: the request is updated only while it is still `pending` or `processing` — a transfer submitted days ago and now confirmed by the bank is fulfilled exactly as an instant one — and if it is neither, the WHOLE transaction rolls back so NO Payout row survives — 409 PAYOUT_REQUEST_ALREADY_RESOLVED, naming the current state and who resolved it first. That refusal tells an operator who also transferred to record the Payout directly, because the compare-and-swap prevents a double RECORD and not a double TRANSFER. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
          */
         post: {
             parameters: {
@@ -1623,6 +1715,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/payout-requests/{requestID}/processing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a Payout Request as processing — the transfer is submitted, the bank has not confirmed it
+         * @description Marks the Payout Request `processing`, stamping who submitted the transfer (taken from the Staff Session, NEVER from the body) and when (the server's clock, never a value a caller supplies), plus an OPTIONAL transfer_reference of up to 200 characters — whatever the provider handed back, or nothing at all when it handed back nothing synchronously. NO PAYOUT IS RECORDED, and that is the whole point of the state: a Payout is money that MOVED (ADR 0014), a PayPhone transfer can take up to 48 hours to reach the account and can come back rejected, and a ledger that recorded it on submission would have to delete or negate rows when it bounces. The request STAYS OUTSTANDING — it keeps the Organization's single request slot, so they cannot ask again for money already on its way to them, it stays in the operator queue and in pending_count, and neither party may take it back: cancelling and declining are refused while it is processing. From here it goes `paid` when the money lands (fulfil it exactly as a pending request, recording the Payout that answers it) or `failed` when the bank returns it. An instant transfer needs none of this and still goes `pending → paid` in one step. Only a `pending` request may be marked processing: a request whose transfer another operator already submitted is 409 PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED naming who submitted it, and one that has already ended is 409 PAYOUT_REQUEST_ALREADY_RESOLVED. An unknown or malformed id is 404 PAYOUT_REQUEST_NOT_FOUND. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Payout Request ID */
+                    requestID: string;
+                };
+                cookie?: never;
+            };
+            /** @description The reference the bank handed back, if it handed one back */
+            requestBody?: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.markProcessingBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorPayoutRequest"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/payout-requests/count": {
         parameters: {
             query?: never;
@@ -1632,7 +1816,7 @@ export interface paths {
         };
         /**
          * Count the outstanding Payout Requests
-         * @description Returns pending_count: how many Payout Requests are outstanding across every Organization on the platform. It is the badge the Operator Dashboard's navigation wears, because a queue's whole value is being noticed by somebody who had not already decided to look (ADR 0026). It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
+         * @description Returns pending_count: how many Payout Requests are OUTSTANDING across every Organization on the platform — `pending` and `processing` alike, because the badge counts the work outstanding rather than the work untouched, and a number that dropped when an operator submitted a transfer would tell the queue it was emptier than it is. It is the badge the Operator Dashboard's navigation wears, because a queue's whole value is being noticed by somebody who had not already decided to look (ADR 0026). It counts exactly what the queue lists, so the two can never disagree. Zero is an ordinary answer. Read-only. Platform Operator only.
          */
         get: {
             parameters: {
@@ -4842,7 +5026,7 @@ export interface paths {
         };
         /**
          * List the Organization's Payout Requests
-         * @description Returns the acting Member's Organization's Payout Requests, newest first, for the request history shown beside the payout history (ADR 0026). Each carries the amount asked for, the optional note, the status (`pending`, `paid`, `declined` or `cancelled`), the asker's email, the Payable Balance as it stood at the moment of asking, the frozen snapshot of the six Payout Profile fields the ask was made against — which no later profile edit alters — and, once answered, the resolver's email, the resolution instant, the decline reason on a decline, and the id of the Payout that settled it. No currency is returned: a request is always in the Organization's own currency, which the payouts summary this history sits beside states once. Org Admin only.
+         * @description Returns the acting Member's Organization's Payout Requests, newest first, for the request history shown beside the payout history (ADR 0026). Each carries the amount asked for, the optional note, the status (`pending`, `processing` while the transfer is in flight, then `paid`, `failed`, `declined` or `cancelled`), the asker's email, the Payable Balance as it stood at the moment of asking, the frozen snapshot of the six Payout Profile fields the ask was made against — which no later profile edit alters — and, once answered, the resolver's email, the resolution instant, the decline reason on a decline, and the id of the Payout that settled it. No currency is returned: a request is always in the Organization's own currency, which the payouts summary this history sits beside states once. Org Admin only.
          */
         get: {
             parameters: {
@@ -4885,7 +5069,7 @@ export interface paths {
         put?: never;
         /**
          * Submit a Payout Request
-         * @description Records the acting Member's Organization's ask to be paid (ADR 0026): an amount in the Organization's currency, an optional note, and the bank details to pay it to. The bank details may be supplied as `payout_profile` — the request form is the Payout Profile editor, so anything sent there is validated exactly as PUT /staff/organization/payout-profile validates it and SAVED to the profile as well as snapshotted onto the request. Omit `payout_profile` to be paid where the stored profile says; a complete profile is required either way, and an Organization with none is refused with VALIDATION_FAILED naming each missing field. The ask is bounded by the Payable Balance AT THE MOMENT IT IS MADE and never again — one cent above it is refused with PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE, and the balance moving afterwards changes nothing about a recorded request. An Organization may have only one request outstanding at a time, enforced by a partial unique index: a second submission while one is pending returns 200 with the EXISTING request rather than a conflict, so an organizer learns where their earlier ask went, and nothing about the outstanding request is edited by it. A newly recorded request returns 201. The request snapshots the six profile fields and the Payable Balance as they stood, and no later profile edit alters them. The asker is recorded as an email, so the record outlives their Membership. A request moves no money: no balance, no aggregate and no revenue figure knows requests exist. Org Admin only.
+         * @description Records the acting Member's Organization's ask to be paid (ADR 0026): an amount in the Organization's currency, an optional note, and the bank details to pay it to. The bank details may be supplied as `payout_profile` — the request form is the Payout Profile editor, so anything sent there is validated exactly as PUT /staff/organization/payout-profile validates it and SAVED to the profile as well as snapshotted onto the request. Omit `payout_profile` to be paid where the stored profile says; a complete profile is required either way, and an Organization with none is refused with VALIDATION_FAILED naming each missing field. The ask is bounded by the Payable Balance AT THE MOMENT IT IS MADE and never again — one cent above it is refused with PAYOUT_REQUEST_EXCEEDS_PAYABLE_BALANCE, and the balance moving afterwards changes nothing about a recorded request. An Organization may have only one request outstanding at a time, enforced by a partial unique index: a second submission while one is OUTSTANDING — `pending`, or `processing` because an operator has submitted the transfer and the bank has not confirmed it — returns 200 with the EXISTING request rather than a conflict, so an organizer learns where their earlier ask went, and nothing about the outstanding request is edited by it. A newly recorded request returns 201. The request snapshots the six profile fields and the Payable Balance as they stood, and no later profile edit alters them. The asker is recorded as an email, so the record outlives their Membership. A request moves no money: no balance, no aggregate and no revenue figure knows requests exist. Org Admin only.
          */
         post: {
             parameters: {
@@ -4974,7 +5158,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel an outstanding Payout Request
-         * @description Withdraws the acting Member's Organization's outstanding Payout Request (ADR 0026). Cancelling is the only change an Organization can make to a pending request — it cannot be edited, only cancelled and re-asked, which is what keeps "outstanding" singular and stops an operator looking at a figure that changed under them. The row is kept and moves to `cancelled`, stamped with the cancelling Member's email and the instant, which frees the Organization to submit a new request. It is a compare-and-swap on the pending state: a request an operator paid or declined in the meantime is refused with 409 PAYOUT_REQUEST_NOT_PENDING naming the state it actually reached, and a request that is not this Organization's is 404 PAYOUT_REQUEST_NOT_FOUND. Nothing is ever locked. Org Admin only.
+         * @description Withdraws the acting Member's Organization's outstanding Payout Request (ADR 0026). Cancelling is the only change an Organization can make to a pending request — it cannot be edited, only cancelled and re-asked, which is what keeps "outstanding" singular and stops an operator looking at a figure that changed under them. The row is kept and moves to `cancelled`, stamped with the cancelling Member's email and the instant, which frees the Organization to submit a new request. It is a compare-and-swap on the PENDING state, and only that state: ONCE AN OPERATOR HAS SUBMITTED THE TRANSFER the request is `processing` and can no longer be cancelled — the bank is already acting on the ask, and withdrawing it would leave a confirmed transfer with nothing to attach it to — so it is refused with 409 PAYOUT_REQUEST_NOT_PENDING whose message says the transfer is already being processed and may take up to 48 hours. A request an operator paid or declined in the meantime is refused the same way, naming the state it actually reached, and a request that is not this Organization's is 404 PAYOUT_REQUEST_NOT_FOUND. Nothing is ever locked. Org Admin only.
          */
         post: {
             parameters: {
@@ -5517,6 +5701,12 @@ export interface components {
             quantity?: number;
             sold_at?: string;
             ticket_type_id?: string;
+        };
+        "handler.markFailedBody": {
+            reason?: string;
+        };
+        "handler.markProcessingBody": {
+            transfer_reference?: string;
         };
         "handler.payoutProfileBody": {
             account_holder_name?: string;
@@ -6148,6 +6338,80 @@ export interface components {
             account_type?: string;
             bank_name?: string;
         };
+        "service.OperatorPayoutRequestWhole": {
+            amount_cents?: number;
+            id?: string;
+            note?: string;
+            /**
+             * @description PayableBalanceCents is what the Organization could have asked for at the
+             *     moment it asked. It is a snapshot and never refreshed: the live figure
+             *     moves, and the difference between the two is exactly what an operator needs
+             *     in order to exercise the judgement the cap deliberately leaves to them.
+             */
+            payable_balance_cents?: number;
+            payout_id?: string;
+            payout_profile?: components["schemas"]["service.PayoutRequestProfile"];
+            requested_at?: string;
+            /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
+            requested_by?: string;
+            /**
+             * @description The answer, all null while the request is pending or processing.
+             *     ResolutionReason says why the request ended the way it did — a decline the
+             *     platform made, or a failure the bank did — and PayoutID only on a payment
+             *     (#177, #185).
+             */
+            resolution_reason?: string;
+            resolved_at?: string;
+            resolved_by?: string;
+            status?: string;
+            /**
+             * @description TransferReference is the string the bank handed back to identify the
+             *     transfer — the handle for chasing PayPhone about a specific one.
+             */
+            transfer_reference?: string;
+            /**
+             * @description TransferStale is the 72-hour flag: true when this request is `processing`
+             *     and the transfer was submitted more than sales.PayoutTransferStaleAfter
+             *     before the service's injected clock.
+             *
+             *     COMPUTED AT READ TIME AND STORED NOWHERE. It is false for every other
+             *     status by construction, so a paid request that took four days does not read
+             *     as a problem after the fact — the flag is about a transfer nobody has
+             *     confirmed, not about one that was slow.
+             */
+            transfer_stale?: boolean;
+            /**
+             * @description TransferSubmittedAt is when an operator submitted the transfer, and null on
+             *     a request that never went through `processing` — including one that went
+             *     `pending → paid` directly, which is an instant transfer and legal.
+             *
+             *     IT IS THE DATE THAT MAKES "up to 48 hours" CHECKABLE. Without it the
+             *     organizer's sentence is boilerplate they cannot act on: they would know a
+             *     transfer was sent and have no way to tell whether the wait has already
+             *     outrun what they were promised. That is the whole reason this field is on
+             *     the organizer's surface at all (#187).
+             *
+             *     Its two companions on the row are deliberately NOT here, and the omission
+             *     is of a piece with OrganizationID above rather than any kind of masking —
+             *     nothing is masked on an Organization's own surface. TransferSubmittedBy
+             *     answers "which colleague do I ask about this transfer", which is an
+             *     operator's question about an internal handoff (ADR 0026 amendment); the
+             *     organizer's question is whether their money is coming, and an operator's
+             *     email is not the answer to it. TransferReference is the handle for chasing
+             *     PayPhone about a specific transfer, and handing an organizer a reference
+             *     their own bank cannot look up invites them to quote it at a teller who has
+             *     never heard of it. Either can be added the day somebody wants it; neither
+             *     is wanted yet.
+             */
+            transfer_submitted_at?: string;
+            /**
+             * @description TransferSubmittedBy is a different actor from ResolvedBy and is exposed
+             *     beside it rather than folded into it: the operator who submits and the
+             *     operator who confirms may be different people days apart, and an operator
+             *     picking up a three-day-old request needs to know which colleague to ask.
+             */
+            transfer_submitted_by?: string;
+        };
         /**
          * @description OperatorReversal is the money memo an Operator Reversal left (#125), and
          *     null on every sale reversed any other way. It is operator-facing only: it
@@ -6240,7 +6504,7 @@ export interface components {
         };
         "service.PayoutFulfilment": {
             payout?: components["schemas"]["service.OperatorPayout"];
-            request?: components["schemas"]["service.PayoutRequest"];
+            request?: components["schemas"]["service.OperatorPayoutRequestWhole"];
         };
         "service.PayoutProfile": {
             account_holder_name?: string;
@@ -6257,11 +6521,6 @@ export interface components {
         };
         "service.PayoutRequest": {
             amount_cents?: number;
-            /**
-             * @description The answer, all null while the request is pending. DeclineReason is filled
-             *     only on a decline, and PayoutID only on a payment (#177).
-             */
-            decline_reason?: string;
             id?: string;
             note?: string;
             /**
@@ -6276,9 +6535,40 @@ export interface components {
             requested_at?: string;
             /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
             requested_by?: string;
+            /**
+             * @description The answer, all null while the request is pending or processing.
+             *     ResolutionReason says why the request ended the way it did — a decline the
+             *     platform made, or a failure the bank did — and PayoutID only on a payment
+             *     (#177, #185).
+             */
+            resolution_reason?: string;
             resolved_at?: string;
             resolved_by?: string;
             status?: string;
+            /**
+             * @description TransferSubmittedAt is when an operator submitted the transfer, and null on
+             *     a request that never went through `processing` — including one that went
+             *     `pending → paid` directly, which is an instant transfer and legal.
+             *
+             *     IT IS THE DATE THAT MAKES "up to 48 hours" CHECKABLE. Without it the
+             *     organizer's sentence is boilerplate they cannot act on: they would know a
+             *     transfer was sent and have no way to tell whether the wait has already
+             *     outrun what they were promised. That is the whole reason this field is on
+             *     the organizer's surface at all (#187).
+             *
+             *     Its two companions on the row are deliberately NOT here, and the omission
+             *     is of a piece with OrganizationID above rather than any kind of masking —
+             *     nothing is masked on an Organization's own surface. TransferSubmittedBy
+             *     answers "which colleague do I ask about this transfer", which is an
+             *     operator's question about an internal handoff (ADR 0026 amendment); the
+             *     organizer's question is whether their money is coming, and an operator's
+             *     email is not the answer to it. TransferReference is the handle for chasing
+             *     PayPhone about a specific transfer, and handing an organizer a reference
+             *     their own bank cannot look up invites them to quote it at a teller who has
+             *     never heard of it. Either can be added the day somebody wants it; neither
+             *     is wanted yet.
+             */
+            transfer_submitted_at?: string;
         };
         "service.PayoutRequestDetail": {
             organization?: components["schemas"]["service.Organization"];
@@ -6309,12 +6599,6 @@ export interface components {
         };
         "service.PayoutRequestSummary": {
             amount_cents?: number;
-            /**
-             * @description The answer, all null while the request is pending. They are carried here
-             *     because this shape also renders an Organization's request HISTORY, where
-             *     most rows have been answered (#177 fills them in).
-             */
-            decline_reason?: string;
             id?: string;
             note?: string;
             /**
@@ -6329,17 +6613,37 @@ export interface components {
             requested_at?: string;
             /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
             requested_by?: string;
+            /**
+             * @description The answer, all null while the request is outstanding. They are carried here
+             *     because this shape also renders an Organization's request HISTORY, where
+             *     most rows have been answered (#177 fills them in).
+             */
+            resolution_reason?: string;
             resolved_at?: string;
             resolved_by?: string;
             status?: string;
+            transfer_reference?: string;
+            /**
+             * @description TransferStale is the 72-hour flag, computed at read time from the injected
+             *     clock and stored nowhere — the queue's one piece of arithmetic, and the
+             *     backstop for a transfer that quietly died (ADR 0026 amendment).
+             */
+            transfer_stale?: boolean;
+            transfer_submitted_at?: string;
+            /**
+             * @description The transfer, as the queue reads it (#186).
+             *
+             *     These are not bank details and this is not a widening of what a list may
+             *     carry: who submitted a transfer is an OPERATOR's email, the instant is the
+             *     platform's own clock, and the reference is the string PayPhone handed back
+             *     to identify a transfer — none of them names the account it went to. The
+             *     masking rule is unchanged and unchangeable from here; it lives on
+             *     PayoutProfile below and is applied by sales.MaskAccountNumber.
+             */
+            transfer_submitted_by?: string;
         };
         "service.PayoutRequestWhole": {
             amount_cents?: number;
-            /**
-             * @description The answer, all null while the request is pending. DeclineReason is filled
-             *     only on a decline, and PayoutID only on a payment (#177).
-             */
-            decline_reason?: string;
             id?: string;
             note?: string;
             /**
@@ -6354,9 +6658,63 @@ export interface components {
             requested_at?: string;
             /** @description RequestedBy is the asker's email, so the record outlives their Membership. */
             requested_by?: string;
+            /**
+             * @description The answer, all null while the request is pending or processing.
+             *     ResolutionReason says why the request ended the way it did — a decline the
+             *     platform made, or a failure the bank did — and PayoutID only on a payment
+             *     (#177, #185).
+             */
+            resolution_reason?: string;
             resolved_at?: string;
             resolved_by?: string;
             status?: string;
+            /**
+             * @description TransferReference is the string the bank handed back to identify the
+             *     transfer — the handle for chasing PayPhone about a specific one.
+             */
+            transfer_reference?: string;
+            /**
+             * @description TransferStale is the 72-hour flag: true when this request is `processing`
+             *     and the transfer was submitted more than sales.PayoutTransferStaleAfter
+             *     before the service's injected clock.
+             *
+             *     COMPUTED AT READ TIME AND STORED NOWHERE. It is false for every other
+             *     status by construction, so a paid request that took four days does not read
+             *     as a problem after the fact — the flag is about a transfer nobody has
+             *     confirmed, not about one that was slow.
+             */
+            transfer_stale?: boolean;
+            /**
+             * @description TransferSubmittedAt is when an operator submitted the transfer, and null on
+             *     a request that never went through `processing` — including one that went
+             *     `pending → paid` directly, which is an instant transfer and legal.
+             *
+             *     IT IS THE DATE THAT MAKES "up to 48 hours" CHECKABLE. Without it the
+             *     organizer's sentence is boilerplate they cannot act on: they would know a
+             *     transfer was sent and have no way to tell whether the wait has already
+             *     outrun what they were promised. That is the whole reason this field is on
+             *     the organizer's surface at all (#187).
+             *
+             *     Its two companions on the row are deliberately NOT here, and the omission
+             *     is of a piece with OrganizationID above rather than any kind of masking —
+             *     nothing is masked on an Organization's own surface. TransferSubmittedBy
+             *     answers "which colleague do I ask about this transfer", which is an
+             *     operator's question about an internal handoff (ADR 0026 amendment); the
+             *     organizer's question is whether their money is coming, and an operator's
+             *     email is not the answer to it. TransferReference is the handle for chasing
+             *     PayPhone about a specific transfer, and handing an organizer a reference
+             *     their own bank cannot look up invites them to quote it at a teller who has
+             *     never heard of it. Either can be added the day somebody wants it; neither
+             *     is wanted yet.
+             */
+            transfer_submitted_at?: string;
+            /**
+             * @description TransferSubmittedBy is a different actor from ResolvedBy and is exposed
+             *     beside it rather than folded into it: the operator who submits and the
+             *     operator who confirms may be different people days apart, and an operator
+             *     picking up a three-day-old request needs to know which colleague to ask.
+             */
+            transfer_submitted_by?: string;
         };
         "service.PayoutsSummary": {
             currency?: string;
