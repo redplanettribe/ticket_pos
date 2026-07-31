@@ -58,6 +58,32 @@ test("Storefront client bundle hydrates in the parity stack", async ({ page }) =
   expect(failures, "static chunks missing from the standalone image").toEqual([]);
 });
 
+test("Storefront explorer filters change the results, not just the chips", async ({ page }) => {
+  // The hydration test above asserts the URL and the chip's aria-pressed, and a
+  // filter can move both while the grid underneath never budges: the results
+  // list is client state seeded from a server-rendered prop, and applying a
+  // filter re-renders that component in place rather than remounting it. This
+  // asserts the part a Customer actually looks at.
+  await page.goto(`/${LOCALE}`);
+  await expect(eventCards(page).first()).toBeVisible();
+
+  // A term no seeded Event or Organization can match, so the assertion does not
+  // depend on what the parity stack happens to hold.
+  await page.getByRole("searchbox", { name: "Search events or organizers" }).fill("zzqqxnomatch");
+  await page.getByRole("button", { name: "Search" }).click();
+
+  await expect(page).toHaveURL(/[?&]q=zzqqxnomatch\b/);
+  await expect(page.getByText("No events match your search")).toBeVisible();
+  await expect(eventCards(page)).toHaveCount(0);
+
+  // ...and clearing it brings them back, so the empty state is the filter
+  // working rather than the grid having died.
+  await page.getByRole("searchbox", { name: "Search events or organizers" }).fill("");
+  await page.getByRole("button", { name: "Search" }).click();
+
+  await expect(eventCards(page).first()).toBeVisible();
+});
+
 test("Storefront renders an Event detail page from the parity stack", async ({ page }) => {
   await page.goto(`/${LOCALE}`);
 

@@ -8,7 +8,7 @@ import { Button, Input, cn } from "@ticket-pos/ui";
 
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
-import { WHEN_PRESETS, type WhenPreset } from "@/lib/when";
+import { WHEN_PRESETS, isWhenPreset, type WhenPreset } from "@/lib/when";
 
 type ExplorerFiltersProps = {
   presetTags?: PublicTag[];
@@ -31,9 +31,25 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const currentWhen = (searchParams.get("when") as WhenPreset) ?? "all";
+  // Guarded rather than cast: the page falls back to "all" for a `when` it does
+  // not recognise, and a bare cast would leave the chip bar disagreeing with the
+  // results it labels — no chip lit while the unfiltered list is on screen.
+  const whenParam = searchParams.get("when") ?? undefined;
+  const currentWhen: WhenPreset = isWhenPreset(whenParam) ? whenParam : "all";
   const selectedTags = parseTags(searchParams.get("tags"));
-  const [query, setQuery] = useState(searchParams.get("q") ?? "");
+
+  // The box holds a draft the Customer is still typing, so it cannot simply
+  // mirror the URL — but it must follow the URL when the URL moves on its own,
+  // which is what Back and Forward do. Tracking the applied `q` distinguishes
+  // the two: keystrokes leave it alone, a navigation resets the draft to what
+  // the results on screen were actually searched for.
+  const urlQuery = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(urlQuery);
+  const [appliedQuery, setAppliedQuery] = useState(urlQuery);
+  if (appliedQuery !== urlQuery) {
+    setAppliedQuery(urlQuery);
+    setQuery(urlQuery);
+  }
 
   function pushParams(next: { q?: string; when?: WhenPreset; tags?: string[] }) {
     const params = new URLSearchParams(searchParams.toString());

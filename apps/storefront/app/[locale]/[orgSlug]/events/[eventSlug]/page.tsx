@@ -3,7 +3,7 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { after } from "next/server";
 
-import { Badge, Breadcrumb } from "@ticket-pos/ui";
+import { Badge, Breadcrumb, Markdown } from "@ticket-pos/ui";
 
 import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
@@ -18,6 +18,7 @@ import { getPublicEvent } from "@/lib/api";
 import { customerSessionToken } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
+import { markdownSummary } from "@/lib/markdown-summary";
 import { storefrontBaseUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,11 @@ export async function generateMetadata({ params }: EventPageProps): Promise<Meta
   // description is the one the organizer wrote: none of the three is translated.
   // Only the frame around them is.
   const title = t("metaTitle", { event: event.name, organization: event.organization.name });
-  const description = event.description ?? t("metaDescription", { event: event.name });
+  // A preview is plain text wherever it lands, so the description is read for
+  // its words and its Markdown is left behind (lib/markdown-summary.ts).
+  const description =
+    (event.description ? markdownSummary(event.description) : null) ??
+    t("metaDescription", { event: event.name });
   // Cover URLs are already absolute (object storage), so previews render even
   // when metadataBase is unset off-platform.
   const images = event.cover_image_url ? [event.cover_image_url] : undefined;
@@ -224,9 +229,7 @@ export default async function EventPage({ params, searchParams }: EventPageProps
         </header>
 
         {event.description ? (
-          <div className="mt-6 whitespace-pre-line leading-relaxed text-foreground">
-            {event.description}
-          </div>
+          <Markdown className="mt-6 text-foreground">{event.description}</Markdown>
         ) : null}
 
         <section className="mt-8 space-y-4" aria-labelledby="tickets-heading">
