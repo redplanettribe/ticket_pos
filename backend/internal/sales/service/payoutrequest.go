@@ -42,27 +42,69 @@ type PayoutRequest struct {
 	// PayoutProfile is the frozen copy of where the Organization said to pay. No
 	// later edit of the profile rewrites it (ADR 0026).
 	PayoutProfile PayoutRequestProfile `json:"payout_profile"`
-	// The answer, all null while the request is outstanding. ResolutionReason says
-	// why the request ended the way it did — a decline or a failure fills it — and
-	// PayoutID only on a payment (#177, #185).
+	// The answer, all null while the request is pending or processing.
+	// ResolutionReason says why the request ended the way it did — a decline the
+	// platform made, or a failure the bank did — and PayoutID only on a payment
+	// (#177, #185).
 	ResolutionReason *string    `json:"resolution_reason"`
 	ResolvedBy       *string    `json:"resolved_by"`
 	ResolvedAt       *time.Time `json:"resolved_at"`
 	PayoutID         *string    `json:"payout_id"`
-	// The transfer, as the operator who submitted it knows it (#186).
+	// TransferSubmittedAt is when an operator submitted the transfer, and null on
+	// a request that never went through `processing` — including one that went
+	// `pending → paid` directly, which is an instant transfer and legal.
 	//
-	// All null on a request that never went through `processing`, INCLUDING one
-	// that went `pending → paid` directly — an instant transfer, and legal.
+	// IT IS THE DATE THAT MAKES "up to 48 hours" CHECKABLE. Without it the
+	// organizer's sentence is boilerplate they cannot act on: they would know a
+	// transfer was sent and have no way to tell whether the wait has already
+	// outrun what they were promised. That is the whole reason this field is on
+	// the organizer's surface at all (#187).
 	//
+	// Its two companions on the row are deliberately NOT here, and the omission
+	// is of a piece with OrganizationID above rather than any kind of masking —
+	// nothing is masked on an Organization's own surface. TransferSubmittedBy
+	// answers "which colleague do I ask about this transfer", which is an
+	// operator's question about an internal handoff (ADR 0026 amendment); the
+	// organizer's question is whether their money is coming, and an operator's
+	// email is not the answer to it. TransferReference is the handle for chasing
+	// PayPhone about a specific transfer, and handing an organizer a reference
+	// their own bank cannot look up invites them to quote it at a teller who has
+	// never heard of it. Either can be added the day somebody wants it; neither
+	// is wanted yet.
+	TransferSubmittedAt *time.Time `json:"transfer_submitted_at"`
+}
+
+// OperatorPayoutRequestWhole is the same ask as the operator's detail view reads
+// it: everything the Organization sees, plus the three facts about the transfer
+// that are the operator's business and not the organizer's (#186, #187).
+//
+// THE SPLIT IS THE POINT. An earlier draft carried all four transfer fields on
+// PayoutRequest and let each renderer decide what to draw, which is exactly the
+// arrangement ADR 0026's house rule refuses: the wire SHAPE decides what is
+// exposed, never the renderer — it is why the operator queue's list row has no
+// field for a whole account number rather than a field the browser draws dots
+// over. The organizer and the operator are different readers asking different
+// questions. The organizer asks whether their money is coming; the operator asks
+// which colleague submitted this transfer, what handle PayPhone knows it by, and
+// whether it has been sitting unconfirmed long enough to chase. A single shape
+// answering both hands every organizer the operator's answers and relies on a
+// front end to keep quiet about them.
+//
+// The organizer's shape is EMBEDDED rather than restated, so the two can never
+// drift and a field added for the Organization arrives here for free. Go's JSON
+// encoder flattens an embedded struct, so the wire shape is flat: one object
+// with the operator's three extra keys beside the organizer's, which is what the
+// detail view was always sending.
+type OperatorPayoutRequestWhole struct {
+	PayoutRequest
 	// TransferSubmittedBy is a different actor from ResolvedBy and is exposed
 	// beside it rather than folded into it: the operator who submits and the
 	// operator who confirms may be different people days apart, and an operator
 	// picking up a three-day-old request needs to know which colleague to ask.
-	// It is no new kind of disclosure on the Organization's own surface, which
-	// has always read ResolvedBy — an operator email — off a resolved request.
-	TransferSubmittedBy *string    `json:"transfer_submitted_by"`
-	TransferSubmittedAt *time.Time `json:"transfer_submitted_at"`
-	TransferReference   *string    `json:"transfer_reference"`
+	TransferSubmittedBy *string `json:"transfer_submitted_by"`
+	// TransferReference is the string the bank handed back to identify the
+	// transfer — the handle for chasing PayPhone about a specific one.
+	TransferReference *string `json:"transfer_reference"`
 	// TransferStale is the 72-hour flag: true when this request is `processing`
 	// and the transfer was submitted more than sales.PayoutTransferStaleAfter
 	// before the service's injected clock.
@@ -71,10 +113,6 @@ type PayoutRequest struct {
 	// status by construction, so a paid request that took four days does not read
 	// as a problem after the fact — the flag is about a transfer nobody has
 	// confirmed, not about one that was slow.
-	//
-	// It is an OPERATOR's flag. The organizer's surface does not render it (#187
-	// tells them the 48-hour expectation instead), and the field travels on this
-	// shared shape because the operator's detail view is this same shape (#186).
 	TransferStale bool `json:"transfer_stale"`
 }
 
@@ -295,15 +333,12 @@ func (s *Service) CancelPayoutRequest(ctx context.Context, actor ActorContext, r
 	return nil, sales.ErrPayoutRequestNotPending(existing.Status)
 }
 
-// payoutRequestView renders a stored request for the wire. Every entry point
-// goes through it, so a submission, a cancellation and the history can never
-// describe the same row differently.
+// payoutRequestView renders a stored request as the ORGANIZATION reads it back.
+// Every organizer-facing entry point goes through it, so a submission, a
+// cancellation and the history can never describe the same row differently.
 //
-// It is a METHOD rather than a function because of one field: TransferStale is
-// computed here, from s.now(), and a package-level renderer would have had to be
-// handed an instant by every caller — which is the shape in which one caller
-// eventually passes time.Now() and the whole rule quietly stops being testable
-// (#186).
+// It is a METHOD for symmetry with the operator renderer below, which must be
+// one: see payoutRequestWholeView.
 func (s *Service) payoutRequestView(row repository.PayoutRequestRow) *PayoutRequest {
 	return &PayoutRequest{
 		ID:                  row.ID,
@@ -326,10 +361,29 @@ func (s *Service) payoutRequestView(row repository.PayoutRequestRow) *PayoutRequ
 		ResolvedBy:          row.ResolvedBy,
 		ResolvedAt:          row.ResolvedAt,
 		PayoutID:            row.PayoutID,
-		TransferSubmittedBy: row.TransferSubmittedBy,
 		TransferSubmittedAt: row.TransferSubmittedAt,
+	}
+}
+
+// payoutRequestWholeView renders a stored request as an OPERATOR reads it: the
+// organizer's shape, rendered by the one renderer that owns it, plus the three
+// facts only an operator is shown. Every operator entry point that answers with
+// a whole request goes through it.
+//
+// It is a METHOD rather than a package-level function because of one field:
+// TransferStale is computed here, from s.now(), and a package-level renderer
+// would have had to be handed an instant by every caller — which is the shape in
+// which one caller eventually passes time.Now() and the whole rule quietly stops
+// being testable (#186).
+func (s *Service) payoutRequestWholeView(row repository.PayoutRequestRow) *OperatorPayoutRequestWhole {
+	return &OperatorPayoutRequestWhole{
+		PayoutRequest:       *s.payoutRequestView(row),
+		TransferSubmittedBy: row.TransferSubmittedBy,
 		TransferReference:   row.TransferReference,
-		TransferStale:       payoutTransferStale(row, s.now()),
+		// The SAME predicate the queue row uses, so a request an operator opens
+		// from the queue can never disagree with the row they clicked
+		// (payoutTransferStale, below).
+		TransferStale: payoutTransferStale(row, s.now()),
 	}
 }
 

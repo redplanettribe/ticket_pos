@@ -10,9 +10,9 @@
 // discover an answer the page already knows.
 
 /**
- * The six states a Payout Request can be in. There is deliberately no `approved`
- * (ADR 0026), and `processing` is not it: it records a transfer that has already
- * been submitted to a bank, not one an operator intends to make.
+ * The six states a Payout Request can be in. There is deliberately no
+ * `approved` (ADR 0026), and `processing` is not it: it records a transfer that
+ * has already been submitted to the bank, not one an operator intends to make.
  */
 export const PAYOUT_REQUEST_STATUSES = [
   "pending",
@@ -30,10 +30,11 @@ export type PayoutRequestStatus = (typeof PAYOUT_REQUEST_STATUSES)[number];
  * pending is the platform's word for the row's state and waiting is the
  * organizer's word for what is happening to them.
  *
- * "Failed" rather than "Rejected", and the distance from "Declined" is the whole
- * point: a decline is a judgement a person made, and a failure is a bank sending
- * the money back. An organizer with a typo in their account number must not read
- * that the platform refused them (ADR 0026 amendment).
+ * "Processing" keeps the platform's own word, and that is the one place this
+ * function does not translate. It is the word CONTEXT.md pins the state to, and
+ * every alternative an organizer might prefer is on its _Avoid_ list: "in
+ * flight" belongs to a Sale Reversal waiting on an API, "in progress" says
+ * nothing, and "approved" is the state ADR 0026 refused.
  */
 export function payoutRequestStatusLabel(status: string): string {
   switch (status) {
@@ -47,6 +48,11 @@ export function payoutRequestStatusLabel(status: string): string {
       return "Declined";
     case "cancelled":
       return "Cancelled";
+    // A FAILURE, NOT A REFUSAL. "Declined" is a judgement a person made about
+    // this Organization; "Failed" is a bank sending the money back, most often
+    // over a typo in an account number. They share a column (#182) and must
+    // never share a word, because an organizer who reads the wrong one believes
+    // the platform judged them.
     case "failed":
       return "Failed";
     default:
@@ -67,13 +73,17 @@ export function payoutRequestStatusLabel(status: string): string {
  * adding to this list, once (#183).
  *
  * `outstanding` is NOT a synonym for `pending`. `pending` means nobody has
- * looked at the request yet; `outstanding` means it has not been answered, and a
- * `processing` request — whose transfer an operator has submitted and no bank
- * has confirmed — is emphatically not untouched and just as emphatically still
- * occupying the slot. Anything asking "may this be cancelled?" or "has an
- * operator acted?" is asking the first question and must say `pending`; the
- * per-transition gates below are exactly those questions and are written out one
- * at a time rather than against this list.
+ * looked at the request yet; `outstanding` means it has not been answered. A
+ * `processing` request is emphatically not untouched — an operator submitted the
+ * transfer — and just as emphatically still occupies the slot, which is why it
+ * is here and why `failed` is not: a failure is terminal and frees the
+ * Organization to correct its details and ask again (ADR 0026 amendment).
+ *
+ * Anything asking "may this be cancelled?" or "has an operator acted?" is asking
+ * the first question and must say `pending` — see isCancellable for the
+ * organizer's version and the per-transition predicates at the foot of this file
+ * for the operator's. Those are written out one at a time rather than against
+ * this list, precisely because they are the other question.
  */
 const OUTSTANDING_STATUSES: readonly string[] = ["pending", "processing"];
 
@@ -85,6 +95,115 @@ const OUTSTANDING_STATUSES: readonly string[] = ["pending", "processing"];
 export function isOutstanding(status: string): boolean {
   return OUTSTANDING_STATUSES.includes(status);
 }
+
+/**
+ * Whether the Organization may still withdraw the ask — the OTHER question,
+ * asked of the same row, with a different answer once a transfer is in flight.
+ *
+ * Only a `pending` request can be cancelled. Once an operator has submitted the
+ * transfer the bank is acting on the ask, and withdrawing it would leave a
+ * confirmed transfer with nothing to attach it to and free the Organization to
+ * ask again for money already on its way (ADR 0026 amendment).
+ *
+ * This is not a gate. The server's compare-and-swap is guarded on `pending` and
+ * refuses regardless, in the sentence the organizer actually needs — "your
+ * transfer is already being processed" rather than a status code. All this does
+ * is take the button away before it can be pressed, and the refusal is still the
+ * one that reaches anyone who presses it a moment too late.
+ */
+export function isCancellable(status: string): boolean {
+  return status === "pending";
+}
+
+// --- what a transfer in flight, and one that bounced, say (#187) ----------
+
+/**
+ * The sentence under "Processing": the transfer was sent on a stated date, and
+ * can take up to 48 hours to arrive.
+ *
+ * THE DATE IS THE POINT, and the reason this returns null without one rather
+ * than falling back to a dateless sentence. "Your transfer is on its way" with
+ * no date is a claim an organizer cannot check: they cannot tell whether the 48
+ * hours they were promised have already run out, which is the single moment at
+ * which they should stop waiting and write to us. A sentence that cannot be
+ * checked is decoration, and decoration is what makes the next one disbelieved.
+ *
+ * A processing request always has the instant — the column pair is tied to the
+ * state by a CHECK (migration 045) — so null here means a status this client was
+ * taught about arriving without the field a server promised, and the honest
+ * answer to that is to say less rather than to invent a reassurance.
+ *
+ * formatDate renders a date the way the rest of the page does; the caller owns
+ * it, because a second date format in this app would be a second thing to keep
+ * in step.
+ */
+export function transferSentSentence(
+  transferSubmittedAt: string | null | undefined,
+  formatDate: (date: Date) => string,
+): string | null {
+  if (!transferSubmittedAt) {
+    return null;
+  }
+  const sent = new Date(transferSubmittedAt);
+  if (Number.isNaN(sent.getTime())) {
+    return null;
+  }
+  return (
+    `Your transfer was sent on ${formatDate(sent)}. ` +
+    "It can take up to 48 hours to reach your account, and it can no longer be cancelled."
+  );
+}
+
+/**
+ * What the resolution reason MEANS, which depends entirely on which of the two
+ * states put it there.
+ *
+ * `declined` and `failed` share one column (#182) and must not share one
+ * sentence. A decline is a judgement a person at the platform made about this
+ * ask; a failure is a bank sending the money back, most often over a typo. An
+ * organizer who reads "Declined: the account number was rejected" learns that
+ * they were judged and refused, which is false, and it is the kind of false that
+ * ends a working relationship rather than producing a support thread.
+ *
+ * So the failure sentence never uses a verb with the platform as its subject.
+ * The bank is what acted, the money came back, and nobody decided anything.
+ *
+ * Returns null when there is nothing to say, including for a reason attached to
+ * some state this client has not been taught: showing it under a heading that
+ * might be the wrong one is the exact mistake this function exists to prevent.
+ */
+export function resolutionSentence(status: string, reason: string | null | undefined): string | null {
+  const trimmed = reason?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (status === "declined") {
+    return `Declined: ${trimmed}`;
+  }
+  if (status === "failed") {
+    return `The transfer did not reach your account: ${trimmed}`;
+  }
+  return null;
+}
+
+/**
+ * What to do about a failed transfer, shown beside the reason it failed.
+ *
+ * Two facts, in the order an organizer needs them. First that no money moved,
+ * because "failed" said between two balances is frightening and the balances are
+ * in fact exactly where they were. Then the fix: the bank details are wrong far
+ * more often than anything else is, and correcting them is one scroll away on
+ * this same page — which is why the button beside this sentence opens the Payout
+ * Profile rather than linking somewhere.
+ *
+ * A failed request is terminal and cannot be retried: the bank details it
+ * carries are a frozen snapshot, so a retry would aim at the same rejected
+ * account forever (ADR 0026 amendment). "Ask again" is the whole route out, and
+ * saying so is what stops an organizer waiting for a retry nobody will make.
+ */
+export const TRANSFER_FAILED_NEXT_STEP =
+  "No money left the platform, so your balance is unchanged. " +
+  "A wrong account number is the usual cause — correct it and ask again.";
 
 /**
  * How long an ask has been waiting, in whole days, floored at zero.

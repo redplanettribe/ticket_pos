@@ -54,6 +54,33 @@ type payoutRequest struct {
 	ResolvedAt          *string              `json:"resolved_at"`
 	ResolvedBy          *string              `json:"resolved_by"`
 	PayoutID            *string              `json:"payout_id"`
+	// TransferSubmittedAt is when the transfer was sent, and it is the date the
+	// organizer's "up to 48 hours" sentence is built on (#187).
+	TransferSubmittedAt *string `json:"transfer_submitted_at"`
+}
+
+// rawPayoutRequestFields decodes one request from the Organization's own history
+// as a bare map, which is the only way to assert a field is ABSENT: a typed
+// struct silently tolerates whatever it was not taught about, so the fields this
+// surface deliberately does not carry can only be tested for by looking at the
+// JSON itself.
+func rawPayoutRequestFields(t *testing.T, env *testEnv, sessionID, requestID string) map[string]any {
+	t.Helper()
+	resp, body := env.get(t, payoutRequestsPath, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list payout requests status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var requests []map[string]any
+	if err := json.Unmarshal(body.Data, &requests); err != nil {
+		t.Fatalf("decode payout requests as raw objects: %v", err)
+	}
+	for _, request := range requests {
+		if id, _ := request["id"].(string); id == requestID {
+			return request
+		}
+	}
+	t.Fatalf("request %q is not in the organization's own history", requestID)
+	return nil
 }
 
 // requestBody is a Payout Request as the form submits one: an amount, an
@@ -1008,5 +1035,69 @@ func TestFailedPayoutRequestFreesTheOrganizationToAskAgain(t *testing.T) {
 	}
 	if third.ID != second.ID {
 		t.Fatalf("third submission returned %q; want the outstanding pending request %q", third.ID, second.ID)
+	}
+}
+
+// TestPayoutRequestCarriesTheDateTheTransferWasSent is the organizer's half of
+// the `processing` state (#187, ADR 0026 amendment).
+//
+// "Your money is on its way" is not the thing the organizer needs; it is the
+// thing they need PLUS a date, because the promise attached to it is "up to 48
+// hours" and a promise nobody can check the age of is boilerplate. The wait
+// having outrun what they were told is exactly the moment an organizer should be
+// writing to support, and this field is the only way they can know it.
+//
+// The two fields NOT here are asserted too. They are the operator's — which
+// colleague submitted the transfer, and what PayPhone called it — and neither
+// answers the organizer's question. This is not masking, which this surface does
+// none of: it is a smaller answer to a different question.
+func TestPayoutRequestCarriesTheDateTheTransferWasSent(t *testing.T) {
+	env := setupTest(t)
+	adminSessionID := orgAdminSession(t, env)
+	request, _ := operatorPendingRequestFor(t, env, adminSessionID, "test-org", "Sent Fest", "sent-fest", 6, 1)
+	operatorSessionID := operatorSession(t, env, "sender@example.com")
+
+	// Nobody has looked at it yet, and there is nothing to say about a transfer.
+	if request.TransferSubmittedAt != nil {
+		t.Fatalf("transfer_submitted_at on a pending request = %v; want null — no transfer exists", request.TransferSubmittedAt)
+	}
+
+	markProcessingOK(t, env, operatorSessionID, request.ID, map[string]any{"transfer_reference": "PP-SENT-0007"})
+
+	history := listPayoutRequests(t, env, adminSessionID)
+	if len(history) != 1 || history[0].Status != "processing" {
+		t.Fatalf("organization history = %+v; want the ask, processing", history)
+	}
+	processing := history[0]
+	if processing.TransferSubmittedAt == nil {
+		t.Fatal("transfer_submitted_at on a processing request is null; the organizer's 48-hour sentence has no date to stand on")
+	}
+	readBack, err := time.Parse(time.RFC3339Nano, *processing.TransferSubmittedAt)
+	if err != nil {
+		t.Fatalf("parse transfer_submitted_at %q: %v", *processing.TransferSubmittedAt, err)
+	}
+	_, _, stored := transferStamp(t, env, request.ID)
+	if stored == nil || !readBack.Equal(*stored) {
+		t.Fatalf("transfer_submitted_at read back as %v; want the stored instant %v", readBack, stored)
+	}
+
+	// The operator's two facts stay on the operator's surface.
+	raw := rawPayoutRequestFields(t, env, adminSessionID, request.ID)
+	for _, field := range []string{"transfer_submitted_by", "transfer_reference"} {
+		if _, present := raw[field]; present {
+			t.Fatalf("%q is serialised on the organization's own surface; it answers an operator's question, not theirs", field)
+		}
+	}
+
+	// And when the bank sends it back, the date it was sent survives beside the
+	// reason it failed: both halves of "sent on the 12th, rejected on the 14th".
+	markFailedOK(t, env, operatorSessionID, request.ID, map[string]any{"reason": "the account number was rejected"})
+	failed := listPayoutRequests(t, env, adminSessionID)[0]
+	if failed.Status != "failed" || failed.ResolutionReason == nil ||
+		*failed.ResolutionReason != "the account number was rejected" {
+		t.Fatalf("failed request = %+v; want the bank's reason on the record", failed)
+	}
+	if failed.TransferSubmittedAt == nil || *failed.TransferSubmittedAt != *processing.TransferSubmittedAt {
+		t.Fatalf("transfer_submitted_at after a failure = %v; want the instant it was sent, unchanged", failed.TransferSubmittedAt)
 	}
 }

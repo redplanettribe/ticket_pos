@@ -143,7 +143,7 @@ func (s *Service) OrganizationPayoutRequestHistory(ctx context.Context, orgID st
 // caller both mean "no such request at this path". A request that has already
 // been answered is returned like any other — the queue drops it, and the record
 // of what happened does not vanish with it.
-func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string) (*PayoutRequest, error) {
+func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string) (*OperatorPayoutRequestWhole, error) {
 	if _, err := uuid.Parse(requestID); err != nil {
 		return nil, sales.ErrPayoutRequestNotFound()
 	}
@@ -154,7 +154,7 @@ func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string
 	if row == nil {
 		return nil, sales.ErrPayoutRequestNotFound()
 	}
-	return s.payoutRequestView(*row), nil
+	return s.payoutRequestWholeView(*row), nil
 }
 
 func (s *Service) operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPayoutRequest {
@@ -245,8 +245,8 @@ type FulfilPayoutRequestInput struct {
 // — while the request is the queue's answer, carrying the payout_id that is the
 // single link between the two.
 type FulfilledPayoutRequest struct {
-	Payout  OperatorPayout `json:"payout"`
-	Request PayoutRequest  `json:"request"`
+	Payout  OperatorPayout             `json:"payout"`
+	Request OperatorPayoutRequestWhole `json:"request"`
 }
 
 // MarkPayoutRequestProcessingInput is an operator saying they submitted the
@@ -354,7 +354,7 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 
 	return &FulfilledPayoutRequest{
 		Payout:  toOperatorPayout(*payout),
-		Request: *s.payoutRequestView(*request),
+		Request: *s.payoutRequestWholeView(*request),
 	}, nil
 }
 
@@ -377,7 +377,7 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 // transition, and it matters more here than anywhere, because a request can now
 // sit outstanding for three days while the Payable Balance moves under it
 // (ADR 0026).
-func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*PayoutRequest, error) {
+func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*OperatorPayoutRequestWhole, error) {
 	existing, err := s.lookUpPayoutRequest(ctx, requestID)
 	if err != nil {
 		return nil, err
@@ -405,7 +405,7 @@ func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID str
 	// date the organizer is asked to count 48 hours from is the one stored.
 	s.notifyPayoutRequestTransferSent(ctx, row)
 
-	return s.payoutRequestView(*row), nil
+	return s.payoutRequestWholeView(*row), nil
 }
 
 // MarkPayoutRequestFailed records that the bank sent the transfer back, with the
@@ -430,7 +430,7 @@ func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID str
 // is TERMINAL and is never reopened, because the bank details it carries are a
 // frozen snapshot and the commonest failure is unfixable inside the request it
 // happened to.
-func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string, in MarkPayoutRequestFailedInput) (*PayoutRequest, error) {
+func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string, in MarkPayoutRequestFailedInput) (*OperatorPayoutRequestWhole, error) {
 	existing, err := s.lookUpPayoutRequest(ctx, requestID)
 	if err != nil {
 		return nil, err
@@ -453,7 +453,7 @@ func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string,
 	// (#188).
 	s.notifyPayoutRequestTransferFailed(ctx, row)
 
-	return s.payoutRequestView(*row), nil
+	return s.payoutRequestWholeView(*row), nil
 }
 
 // payoutRequestNotProcessing builds the refusal a failed swap on the `failed`
@@ -492,7 +492,7 @@ func (s *Service) payoutRequestNotProcessing(ctx context.Context, requestID stri
 // partial unique index that keeps `pending` singular counts only pending rows,
 // so the Organization may submit a new one immediately (migration 043). Nothing
 // about being declined once bears on the next ask.
-func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*PayoutRequest, error) {
+func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in DeclinePayoutRequestInput) (*OperatorPayoutRequestWhole, error) {
 	existing, err := s.lookUpPayoutRequest(ctx, requestID)
 	if err != nil {
 		return nil, err
@@ -513,7 +513,7 @@ func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in
 	// reason readable on the Organization's own payouts page (#179, ADR 0026).
 	s.notifyPayoutRequestDeclined(ctx, row)
 
-	return s.payoutRequestView(*row), nil
+	return s.payoutRequestWholeView(*row), nil
 }
 
 // lookUpPayoutRequest reads the request an operator is about to answer, whatever

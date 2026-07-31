@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   DECLINE_REASON_MAX_LENGTH,
+  TRANSFER_FAILED_NEXT_STEP,
   TRANSFER_REFERENCE_MAX_LENGTH,
   canDecline,
   canFulfil,
@@ -13,11 +14,14 @@ import {
   failureReasonProblem,
   fulfilmentAmountDefault,
   fulfilmentDivergence,
+  isCancellable,
   isOutstanding,
   payoutRequestAmountProblem,
   payoutRequestStatusLabel,
+  resolutionSentence,
   transferReferenceProblem,
   transferSentLabel,
+  transferSentSentence,
   waitingLabel,
 } from "./payout-requests.ts";
 
@@ -34,12 +38,18 @@ test("every status the server can send has a label", () => {
   assert.equal(payoutRequestStatusLabel("failed"), "Failed");
 });
 
-// A failure is a bank sending the money back; a decline is a person saying no.
-// An organizer with a typo in their account number must not read that the
-// platform judged and rejected them (ADR 0026 amendment), so the two words must
-// stay different words.
-test("failed and declined do not share a label", () => {
-  assert.notEqual(payoutRequestStatusLabel("failed"), payoutRequestStatusLabel("declined"));
+// A FAILURE IS NOT A REFUSAL. A failure is a bank sending the money back; a
+// decline is a person saying no. The two states share a column (#182) and an
+// organizer with a typo in an account number must not read that the platform
+// judged and rejected them (ADR 0026 amendment). This is the assertion that
+// would fail if someone ever "tidied" the two labels into one, or reached for
+// "Rejected" for the bank's answer.
+test("failed and declined never read as the same thing", () => {
+  const failed = payoutRequestStatusLabel("failed");
+  assert.notEqual(failed, payoutRequestStatusLabel("declined"));
+  for (const refusal of ["declin", "reject", "refus", "deni"]) {
+    assert.ok(!failed.toLowerCase().includes(refusal), `"${failed}" reads as a refusal`);
+  }
 });
 
 test("an unknown status is shown raw rather than swallowed", () => {
@@ -56,8 +66,22 @@ test("pending and processing are outstanding: the four end states free the slot"
   // The one that matters: an in-flight transfer still occupies the slot, so the
   // Organization cannot ask again and the direct-payout warning still fires.
   assert.equal(isOutstanding("processing"), true);
+  // `failed` is terminal and frees the Organization to correct its details and
+  // ask again. Adding it here — reasoning that an ask with no Payout behind it
+  // is somehow still open — would lock an organizer out of money they are owed,
+  // permanently, and this is the assertion that would catch it.
   for (const status of ["paid", "declined", "cancelled", "failed"]) {
     assert.equal(isOutstanding(status), false);
+  }
+});
+
+// THE OTHER QUESTION, asked of the same row. A processing request is
+// outstanding AND uncancellable: the bank is already acting on the ask, and
+// withdrawing it would free the Organization to ask again for money on its way.
+test("only a pending request may be cancelled", () => {
+  assert.equal(isCancellable("pending"), true);
+  for (const status of ["processing", "paid", "declined", "cancelled", "failed"]) {
+    assert.equal(isCancellable(status), false);
   }
 });
 
@@ -260,4 +284,69 @@ test("transferSentLabel reads as a sentence at every age, including today", () =
   // A clock skew putting the submission in the future reads as today rather than
   // as a negative age.
   assert.equal(transferSentLabel(submitted, new Date("2026-07-27T12:00:00Z")), "sent today");
+});
+
+// --- a transfer in flight, and one that bounced (#187) --------------------
+
+const asDate = (date: Date) => date.toISOString().slice(0, 10);
+
+test("the processing sentence names the date the transfer was sent", () => {
+  const sentence = transferSentSentence("2026-07-29T18:30:00Z", asDate);
+  // THE DATE IS THE POINT. Without it an organizer cannot tell whether the 48
+  // hours they were promised have already run out, which is the one moment the
+  // sentence exists to let them recognise.
+  assert.ok(sentence?.includes("2026-07-29"), sentence ?? "no sentence");
+  assert.ok(sentence?.includes("48 hours"), sentence ?? "no sentence");
+});
+
+test("no date, no sentence: a promise nobody can check is not shipped", () => {
+  // A processing request always carries the instant — a CHECK ties the pair to
+  // the state — so these are the shapes that mean something is wrong upstream,
+  // and the honest answer is to say less rather than to reassure blindly.
+  for (const missing of [null, undefined, "", "not an instant"]) {
+    assert.equal(transferSentSentence(missing, asDate), null);
+  }
+});
+
+test("a decline and a failure are told apart, never one sentence", () => {
+  assert.equal(
+    resolutionSentence("declined", "Ask again after the show"),
+    "Declined: Ask again after the show",
+  );
+
+  const failure = resolutionSentence("failed", "the account number was rejected");
+  assert.ok(failure?.includes("the account number was rejected"), failure ?? "no sentence");
+  // Nothing in a failure may read as a judgement the platform made about this
+  // Organization: the bank acted, the money came back, nobody decided anything.
+  for (const refusal of ["declin", "reject", "refus", "deni"]) {
+    assert.ok(
+      !failure?.toLowerCase().startsWith(refusal),
+      `a failure opens with "${refusal}", which reads as a refusal`,
+    );
+  }
+  assert.notEqual(failure, resolutionSentence("declined", "the account number was rejected"));
+});
+
+test("a reason with no state to explain it is not rendered under a guessed heading", () => {
+  // Blank, whitespace and missing are one case: all three would render a
+  // heading with nothing after it.
+  for (const blank of [null, undefined, "", "   "]) {
+    assert.equal(resolutionSentence("failed", blank), null);
+    assert.equal(resolutionSentence("declined", blank), null);
+  }
+  // And a reason arriving on a state this client has not been taught is shown
+  // under no heading at all rather than under a possibly wrong one.
+  assert.equal(resolutionSentence("reversed", "something new"), null);
+});
+
+test("the failure's next step says the money is where it was, then how to fix it", () => {
+  // The balances did not move — no Payout was ever written for a transfer that
+  // came back — and saying so first is what stops "failed" reading as a loss.
+  assert.ok(TRANSFER_FAILED_NEXT_STEP.includes("balance is unchanged"));
+  // The likeliest cause, named: an organizer told only "it failed" has nothing
+  // to look at, and the account number is what they should look at first.
+  assert.ok(TRANSFER_FAILED_NEXT_STEP.includes("account number"));
+  // A failed request is terminal: the fix is a fresh ask, not a retry nobody
+  // will ever make.
+  assert.ok(TRANSFER_FAILED_NEXT_STEP.includes("ask again"));
 });
