@@ -111,7 +111,11 @@ export type OperatorPayoutRequestRow = {
   id: string;
   amount_cents: number;
   note: string | null;
-  /** 'pending' | 'paid' | 'declined' | 'cancelled'. There is no 'approved'. */
+  /**
+   * 'pending' | 'processing' | 'paid' | 'declined' | 'cancelled' | 'failed'.
+   * There is no 'approved', and 'processing' is not it: it records a transfer
+   * already submitted to a bank, not one an operator intends to make.
+   */
   status: string;
   /** The asker's email, so the record outlives their membership. */
   requested_by: string;
@@ -120,10 +124,31 @@ export type OperatorPayoutRequestRow = {
   payable_balance_cents: number;
   payout_profile: OperatorPayoutRequestProfile;
   /** The answer; all null while the request is outstanding. */
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
+  /**
+   * The transfer, null on any request that never went through 'processing' —
+   * including one paid instantly, which is legal.
+   *
+   * transfer_submitted_by is the operator who SENT it, and is a different actor
+   * from resolved_by, who ended the request: the two may be different people
+   * days apart, and this is how a colleague picking up a three-day-old request
+   * knows who to ask. None of these three is a bank detail — the masking rule on
+   * payout_profile above is untouched by them.
+   */
+  transfer_submitted_by: string | null;
+  transfer_submitted_at: string | null;
+  transfer_reference: string | null;
+  /**
+   * True once a request has been 'processing' for more than 72 hours. The server
+   * computes it AT READ TIME from its own clock and stores it nowhere; there is
+   * no reconciler and no automated transition, because there is no API to ask
+   * what the bank did (ADR 0026 amendment). It is false in every other status,
+   * so a paid request that took four days is not accused after the fact.
+   */
+  transfer_stale: boolean;
 };
 
 export type OperatorOrganizationDetail = {
@@ -211,8 +236,13 @@ export type OperatorPayoutRequestSnapshot = {
   tax_id_number: string;
 };
 
-/** One payout request in full, as the detail view reads it. */
-export type OperatorPayoutRequestFull = {
+/**
+ * One payout request in full, as the detail view reads it.
+ *
+ * Named for the server's own `PayoutRequestWhole` (operator/service), because
+ * one wire object with two names is one more thing a reader has to hold.
+ */
+export type OperatorPayoutRequestWhole = {
   id: string;
   amount_cents: number;
   note: string | null;
@@ -222,10 +252,16 @@ export type OperatorPayoutRequestFull = {
   /** The payable balance at the moment of asking. Compare with the live one. */
   payable_balance_cents: number;
   payout_profile: OperatorPayoutRequestSnapshot;
-  decline_reason: string | null;
+  resolution_reason: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   payout_id: string | null;
+  /** Who submitted the transfer, when, and what the bank called it (#186). */
+  transfer_submitted_by: string | null;
+  transfer_submitted_at: string | null;
+  transfer_reference: string | null;
+  /** The 72-hour flag, computed by the server at read time. */
+  transfer_stale: boolean;
 };
 
 /**
@@ -238,7 +274,7 @@ export type OperatorPayoutRequestFull = {
  * about it gates anything — the operator at the bank decides (ADR 0026).
  */
 export type OperatorPayoutRequestDetail = {
-  request: OperatorPayoutRequestFull;
+  request: OperatorPayoutRequestWhole;
   organization: OperatorOrganization;
   withdrawable_balance_cents: number;
   payable_balance_cents: number;
@@ -309,7 +345,7 @@ export type FulfilPayoutRequestBody = {
  */
 export type OperatorPayoutFulfilment = {
   payout: OperatorPayout;
-  request: OperatorPayoutRequestFull;
+  request: OperatorPayoutRequestWhole;
 };
 
 /**
@@ -341,9 +377,65 @@ export async function fulfilOperatorPayoutRequest(
 export async function declineOperatorPayoutRequest(
   requestId: string,
   reason: string,
-): Promise<OperatorPayoutRequestFull> {
-  return fetchEventsJSON<OperatorPayoutRequestFull>(
+): Promise<OperatorPayoutRequestWhole> {
+  return fetchEventsJSON<OperatorPayoutRequestWhole>(
     `/api/operator/payout-requests/${encodeURIComponent(requestId)}/decline`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+/**
+ * Records that the transfer has been SUBMITTED and the bank has not confirmed
+ * it — the request stays outstanding and NO Payout is written (#186, ADR 0026
+ * amendment).
+ *
+ * That absence is the whole point of the state. A Payout has meant money that
+ * MOVED since ADR 0014, and a PayPhone transfer can take 48 hours and can come
+ * back rejected, so the ledger learns nothing until somebody finds out what the
+ * bank did. Recording a Payout here "so the balance is right sooner" would buy
+ * two days of accuracy with a voided-Payout concept every balance in the system
+ * would then have to understand.
+ *
+ * The reference is optional, because PayPhone does not always hand one back. The
+ * operator's identity and the instant are the API's — from the staff session and
+ * its own clock — and are not sendable from here.
+ *
+ * Only a `pending` request may be marked: a second operator pressing this is
+ * told the transfer was already submitted, and by whom.
+ */
+export async function markOperatorPayoutRequestProcessing(
+  requestId: string,
+  transferReference?: string,
+): Promise<OperatorPayoutRequestWhole> {
+  return fetchEventsJSON<OperatorPayoutRequestWhole>(
+    `/api/operator/payout-requests/${encodeURIComponent(requestId)}/processing`,
+    {
+      method: "POST",
+      body: JSON.stringify(transferReference ? { transfer_reference: transferReference } : {}),
+    },
+  );
+}
+
+/**
+ * Records that the bank sent the transfer back, with the reason the organizer
+ * reads and acts on.
+ *
+ * NOTHING IN THE LEDGER IS UNDONE, because nothing was ever written to it. That
+ * is the payoff of not recording a Payout on submission, and a reader looking
+ * for the negating entry should find there is none to write.
+ *
+ * Only a `processing` request may fail — a transfer nobody submitted cannot have
+ * bounced — and failure is terminal: the bank details on a request are a frozen
+ * snapshot, so the organizer corrects their payout profile and asks again rather
+ * than this one being retried. It is also the correction for a mis-click into
+ * processing, recorded with a reason saying so.
+ */
+export async function markOperatorPayoutRequestFailed(
+  requestId: string,
+  reason: string,
+): Promise<OperatorPayoutRequestWhole> {
+  return fetchEventsJSON<OperatorPayoutRequestWhole>(
+    `/api/operator/payout-requests/${encodeURIComponent(requestId)}/failed`,
     { method: "POST", body: JSON.stringify({ reason }) },
   );
 }

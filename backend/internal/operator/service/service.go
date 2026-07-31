@@ -65,17 +65,30 @@ type Money interface {
 	// PayoutRequestForOperator returns one request WHOLE — snapshot bank details
 	// included — and PAYOUT_REQUEST_NOT_FOUND for an unknown (or malformed) id,
 	// which the handler maps to 404.
-	PayoutRequestForOperator(ctx context.Context, requestID string) (*salessvc.PayoutRequest, error)
+	PayoutRequestForOperator(ctx context.Context, requestID string) (*salessvc.OperatorPayoutRequestWhole, error)
 	// FulfilPayoutRequest records the Payout and marks the request paid in ONE
 	// transaction (#177). It answers PAYOUT_REQUEST_NOT_FOUND for an unknown or
 	// malformed id and PAYOUT_REQUEST_ALREADY_RESOLVED when somebody answered it
 	// first — in which case NOTHING was written, the Payout included, because the
 	// compare-and-swap rolls the whole transaction back (ADR 0026).
 	FulfilPayoutRequest(ctx context.Context, requestID string, input salessvc.FulfilPayoutRequestInput) (*salessvc.FulfilledPayoutRequest, error)
+	// MarkPayoutRequestProcessing records that the operator submitted the bank
+	// transfer and cannot yet confirm it (#184). It writes NO Payout — a Payout
+	// is money that moved, and this is money that has been sent — and answers
+	// PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED when another operator submitted
+	// one first, or PAYOUT_REQUEST_ALREADY_RESOLVED when the request had ended.
+	MarkPayoutRequestProcessing(ctx context.Context, requestID string, input salessvc.MarkPayoutRequestProcessingInput) (*salessvc.OperatorPayoutRequestWhole, error)
+	// MarkPayoutRequestFailed records that the bank sent the transfer back, with
+	// the reason the organizer reads (#185). It writes no Payout and undoes none
+	// — there is none, because marking the request processing wrote nothing to
+	// the ledger. Only a `processing` request may fail: one nobody submitted a
+	// transfer for answers PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED, and one that
+	// had already ended answers PAYOUT_REQUEST_ALREADY_RESOLVED.
+	MarkPayoutRequestFailed(ctx context.Context, requestID string, input salessvc.MarkPayoutRequestFailedInput) (*salessvc.OperatorPayoutRequestWhole, error)
 	// DeclinePayoutRequest refuses the ask with a reason its asker can read, and
 	// answers the same two refusals. A decline moves no money and frees the
 	// Organization to ask again.
-	DeclinePayoutRequest(ctx context.Context, requestID string, input salessvc.DeclinePayoutRequestInput) (*salessvc.PayoutRequest, error)
+	DeclinePayoutRequest(ctx context.Context, requestID string, input salessvc.DeclinePayoutRequestInput) (*salessvc.OperatorPayoutRequestWhole, error)
 	// SaleByConfirmationRef returns TICKET_SALE_NOT_FOUND when no Ticket Sale on
 	// the platform carries the reference, which the handler maps to 404.
 	SaleByConfirmationRef(ctx context.Context, confirmationRef string) (*salessvc.OperatorSale, error)

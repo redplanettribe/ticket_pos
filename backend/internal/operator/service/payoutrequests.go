@@ -195,6 +195,32 @@ type DeclinePayoutRequestInput struct {
 	Operator string
 }
 
+// MarkPayoutRequestProcessingInput is an operator answering with a transfer they
+// cannot yet confirm: whatever reference the bank handed back, and who submitted
+// it (#184).
+//
+// The reference is optional and nil is ordinary. The instant is not here at all
+// — it is the service's injected clock, taken when the row is written, because
+// it is the figure the 72-hour stale flag is measured against and an operator
+// must not be its source.
+type MarkPayoutRequestProcessingInput struct {
+	Reference *string
+	Operator  string
+}
+
+// MarkPayoutRequestFailedInput is an operator recording the bank's rejection:
+// why, and who is saying so (#185).
+//
+// The reason is required and is the entire content of the news. "Failed" tells
+// an organizer nothing; "the account number was rejected" tells them what to go
+// and fix — which is their Payout Profile, since this request's copy of it is a
+// frozen snapshot and cannot be edited. The organizer's next move is a FRESH
+// ask, never a retry of this one.
+type MarkPayoutRequestFailedInput struct {
+	Reason   string
+	Operator string
+}
+
 // FulfilPayoutRequest records the Payout and marks the request paid, in one
 // transaction, so there is no second step to forget.
 //
@@ -210,6 +236,43 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 		PaidAt:      in.PaidAt,
 		Note:        in.Note,
 		Operator:    in.Operator,
+	})
+}
+
+// MarkPayoutRequestProcessing records that the transfer has been submitted and
+// the bank has not confirmed it, leaving the request outstanding.
+//
+// NOTHING IS RECORDED IN THE LEDGER. This is the one write on this surface that
+// answers a request without producing a Payout, and that is the point: a Payout
+// is money that moved (ADR 0014), and a PayPhone transfer can take 48 hours and
+// can come back rejected. The request keeps the Organization's single slot while
+// the bank has it and nobody has confirmed it, so nobody can ask again for the
+// same money (ADR 0026
+// amendment).
+func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID string, in MarkPayoutRequestProcessingInput) (*PayoutRequestWhole, error) {
+	return s.money.MarkPayoutRequestProcessing(ctx, requestID, salessvc.MarkPayoutRequestProcessingInput{
+		Reference: in.Reference,
+		Operator:  in.Operator,
+	})
+}
+
+// MarkPayoutRequestFailed records that the bank rejected the transfer, ending
+// the request with a reason the Organization reads.
+//
+// NOTHING IS UNDONE IN THE LEDGER, because nothing was ever written to it: the
+// transfer was recorded on the request and never as a Payout, which is the point
+// of the `processing` state (ADR 0014, ADR 0026 amendment). This is the second
+// write on this surface that answers a request without producing a Payout, and
+// the only one that ENDS a request without one.
+//
+// Only a `processing` request can fail — a transfer nobody submitted cannot have
+// bounced — and the failure is terminal. The Organization's answer to it is a
+// fresh ask against a corrected Payout Profile, which the widened partial unique
+// index permits the moment this lands.
+func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string, in MarkPayoutRequestFailedInput) (*PayoutRequestWhole, error) {
+	return s.money.MarkPayoutRequestFailed(ctx, requestID, salessvc.MarkPayoutRequestFailedInput{
+		Reason:   in.Reason,
+		Operator: in.Operator,
 	})
 }
 

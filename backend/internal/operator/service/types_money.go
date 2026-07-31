@@ -41,6 +41,12 @@ type PayoutRequestSummary = service.OperatorPayoutRequest
 // detail view an operator opens when they are about to make the transfer, as
 // against the masked PayoutRequestSummary a list shows.
 //
+// It aliases sales' OPERATOR shape, not the organizer's PayoutRequest: the two
+// are separate types on purpose, because the operator's detail view carries who
+// submitted the transfer, the reference PayPhone knows it by, and the 72-hour
+// stale flag, and none of the three belongs on an Organization's own payload
+// (#186, #187). The organizer shape is embedded in it, so the wire stays flat.
+//
 // It is NOT named PayoutRequest, and must not be renamed to it. Both this
 // package and the sales package it aliases are called `service`, so an alias
 // whose own name matched its target's would read as `service.PayoutRequest =
@@ -48,7 +54,7 @@ type PayoutRequestSummary = service.OperatorPayoutRequest
 // gives up on, failing `make openapi` with a recursion error rather than
 // anything that names the real problem. Every other alias here is safe only
 // because sales happens to have prefixed its own type differently.
-type PayoutRequestWhole = service.PayoutRequest
+type PayoutRequestWhole = service.OperatorPayoutRequestWhole
 
 // PayoutFulfilment is what a fulfilled Payout Request produces: the Payout now
 // in the ledger, and the request it answered (sales owns both).
