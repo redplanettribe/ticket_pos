@@ -150,7 +150,13 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
     );
   }
 
-  const { organization, withdrawable_balance_cents: balanceCents, events, payouts } = detail;
+  const {
+    organization,
+    withdrawable_balance_cents: balanceCents,
+    payable_balance_cents: payableCents,
+    events,
+    payouts,
+  } = detail;
   const currency = organization.currency;
 
   return (
@@ -164,27 +170,54 @@ export function OperatorOrganizationClient({ organizationId }: OperatorOrganizat
         description={`${organization.slug} · ${currency} · created ${new Date(organization.created_at).toLocaleDateString()}`}
       />
 
+      {/*
+        Both balances, beside each other, because the operator about to transfer
+        money is the one person who benefits most from knowing which part of it
+        has cleared (ADR 0025). Neither figure gates anything: recording a Payout
+        stays unconditional, and the confirmation below is still checked against
+        the Withdrawable Balance, which is what the platform actually owes.
+      */}
       <Card>
         <CardHeader>
-          <CardTitle>Withdrawable balance</CardTitle>
+          <CardTitle>Balances</CardTitle>
           <CardDescription>
-            Net proceeds from this Organization&apos;s online sales, less what has already been paid out.
+            Net proceeds from this Organization&apos;s online sales, less what has already been paid out — in full, and
+            the part of it that has cleared.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <p
-            className={cn(
-              "text-3xl font-semibold tabular-nums",
-              balanceCents < 0 && "text-destructive",
-            )}
-          >
-            {formatPriceCents(balanceCents, currency)}
-          </p>
-          {balanceCents < 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Negative: this Organization owes the platform after a post-settlement reversal.
+        <CardContent className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <p className="text-sm text-muted-foreground">Withdrawable balance</p>
+            <p
+              className={cn(
+                "text-3xl font-semibold tabular-nums",
+                balanceCents < 0 && "text-destructive",
+              )}
+            >
+              {formatPriceCents(balanceCents, currency)}
             </p>
-          ) : null}
+            {balanceCents < 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Negative: this Organization owes the platform after a post-settlement reversal.
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Payable balance</p>
+            <p
+              className={cn(
+                "text-3xl font-semibold tabular-nums",
+                payableCents < 0 && "text-destructive",
+              )}
+            >
+              {formatPriceCents(payableCents, currency)}
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {payableCents < balanceCents
+                ? "What this Organization may ask for today. The rest is sales recorded today, or with a reversal still open, which have not cleared."
+                : "Every sale behind this balance has cleared."}
+            </p>
+          </div>
         </CardContent>
       </Card>
 
