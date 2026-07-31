@@ -1,6 +1,9 @@
 package sales
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // The Payout Request: an Organization asking to be paid (ADR 0026, CONTEXT.md
 // "Payout Request").
@@ -88,6 +91,25 @@ const (
 // an over-long one comes back as a field error naming the field rather than as a
 // constraint violation an operator cannot act on.
 const MaxPayoutTransferReferenceLength = 200
+
+// PayoutTransferStaleAfter is how long a submitted transfer may go unconfirmed
+// before the operator queue flags it (#186, ADR 0026 amendment).
+//
+// 72 HOURS RATHER THAN 48, and the extra day is the whole design. 48 is the
+// advertised worst case for a PayPhone transfer, so a flag firing at 48 would
+// fire on healthy transfers — and a flag that fires on healthy transfers stops
+// being read, at which point it is worse than no flag at all. The threshold is
+// deliberately past the point where "still normal" is a defensible reading.
+//
+// IT IS A READ-TIME COMPUTATION AND MUST STAY ONE. There is no column, no job
+// and no automated transition: ADR 0024 built a reconciler for Sale Reversals
+// because there was an API to poll for a definite answer, and here there is
+// nothing to ask — the operator learns the outcome by looking at PayPhone or by
+// hearing from the organizer. The comparison is made in Go against the sales
+// service's INJECTED CLOCK, for the same reason the Payable Balance's day
+// boundary is: a SQL NOW() would ignore the clock the tests move and every
+// assertion about the threshold would pass vacuously.
+const PayoutTransferStaleAfter = 72 * time.Hour
 
 // MaxPayoutRequestNoteLength bounds the note, mirroring the CHECK in migration
 // 043. A note carries whatever the form does not — "before the festival,

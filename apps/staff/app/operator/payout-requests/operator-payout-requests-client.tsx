@@ -7,6 +7,7 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Badge,
   Breadcrumb,
   Button,
   Card,
@@ -23,7 +24,7 @@ import {
   type OperatorPayoutRequestQueueItem,
   fetchOperatorPayoutRequests,
 } from "@/lib/operator-api";
-import { waitingLabel } from "@/lib/payout-requests";
+import { payoutRequestStatusLabel, transferSentLabel, waitingLabel } from "@/lib/payout-requests";
 
 // The queue: who is waiting to be paid, across every organization (#176,
 // ADR 0026).
@@ -40,10 +41,24 @@ import { waitingLabel } from "@/lib/payout-requests";
 // one operators screenshot into support threads, so the digits are not withheld
 // from the render — they are never in the page. The whole number is one click
 // away, on the request that is about to be paid.
+//
+// BOTH OUTSTANDING STATES QUEUE UP (#186, ADR 0026 amendment). A request whose
+// transfer an operator submitted is still work — nobody has confirmed the money
+// landed — so it stays here, and every row says which of the two it is. Without
+// the status column a `processing` request reads as unactioned and gets
+// transferred twice, which is the exact failure the state was added to prevent.
+// It keeps the place its ask earned, too: the order is the age of the ASK, not
+// how recently somebody touched it.
+//
+// The stale flag is the server's arithmetic and not this page's. It arrives as
+// transfer_stale, computed at read time against the API's own clock, so the
+// browser's clock — and a laptop with the wrong date — cannot make a healthy
+// transfer look dead or a dead one look healthy.
 
 function QueueRow({ item }: { item: OperatorPayoutRequestQueueItem }) {
   const { request, organization } = item;
   const askedForAll = request.amount_cents >= request.payable_balance_cents;
+  const processing = request.status === "processing";
 
   return (
     <tr className="border-b last:border-b-0">
@@ -73,6 +88,31 @@ function QueueRow({ item }: { item: OperatorPayoutRequestQueueItem }) {
         <p className="text-xs text-muted-foreground">
           {new Date(request.requested_at).toLocaleDateString()}
         </p>
+      </td>
+      {/*
+        WHAT KIND OF WORK THIS ROW IS. "Waiting" means nobody has touched it;
+        "Processing" means a colleague already sent the money and is waiting on
+        the bank — which is a different next action, and confusing the two is how
+        the same request gets transferred twice.
+
+        The stale flag rides beside it rather than replacing it: a stale request
+        is still processing, and what changed is only that nobody has confirmed
+        it for three days. It is destructive-weight because it is the ONLY
+        backstop there is — no reconciler, no timeout, nothing else will notice.
+      */}
+      <td className="py-3 pr-4">
+        <Badge variant={processing ? "secondary" : "default"} className="w-fit">
+          {payoutRequestStatusLabel(request.status)}
+        </Badge>
+        {request.transfer_stale ? (
+          <p className="mt-1 text-xs font-medium text-destructive">
+            Unconfirmed for over 72 hours — check the transfer.
+          </p>
+        ) : request.transfer_submitted_at ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {transferSentLabel(request.transfer_submitted_at)} by {request.transfer_submitted_by}
+          </p>
+        ) : null}
       </td>
       <td className="py-3 pr-4">
         <p>{request.payout_profile.bank_name}</p>
@@ -145,14 +185,15 @@ export function OperatorPayoutRequestsClient() {
 
       <PageHeader
         title="Payout requests"
-        description="Every organization waiting to be paid, longest wait first."
+        description="Every organization waiting to be paid, longest wait first. A transfer nobody has confirmed in three days is flagged."
       />
 
       <Card>
         <CardHeader>
           <CardTitle>Waiting for an answer</CardTitle>
           <CardDescription>
-            Outstanding requests across every organization. Account numbers are shown in part here; open a
+            Every outstanding request across every organization — the ones nobody has answered and the
+            ones whose transfer is already in flight. Account numbers are shown in part here; open a
             request to see the full bank details and pay it.
           </CardDescription>
         </CardHeader>
@@ -167,6 +208,7 @@ export function OperatorPayoutRequestsClient() {
                     <th className="py-2 pr-4 font-medium">Organization</th>
                     <th className="py-2 pr-4 font-medium">Requested</th>
                     <th className="py-2 pr-4 font-medium">Waiting</th>
+                    <th className="py-2 pr-4 font-medium">Status</th>
                     <th className="py-2 pr-4 font-medium">Paying to</th>
                     <th className="py-2 pr-4 font-medium">Asked by</th>
                   </tr>

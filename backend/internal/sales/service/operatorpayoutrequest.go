@@ -70,13 +70,28 @@ type OperatorPayoutRequest struct {
 	// deliberately leaves to the operator (ADR 0026).
 	PayableBalanceCents int                          `json:"payable_balance_cents"`
 	PayoutProfile       OperatorPayoutRequestProfile `json:"payout_profile"`
-	// The answer, all null while the request is pending. They are carried here
+	// The answer, all null while the request is outstanding. They are carried here
 	// because this shape also renders an Organization's request HISTORY, where
 	// most rows have been answered (#177 fills them in).
 	ResolutionReason *string    `json:"resolution_reason"`
 	ResolvedBy       *string    `json:"resolved_by"`
 	ResolvedAt       *time.Time `json:"resolved_at"`
 	PayoutID         *string    `json:"payout_id"`
+	// The transfer, as the queue reads it (#186).
+	//
+	// These are not bank details and this is not a widening of what a list may
+	// carry: who submitted a transfer is an OPERATOR's email, the instant is the
+	// platform's own clock, and the reference is the string PayPhone handed back
+	// to identify a transfer — none of them names the account it went to. The
+	// masking rule is unchanged and unchangeable from here; it lives on
+	// PayoutProfile below and is applied by sales.MaskAccountNumber.
+	TransferSubmittedBy *string    `json:"transfer_submitted_by"`
+	TransferSubmittedAt *time.Time `json:"transfer_submitted_at"`
+	TransferReference   *string    `json:"transfer_reference"`
+	// TransferStale is the 72-hour flag, computed at read time from the injected
+	// clock and stored nowhere — the queue's one piece of arithmetic, and the
+	// backstop for a transfer that quietly died (ADR 0026 amendment).
+	TransferStale bool `json:"transfer_stale"`
 }
 
 // PendingPayoutRequests returns one page of every outstanding Payout Request on
@@ -89,7 +104,7 @@ func (s *Service) PendingPayoutRequests(ctx context.Context, page, pageSize int)
 	if err != nil {
 		return nil, 0, err
 	}
-	return operatorPayoutRequestViews(rows), total, nil
+	return s.operatorPayoutRequestViews(rows), total, nil
 }
 
 // PendingPayoutRequestCount is the backlog as one number, for the badge on the
@@ -113,7 +128,7 @@ func (s *Service) OrganizationPayoutRequestHistory(ctx context.Context, orgID st
 	if err != nil {
 		return nil, err
 	}
-	return operatorPayoutRequestViews(rows), nil
+	return s.operatorPayoutRequestViews(rows), nil
 }
 
 // PayoutRequestForOperator returns one Payout Request whole — the snapshot bank
@@ -139,13 +154,18 @@ func (s *Service) PayoutRequestForOperator(ctx context.Context, requestID string
 	if row == nil {
 		return nil, sales.ErrPayoutRequestNotFound()
 	}
-	return payoutRequestView(*row), nil
+	return s.payoutRequestView(*row), nil
 }
 
-func operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPayoutRequest {
+func (s *Service) operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPayoutRequest {
 	out := make([]OperatorPayoutRequest, 0, len(rows))
+	// One instant for the whole page, so two rows submitted in the same second
+	// cannot fall on opposite sides of the threshold because the clock ticked
+	// mid-loop. A queue that reordered its own flags between rows would be a bug
+	// nobody could reproduce.
+	now := s.now()
 	for _, row := range rows {
-		out = append(out, operatorPayoutRequestView(row))
+		out = append(out, operatorPayoutRequestView(row, now))
 	}
 	return out
 }
@@ -153,7 +173,10 @@ func operatorPayoutRequestViews(rows []repository.PayoutRequestRow) []OperatorPa
 // operatorPayoutRequestView renders a stored request for a list. Every list
 // entry point goes through it, so the queue and an Organization's history can
 // never mask a number differently — or, worse, one of them not at all.
-func operatorPayoutRequestView(row repository.PayoutRequestRow) OperatorPayoutRequest {
+//
+// The instant is passed in rather than read here, because the caller renders a
+// whole page against one reading of the clock.
+func operatorPayoutRequestView(row repository.PayoutRequestRow, now time.Time) OperatorPayoutRequest {
 	return OperatorPayoutRequest{
 		ID:                  row.ID,
 		OrganizationID:      row.OrganizationID,
@@ -172,10 +195,17 @@ func operatorPayoutRequestView(row repository.PayoutRequestRow) OperatorPayoutRe
 			AccountNumberMasked: sales.MaskAccountNumber(row.Profile.AccountNumber),
 			AccountHolderName:   row.Profile.AccountHolderName,
 		},
-		ResolutionReason: row.ResolutionReason,
-		ResolvedBy:       row.ResolvedBy,
-		ResolvedAt:       row.ResolvedAt,
-		PayoutID:         row.PayoutID,
+		ResolutionReason:    row.ResolutionReason,
+		ResolvedBy:          row.ResolvedBy,
+		ResolvedAt:          row.ResolvedAt,
+		PayoutID:            row.PayoutID,
+		TransferSubmittedBy: row.TransferSubmittedBy,
+		TransferSubmittedAt: row.TransferSubmittedAt,
+		TransferReference:   row.TransferReference,
+		// The SAME predicate the detail view uses, so the queue and the request an
+		// operator opens from it can never disagree about whether a transfer is
+		// stale (payoutTransferStale, beside the other renderer).
+		TransferStale: payoutTransferStale(row, now),
 	}
 }
 
@@ -324,7 +354,7 @@ func (s *Service) FulfilPayoutRequest(ctx context.Context, requestID string, in 
 
 	return &FulfilledPayoutRequest{
 		Payout:  toOperatorPayout(*payout),
-		Request: *payoutRequestView(*request),
+		Request: *s.payoutRequestView(*request),
 	}, nil
 }
 
@@ -366,7 +396,7 @@ func (s *Service) MarkPayoutRequestProcessing(ctx context.Context, requestID str
 		return nil, s.payoutRequestAlreadyResolved(ctx, requestID, existing)
 	}
 
-	return payoutRequestView(*row), nil
+	return s.payoutRequestView(*row), nil
 }
 
 // MarkPayoutRequestFailed records that the bank sent the transfer back, with the
@@ -405,7 +435,7 @@ func (s *Service) MarkPayoutRequestFailed(ctx context.Context, requestID string,
 		return nil, s.payoutRequestNotProcessing(ctx, requestID, existing)
 	}
 
-	return payoutRequestView(*row), nil
+	return s.payoutRequestView(*row), nil
 }
 
 // payoutRequestNotProcessing builds the refusal a failed swap on the `failed`
@@ -465,7 +495,7 @@ func (s *Service) DeclinePayoutRequest(ctx context.Context, requestID string, in
 	// reason readable on the Organization's own payouts page (#179, ADR 0026).
 	s.notifyPayoutRequestDeclined(ctx, row)
 
-	return payoutRequestView(*row), nil
+	return s.payoutRequestView(*row), nil
 }
 
 // lookUpPayoutRequest reads the request an operator is about to answer, whatever
