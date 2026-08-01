@@ -24,6 +24,7 @@ import { markdownSummary } from "@/lib/markdown-summary";
 import { isExternallyRegistered } from "@/lib/registration";
 import { storefrontBaseUrl } from "@/lib/site";
 import { toTagTranslator } from "@/lib/tag-name";
+import { whatsappLink } from "@/lib/whatsapp";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,24 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
   const tTags = toTagTranslator(await getTranslations("tags"));
 
+  // The Organization's Support WhatsApp number, resolved to a tappable link.
+  // Absent when they published none — the API omits the key — in which case
+  // nothing renders at all: no link, no placeholder, no empty state.
+  //
+  // The drafted message is in the CUSTOMER's locale, not the organizer's, so a
+  // Spanish-speaking organizer may receive an English opener. Accepted: they
+  // recognise their own Event's name whatever surrounds it, and the alternative
+  // needs an Organization language preference that does not exist. What the
+  // prefill buys is the thing that makes an org-level number work at all — an
+  // Organization running a dozen Events off one number knows which one is being
+  // asked about before reading a word.
+  const supportLink = event.organization.support_whatsapp
+    ? whatsappLink(
+        event.organization.support_whatsapp,
+        t("supportPrefill", { event: event.name }),
+      )
+    : null;
+
   return (
     <StorefrontShell
       organizationName={event.organization.name}
@@ -276,6 +295,35 @@ export default async function EventPage({ params, searchParams }: EventPageProps
             )}
           </section>
         )}
+
+        {/* The Organization's support line, when it published one (ADR 0027).
+            Below the tickets and quiet by design: the page exists to sell, and a
+            prominent support control above the fold reads as "expect problems".
+
+            Deliberately NOT conditioned on has_ended. An ended Event's page is
+            where a Customer is most likely to have a concrete grievance rather
+            than a pre-sale question — a refund, a ticket that would not scan —
+            and it is the page that has just taken away every other interactive
+            element. Leaving support as the one thing still clickable is the
+            point, and it costs no branch: this sits after the read-only Ticket
+            Type list exactly as it sits after the selection UI. */}
+        {supportLink ? (
+          <section className="mt-8 border-t pt-6" aria-labelledby="support-heading">
+            <h2 id="support-heading" className="text-sm font-medium">
+              {t("supportHeading")}
+            </h2>
+            <a
+              href={supportLink}
+              // A new tab, so a Customer who was midway through choosing tickets
+              // still has the page when they come back.
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-sm text-muted-foreground underline-offset-4 hover:underline"
+            >
+              {t("supportWhatsApp", { organization: event.organization.name })}
+            </a>
+          </section>
+        ) : null}
       </article>
     </StorefrontShell>
   );

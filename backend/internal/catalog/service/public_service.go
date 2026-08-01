@@ -18,10 +18,41 @@ const (
 )
 
 // PublicOrganizationSummary is the trust/attribution context shown with an Event.
+//
+// One structure, three payloads: the Event detail, every Event card in the
+// global explorer, and the Organization page. SupportWhatsApp is the one field
+// that is NOT the same on all three — it is populated only on the Event detail,
+// and is always absent from the two listings. Build it with publicOrgSummary
+// unless you are building the detail, in which case use
+// publicOrgSummaryWithSupport.
+//
+// That asymmetry is deliberate and is the whole of ADR 0027's exposure decision.
+// Publishing an Organization's support number on the Event detail is the point
+// of the feature and the organizer opted into it. Publishing it on a paginated,
+// unauthenticated listing is different in kind: it would let one crawl of the
+// platform harvest every Organization's support number at once, rather than
+// requiring each Event detail to be discovered and fetched. An integration test
+// asserts the listings stay clean — if you are here to "tidy up" by moving this
+// into the shared helper, that test is why you should not.
+//
+// The codebase already runs this shape elsewhere: PublicTicketType.AlreadyHeld
+// arrives only when the request carries a Customer Session.
 type PublicOrganizationSummary struct {
 	Name    string  `json:"name"`
 	Slug    string  `json:"slug"`
 	LogoURL *string `json:"logo_url"`
+	// SupportWhatsApp is the Organization's Support WhatsApp number in canonical
+	// E.164 form — a link a Customer taps to message them for support.
+	//
+	// DELIBERATELY PUBLIC. An Org Admin entered it in a form that states it is
+	// published on every one of their Event pages and that Customers will message
+	// it; it is safe to display and was not exposed by accident. Omitted entirely
+	// when the Organization has none, so a client branches on the key's presence
+	// rather than on an empty string.
+	//
+	// Served on the Event detail only. It is absent from the Event listings by
+	// design, so do not read it from a card — see ADR 0027.
+	SupportWhatsApp *string `json:"support_whatsapp,omitempty"`
 }
 
 // PublicEventCard is a summary row for Storefront listings (global explorer and org page).
@@ -382,7 +413,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		CoverImageURL:    s.coverURL(row.CoverImageKey),
 		CoverVideoURL:    s.coverURL(row.CoverVideoKey),
 		HasEnded:         eventEnded(row, now),
-		Organization:     s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
+		Organization:     s.publicOrgSummaryWithSupport(row.OrgName, row.OrgSlug, row.OrgLogoKey, row.OrgSupportWhatsApp),
 		Currency:         row.OrgCurrency,
 		PriceIncludesFee: handling == sales.FeeHandlingPassOn,
 		TicketTypes:      make([]PublicTicketType, 0, len(types)),
@@ -552,6 +583,22 @@ func (s *Service) publicOrgSummary(name, slug string, logoKey sql.NullString) Pu
 	if logoKey.Valid && s.storage != nil {
 		url := s.storage.PublicURL(logoKey.String)
 		summary.LogoURL = &url
+	}
+	return summary
+}
+
+// publicOrgSummaryWithSupport is publicOrgSummary plus the Organization's
+// Support WhatsApp number, and exists so that adding the number is a decision
+// made at one call site rather than a property of the summary everywhere.
+//
+// Only the Event detail calls this. The two listing payloads call
+// publicOrgSummary and must keep doing so — see the note on
+// PublicOrganizationSummary and ADR 0027 for why a paginated endpoint carrying
+// this number is a different exposure than a detail endpoint carrying it.
+func (s *Service) publicOrgSummaryWithSupport(name, slug string, logoKey, supportWhatsApp sql.NullString) PublicOrganizationSummary {
+	summary := s.publicOrgSummary(name, slug, logoKey)
+	if supportWhatsApp.Valid && supportWhatsApp.String != "" {
+		summary.SupportWhatsApp = &supportWhatsApp.String
 	}
 	return summary
 }

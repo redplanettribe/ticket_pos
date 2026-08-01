@@ -221,6 +221,16 @@ export type PublicOrganizationSummary = {
   name: string;
   slug: string;
   logo_url: string | null;
+  // The Organization's Support WhatsApp number in canonical E.164 form — the
+  // number a Customer messages for help (ADR 0027).
+  //
+  // Present ONLY on the Event detail, and optional even there: the API omits the
+  // key entirely for an Organization that has set no number. It is deliberately
+  // absent from every listing payload — the explorer cards and the Organization
+  // page — so a paginated public endpoint cannot be harvested for every
+  // Organization's support number at once. Hence `?` rather than `| null`: the
+  // key's absence is the contract, on two counts at once.
+  support_whatsapp?: string;
 };
 
 export type PublicEventCard = {

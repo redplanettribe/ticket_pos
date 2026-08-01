@@ -22,10 +22,15 @@ type PublicOrganization struct {
 // aggregates for public listing and detail views.
 type PublicEventRow struct {
 	Event
-	OrgName       string
-	OrgSlug       string
-	OrgLogoKey    sql.NullString
-	OrgCurrency   string
+	OrgName    string
+	OrgSlug    string
+	OrgLogoKey sql.NullString
+	// OrgSupportWhatsApp is the Organization's Support WhatsApp number (migration
+	// 047). Selected by every query below because they share one column list and
+	// one scanner, but READ only when building the Event detail: the listings
+	// deliberately do not publish it. See ADR 0027 and the summary it builds.
+	OrgSupportWhatsApp sql.NullString
+	OrgCurrency        string
 	MinPriceCents sql.NullInt64
 	AllSoldOut    sql.NullBool
 	TicketCount   int
@@ -50,7 +55,7 @@ const publicEventColumns = `
 	e.starts_at, e.ends_at, e.timezone, e.venue_name, e.venue_address,
 	e.description, e.cover_image_key, e.cover_video_key, e.discoverable, e.fee_handling,
 	e.registration_mode, e.registration_url, e.created_at,
-	o.name, o.slug, o.logo_image_key, o.currency,
+	o.name, o.slug, o.logo_image_key, o.support_whatsapp, o.currency,
 	tt.min_price, tt.all_sold_out, tt.ticket_count
 `
 
@@ -103,7 +108,7 @@ func scanPublicEventRow(rows interface {
 		&row.StartsAt, &row.EndsAt, &row.Timezone, &row.VenueName, &row.VenueAddress,
 		&row.Description, &row.CoverImageKey, &row.CoverVideoKey, &row.Discoverable, &row.FeeHandling,
 		&row.RegistrationMode, &row.RegistrationURL, &row.CreatedAt,
-		&row.OrgName, &row.OrgSlug, &row.OrgLogoKey, &row.OrgCurrency,
+		&row.OrgName, &row.OrgSlug, &row.OrgLogoKey, &row.OrgSupportWhatsApp, &row.OrgCurrency,
 		&row.MinPriceCents, &row.AllSoldOut, &row.TicketCount,
 	); err != nil {
 		return nil, err

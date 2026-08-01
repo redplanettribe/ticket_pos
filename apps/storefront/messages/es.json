@@ -62,7 +62,10 @@
     "registerContinueOn": "Continuará en {host}",
     "registrationClosed": "Las inscripciones para este evento están cerradas.",
     "registrationUnavailable": "La inscripción no está disponible en este momento.",
-    "registrationRequired": "Requiere inscripción"
+    "registrationRequired": "Requiere inscripción",
+    "supportHeading": "¿Necesita ayuda?",
+    "supportWhatsApp": "Escriba a {organization} por WhatsApp",
+    "supportPrefill": "¡Hola! Tengo una pregunta sobre {event}."
   },
   "checkout": {
     "decreaseQuantity": "Quitar una entrada de {ticketType}",

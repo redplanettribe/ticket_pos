@@ -62,7 +62,10 @@
     "registerContinueOn": "You'll continue on {host}",
     "registrationClosed": "Registration for this event has closed.",
     "registrationUnavailable": "Registration is not available right now.",
-    "registrationRequired": "Registration required"
+    "registrationRequired": "Registration required",
+    "supportHeading": "Need help?",
+    "supportWhatsApp": "Message {organization} on WhatsApp",
+    "supportPrefill": "Hi! I have a question about {event}."
   },
   "checkout": {
     "decreaseQuantity": "Remove one {ticketType} ticket",
