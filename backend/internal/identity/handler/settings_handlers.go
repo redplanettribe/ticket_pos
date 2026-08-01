@@ -16,6 +16,13 @@ type updateOrganizationBody struct {
 	Name         string  `json:"name"`
 	Currency     *string `json:"currency"`
 	LogoImageKey *string `json:"logo_image_key"`
+	// The Organization's Support WhatsApp number in canonical E.164 form, e.g.
+	// +593987654321. Null or blank clears it; omitting the field leaves the
+	// stored number untouched. It needs one more state than a pointer can hold —
+	// this field was added to an endpoint that already existed, and a Staff app
+	// running the previous build sends no key at all, which is no reason for an
+	// Organization to lose its published number mid-deploy.
+	SupportWhatsApp platform.OptionalString `json:"support_whatsapp" swaggertype:"string"`
 }
 
 type logoUploadURLBody struct {
@@ -68,7 +75,13 @@ func (h *Handler) GetOrganization(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, org)
 }
 
-// UpdateOrganization updates the organization display name.
+// UpdateOrganization edits the Organization's profile: its display name, its
+// currency, its Logo key and its Support WhatsApp number. The slug is its public
+// address and is not editable here.
+//
+// The name is always sent and must be non-blank. The other three are optional
+// and only act when present — and the Support WhatsApp number is the one of them
+// that can be *cleared*, so it alone needs to tell an absent key from a null one.
 func (h *Handler) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 
@@ -86,13 +99,36 @@ func (h *Handler) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actor := actorContextFromRequest(r)
-
-	org, err := h.svc.UpdateOrganization(r.Context(), actor, service.UpdateOrganizationInput{
+	input := service.UpdateOrganizationInput{
 		Name:         body.Name,
 		Currency:     body.Currency,
 		LogoImageKey: body.LogoImageKey,
-	})
+	}
+
+	// The Support WhatsApp number. Whether the request is talking about it at all
+	// is decided by the key's presence, and only then by its value: a blank or
+	// null clears the published number. Anything else goes through the one shared
+	// phone rule, under the field name it travels under here — so an Org Admin
+	// who mistypes reads the same wording a Customer would at checkout.
+	if body.SupportWhatsApp.Present {
+		input.SupportWhatsAppSet = true
+		number := ""
+		if body.SupportWhatsApp.Value != nil {
+			number = strings.TrimSpace(*body.SupportWhatsApp.Value)
+		}
+		if number != "" {
+			normalized, fields := platform.PhoneFieldErrors("support_whatsapp", number)
+			if len(fields) > 0 {
+				_ = platform.WriteValidationError(w, reqID, fields)
+				return
+			}
+			input.SupportWhatsApp = &normalized
+		}
+	}
+
+	actor := actorContextFromRequest(r)
+
+	org, err := h.svc.UpdateOrganization(r.Context(), actor, input)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

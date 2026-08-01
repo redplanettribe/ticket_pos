@@ -14,6 +14,11 @@ An Organization's brand image, set by an Org Admin and shown wherever the Organi
 Distinct from an Event's cover image, which represents a single Event rather than the Organization.
 _Avoid_: Icon, avatar, brand image
 
+**Support WhatsApp**:
+An Organization's optional WhatsApp number, set by an Org Admin, published on the Organization's public Event pages as a link a Customer can message for support.
+Stored in canonical E.164 form under the same rule as a Customer's phone number.
+_Avoid_: Support number, helpline, contact number, WhatsApp link
+
 **Member**:
 A person belonging to an Organization who may hold a role such as Org Admin, Event Owner, or Event Staff.
 _Avoid_: User, account, teammate

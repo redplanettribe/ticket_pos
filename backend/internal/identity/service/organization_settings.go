@@ -20,7 +20,11 @@ type OrganizationView struct {
 	Currency       string    `json:"currency"`
 	CurrencyLocked bool      `json:"currency_locked"`
 	LogoURL        *string   `json:"logo_url"`
-	CreatedAt      time.Time `json:"created_at"`
+	// SupportWhatsApp is the Organization's Support WhatsApp number in canonical
+	// E.164 form, null when it has none. Shown here so an Org Admin can see,
+	// correct and withdraw the number the platform publishes on their behalf.
+	SupportWhatsApp *string   `json:"support_whatsapp"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // PublicOrganizationView is the unauthenticated organization profile.
@@ -31,10 +35,19 @@ type PublicOrganizationView struct {
 }
 
 // UpdateOrganizationInput updates organization profile fields.
+//
+// SupportWhatsApp is presence-keyed rather than a plain pointer, because on this
+// field an absent key and a null one must mean opposite things: a request that
+// never mentions the number leaves it exactly where it is, and one that sends it
+// null or blank clears it. SupportWhatsAppSet carries "the request talked about
+// it at all"; SupportWhatsApp then carries the verdict, nil meaning clear. The
+// same split the Customer profile's phone number runs, for the same reason.
 type UpdateOrganizationInput struct {
-	Name         string
-	Currency     *string
-	LogoImageKey *string
+	Name               string
+	Currency           *string
+	LogoImageKey       *string
+	SupportWhatsAppSet bool
+	SupportWhatsApp    *string
 }
 
 // CreateLogoUploadURLInput describes a requested organization logo upload.
@@ -163,6 +176,22 @@ func (s *Service) UpdateOrganization(ctx context.Context, actor ActiveMemberCont
 		}
 
 		updated, err = s.repo.UpdateOrganizationLogoKey(ctx, actor.OrganizationID, input.LogoImageKey)
+		if err != nil {
+			return nil, err
+		}
+		if updated == nil {
+			return nil, identity.ErrOrganizationNotFound()
+		}
+	}
+
+	// The Support WhatsApp number. Whether the request is talking about it at all
+	// is decided by the key's presence, and only then by its value: a blank or
+	// null withdraws the published number, which is a capability the Org Admin is
+	// entitled to rather than an empty form nobody filled in. The number itself
+	// arrives already canonicalized — the handler runs it through the one shared
+	// phone rule, as every surface taking a phone number does.
+	if input.SupportWhatsAppSet {
+		updated, err = s.repo.UpdateOrganizationSupportWhatsApp(ctx, actor.OrganizationID, input.SupportWhatsApp)
 		if err != nil {
 			return nil, err
 		}
@@ -539,13 +568,17 @@ func parseAssignmentRole(role string) (repository.MemberRole, error) {
 }
 
 func toOrganizationView(org *repository.Organization) *OrganizationView {
-	return &OrganizationView{
+	view := &OrganizationView{
 		ID:        org.ID,
 		Name:      org.Name,
 		Slug:      org.Slug,
 		Currency:  org.Currency,
 		CreatedAt: org.CreatedAt,
 	}
+	if org.SupportWhatsApp.Valid {
+		view.SupportWhatsApp = &org.SupportWhatsApp.String
+	}
+	return view
 }
 
 func (s *Service) toOrganizationView(ctx context.Context, org *repository.Organization) (*OrganizationView, error) {

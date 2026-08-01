@@ -15,7 +15,11 @@ type Organization struct {
 	Slug         string
 	Currency     string
 	LogoImageKey sql.NullString
-	CreatedAt    time.Time
+	// SupportWhatsApp is the Organization's Support WhatsApp number in canonical
+	// E.164 form, null when it has none (migration 047). Published on its public
+	// Event pages; see ADR 0027.
+	SupportWhatsApp sql.NullString
+	CreatedAt       time.Time
 }
 
 // Member is a person belonging to an Organization.
@@ -49,13 +53,13 @@ type EventAssignment struct {
 // GetOrganizationByID loads an organization by ID.
 func (r *Repository) GetOrganizationByID(ctx context.Context, orgID string) (*Organization, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, name, slug, currency, logo_image_key, created_at
+		SELECT id, name, slug, currency, logo_image_key, support_whatsapp, created_at
 		FROM organizations
 		WHERE id = $1
 	`, orgID)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -67,13 +71,13 @@ func (r *Repository) GetOrganizationByID(ctx context.Context, orgID string) (*Or
 // GetOrganizationBySlug loads an organization by its public slug.
 func (r *Repository) GetOrganizationBySlug(ctx context.Context, slug string) (*Organization, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, name, slug, currency, logo_image_key, created_at
+		SELECT id, name, slug, currency, logo_image_key, support_whatsapp, created_at
 		FROM organizations
 		WHERE slug = $1
 	`, slug)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -88,11 +92,11 @@ func (r *Repository) UpdateOrganizationName(ctx context.Context, orgID, name str
 		UPDATE organizations
 		SET name = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
 	`, orgID, name)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -107,11 +111,11 @@ func (r *Repository) UpdateOrganizationCurrency(ctx context.Context, orgID, curr
 		UPDATE organizations
 		SET currency = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
 	`, orgID, currency)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -131,11 +135,40 @@ func (r *Repository) UpdateOrganizationLogoKey(ctx context.Context, orgID string
 		UPDATE organizations
 		SET logo_image_key = $2
 		WHERE id = $1
-		RETURNING id, name, slug, currency, logo_image_key, created_at
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
 	`, orgID, key)
 
 	var o Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.CreatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
+}
+
+// UpdateOrganizationSupportWhatsApp sets or clears the organization's Support
+// WhatsApp number. A nil or empty value clears it, which is how an Org Admin
+// withdraws the number from every Event page at once.
+//
+// The number arrives already canonicalized by platform.ValidatePhone; this
+// statement stores what it is given and judges nothing.
+func (r *Repository) UpdateOrganizationSupportWhatsApp(ctx context.Context, orgID string, supportWhatsApp *string) (*Organization, error) {
+	var number sql.NullString
+	if supportWhatsApp != nil && *supportWhatsApp != "" {
+		number = sql.NullString{String: *supportWhatsApp, Valid: true}
+	}
+
+	row := r.db.Pool.QueryRowContext(ctx, `
+		UPDATE organizations
+		SET support_whatsapp = $2
+		WHERE id = $1
+		RETURNING id, name, slug, currency, logo_image_key, support_whatsapp, created_at
+	`, orgID, number)
+
+	var o Organization
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.Currency, &o.LogoImageKey, &o.SupportWhatsApp, &o.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

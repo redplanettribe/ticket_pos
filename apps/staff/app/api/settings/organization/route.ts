@@ -12,6 +12,7 @@ type Organization = {
   currency: string;
   currency_locked: boolean;
   logo_url: string | null;
+  support_whatsapp: string | null;
   created_at: string;
 };
 

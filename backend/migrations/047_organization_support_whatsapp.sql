@@ -1,0 +1,50 @@
+-- The Organization's Support WhatsApp number (#200, parent #199).
+--
+-- An Organization's optional WhatsApp number, published on its public Event
+-- pages as a link a Customer can message for support. Until now a Customer on
+-- an Event page with a question — is this all-ages, where do I park, my payment
+-- bounced, my ticket would not scan — had nowhere to ask it: everything the
+-- Storefront tells them is one-directional, and their only recourse was to
+-- find the Organization somewhere else or abandon the purchase.
+--
+-- ON THE ORGANIZATION, not the Event. Support is a property of who answers the
+-- phone, not of a single night's show. One field inherited by every Event means
+-- an organizer types it once and every Event they have ever published — and
+-- every one they publish later — carries it, where a per-Event column would
+-- start blank on each new Event and in practice go unfilled. A per-Event
+-- override stays available as a strictly additive column plus a resolution rule
+-- falling back to this one; it is not built speculatively. See ADR 0027.
+--
+-- ONE column, canonical E.164 ("+593987654321"), never split into a dialling
+-- code and a national part — the same call migration 029 made for the Customer's
+-- phone number and for the same reason: a split means reassembly at every use
+-- and a half-populated pair to guard against. The Storefront strips the leading
+-- plus to build the wa.me link and needs nothing else.
+--
+-- No CHECK constraint on the shape, exactly as on customers.phone. What counts
+-- as a valid number is two tiers of rule that key off the dialling code
+-- (platform.ValidatePhone), which is not a shape a column constraint can
+-- usefully state; and a stricter rule frozen into the schema would one day
+-- reject a legitimate number the service layer had already accepted. The verdict
+-- lives in one place, in Go.
+--
+-- No index. Nothing looks an Organization up by this number and nothing is
+-- planned to: it is write-then-publish, read only to render a link.
+--
+-- Nullable, and blank means blank. An Organization with no support line stores
+-- NULL and publishes nothing — no link and no placeholder renders. Clearing the
+-- field withdraws the number from every Event page at once, which is a
+-- capability the Org Admin is entitled to rather than an empty form nobody
+-- filled in; the update endpoint spells that distinction with
+-- platform.OptionalString, where an absent key leaves the number alone and a
+-- null or blank one clears it.
+--
+-- PUBLIC BY DESIGN, and narrowly so. The value is served on the public Event
+-- detail's Organization block, where an Org Admin put it knowing it would be —
+-- the Settings form says so in as many words. It is deliberately NOT served on
+-- the paginated public Event listings, though they carry the same Organization
+-- summary structure: a number riding there would let one crawl of the platform
+-- harvest every Organization's support number at once, rather than requiring
+-- each Event detail to be discovered and fetched. Those are materially
+-- different exposures. An integration test holds that line.
+ALTER TABLE organizations ADD COLUMN support_whatsapp TEXT;

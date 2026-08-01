@@ -311,8 +311,8 @@ func (h *Handler) ListTicketSales(w http.ResponseWriter, r *http.Request) {
 // together they assert a Tax ID, absent together they clear it, and one without
 // the other is a validation failure: the pair is one fact.
 //
-// The phone needs one more state than a pointer can hold, hence optionalString
-// below: this field was added to an endpoint that already existed (#108), so a
+// The phone needs one more state than a pointer can hold, hence
+// platform.OptionalString: this field was added to an endpoint that already existed (#108), so a
 // request that never mentions the phone must leave it exactly where it is rather
 // than be read as a clear. A Storefront running the previous build sends no phone
 // key at all, and a deploy window is no reason for a buyer to lose their number.
@@ -323,38 +323,7 @@ type updateProfileBody struct {
 	TaxIDNumber *string `json:"tax_id_number"`
 	// The phone number in canonical E.164 form, e.g. +593987654321. Null or blank
 	// clears the stored number; omitting the field leaves it untouched.
-	Phone optionalString `json:"phone" swaggertype:"string"`
-}
-
-// optionalString distinguishes the three things a JSON field can say: nothing at
-// all, an explicit null or blank, and a value. encoding/json flattens the first
-// two into a nil *string, which is enough for every other field in this package
-// and not enough for the phone — see updateProfileBody.
-//
-// Present is set by UnmarshalJSON, which the decoder calls only for a key that
-// actually appeared in the document, so the zero value is "absent" and needs no
-// help from the caller.
-//
-// It is a decoding device and never a wire shape, which is why the field above
-// carries `swaggertype:"string"`: without it the generated contract would
-// publish these two Go fields as an object nobody sends.
-type optionalString struct {
-	Present bool
-	Value   *string
-}
-
-func (o *optionalString) UnmarshalJSON(data []byte) error {
-	o.Present = true
-	if string(data) == "null" {
-		o.Value = nil
-		return nil
-	}
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	o.Value = &value
-	return nil
+	Phone platform.OptionalString `json:"phone" swaggertype:"string"`
 }
 
 // UpdateProfile edits the signed-in Customer's "My info": their name, their one

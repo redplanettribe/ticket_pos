@@ -37,6 +37,9 @@ type Organization = {
   currency: string;
   currency_locked: boolean;
   logo_url: string | null;
+  // The Support WhatsApp number in canonical E.164 form, null when the
+  // Organization has none. Published on every one of its Event pages (ADR 0027).
+  support_whatsapp: string | null;
 };
 
 type Member = {
@@ -99,6 +102,7 @@ export function SettingsPageClient() {
   const [profileName, setProfileName] = useState("");
   const [profileCurrency, setProfileCurrency] = useState("USD");
   const [currencyLocked, setCurrencyLocked] = useState(false);
+  const [profileSupportWhatsApp, setProfileSupportWhatsApp] = useState("");
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState("event_staff");
   const [eventName, setEventName] = useState("");
@@ -125,6 +129,7 @@ export function SettingsPageClient() {
       setProfileName(org.name);
       setProfileCurrency(org.currency);
       setCurrencyLocked(org.currency_locked);
+      setProfileSupportWhatsApp(org.support_whatsapp ?? "");
       setMembers(memberList);
       setEvents(eventList);
       setForbidden(false);
@@ -148,11 +153,22 @@ export function SettingsPageClient() {
     try {
       const org = await fetchJSON<Organization>("/api/settings/organization", {
         method: "PATCH",
-        body: JSON.stringify({ name: profileName, currency: profileCurrency }),
+        body: JSON.stringify({
+          name: profileName,
+          currency: profileCurrency,
+          // Always sent, so an emptied field reads as "withdraw the number". The
+          // API distinguishes an absent key from a blank one — absent leaves the
+          // stored number alone — but this form always has an opinion about it.
+          support_whatsapp: profileSupportWhatsApp,
+        }),
       });
       setOrganization(org);
       setProfileCurrency(org.currency);
       setCurrencyLocked(org.currency_locked);
+      // Show back what was actually stored: the server canonicalises the number,
+      // so an Org Admin who typed "+593 (0)98-765.4321" sees "+593987654321" and
+      // knows exactly what their Customers will reach.
+      setProfileSupportWhatsApp(org.support_whatsapp ?? "");
       toast.success("Organization profile updated");
       router.refresh();
     } catch (saveError) {
@@ -308,7 +324,9 @@ export function SettingsPageClient() {
       <Card>
         <CardHeader>
           <CardTitle>Profile</CardTitle>
-          <CardDescription>Organization display name, currency, and Storefront URL slug.</CardDescription>
+          <CardDescription>
+            Organization display name, currency, support contact, and Storefront URL slug.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <FormField id="org-name" label="Organization name">
@@ -336,6 +354,19 @@ export function SettingsPageClient() {
                 </option>
               ))}
             </select>
+          </FormField>
+          <FormField
+            id="org-support-whatsapp"
+            label="Support WhatsApp"
+            description="Shown publicly on every one of your event pages — customers will message this number. Include the country code, for example +593987654321. Leave empty to publish no support contact."
+          >
+            <Input
+              id="org-support-whatsapp"
+              type="tel"
+              placeholder="+593987654321"
+              value={profileSupportWhatsApp}
+              onChange={(event) => setProfileSupportWhatsApp(event.target.value)}
+            />
           </FormField>
           <FormField
             id="org-slug"

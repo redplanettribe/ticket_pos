@@ -5,12 +5,30 @@ import (
 	"strings"
 )
 
-// The Customer phone number rule (#103, #105).
+// The phone number rule (#103, #105, #200).
 //
-// A phone number exists in this system for exactly one reason: it is handed to
-// PayPhone's Prepare call so the hosted card form arrives with the cardholder's
-// number already filled, leaving the buyer nothing to type but their card. That
-// single purpose is what shapes everything below.
+// A phone number exists in this system for two reasons, and the first is what
+// shaped everything below:
+//
+//   - The Customer's phone number is handed to PayPhone's Prepare call so the
+//     hosted card form arrives with the cardholder's number already filled,
+//     leaving the buyer nothing to type but their card.
+//   - The Organization's Support WhatsApp number is published on its public Event
+//     pages, where a Customer taps it to open a WhatsApp conversation (ADR 0027).
+//
+// The second arrived later and reuses this rule unchanged rather than growing a
+// second one, because the number of definitions of "a valid phone number" a
+// system can hold without them drifting is one.
+//
+// The strict Ecuadorian tier earns its keep under the second reason even though
+// its stated justification — PayPhone wants a cardholder's MOBILE — does not
+// transfer. A support line has its own reason to be a mobile: an organizer who
+// types their landline by mistake publishes a number that never answers a
+// message, and a Customer discovering that mid-purchase is a worse failure than
+// a rejection at the settings form. The knowing cost is that WhatsApp Business
+// can be verified on a landline by voice call, so an Ecuadorian Organization
+// running support from an 02… number cannot enter it here. ADR 0027 records that
+// exclusion as chosen rather than overlooked.
 //
 // This file is the source of truth for what counts as a valid phone number. The
 // Storefront mirrors it in apps/storefront/lib/phone.ts so a buyer who
@@ -20,6 +38,13 @@ import (
 // mirror rejects but this file would have accepted is a buyer locked out of a
 // purchase the platform would have taken. This is the same split the Tax ID
 // already runs (taxid.go / lib/tax-id.ts), for the same reasons.
+//
+// The Staff app deliberately does NOT mirror this rule, and should not start.
+// The Storefront's copy earns its keep because a buyer mid-purchase must not
+// spend a round trip on a typo; an Org Admin editing Settings once is nowhere
+// near that bar, and a second mirror would double the drift surface the
+// paragraph above warns about. Where the Support WhatsApp number is concerned,
+// this file's verdict is the only verdict.
 //
 // Like ValidateTaxID this is a pure function over strings: no database, no
 // context, no domain error types. Whether a phone number is required at all is
