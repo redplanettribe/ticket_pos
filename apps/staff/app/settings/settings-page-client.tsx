@@ -325,7 +325,7 @@ export function SettingsPageClient() {
         <CardHeader>
           <CardTitle>Profile</CardTitle>
           <CardDescription>
-            Organization display name, currency, support contact, and Storefront URL slug.
+            Organization display name, currency, Support WhatsApp, and Storefront URL slug.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

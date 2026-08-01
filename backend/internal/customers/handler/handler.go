@@ -312,10 +312,11 @@ func (h *Handler) ListTicketSales(w http.ResponseWriter, r *http.Request) {
 // the other is a validation failure: the pair is one fact.
 //
 // The phone needs one more state than a pointer can hold, hence
-// platform.OptionalString: this field was added to an endpoint that already existed (#108), so a
-// request that never mentions the phone must leave it exactly where it is rather
-// than be read as a clear. A Storefront running the previous build sends no phone
-// key at all, and a deploy window is no reason for a buyer to lose their number.
+// platform.OptionalString: this field was added to an endpoint that already
+// existed (#108), so a request that never mentions the phone must leave it
+// exactly where it is rather than be read as a clear. A Storefront running the
+// previous build sends no phone key at all, and a deploy window is no reason for
+// a buyer to lose their number.
 type updateProfileBody struct {
 	FirstName   string  `json:"first_name"`
 	LastName    string  `json:"last_name"`

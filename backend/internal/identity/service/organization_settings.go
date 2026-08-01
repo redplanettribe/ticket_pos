@@ -190,13 +190,28 @@ func (s *Service) UpdateOrganization(ctx context.Context, actor ActiveMemberCont
 	// entitled to rather than an empty form nobody filled in. The number itself
 	// arrives already canonicalized — the handler runs it through the one shared
 	// phone rule, as every surface taking a phone number does.
+	//
+	// The write is skipped when the number is already what the request asks for,
+	// the way the name above is. The Staff form always sends this key, so without
+	// the comparison every unrelated profile save — a rename, a currency change —
+	// would rewrite this column for nothing.
 	if input.SupportWhatsAppSet {
-		updated, err = s.repo.UpdateOrganizationSupportWhatsApp(ctx, actor.OrganizationID, input.SupportWhatsApp)
-		if err != nil {
-			return nil, err
+		current := ""
+		if org.SupportWhatsApp.Valid {
+			current = org.SupportWhatsApp.String
 		}
-		if updated == nil {
-			return nil, identity.ErrOrganizationNotFound()
+		wanted := ""
+		if input.SupportWhatsApp != nil {
+			wanted = *input.SupportWhatsApp
+		}
+		if wanted != current {
+			updated, err = s.repo.UpdateOrganizationSupportWhatsApp(ctx, actor.OrganizationID, input.SupportWhatsApp)
+			if err != nil {
+				return nil, err
+			}
+			if updated == nil {
+				return nil, identity.ErrOrganizationNotFound()
+			}
 		}
 	}
 

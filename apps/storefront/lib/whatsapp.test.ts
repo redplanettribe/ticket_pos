@@ -46,11 +46,19 @@ test("no prefill means no query string at all", () => {
   assert.equal(whatsappLink(NUMBER, ""), "https://wa.me/593987654321");
 });
 
-test("punctuation a number should not carry is dropped rather than passed on", () => {
-  // The API's number is already canonical, but this is the last thing between a
-  // stored value and a link a person taps, and a stray space breaks it the same
-  // silent way the plus does.
-  assert.equal(whatsappLink("+593 (0)98-765.4321"), "https://wa.me/5930987654321");
+test("a stray space is survived, but nothing here normalises a number", () => {
+  // The guard: whitespace that should never have arrived does not break the link.
+  assert.equal(whatsappLink(" +593987654321 "), "https://wa.me/593987654321");
+
+  // The limit of that guard, stated so nobody mistakes it for normalisation.
+  // A number as a human writes it keeps its Ecuadorian trunk zero here —
+  // 5930987654321, a different and unreachable number — because turning typed
+  // input into a canonical one is a rule about national numbering plans that
+  // lives on the server (platform.ValidatePhone), and duplicating it here is
+  // exactly the drift that file warns against. The API only ever serves
+  // canonical numbers, so this input cannot occur; the assertion exists to keep
+  // the boundary honest rather than to bless the output.
+  assert.notEqual(whatsappLink("+593 (0)98-765.4321"), "https://wa.me/593987654321");
 });
 
 test("a number with no digits yields no link", () => {

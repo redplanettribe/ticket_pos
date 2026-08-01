@@ -308,21 +308,21 @@ export default async function EventPage({ params, searchParams }: EventPageProps
             point, and it costs no branch: this sits after the read-only Ticket
             Type list exactly as it sits after the selection UI. */}
         {supportLink ? (
-          <section className="mt-8 border-t pt-6" aria-labelledby="support-heading">
-            <h2 id="support-heading" className="text-sm font-medium">
-              {t("supportHeading")}
-            </h2>
+          <p className="mt-8">
             <a
               href={supportLink}
               // A new tab, so a Customer who was midway through choosing tickets
               // still has the page when they come back.
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 inline-block text-sm text-muted-foreground underline-offset-4 hover:underline"
+              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
             >
+              {/* The label names the Organization and the channel, so it needs no
+                  heading above it to say what it is — it announces its own
+                  purpose to a screen reader as it stands. */}
               {t("supportWhatsApp", { organization: event.organization.name })}
             </a>
-          </section>
+          </p>
         ) : null}
       </article>
     </StorefrontShell>

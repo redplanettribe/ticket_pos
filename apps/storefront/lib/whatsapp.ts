@@ -27,9 +27,14 @@ const WA_ME = "https://wa.me/";
  * canonical form the API hands us is the form with the plus, so every caller
  * would have to remember to remove it.
  *
- * Any other punctuation a number might carry is dropped too. The API's number is
- * already clean, but this function is the last thing between a value and a link
- * a person taps, and a stray space would break it the same silent way.
+ * The input must ALREADY be canonical. Other punctuation is dropped as a
+ * last-ditch guard against a stray space, but this function does not normalise
+ * and must not be asked to: turning what a human typed into a canonical number
+ * is a rule about national numbering plans that lives in one place, on the
+ * server (platform.ValidatePhone). Handed "+593 (0)98-765.4321" this would strip
+ * to 5930987654321 — the Ecuadorian trunk zero intact, which is a different and
+ * unreachable number. The server never serves that; nothing here should pretend
+ * it could fix it if it did.
  *
  * The prefill is URL-encoded, which matters more than it looks: the message
  * names the Event, and Event names contain ampersands, plus signs, hashes and
