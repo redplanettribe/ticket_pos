@@ -123,6 +123,33 @@ export function formatReversalDeadline(
 }
 
 /**
+ * The hour alone, in the Event's timezone: "6:00 PM".
+ *
+ * What a Timeline card says under a Day Bucket header. The date is the
+ * header's to say — repeating it on every card is the redundancy the Timeline
+ * exists to remove — so this is the short form's time slot and nothing else.
+ * Cards in the Ongoing group, whose header names no date, keep using
+ * formatEventDateShort.
+ */
+export function formatEventTime(
+  startsAt: string | null,
+  timezone: string | null,
+  locale: IntlLocale = DEFAULT_LOCALE,
+): string | null {
+  if (!startsAt) return null;
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return normalizeNarrowSpaces(
+    new Intl.DateTimeFormat(locale, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timeZoneOrUndefined(timezone),
+    }).format(date),
+  );
+}
+
+/**
  * `format()` and `formatToParts()` disagree about the space before "PM": the
  * first hands back U+0020, the second the narrow no-break space ICU actually
  * specifies. Composing from parts therefore changes bytes nobody asked to

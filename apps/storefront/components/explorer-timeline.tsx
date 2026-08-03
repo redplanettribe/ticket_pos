@@ -7,7 +7,7 @@ import type { PublicEventCard } from "@/lib/api";
 import { ECUADOR_TIME_ZONE } from "@/lib/format";
 import { buildTimeline, localDateKey } from "@/lib/timeline";
 
-import { EventGrid } from "./event-grid";
+import { TimelineEventCard } from "./timeline-event-card";
 
 type ExplorerTimelineProps = {
   /** The accumulated feed, in the server's start-instant order. */
@@ -37,11 +37,20 @@ export function ExplorerTimeline({ events, now }: ExplorerTimelineProps) {
   const platformYear = localDateKey(now, ECUADOR_TIME_ZONE).slice(0, 4);
 
   return (
-    <div className="space-y-10">
-      {timeline.ongoing.length > 0 ? (
-        <TimelineSection heading={t("ongoing")} events={timeline.ongoing} />
-      ) : null}
-      {timeline.days.map((day) => {
+    // The spine: on sm+ a continuous vertical line runs the whole Timeline at
+    // the boundary between the date rail and the cards, and each group pins a
+    // dot to it. On mobile the rail collapses into a plain header above the
+    // cards and the line goes with it.
+    <div className="relative">
+      <div
+        aria-hidden
+        className="absolute inset-y-1 left-[7.75rem] hidden w-px bg-border sm:block"
+      />
+      <div className="space-y-10">
+        {timeline.ongoing.length > 0 ? (
+          <TimelineSection heading={t("ongoing")} events={timeline.ongoing} showStartDate />
+        ) : null}
+        {timeline.days.map((day) => {
         // A Day Bucket's key is a plain date; pinning it to noon UTC and
         // formatting in UTC reads that date back verbatim, no zone arithmetic.
         const date = new Date(`${day.key}T12:00:00Z`);
@@ -55,15 +64,16 @@ export function ExplorerTimeline({ events, now }: ExplorerTimelineProps) {
           weekday: "long",
           timeZone: "UTC",
         }).format(date);
-        return (
-          <TimelineSection
-            key={day.key}
-            heading={day.relative ? t(day.relative) : dateLabel}
-            subheading={weekday}
-            events={day.events}
-          />
-        );
-      })}
+          return (
+            <TimelineSection
+              key={day.key}
+              heading={day.relative ? t(day.relative) : dateLabel}
+              subheading={weekday}
+              events={day.events}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -72,18 +82,33 @@ type TimelineSectionProps = {
   heading: string;
   subheading?: string;
   events: PublicEventCard[];
+  /** Passed through to the cards; true only for the Ongoing group. */
+  showStartDate?: boolean;
 };
 
-function TimelineSection({ heading, subheading, events }: TimelineSectionProps) {
+function TimelineSection({ heading, subheading, events, showStartDate }: TimelineSectionProps) {
   return (
-    <section className="space-y-4">
-      <h2 className="flex items-baseline gap-2">
-        <span className="font-semibold tracking-tight">{heading}</span>
+    <section className="relative sm:grid sm:grid-cols-[7rem_1fr] sm:gap-8">
+      {/* The group's dot, centred on the spine the parent draws. */}
+      <span
+        aria-hidden
+        className="absolute left-[7.75rem] top-1.5 hidden h-2 w-2 -translate-x-1/2 rounded-full bg-muted-foreground/60 sm:block"
+      />
+      <h2 className="mb-3 flex items-baseline gap-2 sm:sticky sm:top-24 sm:mb-0 sm:block sm:self-start">
+        <span className="block font-semibold tracking-tight">{heading}</span>
         {subheading ? (
-          <span className="text-sm font-normal text-muted-foreground">{subheading}</span>
+          <span className="block text-sm font-normal text-muted-foreground">{subheading}</span>
         ) : null}
       </h2>
-      <EventGrid events={events} />
+      <div className="space-y-4">
+        {events.map((event) => (
+          <TimelineEventCard
+            key={`${event.organization.slug}/${event.slug}`}
+            event={event}
+            showStartDate={showStartDate}
+          />
+        ))}
+      </div>
     </section>
   );
 }

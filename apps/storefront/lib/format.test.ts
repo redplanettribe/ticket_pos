@@ -5,6 +5,7 @@ import {
   ECUADOR_TIME_ZONE,
   formatEventDateShort,
   formatEventDateTime,
+  formatEventTime,
   formatPrice,
   formatReversalDeadline,
   priceFrom,
@@ -56,6 +57,18 @@ test("en-US short Event dates are unchanged", () => {
   assert.equal(formatEventDateShort(SUNDAY_EVENING, "America/Guayaquil"), "Sun Jul 12, 6:00 PM");
   assert.equal(formatEventDateShort(null, "America/Guayaquil"), null);
   assert.equal(formatEventDateShort("not-a-date", "America/Guayaquil"), null);
+});
+
+test("the time-only form is the short form's time slot and nothing else", () => {
+  // What a Timeline card says under a Day Bucket header: the date is the
+  // header's to say, so the card keeps only the hour — in the Event's own
+  // timezone, in the page's language, with the same "PM" spacing format()
+  // has always produced.
+  assert.equal(formatEventTime(SUNDAY_EVENING, "America/Guayaquil"), "6:00 PM");
+  assert.equal(formatEventTime(SUNDAY_EVENING, "Europe/Madrid"), "1:00 AM");
+  assert.equal(formatEventTime(SUNDAY_EVENING, "America/Guayaquil", "es-EC"), "6:00 p. m.");
+  assert.equal(formatEventTime(null, "America/Guayaquil"), null);
+  assert.equal(formatEventTime("not-a-date", "America/Guayaquil"), null);
 });
 
 test("es-EC short Event dates are Spanish, in Spanish part order", () => {
