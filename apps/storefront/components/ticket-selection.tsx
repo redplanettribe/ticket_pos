@@ -165,9 +165,9 @@ type CheckoutError = {
   fallback: "startFailed" | "networkFailed";
 };
 
-/** Matches the Input component's height and border so the select reads as a peer. */
+/** Matches the Input component's height, border and mobile font size so the select reads as a peer. */
 const SELECT_CLASS =
-  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function TicketSelection({
   orgSlug,
