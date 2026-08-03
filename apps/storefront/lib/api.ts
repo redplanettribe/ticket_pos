@@ -235,7 +235,7 @@ export type PublicEventCard = {
   currency: string;
   price_from_cents: number | null;
   sold_out: boolean;
-  tags: { name: string; curated: boolean }[];
+  tags: PublicTag[];
 };
 
 // A live Promotion on a Ticket Type: the Promotional Price that overrides the
@@ -314,7 +314,7 @@ export type PublicEventDetail = {
   // buyer pays exactly what the organizer set and no fee is mentioned at all.
   price_includes_fee: boolean;
   ticket_types: PublicTicketType[];
-  tags: { name: string; curated: boolean }[];
+  tags: PublicTag[];
   // Whether the Event advertises itself. It gates nothing about rendering or
   // selling — a published Event is reachable by direct link either way (ADR
   // 0002) — and is read only by generateMetadata, which marks a
@@ -339,6 +339,10 @@ export type PublicOrganizationEvents = {
 export const EXPLORER_PAGE_SIZE = 12;
 
 export type PublicTag = {
+  // The Tag's stable machine identity, and what a Preset Tag's Locale copy is
+  // keyed on (ADR 0027). Lowercased, and never containing a "."; `name` is the
+  // English display name it falls back to.
+  canonical_key: string;
   name: string;
   curated: boolean;
 };

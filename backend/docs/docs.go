@@ -2819,6 +2819,9 @@ const docTemplate = `{
             },
             "service.TagView": {
                 "properties": {
+                    "canonical_key": {
+                        "type": "string"
+                    },
                     "curated": {
                         "type": "boolean"
                     },

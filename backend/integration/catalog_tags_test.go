@@ -7,8 +7,9 @@ import (
 )
 
 type tagView struct {
-	Name    string `json:"name"`
-	Curated bool   `json:"curated"`
+	CanonicalKey string `json:"canonical_key"`
+	Name         string `json:"name"`
+	Curated      bool   `json:"curated"`
 }
 
 func decodeTags(t *testing.T, raw json.RawMessage) []tagView {
@@ -83,6 +84,12 @@ func TestSearchTagsReturnsPresetsFirst(t *testing.T) {
 	tags := decodeTags(t, body.Data)
 	if len(tags) == 0 || tags[0].Name != "Music" || !tags[0].Curated {
 		t.Fatalf("expected Music preset first, got %+v", tags)
+	}
+	// The canonical key reaches the client, because the Storefront keys a Preset
+	// Tag's Locale copy on it (ADR 0027) and cannot rebuild it from a display
+	// name it has just replaced with Spanish.
+	if tags[0].CanonicalKey != "music" {
+		t.Fatalf("expected canonical_key on the wire, got %+v", tags[0])
 	}
 }
 

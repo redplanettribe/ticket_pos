@@ -6,6 +6,7 @@ import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
 import { formatEventDateShort, priceFrom } from "@/lib/format";
+import { tagName, type TagTranslator } from "@/lib/tag-name";
 
 type EventCardProps = {
   event: PublicEventCard;
@@ -17,6 +18,9 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
   // and says them identically on the explorer and on an Organization's page, so
   // it reads the Event's namespace rather than either surface's.
   const t = useTranslations("event");
+  // A Preset Tag is the system's word, so it is worded here rather than by the
+  // API; a Custom Tag passes through untouched (ADR 0027).
+  const tTags = useTranslations("tags") as TagTranslator;
   const locale = useFormatLocale();
   const href = `/${event.organization.slug}/events/${event.slug}`;
   const dateLabel = formatEventDateShort(event.starts_at, event.timezone, locale);
@@ -54,8 +58,8 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
           {event.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 pt-2">
               {event.tags.map((tag) => (
-                <Badge key={tag.name} variant="outline">
-                  {tag.name}
+                <Badge key={tag.canonical_key} variant="outline">
+                  {tagName(tag, tTags)}
                 </Badge>
               ))}
             </div>

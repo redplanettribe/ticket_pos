@@ -7078,6 +7078,7 @@ export interface components {
             memberships?: components["schemas"]["service.MembershipView"][];
         };
         "service.TagView": {
+            canonical_key?: string;
             curated?: boolean;
             name?: string;
         };

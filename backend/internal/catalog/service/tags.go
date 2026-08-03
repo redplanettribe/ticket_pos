@@ -25,15 +25,27 @@ var tagCharset = regexp.MustCompile(`^[\p{L}\p{N} -]+$`)
 var multiSpace = regexp.MustCompile(`\s+`)
 
 // TagView is a Tag as shown on an Event or in pool search results.
+//
+// CanonicalKey is the Tag's stable machine identity, and it is here so the
+// Storefront can key a Preset Tag's Locale copy on something a copy edit to
+// DisplayName cannot break (ADR 0027). Name stays the English display name and
+// remains what an unrecognised Tag falls back to. This is still not the Tag's
+// ID: Tags are addressed by name across the API, and CanonicalKey adds no way
+// to address one that DisplayName did not already give.
 type TagView struct {
-	Name    string `json:"name"`
-	Curated bool   `json:"curated"`
+	CanonicalKey string `json:"canonical_key"`
+	Name         string `json:"name"`
+	Curated      bool   `json:"curated"`
 }
 
 func toTagViews(tags []repository.Tag) []TagView {
 	views := make([]TagView, 0, len(tags))
 	for _, t := range tags {
-		views = append(views, TagView{Name: t.DisplayName, Curated: t.Curated})
+		views = append(views, TagView{
+			CanonicalKey: t.CanonicalKey,
+			Name:         t.DisplayName,
+			Curated:      t.Curated,
+		})
 	}
 	return views
 }

@@ -276,5 +276,19 @@
     "myInfo": {
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to change your details."
     }
+  },
+  "tags": {
+    "music": "Music",
+    "nightlife": "Nightlife",
+    "arts & theatre": "Arts & Theatre",
+    "comedy": "Comedy",
+    "food & drink": "Food & Drink",
+    "festival": "Festival",
+    "sports": "Sports",
+    "workshop": "Workshop",
+    "conference": "Conference",
+    "community": "Community",
+    "family": "Family",
+    "film": "Film"
   }
 }

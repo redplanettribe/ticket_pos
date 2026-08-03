@@ -8,6 +8,7 @@ import { Button, Input, cn } from "@ticket-pos/ui";
 
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
+import { tagName, type TagTranslator } from "@/lib/tag-name";
 import { WHEN_PRESETS, isWhenPreset, type WhenPreset } from "@/lib/when";
 
 type ExplorerFiltersProps = {
@@ -27,6 +28,9 @@ function parseTags(raw: string | null): Set<string> {
 
 export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
   const t = useTranslations("explorer");
+  // A Preset Tag is the system's word, so it is worded here rather than by the
+  // API; a Custom Tag passes through untouched (ADR 0027).
+  const tTags = useTranslations("tags") as TagTranslator;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -73,7 +77,12 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
   }
 
   function toggleTag(tag: PublicTag) {
-    const key = tag.name.toLowerCase();
+    // The Tag's own canonical key, not its rendered label lowercased: the label
+    // is in the page's Locale, and "Artes y teatro" lowercases to a token the
+    // API matches nothing against. The key is what `tags=` has always carried
+    // and what the API filters on, so it stays English in both Locales and a
+    // filtered link survives being read in the other one.
+    const key = tag.canonical_key;
     const next = new Set(selectedTags);
     if (next.has(key)) next.delete(key);
     else next.add(key);
@@ -127,10 +136,10 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
       {presetTags.length > 0 ? (
         <div className="flex flex-wrap gap-2" aria-label={t("tagFilterLabel")}>
           {presetTags.map((tag) => {
-            const active = selectedTags.has(tag.name.toLowerCase());
+            const active = selectedTags.has(tag.canonical_key);
             return (
               <button
-                key={tag.name}
+                key={tag.canonical_key}
                 type="button"
                 onClick={() => toggleTag(tag)}
                 aria-pressed={active}
@@ -141,7 +150,7 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
                     : "border-input bg-background text-foreground hover:bg-muted",
                 )}
               >
-                {tag.name}
+                {tagName(tag, tTags)}
               </button>
             );
           })}

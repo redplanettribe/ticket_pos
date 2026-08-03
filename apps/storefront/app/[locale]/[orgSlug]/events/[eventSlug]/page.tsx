@@ -20,6 +20,7 @@ import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
 import { storefrontBaseUrl } from "@/lib/site";
+import { tagName, type TagTranslator } from "@/lib/tag-name";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,9 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   const t = await getTranslations("event");
   const shell = await getTranslations("shell");
   const explorer = await getTranslations("explorer");
+  // A Preset Tag is the system's word, so it is worded here rather than by the
+  // API; a Custom Tag passes through untouched (ADR 0027).
+  const tTags = (await getTranslations("tags")) as TagTranslator;
 
   return (
     <StorefrontShell
@@ -220,8 +224,8 @@ export default async function EventPage({ params, searchParams }: EventPageProps
           {event.tags.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {event.tags.map((tag) => (
-                <Badge key={tag.name} variant="outline">
-                  {tag.name}
+                <Badge key={tag.canonical_key} variant="outline">
+                  {tagName(tag, tTags)}
                 </Badge>
               ))}
             </div>

@@ -276,5 +276,19 @@
     "myInfo": {
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para cambiar sus datos."
     }
+  },
+  "tags": {
+    "music": "Música",
+    "nightlife": "Vida nocturna",
+    "arts & theatre": "Arte y teatro",
+    "comedy": "Comedia",
+    "food & drink": "Comida y bebida",
+    "festival": "Festival",
+    "sports": "Deportes",
+    "workshop": "Talleres",
+    "conference": "Conferencias",
+    "community": "Comunidad",
+    "family": "Familia",
+    "film": "Cine"
   }
 }

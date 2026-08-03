@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
+)
 
 func TestNormalizeTagNames(t *testing.T) {
 	t.Parallel()
@@ -79,5 +83,31 @@ func TestNormalizeTagNames(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A TagView carries the Tag's canonical key alongside its English display name.
+// The Storefront keys its Locale copy on that key (ADR 0027), so it must not
+// have to rebuild it by lowercasing the display name — a Preset Tag rendered in
+// Spanish lowercases to a key that matches nothing.
+func TestToTagViewsCarriesCanonicalKey(t *testing.T) {
+	t.Parallel()
+
+	views := toTagViews([]repository.Tag{
+		{CanonicalKey: "arts & theatre", DisplayName: "Arts & Theatre", Curated: true},
+		{CanonicalKey: "techno", DisplayName: "Techno", Curated: false},
+	})
+
+	want := []TagView{
+		{CanonicalKey: "arts & theatre", Name: "Arts & Theatre", Curated: true},
+		{CanonicalKey: "techno", Name: "Techno", Curated: false},
+	}
+	if len(views) != len(want) {
+		t.Fatalf("views = %+v, want %+v", views, want)
+	}
+	for i, got := range views {
+		if got != want[i] {
+			t.Errorf("views[%d] = %+v, want %+v", i, got, want[i])
+		}
 	}
 }

@@ -2261,6 +2261,8 @@ components:
       type: object
     service.TagView:
       properties:
+        canonical_key:
+          type: string
         curated:
           type: boolean
         name:

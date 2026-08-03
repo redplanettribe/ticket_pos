@@ -18,6 +18,7 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `customerArea` | A Customer's own tickets and the undo of a purchase                |
 | `myInfo`       | The Customer's own details                                         |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
+| `tags`         | Preset Tag names, which belong to no single surface either         |
 
 Surface, rather than component, is the split that survives: a component moves
 between pages and gets reused by a surface that words it differently, but a
@@ -28,11 +29,15 @@ Two levels are the limit — `checkout.success.title`, not
 `checkout.terminals.success.heading.text`. A namespace that wants a third level
 is really two surfaces.
 
-## `errors` is the one namespace keyed by machines
+## `errors` and `tags` are the namespaces keyed by machines
 
-Every other key names meaning in English. `errors` names the API's own codes,
-because the API decides which failure occurred and this app only chooses the
-words for it (ADR 0023). Four groups, and lookup order matters:
+Every other key names meaning in English. These two name what the backend
+decides, because it decides *which* and this app only chooses the words for it.
+
+### `errors`
+
+`errors` names the API's own codes (ADR 0023). Four groups, and lookup order
+matters:
 
 | Group           | Keyed by                    | Holds                                                        |
 | --------------- | --------------------------- | ------------------------------------------------------------ |
@@ -57,6 +62,28 @@ Two rules that do not apply anywhere else in these files:
   `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` is worded by the operation refused, so
   it lives in the surface groups alone: a third surface that starts receiving it
   falls through to the API's message rather than to another surface's sentence.
+
+### `tags`
+
+`tags` names Preset Tags by `canonical_key` — the twelve seeded by
+`backend/migrations/009_event_tags.sql` — because the database decides which
+Tags exist (ADR 0027). Flat, one level, keys lowercased exactly as the column
+holds them. A key can never contain a `.`: the Tag charset is letters, digits,
+spaces and hyphens, and the two seeds carrying an `&` predate it by being raw
+SQL.
+
+It degrades the same way `errors` does. A `curated` Tag with no entry here
+renders the API's English `display_name`, which matters because ADR 0004 grows
+the Preset tier by flipping a flag in a single `UPDATE` — a Tag can reach the
+chip bar with no commit that could have carried its Spanish.
+
+Two rules, mirroring the ones above:
+
+- **A Custom Tag gets no entry, ever.** Custom Tags render as the Organization
+  typed them, in every Locale. Copy under a Custom Tag's key would contradict
+  that the day the Tag is promoted to a Preset Tag.
+- **Add a key when the seed does.** `lib/messages.test.ts` holds the twelve
+  seeded keys and fails when copy for one is missing.
 
 ## Rules
 
