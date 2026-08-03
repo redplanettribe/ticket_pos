@@ -7,11 +7,14 @@ import { Button } from "@ticket-pos/ui";
 
 import { EXPLORER_PAGE_SIZE, type PublicEventCard, type PublicEventPage } from "@/lib/api";
 
-import { EmptyState, EventGrid } from "./event-grid";
+import { EmptyState } from "./event-grid";
+import { ExplorerTimeline } from "./explorer-timeline";
 
 type ExplorerResultsProps = {
   initialEvents: PublicEventCard[];
   initialCursor: string | null;
+  /** The page's render clock; every regrouping of the feed reads this one. */
+  now: Date;
   from?: string;
   to?: string;
   q?: string;
@@ -21,6 +24,7 @@ type ExplorerResultsProps = {
 export function ExplorerResults({
   initialEvents,
   initialCursor,
+  now,
   from,
   to,
   q,
@@ -108,7 +112,7 @@ export function ExplorerResults({
 
   return (
     <div className="space-y-6">
-      <EventGrid events={events} />
+      <ExplorerTimeline events={events} now={now} />
       {failed ? (
         <p role="alert" className="text-center text-sm text-destructive">
           {t("loadMoreFailed")}

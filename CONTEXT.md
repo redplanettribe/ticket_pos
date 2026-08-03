@@ -105,6 +105,18 @@ _Avoid_: Public/private, hidden, unlisted, featured
 A public surface that lists Discoverable Events: the Organization page (`/{orgSlug}`, one Organization's Events) or the global explorer (`/`, Discoverable Events across all Organizations). Distinct from the Event page, which is the single-Event product and checkout surface.
 _Avoid_: Catalog, index, feed, directory
 
+**Timeline**:
+The global explorer's presentation: one chronological list of Discoverable Events, soonest first, grouped into Day Buckets. The explorer's only view — there is no alternate grid or list mode.
+_Avoid_: Feed, agenda, schedule, list view, calendar
+
+**Day Bucket**:
+A date group in the Timeline, keyed by the calendar date an Event starts in its own timezone — so a bucket's header can never contradict the date shown on its Events. An Event appears in exactly one place in the Timeline: the Day Bucket it starts in, or the Ongoing group once it has begun. Whether a bucket is labelled "Today" or "Tomorrow" is judged against the platform wall clock (Ecuador time), not the viewer's.
+_Avoid_: Section, day group, date header
+
+**Ongoing**:
+The Timeline group above the Day Buckets holding every Event that has started but not yet ended — a multi-day Event mid-run or tonight's Event during its own runtime. Membership is a pure instant comparison (start passed, end not reached); an Event with no end never appears here, since it leaves the Timeline at its start. Cards in this group show their full start date, since the group header names no date.
+_Avoid_: Live, in progress, happening now, started
+
 **Ticket Type**:
 A purchasable ticket category belonging to an Event, with a name, description, List Price, capacity, and display order.
 _Avoid_: Ticket tier, ticket class, fare, SKU

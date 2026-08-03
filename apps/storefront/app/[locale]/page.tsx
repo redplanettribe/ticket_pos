@@ -38,8 +38,12 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
   setRequestLocale(locale);
   const filters = await searchParams;
   const q = filters.q?.trim() || undefined;
+  // The render's one clock: the same instant feeds the date-preset window and
+  // the Timeline's grouping, and rides into the client so re-groupings after
+  // "Load more" answer to the clock the page was built with.
+  const now = new Date();
   const preset = isWhenPreset(filters.when) ? filters.when : "all";
-  const range = whenToRange(preset);
+  const range = whenToRange(preset, now);
   const selectedTags = (filters.tags ?? "")
     .split(",")
     .map((t) => t.trim())
@@ -66,6 +70,7 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
         <ExplorerResults
           initialEvents={page?.events ?? []}
           initialCursor={page?.next_cursor ?? null}
+          now={now}
           q={q}
           from={range.from}
           to={range.to}

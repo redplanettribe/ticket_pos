@@ -19,6 +19,11 @@
       "week": "This week",
       "month": "This month"
     },
+    "timeline": {
+      "ongoing": "Ongoing",
+      "today": "Today",
+      "tomorrow": "Tomorrow"
+    },
     "loadMore": "Load more",
     "loadingMore": "Loading…",
     "loadMoreFailed": "Could not load more events. Please try again.",
