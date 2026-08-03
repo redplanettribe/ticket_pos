@@ -32,12 +32,14 @@ import {
 
 import { EventCoverImage } from "./event-cover-image";
 import { EventCoverVideo } from "./event-cover-video";
+import { EventTagsSection } from "./event-tags-section";
 
 type EventDetailFormProps = {
   eventId: string;
+  canManageTags: boolean;
 };
 
-export function EventDetailForm({ eventId }: EventDetailFormProps) {
+export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -300,6 +302,10 @@ export function EventDetailForm({ eventId }: EventDetailFormProps) {
           </FormField>
         </CardContent>
       </Card>
+
+      {/* Tags carry their own whole-set save, like the cover image and video
+          above, so they stay out of this form's submit. */}
+      {canManageTags ? <EventTagsSection eventId={eventId} /> : null}
 
       <Button type="submit" disabled={saving}>
         {saving ? "Saving..." : "Save changes"}

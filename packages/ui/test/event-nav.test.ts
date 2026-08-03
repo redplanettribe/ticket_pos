@@ -23,7 +23,7 @@ test("a sibling Event does not light this Event's entries", () => {
   assert.deepEqual(litAt("/events/evt_10"), []);
 });
 
-test("Tags and Affiliate Links stay owner-only; Sales is for every Member", () => {
+test("Affiliate Links stays owner-only; Sales is for every Member", () => {
   assert.deepEqual(
     eventNavItems({ eventId: "evt_1", fullAccess: false }).map((item) => item.label),
     ["Details", "Ticket Types", "Sales"],
@@ -33,6 +33,11 @@ test("Tags and Affiliate Links stay owner-only; Sales is for every Member", () =
 test("entries read in a fixed order", () => {
   assert.deepEqual(
     eventNavItems({ eventId: "evt_1", fullAccess: true }).map((item) => item.label),
-    ["Details", "Ticket Types", "Tags", "Affiliate Links", "Sales"],
+    ["Details", "Ticket Types", "Affiliate Links", "Sales"],
   );
+});
+
+test("Tags are managed from Details, so they have no entry of their own", () => {
+  const labels = eventNavItems({ eventId: "evt_1", fullAccess: true }).map((item) => item.label);
+  assert.ok(!labels.includes("Tags"));
 });

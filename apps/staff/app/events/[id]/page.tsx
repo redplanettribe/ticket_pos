@@ -18,5 +18,8 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
     redirect(`/events/${id}/ticket-types`);
   }
 
-  return <EventDetailForm eventId={id} />;
+  // Tags are managed by org_admin / event_owner only.
+  const canManageTags = role === "org_admin" || role === "event_owner";
+
+  return <EventDetailForm eventId={id} canManageTags={canManageTags} />;
 }

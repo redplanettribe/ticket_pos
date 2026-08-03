@@ -14,8 +14,11 @@ export type StaffNavVisibility = {
  *
  * The order is the point, and it is why this is a function rather than a list
  * with conditionals inlined at the render site: an entry that is hidden for most
- * roles still has one place it belongs, and Payouts belongs between POS and
- * Settings — after the daily work, before the housekeeping (#190).
+ * roles still has one place it belongs, and Payouts belongs between the daily
+ * work and the housekeeping of Settings (#190).
+ *
+ * POS has no entry: the page is still a placeholder, so the panel does not
+ * advertise it. Its route stays reachable for whoever is building it.
  *
  * An omitted flag defaults to hidden: a caller that has not yet worked out
  * whether somebody may see an entry shows them less rather than more.
@@ -33,7 +36,6 @@ export function staffNavItems({
   return [
     { href: "/", label: "Dashboard" },
     ...(showEvents ? [{ href: "/events", label: "Events" }] : []),
-    { href: "/pos", label: "POS" },
     ...(showPayouts ? [{ href: "/payouts", label: "Payouts" }] : []),
     ...(showSettings ? [{ href: "/settings", label: "Settings" }] : []),
   ];

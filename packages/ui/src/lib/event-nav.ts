@@ -7,9 +7,10 @@ import type { SidebarNavItem } from "../components/sidebar-shell";
  * while somebody works inside one Event, so these entries stand alone rather
  * than nesting under Events.
  *
- * org_admin and event_owner get full access; event_staff is limited. Tags and
- * Affiliate Links stay owner-only, but the Sales list is visible to every
- * Member of the Event — Event Staff included — so it appears for all roles.
+ * org_admin and event_owner get full access; event_staff is limited. Affiliate
+ * Links stay owner-only, but the Sales list is visible to every Member of the
+ * Event — Event Staff included — so it appears for all roles. Tags have no
+ * entry of their own: they are managed from within Details.
  */
 export function eventNavItems({
   eventId,
@@ -25,10 +26,7 @@ export function eventNavItems({
     { href: `/events/${eventId}`, label: "Details", exact: true },
     { href: `/events/${eventId}/ticket-types`, label: "Ticket Types" },
     ...(fullAccess
-      ? [
-          { href: `/events/${eventId}/tags`, label: "Tags" },
-          { href: `/events/${eventId}/affiliate-links`, label: "Affiliate Links" },
-        ]
+      ? [{ href: `/events/${eventId}/affiliate-links`, label: "Affiliate Links" }]
       : []),
     { href: `/events/${eventId}/sales`, label: "Sales" },
   ];

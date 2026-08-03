@@ -268,7 +268,7 @@ type ShellWithOrganizationSwitcherProps = {
  *
  * Which panel is a consequence of where the user is, not of anything the caller
  * decides: inside the operator surface the Organization's panel is a category
- * error — its Dashboard, Events, POS, Payouts and Settings are not what a
+ * error — its Dashboard, Events, Payouts and Settings are not what a
  * Platform Operator is doing — so the Operator Dashboard's own panel replaces
  * it outright (#192).
  */

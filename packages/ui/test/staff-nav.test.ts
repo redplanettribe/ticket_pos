@@ -8,27 +8,31 @@ const labels = (items: Array<{ label: string }>) => items.map((item) => item.lab
 // --- what everybody sees ---------------------------------------------------
 
 test("a session with no organization sees only the unconditional entries", () => {
-  assert.deepEqual(labels(staffNavItems({})), ["Dashboard", "POS"]);
+  assert.deepEqual(labels(staffNavItems({})), ["Dashboard"]);
+});
+
+test("POS is still a placeholder, so the panel does not advertise it", () => {
+  const everything = staffNavItems({ showEvents: true, showPayouts: true, showSettings: true });
+  assert.ok(!labels(everything).includes("POS"));
 });
 
 // --- the gated entries -----------------------------------------------------
 
 test("Events appears for a member of an organization", () => {
-  assert.deepEqual(labels(staffNavItems({ showEvents: true })), ["Dashboard", "Events", "POS"]);
+  assert.deepEqual(labels(staffNavItems({ showEvents: true })), ["Dashboard", "Events"]);
 });
 
-test("an Org Admin sees Payouts between POS and Settings", () => {
+test("an Org Admin sees Payouts between Events and Settings", () => {
   assert.deepEqual(labels(staffNavItems({ showEvents: true, showPayouts: true, showSettings: true })), [
     "Dashboard",
     "Events",
-    "POS",
     "Payouts",
     "Settings",
   ]);
 });
 
 test("a member who is not an Org Admin sees neither Payouts nor Settings", () => {
-  assert.deepEqual(labels(staffNavItems({ showEvents: true })), ["Dashboard", "Events", "POS"]);
+  assert.deepEqual(labels(staffNavItems({ showEvents: true })), ["Dashboard", "Events"]);
 });
 
 // --- where the entries point ------------------------------------------------

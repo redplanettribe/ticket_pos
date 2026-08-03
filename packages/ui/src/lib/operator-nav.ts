@@ -8,7 +8,7 @@ import type { SidebarNavItem } from "../components/sidebar-shell";
  * The Operator Dashboard is a whole surface rather than a single screen
  * (CONTEXT.md), so it has a panel of its own that replaces the Organization's
  * — an operator crossing over is not acting for any Organization, and that
- * Organization's Dashboard, Events, POS, Payouts and Settings are none of their
+ * Organization's Dashboard, Events, Payouts and Settings are none of their
  * business here (#192).
  *
  * One entry per job the Operator Dashboard does (#193): the platform's revenue,

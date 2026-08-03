@@ -1,22 +1,13 @@
 import { redirect } from "next/navigation";
 
-import { loadSession } from "../../../staff-page-shell";
-import { EventTagsSection } from "../event-tags-section";
-
 type EventTagsPageProps = {
   params: Promise<{ id: string }>;
 };
 
+// Tags moved into the Event's Details page. The address stays reachable so
+// bookmarks and history land on the page that now manages them; Details does
+// the role guard from here.
 export default async function EventTagsPage({ params }: EventTagsPageProps) {
   const { id } = await params;
-  const session = await loadSession();
-  const role = session?.active_member?.role;
-
-  // Tags are managed by org_admin / event_owner only. The nav hides this area
-  // from Event Staff; guard the route since it stays directly reachable by URL.
-  if (role !== "org_admin" && role !== "event_owner") {
-    redirect(`/events/${id}/ticket-types`);
-  }
-
-  return <EventTagsSection eventId={id} />;
+  redirect(`/events/${id}`);
 }
