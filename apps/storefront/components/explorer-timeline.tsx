@@ -37,14 +37,15 @@ export function ExplorerTimeline({ events, now }: ExplorerTimelineProps) {
   const platformYear = localDateKey(now, ECUADOR_TIME_ZONE).slice(0, 4);
 
   return (
-    // The spine: on sm+ a continuous vertical line runs the whole Timeline at
+    // The spine: on sm+ a dashed vertical line, fading out near the bottom,
+    // runs the whole Timeline at
     // the boundary between the date rail and the cards, and each group pins a
     // dot to it. On mobile the rail collapses into a plain header above the
     // cards and the line goes with it.
     <div className="relative">
       <div
         aria-hidden
-        className="absolute inset-y-1 left-[7.75rem] hidden w-px bg-border sm:block"
+        className="absolute bottom-1 left-[7.75rem] top-2.5 hidden w-0 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/25 mask-b-from-60% sm:block"
       />
       <div className="space-y-10">
         {timeline.ongoing.length > 0 ? (
@@ -92,7 +93,7 @@ function TimelineSection({ heading, subheading, events, showStartDate }: Timelin
       {/* The group's dot, centred on the spine the parent draws. */}
       <span
         aria-hidden
-        className="absolute left-[7.75rem] top-1.5 hidden h-2 w-2 -translate-x-1/2 rounded-full bg-muted-foreground/60 sm:block"
+        className="absolute left-[7.75rem] top-1.5 hidden h-2 w-2 -translate-x-1/2 rounded-full bg-muted-foreground sm:block"
       />
       <h2 className="mb-3 flex items-baseline gap-2 sm:sticky sm:top-24 sm:mb-0 sm:block sm:self-start">
         <span className="block font-semibold tracking-tight">{heading}</span>
