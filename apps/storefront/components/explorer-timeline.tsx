@@ -51,19 +51,19 @@ export function ExplorerTimeline({ events, now }: ExplorerTimelineProps) {
           <TimelineSection heading={t("ongoing")} events={timeline.ongoing} showStartDate />
         ) : null}
         {timeline.days.map((day) => {
-        // A Day Bucket's key is a plain date; pinning it to noon UTC and
-        // formatting in UTC reads that date back verbatim, no zone arithmetic.
-        const date = new Date(`${day.key}T12:00:00Z`);
-        const dateLabel = new Intl.DateTimeFormat(locale, {
-          month: "short",
-          day: "numeric",
-          ...(day.key.slice(0, 4) === platformYear ? {} : { year: "numeric" }),
-          timeZone: "UTC",
-        }).format(date);
-        const weekday = new Intl.DateTimeFormat(locale, {
-          weekday: "long",
-          timeZone: "UTC",
-        }).format(date);
+          // A Day Bucket's key is a plain date; pinning it to noon UTC and
+          // formatting in UTC reads that date back verbatim, no zone arithmetic.
+          const date = new Date(`${day.key}T12:00:00Z`);
+          const dateLabel = new Intl.DateTimeFormat(locale, {
+            month: "short",
+            day: "numeric",
+            ...(day.key.slice(0, 4) === platformYear ? {} : { year: "numeric" }),
+            timeZone: "UTC",
+          }).format(date);
+          const weekday = new Intl.DateTimeFormat(locale, {
+            weekday: "long",
+            timeZone: "UTC",
+          }).format(date);
           return (
             <TimelineSection
               key={day.key}

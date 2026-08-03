@@ -1,6 +1,7 @@
 import { Badge, Card, CardContent } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
+import { EventCardMedia } from "@/components/event-card-media";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
@@ -27,27 +28,7 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
       className="group block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <Card className="h-full overflow-hidden transition-shadow group-hover:shadow-md">
-        <div className="relative aspect-[16/9] w-full overflow-hidden bg-muted">
-          {event.cover_image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={event.cover_image_url}
-              alt=""
-              className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/25">
-              <span className="text-2xl font-semibold text-primary/70">
-                {event.name.charAt(0).toUpperCase()}
-              </span>
-            </div>
-          )}
-          {event.sold_out ? (
-            <div className="absolute right-2 top-2">
-              <Badge variant="secondary">{t("soldOut")}</Badge>
-            </div>
-          ) : null}
-        </div>
+        <EventCardMedia event={event} className="relative aspect-[16/9] w-full overflow-hidden bg-muted" />
         <CardContent className="space-y-1 p-4">
           <h3 className="font-semibold leading-tight tracking-tight">{event.name}</h3>
           {dateLabel ? <p className="text-sm text-muted-foreground">{dateLabel}</p> : null}

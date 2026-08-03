@@ -151,7 +151,7 @@ language it is written in changes. A Locale may never reach the time zone argume
 | Language | Full words in UI copy ("Passcode", not "OTP"); copy is keyed by meaning, so the Spanish is free to word it differently |
 | Currency | The Organization's, never the reader's; `$25` in catalog, `$25.00` on summed totals — under `es` that is `$25,50` |
 | Dates (Staff) | Relative when recent ("Today", "Tomorrow"); otherwise `Mon, Jul 12, 2026`; include time when relevant |
-| Dates (Storefront) | Event pages, same instant in both Locales: `Saturday, July 11, 2026 · 7:00 PM` under `en`, `sábado, 11 de julio de 2026 · 7:00 p. m.` under `es`. Cards use the compact form: `Sat Jul 11, 7:00 PM` / `sáb 11 jul, 7:00 p. m.` |
+| Dates (Storefront) | Event pages, same instant in both Locales: `Saturday, July 11, 2026 · 7:00 PM` under `en`, `sábado, 11 de julio de 2026 · 7:00 p. m.` under `es`. Cards use the compact form: `Sat Jul 11, 7:00 PM` / `sáb 11 jul, 7:00 p. m.` — except under a Timeline Day Bucket header, where the date is the header's to say and the card keeps only the time slot: `7:00 PM` / `7:00 p. m.` |
 | Time zone | The Event's timezone for Event times, Ecuador for a Reversal Window deadline; identical in both Locales, and never derived from the reader |
 | Capacity counts | Thousands separators (`1,250 remaining`); never round in a way that hides sold-out |
 
