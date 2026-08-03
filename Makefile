@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -32,6 +32,17 @@ prod:
 
 prod-down:
 	docker compose -f docker-compose.prod.yml down
+
+# Replace the local dev stack's data with a copy of production: the whole
+# database (server-side Cloud SQL export, since the instance has no public IP)
+# and every object in the media bucket. Read-only against production, and
+# destructive locally -- it prompts first. Requires `make dev` to be up and a
+# gcloud login with access to the prod project.
+#
+# The copy includes real customer PII and payment records. `make prod-to-local
+# ARGS=--yes` skips the prompt; ARGS=--db-only / --media-only does one half.
+prod-to-local:
+	./scripts/prod-to-local.sh $(ARGS)
 
 test:
 	cd backend && go test $$(go list ./... | grep -v '/integration$$')

@@ -52,6 +52,10 @@ override.tf.json
 # Agent worktrees (checkouts of this same repo, never content of their own)
 .claude/worktrees/
 
+# Production snapshot pulled by `make prod-to-local`: a plaintext dump of the
+# customer database plus every media object. Never commit any of it.
+.prod-snapshot/
+
 # Playwright
 e2e/test-results/
 e2e/playwright-report/
