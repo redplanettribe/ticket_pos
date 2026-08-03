@@ -8,7 +8,7 @@
 // so "Load more" is regrouping a longer array, not merging pages: a day split
 // across a page boundary comes out as one Day Bucket by construction.
 
-import type { PublicEventCard } from "./api";
+import type { PublicEventCard } from "./api.ts";
 
 import { ECUADOR_TIME_ZONE } from "./format.ts";
 
@@ -36,7 +36,7 @@ export type Timeline = {
  * formatting trick — it is the locale whose short date *is* ISO 8601 — and has
  * nothing to do with the language anything renders in.
  */
-function localDateKey(instant: Date, timeZone: string): string {
+export function localDateKey(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",

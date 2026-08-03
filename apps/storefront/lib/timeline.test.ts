@@ -117,6 +117,27 @@ test("'today' and 'tomorrow' are judged by the platform wall clock, not UTC", ()
   );
 });
 
+test("the labels roll over at the platform's midnight, not at UTC's", () => {
+  // Half an hour after Ecuador's midnight (05:30 UTC), Aug 4 has become today
+  // and Aug 5 tomorrow — the mirror of the pre-midnight case above.
+  const now = new Date("2026-08-04T05:30:00Z");
+  const timeline = buildTimeline(
+    [
+      card({ slug: "tonight", starts_at: "2026-08-04T23:00:00Z" }),
+      card({ slug: "tomorrow-night", starts_at: "2026-08-05T23:00:00Z" }),
+    ],
+    now,
+  );
+
+  assert.deepEqual(
+    timeline.days.map((day) => [day.key, day.relative]),
+    [
+      ["2026-08-04", "today"],
+      ["2026-08-05", "tomorrow"],
+    ],
+  );
+});
+
 test("regrouping two concatenated pages merges a day split across the boundary", () => {
   // "Load more" appends a page and regroups the whole array — there is no merge
   // step to get wrong. A day cut in half by the page boundary must come out as

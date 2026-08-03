@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useFormatLocale } from "@/i18n/format-locale";
 import type { PublicEventCard } from "@/lib/api";
 import { ECUADOR_TIME_ZONE } from "@/lib/format";
-import { buildTimeline } from "@/lib/timeline";
+import { buildTimeline, localDateKey } from "@/lib/timeline";
 
 import { EventGrid } from "./event-grid";
 
@@ -34,10 +34,7 @@ export function ExplorerTimeline({ events, now }: ExplorerTimelineProps) {
   // The year is left off headers within the platform's current year — "Aug 29"
   // — and said only where it differs, the same judgement "Today" is made by:
   // the platform wall clock, not the viewer's (CONTEXT.md: Day Bucket).
-  const platformYear = new Intl.DateTimeFormat("en-CA", {
-    timeZone: ECUADOR_TIME_ZONE,
-    year: "numeric",
-  }).format(now);
+  const platformYear = localDateKey(now, ECUADOR_TIME_ZONE).slice(0, 4);
 
   return (
     <div className="space-y-10">
