@@ -4,7 +4,7 @@ import type { PublicTag } from "@/lib/api";
  * What a Tag is called on the page the reader is on.
  *
  * A Preset Tag is the system's own word for a kind of Event, so it is rendered
- * in the page's Locale: the twelve of them are seeded by a migration and their
+ * in the page's Locale: they are seeded by a migration and their
  * copy is written in messages/{en,es}.json under `tags`, keyed on canonical
  * key (ADR 0027). A Custom Tag is an Organization's own word — "Techno",
  * "Cumbia", the name of a scene — and is rendered exactly as it was typed, in
@@ -25,7 +25,7 @@ import type { PublicTag } from "@/lib/api";
  * The subset of next-intl's translator this needs, and the seam where the
  * catalog's typed keys are given up.
  *
- * `useTranslations("tags")` is typed to the twelve keys en.json holds, which is
+ * `useTranslations("tags")` is typed to the keys en.json holds, which is
  * exactly the guarantee that cannot survive here: the key arrives from the API
  * at runtime, and the whole point of the fallback below is to behave when it is
  * one the catalog has never heard of.

@@ -66,7 +66,8 @@ Two rules that do not apply anywhere else in these files:
 ### `tags`
 
 `tags` names Preset Tags by `canonical_key` — the twelve seeded by
-`backend/migrations/009_event_tags.sql` — because the database decides which
+`backend/migrations/009_event_tags.sql`, plus any a later migration adds
+(`047_technology_preset_tag.sql`) — because the database decides which
 Tags exist (ADR 0027). Flat, one level, keys lowercased exactly as the column
 holds them. A key can never contain a `.`: the Tag charset is letters, digits,
 spaces and hyphens, and the two seeds carrying an `&` predate it by being raw
@@ -83,8 +84,8 @@ Two rules, mirroring the ones above:
 - **A Custom Tag gets no entry, ever.** Custom Tags render as the Organization
   typed them, in every Locale. Copy under a Custom Tag's key would contradict
   that the day the Tag is promoted to a Preset Tag.
-- **Add a key when the seed does.** `lib/messages.test.ts` holds the twelve
-  seeded keys and fails when copy for one is missing.
+- **Add a key when the seed does.** `lib/messages.test.ts` holds the seeded
+  keys and fails when copy for one is missing.
 
 ## Rules
 

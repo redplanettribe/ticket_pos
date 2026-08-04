@@ -81,15 +81,17 @@ test("every catalog holds exactly the keys en.json holds", () => {
 });
 
 /**
- * The twelve Preset Tags seeded by backend/migrations/009_event_tags.sql, by
- * canonical key.
+ * The Preset Tags seeded by migration — the twelve of
+ * backend/migrations/009_event_tags.sql plus Technology (047) — by canonical
+ * key.
  *
  * Copied rather than read, because this app cannot see a Go migration — and
  * that copy is the point of the test below rather than a weakness in it. The
  * hazard is not that the seed changes silently; it is that the Preset tier
  * grows the way ADR 0004 intends it to, by flipping `curated` on a Custom Tag
  * in a single UPDATE, with no code change anywhere to hang a review on. A
- * thirteenth Preset Tag reaches the chip bar in English and nothing complains.
+ * Preset Tag added that way reaches the chip bar in English and nothing
+ * complains.
  *
  * This list cannot catch that either. What it catches is the other half: a seed
  * migration that adds a Preset Tag and forgets the copy, where updating this
@@ -110,6 +112,7 @@ const SEEDED_PRESET_TAG_KEYS = [
   "community",
   "family",
   "film",
+  "technology",
 ];
 
 test("every seeded Preset Tag has copy in every catalog", () => {
