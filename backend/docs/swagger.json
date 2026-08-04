@@ -2388,6 +2388,10 @@
                     "price_from_cents": {
                         "type": "integer"
                     },
+                    "registration_mode": {
+                        "description": "RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells\nTicket Types here) or 'external' (it hands its audience to a Registration\nLink elsewhere). Never both (ADR 0028).\n\nA listing card needs it because a null price_from_cents alone cannot be\nread: on a ticketed Event it is a data anomaly, and on an external one it\nis the normal, permanent state — the platform does not know what the other\nsite charges and never will. The mode is what lets the card say so in\nwords instead of leaving the price slot blank and looking broken.\n\nThe Registration Link itself is deliberately not here. A card is an\ninvitation to the Event page, and the destination is named there, next to\nthe button that goes to it; a listing that linked straight out would hand\na Customer to a stranger from a surface that never told them where.",
+                        "type": "string"
+                    },
                     "slug": {
                         "type": "string"
                     },
@@ -5559,6 +5563,47 @@
                     }
                 },
                 "summary": "Begin an online checkout",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click": {
+            "post": {
+                "description": "Counts one hand-off from an Event page to its Registration Link. Public and unauthenticated: the caller is the Storefront redirect route a Customer is passing through on their way to the registration site, not a browser talking to this API directly. Raw counting — a Customer who returns counts again, with no dedup and no visitor identification — and it counts CLICKS, never registrations and never people: the platform loses sight of the Customer at the link and never learns whether they signed up. An address that resolves to nothing (unknown Organization, unknown Event, or an Event that sells Ticket Types here) is accepted and counts nothing, so a tracking miss can never become an error that stops somebody registering.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Event slug",
+                        "in": "path",
+                        "name": "eventSlug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    }
+                },
+                "summary": "Record registration link click",
                 "tags": [
                     "public"
                 ]

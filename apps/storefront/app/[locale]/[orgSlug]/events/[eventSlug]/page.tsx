@@ -235,7 +235,12 @@ export default async function EventPage({ params, searchParams }: EventPageProps
           // whole tickets section — heading, selection and sticky total — is
           // replaced rather than trimmed: a price, a stepper or a total anywhere
           // on this page would claim a sale this platform is not making.
-          <RegisterPanel registrationUrl={event.registration_url} hasEnded={event.has_ended} />
+          <RegisterPanel
+            orgSlug={orgSlug}
+            eventSlug={eventSlug}
+            registrationUrl={event.registration_url}
+            hasEnded={event.has_ended}
+          />
         ) : (
           <section className="mt-8 space-y-4" aria-labelledby="tickets-heading">
             <h2 id="tickets-heading" className="text-lg font-semibold tracking-tight">

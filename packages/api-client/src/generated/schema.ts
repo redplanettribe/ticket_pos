@@ -2503,6 +2503,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record registration link click
+         * @description Counts one hand-off from an Event page to its Registration Link. Public and unauthenticated: the caller is the Storefront redirect route a Customer is passing through on their way to the registration site, not a browser talking to this API directly. Raw counting — a Customer who returns counts again, with no dedup and no visitor identification — and it counts CLICKS, never registrations and never people: the platform loses sight of the Customer at the link and never learns whether they signed up. An address that resolves to nothing (unknown Organization, unknown Event, or an Event that sells Ticket Types here) is accepted and counts nothing, so a tracking miss can never become an error that stops somebody registering.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                    /** @description Event slug */
+                    eventSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/tags": {
         parameters: {
             query?: never;
@@ -6822,6 +6866,23 @@ export interface components {
             name?: string;
             organization?: components["schemas"]["service.PublicOrganizationSummary"];
             price_from_cents?: number;
+            /**
+             * @description RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+             *     Ticket Types here) or 'external' (it hands its audience to a Registration
+             *     Link elsewhere). Never both (ADR 0028).
+             *
+             *     A listing card needs it because a null price_from_cents alone cannot be
+             *     read: on a ticketed Event it is a data anomaly, and on an external one it
+             *     is the normal, permanent state — the platform does not know what the other
+             *     site charges and never will. The mode is what lets the card say so in
+             *     words instead of leaving the price slot blank and looking broken.
+             *
+             *     The Registration Link itself is deliberately not here. A card is an
+             *     invitation to the Event page, and the destination is named there, next to
+             *     the button that goes to it; a listing that linked straight out would hand
+             *     a Customer to a stranger from a surface that never told them where.
+             */
+            registration_mode?: string;
             slug?: string;
             sold_out?: boolean;
             starts_at?: string;

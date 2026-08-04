@@ -40,6 +40,15 @@ type EventHeaderBarProps = {
   /** The registration pair: which way in the Event needs before it can publish. */
   registrationMode: RegistrationMode;
   registrationUrl: string | null;
+  /**
+   * Hand-offs to the Registration Link, shown beside it — a single integer does
+   * not earn a page of its own. It sits here rather than in the Details form
+   * because it is not sensitive and every Member of the Event may read it,
+   * including Event Staff, who never reach that form (page.tsx sends them to
+   * the area they manage). Gating it more tightly than the Sales list it stands
+   * in for on such an Event would be strange.
+   */
+  registrationClickCount: number;
   /** Seeds the Discoverable toggle; the same flag the events list edits. */
   discoverable: boolean;
 };
@@ -58,6 +67,7 @@ export function EventHeaderBar({
   ticketTypeCount,
   registrationMode,
   registrationUrl,
+  registrationClickCount,
   discoverable: initialDiscoverable,
 }: EventHeaderBarProps) {
   const router = useRouter();
@@ -177,6 +187,43 @@ export function EventHeaderBar({
         </div>
       </div>
       {publishHint ? <p className="mt-2 text-sm text-muted-foreground">{publishHint}</p> : null}
+
+      {/* An externally registered Event's one measurable: how many people this
+          page handed to the registration site. Shown beside the link itself,
+          because the number means nothing without the destination it counts.
+
+          The word is CLICKS and may never become "registrations" or "people".
+          The platform loses sight of the visitor at the link and never learns
+          whether they signed up, nor whether the same person came back three
+          times — only the site on the other side knows either. The counter is
+          deliberately not deduplicated, so it counts clicks and says so. */}
+      {registrationMode === "external" ? (
+        <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-2">
+            <span>Registration link:</span>
+            {registrationUrl ? (
+              <a
+                href={registrationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 truncate underline underline-offset-2"
+              >
+                {registrationUrl}
+              </a>
+            ) : (
+              <span>not added yet</span>
+            )}
+          </p>
+          <p>
+            <span className="font-medium text-foreground">
+              {registrationClickCount.toLocaleString()}{" "}
+              {registrationClickCount === 1 ? "click" : "clicks"}
+            </span>{" "}
+            from this event&apos;s page. Clicks, not registrations — what happens on the other site
+            is not visible here.
+          </p>
+        </div>
+      ) : null}
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>

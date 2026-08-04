@@ -85,6 +85,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
           ticketTypeCount={ticketTypeCount}
           registrationMode={event.registration_mode}
           registrationUrl={event.registration_url}
+          registrationClickCount={event.registration_click_count}
           discoverable={event.discoverable}
         />
         {children}
