@@ -61,7 +61,8 @@
     "registerCta": "Register",
     "registerContinueOn": "You'll continue on {host}",
     "registrationClosed": "Registration for this event has closed.",
-    "registrationUnavailable": "Registration is not available right now."
+    "registrationUnavailable": "Registration is not available right now.",
+    "registrationRequired": "Registration required"
   },
   "checkout": {
     "decreaseQuantity": "Remove one {ticketType} ticket",

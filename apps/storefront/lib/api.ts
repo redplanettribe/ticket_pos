@@ -236,6 +236,12 @@ export type PublicEventCard = {
   price_from_cents: number | null;
   sold_out: boolean;
   tags: PublicTag[];
+  // How the Event takes sign-ups, "tickets" or "external"; see
+  // lib/registration.ts, which reads it so the cards do not have to. A card
+  // needs it because a null price_from_cents cannot be read on its own: on a
+  // ticketed Event it is an anomaly worth no words, and on an external one it is
+  // the normal state and gets them.
+  registration_mode: string;
 };
 
 // A live Promotion on a Ticket Type: the Promotional Price that overrides the

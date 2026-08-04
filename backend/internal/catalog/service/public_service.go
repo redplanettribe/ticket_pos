@@ -38,6 +38,21 @@ type PublicEventCard struct {
 	PriceFromCents *int                      `json:"price_from_cents"`
 	SoldOut        bool                      `json:"sold_out"`
 	Tags           []TagView                 `json:"tags"`
+	// RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+	// Ticket Types here) or 'external' (it hands its audience to a Registration
+	// Link elsewhere). Never both (ADR 0028).
+	//
+	// A listing card needs it because a null price_from_cents alone cannot be
+	// read: on a ticketed Event it is a data anomaly, and on an external one it
+	// is the normal, permanent state — the platform does not know what the other
+	// site charges and never will. The mode is what lets the card say so in
+	// words instead of leaving the price slot blank and looking broken.
+	//
+	// The Registration Link itself is deliberately not here. A card is an
+	// invitation to the Event page, and the destination is named there, next to
+	// the button that goes to it; a listing that linked straight out would hand
+	// a Customer to a stranger from a surface that never told them where.
+	RegistrationMode string `json:"registration_mode"`
 }
 
 // PublicTicketType is a Ticket Type as shown on a Storefront event page.
@@ -462,15 +477,17 @@ func (s *Service) toPublicPromotion(
 }
 
 func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagView) PublicEventCard {
+	mode := catalog.RegistrationModeOrDefault(row.RegistrationMode)
 	card := PublicEventCard{
-		Slug:          row.Slug,
-		Name:          row.Name,
-		VenueName:     nullStringPtr(row.VenueName),
-		Timezone:      nullStringPtr(row.Timezone),
-		CoverImageURL: s.coverURL(row.CoverImageKey),
-		Organization:  s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
-		Currency:      row.OrgCurrency,
-		Tags:          tags,
+		Slug:             row.Slug,
+		Name:             row.Name,
+		VenueName:        nullStringPtr(row.VenueName),
+		Timezone:         nullStringPtr(row.Timezone),
+		CoverImageURL:    s.coverURL(row.CoverImageKey),
+		Organization:     s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
+		Currency:         row.OrgCurrency,
+		Tags:             tags,
+		RegistrationMode: string(mode),
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time
@@ -479,6 +496,18 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 	if row.EndsAt.Valid {
 		t := row.EndsAt.Time
 		card.EndsAt = &t
+	}
+	// An externally registered Event sells nothing here, so the two claims a card
+	// makes about a sale — what it costs and whether any is left — are claims
+	// this platform is not in a position to make. Both are answered here, by the
+	// mode, rather than left to the Ticket Type aggregates: over an Event with no
+	// Ticket Types those aggregates are NULL, and a NULL sold_out landing on
+	// false is an accident that happens to be right today. Saying it explicitly
+	// means an external Event stays not-sold-out even if the aggregate's shape
+	// ever changes, and it can never be sold out for real: it has no capacity on
+	// this platform to exhaust.
+	if mode == catalog.RegistrationModeExternal {
+		return card
 	}
 	if row.MinPriceCents.Valid {
 		// The card's "from" price is a buyer price too: a Customer must never see

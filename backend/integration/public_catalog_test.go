@@ -58,6 +58,10 @@ type publicEventCard struct {
 	PriceFromCents *int      `json:"price_from_cents"`
 	SoldOut        bool      `json:"sold_out"`
 	Tags           []tagView `json:"tags"`
+	// How the Event takes sign-ups, which the card carries so the Storefront can
+	// tell an Event that registers elsewhere from one with a missing price
+	// (issue #211).
+	RegistrationMode string `json:"registration_mode"`
 	Organization   struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`

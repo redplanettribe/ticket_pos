@@ -6,7 +6,8 @@ import { TagBadges } from "@/components/tag-badges";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
-import { formatEventDateShort, priceFrom } from "@/lib/format";
+import { formatEventDateShort } from "@/lib/format";
+import { eventCardPriceSlot } from "@/lib/registration";
 import { toTagTranslator } from "@/lib/tag-name";
 
 type EventCardProps = {
@@ -24,7 +25,9 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
   const locale = useFormatLocale();
   const href = `/${event.organization.slug}/events/${event.slug}`;
   const dateLabel = formatEventDateShort(event.starts_at, event.timezone, locale);
-  const price = priceFrom(event.price_from_cents, event.currency, locale);
+  // What goes where "From $25" goes: a price, or — for an Event that registers
+  // its audience elsewhere — the fact of that, never a blank (issue #211).
+  const priceSlot = eventCardPriceSlot(event, locale);
 
   return (
     <Link
@@ -50,9 +53,13 @@ export function EventCard({ event, showOrganization = true }: EventCardProps) {
               })}
             </p>
           ) : null}
-          {price ? (
+          {priceSlot ? (
             <p className="pt-1 text-sm font-medium text-foreground">
-              {price.kind === "free" ? t("priceFree") : t("priceFrom", { price: price.price })}
+              {priceSlot.kind === "registration"
+                ? t("registrationRequired")
+                : priceSlot.kind === "free"
+                  ? t("priceFree")
+                  : t("priceFrom", { price: priceSlot.price })}
             </p>
           ) : null}
           <TagBadges tags={event.tags} t={tTags} className="pt-2" />

@@ -3,18 +3,28 @@
  *
  * An Event either sells Ticket Types on this platform or carries a Registration
  * Link and hands its audience elsewhere, never both (ADR 0028). That is one fact
- * with two consequences on the Event page — which section renders, and which
- * site the Customer is about to be handed to — and both are decided here rather
- * than in the page, so the page stays a layout and this stays testable.
+ * with three consequences — which section the Event page renders, which site the
+ * Customer is about to be handed to, and what a listing card puts in its price
+ * slot — and all of them are decided here rather than in a page or a card, so
+ * those stay layouts and this stays testable.
  */
+
+import { priceFrom, type IntlLocale, type PriceFrom } from "./format.ts";
 
 /** The two ways an Event takes sign-ups, spelled as the API spells them. */
 export type RegistrationMode = "tickets" | "external";
 
-/** The registration fields of the public Event payload this module reads. */
+/**
+ * The registration fields of the public Event payload this module reads.
+ *
+ * The link is optional because a listing card is not given one: the Event page
+ * names the destination beside the button that goes to it, and a card only ever
+ * needs to know that there is one. The mode is what every reader asks for, and
+ * it is never absent.
+ */
 export type EventRegistration = {
   registration_mode: string;
-  registration_url: string | null;
+  registration_url?: string | null;
 };
 
 /**
@@ -32,6 +42,48 @@ export type EventRegistration = {
  */
 export function isExternallyRegistered(event: EventRegistration): boolean {
   return event.registration_mode === "external";
+}
+
+/** The listing-card fields the price slot is decided from. */
+export type EventCardPricing = EventRegistration & {
+  price_from_cents: number | null;
+  currency: string;
+};
+
+/**
+ * What a listing card says in the line where "From $25" goes: the price claim
+ * of a ticketed Event, or the fact that this one registers somewhere else.
+ *
+ * "registration" carries no amount because there is none to carry. The other
+ * site may well charge; this platform does not know what, and never will, so the
+ * card must say that an Event needs signing up for without saying anything at
+ * all about the money — in particular never "free", which is the one wrong
+ * answer that looks like a right one.
+ */
+export type EventCardPriceSlot = PriceFrom | { kind: "registration" };
+
+/**
+ * eventCardPriceSlot decides a listing card's price line, once, for every
+ * surface that has one — the Timeline and the Organization page alike.
+ *
+ * It asks the mode first. A null price on a ticketed Event is a data anomaly and
+ * still renders as nothing at all, exactly as it always has; a null price on an
+ * external Event is its permanent, ordinary state, and a card that left the slot
+ * blank for it would be indistinguishable from that anomaly. The mode is what
+ * tells the two apart, and it is asked before the amount so that a price that
+ * somehow reached an external card cannot be quoted for a sale this platform is
+ * not making.
+ *
+ * Returning data rather than a sentence keeps the words in the message catalog:
+ * every branch here is a key the card looks up in the Locale it was routed
+ * under.
+ */
+export function eventCardPriceSlot(
+  event: EventCardPricing,
+  locale?: IntlLocale,
+): EventCardPriceSlot | null {
+  if (isExternallyRegistered(event)) return { kind: "registration" };
+  return priceFrom(event.price_from_cents, event.currency, locale);
 }
 
 /** Where an externally registered Event sends its audience, and what to call it. */

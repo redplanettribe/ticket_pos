@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isExternallyRegistered, registrationDestination } from "./registration.ts";
+import {
+  eventCardPriceSlot,
+  isExternallyRegistered,
+  registrationDestination,
+} from "./registration.ts";
 
 test("an Event whose mode is external registers its audience elsewhere", () => {
   assert.equal(
@@ -95,4 +99,85 @@ test("an Event with no Registration Link yet offers nowhere to go", () => {
   assert.equal(registrationDestination(undefined), null);
   assert.equal(registrationDestination(""), null);
   assert.equal(registrationDestination("   "), null);
+});
+
+// The listing card's price slot (issue #211). A card with no price line at all
+// is how a broken Event looks, so an externally registered one — which will
+// never have a price here — gets words in that slot instead of a blank.
+
+test("an external Event's card says registration is required rather than nothing", () => {
+  assert.deepEqual(
+    eventCardPriceSlot({
+      registration_mode: "external",
+      registration_url: "https://lu.ma/my-meetup",
+      price_from_cents: null,
+      currency: "USD",
+    }),
+    { kind: "registration" },
+  );
+});
+
+// The one wrong answer that looks like a right one. The other site may well
+// charge; this platform does not know what, and never will, so nothing about
+// the money may be implied in either direction.
+test("an external Event is never called free and is never given a price", () => {
+  const slot = eventCardPriceSlot({
+    registration_mode: "external",
+    registration_url: "https://lu.ma/my-meetup",
+    // Even an amount that somehow reached the payload is not a price of a sale
+    // this platform is making, so it is not quoted.
+    price_from_cents: 0,
+    currency: "USD",
+  });
+  assert.deepEqual(slot, { kind: "registration" });
+});
+
+test("a ticketed Event's card quotes its cheapest ticket exactly as before", () => {
+  assert.deepEqual(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: 2500,
+      currency: "USD",
+    }),
+    { kind: "from", price: "$25" },
+  );
+  assert.deepEqual(
+    eventCardPriceSlot(
+      {
+        registration_mode: "tickets",
+        registration_url: null,
+        price_from_cents: 2500,
+        currency: "USD",
+      },
+      "es-EC",
+    ),
+    { kind: "from", price: "$25" },
+  );
+});
+
+test("a ticketed Event with a free ticket still says Free", () => {
+  assert.deepEqual(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: 0,
+      currency: "USD",
+    }),
+    { kind: "free" },
+  );
+});
+
+// A ticketed Event with no priced Ticket Type is a data anomaly and has no
+// claim to make; it keeps saying nothing, exactly as it always has.
+test("a ticketed Event with no price says nothing at all", () => {
+  assert.equal(
+    eventCardPriceSlot({
+      registration_mode: "tickets",
+      registration_url: null,
+      price_from_cents: null,
+      currency: "USD",
+    }),
+    null,
+  );
 });
