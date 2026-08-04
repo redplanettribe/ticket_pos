@@ -368,7 +368,7 @@ export interface paths {
         put?: never;
         /**
          * Verify a Google Sign-In
-         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
          */
         post: {
             parameters: {
@@ -540,7 +540,7 @@ export interface paths {
         put?: never;
         /**
          * Verify Customer passcode
-         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.
+         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused.
          */
         post: {
             parameters: {
@@ -5892,6 +5892,8 @@ export interface components {
         "internal_customers_handler.googleVerifyBody": {
             code?: string;
             code_verifier?: string;
+            /** @description Locale is read exactly as it is on the passcode door; see otpVerifyBody. */
+            locale?: string;
             redirect_uri?: string;
         };
         "internal_customers_handler.otpRequestBody": {
@@ -5900,6 +5902,17 @@ export interface components {
         "internal_customers_handler.otpVerifyBody": {
             code?: string;
             email?: string;
+            /**
+             * @description Locale is the language of the Storefront page this sign-in happened on,
+             *     and it is the one field here that is not part of proving anything. It is
+             *     remembered as the Customer's Digest Locale (ADR 0030), because a Locale is
+             *     a property of a page's address and the Follow Digest is mail. Optional and
+             *     never validated into a refusal: a caller with no page to name — anything
+             *     but the Storefront — omits it and leaves what was remembered standing, and
+             *     a language this platform does not serve is dropped rather than made a
+             *     reason a person cannot sign in.
+             */
+            locale?: string;
         };
         "internal_customers_openapi.MessageData": {
             message?: string;

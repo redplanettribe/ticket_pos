@@ -500,6 +500,10 @@
                     "code_verifier": {
                         "type": "string"
                     },
+                    "locale": {
+                        "description": "Locale is read exactly as it is on the passcode door; see otpVerifyBody.",
+                        "type": "string"
+                    },
                     "redirect_uri": {
                         "type": "string"
                     }
@@ -520,6 +524,10 @@
                         "type": "string"
                     },
                     "email": {
+                        "type": "string"
+                    },
+                    "locale": {
+                        "description": "Locale is the language of the Storefront page this sign-in happened on,\nand it is the one field here that is not part of proving anything. It is\nremembered as the Customer's Digest Locale (ADR 0030), because a Locale is\na property of a page's address and the Follow Digest is mail. Optional and\nnever validated into a refusal: a caller with no page to name — anything\nbut the Storefront — omits it and leaves what was remembered standing, and\na language this platform does not serve is dropped rather than made a\nreason a person cannot sign in.",
                         "type": "string"
                     }
                 },
@@ -3373,7 +3381,7 @@
         },
         "/api/v1/customer/auth/google/verify": {
             "post": {
-                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
+                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3531,7 +3539,7 @@
         },
         "/api/v1/customer/auth/otp/verify": {
             "post": {
-                "description": "Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.",
+                "description": "Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused.",
                 "requestBody": {
                     "content": {
                         "application/json": {

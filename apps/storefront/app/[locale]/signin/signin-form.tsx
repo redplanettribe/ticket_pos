@@ -14,7 +14,7 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
-import { useMessages, useTranslations } from "next-intl";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useRouter } from "@/i18n/navigation";
@@ -131,6 +131,9 @@ export function SignInForm({
 }: SignInFormProps) {
   const router = useRouter();
   const t = useTranslations("signin");
+  // The language of the address this form is rendered under, sent with the
+  // verify so it can be remembered as the Customer's Digest Locale (ADR 0030).
+  const locale = useLocale();
   // Keyed by API codes rather than by message keys, so it is read as plain data
   // rather than through `t`.
   const errorCopy = useMessages().errors;
@@ -203,7 +206,12 @@ export function SignInForm({
       const response = await fetch("/api/customer/auth/verify-passcode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code }),
+        // The Locale rides along on the verify and on nothing else: it is
+        // remembered as this Customer's Digest Locale, so the Follow Digest —
+        // mail, with no address of its own to carry a language — is written in
+        // the language this page is in. It reads the address, like every other
+        // reading of a Locale in this app, never the browser or a cookie.
+        body: JSON.stringify({ email, code, locale }),
       });
       const envelope = (await response.json()) as Envelope<unknown>;
       if (!response.ok || envelope.error) {

@@ -87,6 +87,13 @@ export async function GET(request: Request) {
           code,
           code_verifier: pending.codeVerifier,
           redirect_uri: config.redirectUri,
+          // Remembered as this Customer's Digest Locale (ADR 0030). It is the
+          // same value that decides which language page this hand-off lands on
+          // a few lines below, which is the strongest claim this route can
+          // make: Google's callback is a fixed address with no locale segment
+          // to read, so the language the visitor is about to be shown is the
+          // language they are signing in in.
+          locale,
         }),
       },
     );
