@@ -445,8 +445,13 @@ The local stack now holds a copy of production. Three things it is NOT:
   - The dev seed data is gone. Production has no demo Organization and no seeded
     Events, so neither does this stack now, and the dev seed migrations are
     recorded as applied rather than run. Anything pinned to a fixture UUID --
-    most of the e2e suite -- will fail until the database is rebuilt from
-    scratch: docker compose down -v && make dev.
+    most of the e2e suite -- will fail until you run:
+
+        make seed-dev
+
+    which reapplies the seed files alongside this data rather than replacing it.
+    Rebuilding from scratch (docker compose down -v && make dev) also works and
+    throws away everything you just waited for.
   - Signed artifacts do not carry over. Ticket QR codes and confirmation links
     were signed with the production HMAC keys, which are in Secret Manager and
     not on this machine, so production tickets will not validate locally.

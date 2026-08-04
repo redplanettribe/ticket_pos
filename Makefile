@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -43,6 +43,14 @@ prod-down:
 # ARGS=--yes` skips the prompt; ARGS=--db-only / --media-only does one half.
 prod-to-local:
 	./scripts/prod-to-local.sh $(ARGS)
+
+# Restore the dev seed data into the running local stack. The seed lives in
+# migrations, so it is applied once on a fresh database and is missing for good
+# after `make prod-to-local` -- production has never held those rows, but its
+# schema_migrations claims their versions are applied. Idempotent, and it leaves
+# any production copy alongside it untouched.
+seed-dev:
+	./scripts/seed-dev.sh
 
 test:
 	cd backend && go test $$(go list ./... | grep -v '/integration$$')

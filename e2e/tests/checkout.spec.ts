@@ -92,7 +92,10 @@ test("a Customer buys a ticket through the stub provider and lands on the confir
   // confirmation with nothing to confirm — a 404 until the page learned to go
   // home instead. Asserted on the link rather than by signing in, because the
   // passcode needs a mailbox this suite does not have.
-  const signIn = page.getByRole("link", { name: "Sign in" });
+  // Exact, because the page offers two: this one, and the undo panel's "Sign in
+  // to undo", which carries a `next` pointing at the ticket rather than at the
+  // confirmation. A substring match resolves to both.
+  const signIn = page.getByRole("link", { name: "Sign in", exact: true });
   const next = new URL(
     (await signIn.getAttribute("href")) ?? "",
     "http://localhost",
