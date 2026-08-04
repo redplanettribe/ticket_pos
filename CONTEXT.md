@@ -417,7 +417,8 @@ _Avoid_: Document type, ID class, tipo de identificación
 
 **Follow**:
 A Customer's standing subscription to a Tag or an Organization, entitling them to hear about the Events that fall under it.
-An act of subscription, not of shortlisting: its whole payload is the Follow Digest, and pressing it is a request to be written to. Any Tag may be Followed, Preset or Custom, and any Organization; a Follow belongs to the Customer rather than to a browser, and requires a verified email because only a signed-in Customer can hold one.
+An act of subscription, not of shortlisting: its whole payload is the Follow Digest, and pressing it is a request to be written to. Any Tag may be Followed, Preset or Custom, and any Organization; a Follow belongs to the Customer rather than to a browser.
+Held only by a Customer whose session carries Proof of Email Ownership — never by the sale-scoped session a Confirmation Link mints, which says only that somebody opened a receipt, and may be somebody it was forwarded to. Subscribing an address is a claim on it, so it takes the same proof signing in does.
 Distinct from Discoverable, which is an Organization deciding whether an Event advertises itself; a Follow is a Customer deciding what they want brought to them.
 _Avoid_: Favorite, bookmark, save, star, watch, subscribe (as the name of the act)
 

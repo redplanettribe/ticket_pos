@@ -234,9 +234,16 @@ real foreign keys with `ON DELETE CASCADE` to `tags` and `organizations`, consis
 repo's hand-written-SQL, no-ORM convention. They are one concept in the domain and in the API,
 which presents a single Follow list.
 
-Following requires an active Customer Session, which by definition implies a verified email — so
-ADR 0010's rule that notifications never reach unverified Customers is satisfied structurally, with
-no separate check.
+Following requires a **full** Customer Session — one carrying Proof of Email Ownership. That is not
+the same as any active session: a Confirmation Link mints a **sale-scoped** session from a receipt,
+which establishes only that somebody opened that receipt, and they may be somebody it was forwarded
+to. Allowing it to Follow would let a forwarded receipt subscribe the ticket-holder's address to a
+weekly email, which is exactly what ADR 0010 requires be impossible.
+
+So Follow, Unfollow and the follows listing refuse a sale-scoped session with the existing
+session-scope-insufficient response, as profile edit and undo already do. This is a check on the
+session's *scope*, not a second email-verification check layered on top of one — ADR 0010's rule is
+still satisfied by the session, once the right kind of session is required.
 
 ### Follow intent through sign-in
 
