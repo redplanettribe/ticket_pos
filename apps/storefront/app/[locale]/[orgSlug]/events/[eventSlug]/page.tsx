@@ -8,6 +8,7 @@ import { Badge, Breadcrumb, Markdown } from "@ticket-pos/ui";
 import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
+import { TagBadges } from "@/components/tag-badges";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getFormatLocale } from "@/i18n/format-locale.server";
@@ -20,7 +21,7 @@ import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
 import { storefrontBaseUrl } from "@/lib/site";
-import { tagName, type TagTranslator } from "@/lib/tag-name";
+import { toTagTranslator } from "@/lib/tag-name";
 
 export const dynamic = "force-dynamic";
 
@@ -149,9 +150,8 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   const t = await getTranslations("event");
   const shell = await getTranslations("shell");
   const explorer = await getTranslations("explorer");
-  // A Preset Tag is the system's word, so it is worded here rather than by the
-  // API; a Custom Tag passes through untouched (ADR 0027).
-  const tTags = (await getTranslations("tags")) as TagTranslator;
+  // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
+  const tTags = toTagTranslator(await getTranslations("tags"));
 
   return (
     <StorefrontShell
@@ -221,15 +221,7 @@ export default async function EventPage({ params, searchParams }: EventPageProps
               ),
             })}
           </p>
-          {event.tags.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {event.tags.map((tag) => (
-                <Badge key={tag.canonical_key} variant="outline">
-                  {tagName(tag, tTags)}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
+          <TagBadges tags={event.tags} t={tTags} className="pt-1" />
         </header>
 
         {event.description ? (

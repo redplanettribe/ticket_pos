@@ -19,8 +19,9 @@ rendered exactly as it was typed**:
   `tags` namespace, keyed on `canonical_key`. This is the second machine-keyed namespace, after
   `errors`, and for the same reason: the database decides which Tags exist, and this app only
   chooses the words for them.
-- A Preset Tag the catalog does not know **falls back to the API's `display_name`, verbatim** —
-  English, never a blank chip and never the lowercase key.
+- A Preset Tag the catalog does not know **falls back to the API's `name`, verbatim** — the
+  `display_name` column as the wire already carried it, English, never a blank chip and never
+  the lowercase key.
 - A Custom Tag is never looked up at all. "Techno", "Cumbia", the name of a scene or a
   promoter's night: an Organization's own word, rendered as coined in every Locale.
 - **The API does not change shape.** It stays English and Locale-unaware — no
@@ -50,7 +51,7 @@ Resolution lives in `apps/storefront/lib/tag-name.ts` — pure, framework-free, 
 - **Keyed on `canonical_key` rather than on the display name, because the display name is the
   thing being replaced.** The chip bar previously rebuilt the machine key by lowercasing the
   label (`explorer-filters.tsx`), which worked only while the label *was* the English key. Once
-  the chip reads "Artes y teatro" it lowercases to a token the API matches nothing against. The
+  the chip reads "Arte y teatro" it lowercases to a token the API matches nothing against. The
   key was already on the row and already `UNIQUE`; putting it on the wire removes a guess rather
   than adding a coupling, and it is not the Tag's ID — Tags stay addressed by name across the
   API, and `canonical_key` adds no way to address one that `display_name` did not already give.
@@ -74,18 +75,22 @@ Resolution lives in `apps/storefront/lib/tag-name.ts` — pure, framework-free, 
 ## Consequences
 
 - **A Spanish card can read "Música" beside "Techno", and that is the intended result.** The
-  asymmetry is legible rather than broken: a category this product offers next to a name
-  somebody chose. It is stated on both terms in `CONTEXT.md` so a future reader does not
+  asymmetry is legible rather than broken: a kind of Event this product names for itself, next
+  to a name somebody else chose. It is stated on both terms in `CONTEXT.md` so a future reader does not
   "fix" it.
 - **The backend can never render a Tag's name in a Customer's language.** Emails are English
   and Locale-unaware today (`internal/platform/email_content.go`), so nothing is lost now — but
   the day a Customer's confirmation is localized, a Tag cannot appear in it without revisiting
   this. That is the real cost of the decision, and the one to weigh if that day comes.
-- **The catalog is a second, softer contract with the seed.** A `display_name` restyled in a
-  migration is harmless — the key is what matches. A *new* Preset Tag, or one promoted by
-  `UPDATE`, silently renders English until copy is written. `lib/messages.test.ts` holds a
-  fixture of the twelve seeded keys and fails when copy for one is missing, which catches the
-  migration half; nothing catches the `UPDATE` half, which is why the fallback is not optional.
+- **The catalog is a second, softer contract with the seed, and English moves into it.** A
+  Preset Tag's `display_name` no longer reaches a Storefront page in either Locale — English
+  is read from `en.json` like every other word on the page, and `display_name` is consulted
+  only for a Tag the catalog lacks. So restyling a seeded name in a migration is not harmless,
+  it is *inert*: the key is what matches, and the page will not show the new wording until
+  `en.json` says it too. A *new* Preset Tag, or one promoted by `UPDATE`, renders English
+  until copy is written. `lib/messages.test.ts` holds a fixture of the twelve seeded keys and
+  fails when copy for one is missing, which catches the migration half; nothing catches the
+  `UPDATE` half, which is why the fallback is not optional.
 - **The Staff app is unaffected and stays English.** It receives `canonical_key` on every
   `TagView` and ignores it; its Preset chips, its "Preset" badge, and its typeahead all keep
   reading `display_name`. The `display_name` column remains the Tag's one name for every

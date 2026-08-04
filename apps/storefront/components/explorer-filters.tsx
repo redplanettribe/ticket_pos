@@ -8,7 +8,7 @@ import { Button, Input, cn } from "@ticket-pos/ui";
 
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
-import { tagName, type TagTranslator } from "@/lib/tag-name";
+import { tagName, toTagTranslator } from "@/lib/tag-name";
 import { WHEN_PRESETS, isWhenPreset, type WhenPreset } from "@/lib/when";
 
 type ExplorerFiltersProps = {
@@ -16,7 +16,10 @@ type ExplorerFiltersProps = {
 };
 
 // parseTags reads the comma-separated tag selection from the URL as a set of
-// lowercased tokens, so active state matches regardless of chip casing.
+// canonical keys. Still lowercased, but no longer to forgive the chip's casing
+// — a chip's label is in the page's Locale now and never reaches the URL. It
+// forgives a hand-typed or hand-edited address, which is the only way an
+// uppercase token gets here.
 function parseTags(raw: string | null): Set<string> {
   return new Set(
     (raw ?? "")
@@ -28,9 +31,8 @@ function parseTags(raw: string | null): Set<string> {
 
 export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
   const t = useTranslations("explorer");
-  // A Preset Tag is the system's word, so it is worded here rather than by the
-  // API; a Custom Tag passes through untouched (ADR 0027).
-  const tTags = useTranslations("tags") as TagTranslator;
+  // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
+  const tTags = toTagTranslator(useTranslations("tags"));
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -77,9 +79,9 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
   }
 
   function toggleTag(tag: PublicTag) {
-    // The Tag's own canonical key, not its rendered label lowercased: the label
-    // is in the page's Locale, and "Artes y teatro" lowercases to a token the
-    // API matches nothing against. The key is what `tags=` has always carried
+    // The Tag's own canonical key, not the chip's own wording lowercased: what
+    // the chip reads is in the page's Locale, and "Arte y teatro" lowercases to
+    // a token the API matches nothing against. The key is what `tags=` has always carried
     // and what the API filters on, so it stays English in both Locales and a
     // filtered link survives being read in the other one.
     const key = tag.canonical_key;

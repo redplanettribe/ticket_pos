@@ -72,8 +72,9 @@ holds them. A key can never contain a `.`: the Tag charset is letters, digits,
 spaces and hyphens, and the two seeds carrying an `&` predate it by being raw
 SQL.
 
-It degrades the same way `errors` does. A `curated` Tag with no entry here
-renders the API's English `display_name`, which matters because ADR 0004 grows
+It is the **second** namespace keyed this way, and the only other one. It
+degrades the same way `errors` does: a `curated` Tag with no entry here renders
+the API's own English `name`, which matters because ADR 0004 grows
 the Preset tier by flipping a flag in a single `UPDATE` — a Tag can reach the
 chip bar with no commit that could have carried its Spanish.
 

@@ -159,7 +159,7 @@ _Avoid_: Default tag, official tag, built-in category
 
 **Custom Tag**:
 A Tag coined by an Organization when no existing Tag fits. It joins the same shared pool as Preset Tags and aids discovery through search and on the Organization and Event pages, but is not offered as a filter chip in the global explorer unless later promoted to a Preset Tag.
-Being the Organization's own word, it reads the same in every Locale — as coined. So a Spanish page can show a Preset Tag in Spanish beside a Custom Tag in the language it was typed in; the first is a category this product offers, the second is a name.
+Being the Organization's own word, it reads the same in every Locale — as coined. So a Spanish page can show a Preset Tag in Spanish beside a Custom Tag in the language it was typed in; the first is a kind of Event this product names for itself, the second is a name somebody else chose.
 _Avoid_: User tag, private tag, org tag
 
 ## Sales

@@ -12,12 +12,12 @@ import type { PublicTag } from "@/lib/api";
  * one at the moment it is coined.
  *
  * So a Spanish card can read "Música" beside "Techno". That is the intended
- * result rather than a gap in the catalog: the first is a category this product
- * offers, the second is a name.
+ * result rather than a gap in the catalog: the first is a kind of Event this
+ * product names for itself, the second is a name somebody else chose.
  *
  * Keying on `canonical_key` rather than on `name` is what lets the copy be a
  * copy edit. `name` is the English display name, which the API is free to
- * restyle — and which, once the chip in front of the reader says "Artes y
+ * restyle — and which, once the chip in front of the reader says "Arte y
  * teatro", is no longer recoverable from what they are looking at.
  */
 
@@ -28,13 +28,23 @@ import type { PublicTag } from "@/lib/api";
  * `useTranslations("tags")` is typed to the twelve keys en.json holds, which is
  * exactly the guarantee that cannot survive here: the key arrives from the API
  * at runtime, and the whole point of the fallback below is to behave when it is
- * one the catalog has never heard of. The looser type is confined to this file
- * so no call site has to write the cast itself.
+ * one the catalog has never heard of.
  */
 export type TagTranslator = {
   (key: string): string;
   has(key: string): boolean;
 };
+
+/**
+ * Widens a `tags` translator to keys only known at runtime.
+ *
+ * This is where the cast lives, once, rather than at each of the four render
+ * sites — and it takes both of next-intl's translators, the `useTranslations`
+ * one the cards use and the awaited `getTranslations` one the Event page does.
+ */
+export function toTagTranslator(t: { (key: never): string; has(key: never): boolean }): TagTranslator {
+  return t as unknown as TagTranslator;
+}
 
 export function tagName(tag: PublicTag, t: TagTranslator): string {
   // A Custom Tag is never looked up: an entry under its key would mean copy

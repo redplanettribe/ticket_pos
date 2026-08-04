@@ -1,27 +1,29 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { tagName, type TagTranslator } from "./tag-name.ts";
+import { createTranslator } from "next-intl";
+
+import { tagName, toTagTranslator } from "./tag-name.ts";
 
 /**
- * A stand-in for the `tags` namespace, holding only what a catalog would.
+ * next-intl's own translator, over the real es.json.
  *
- * The real translator is next-intl's, which cannot be built without a request
- * — and would not test anything more than this does. What is worth pinning is
- * the branching, and in particular that a key the catalog is missing takes the
- * fallback rather than throwing or rendering the key.
+ * Built rather than stubbed, and over the shipped catalog rather than a fixture,
+ * because two of the things worth pinning here are properties of next-intl and
+ * of the file — that a key holding spaces and an "&" resolves at all (next-intl
+ * splits key paths on ".", and "arts & theatre" survives only because no
+ * canonical key can contain one), and that the Spanish a reader sees is the
+ * Spanish that shipped. A hand-written map would assert neither.
  */
-function translator(messages: Record<string, string>): TagTranslator {
-  const t = ((key: string) => {
-    const message = messages[key];
-    if (message === undefined) throw new Error(`no message for ${key}`);
-    return message;
-  }) as TagTranslator;
-  t.has = (key: string) => key in messages;
-  return t;
+function catalog(locale: string) {
+  const messages = JSON.parse(
+    readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+  );
+  return toTagTranslator(createTranslator({ locale, messages, namespace: "tags" }));
 }
 
-const es = translator({ "arts & theatre": "Arte y teatro", music: "Música" });
+const es = catalog("es");
 
 test("a Preset Tag is worded in the page's Locale", () => {
   const name = tagName(
