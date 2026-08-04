@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // Customer is a stored Customer record.
@@ -34,6 +36,30 @@ type Customer struct {
 	// not recorded — once stored, every Avatar is the same kind of thing.
 	AvatarImageKey sql.NullString
 	VerifiedAt     sql.NullTime
+	// DigestLocale is the language this Customer's Follow Digest is written in,
+	// remembered from the Storefront they last signed in on (ADR 0030). Never
+	// empty: a Customer a box office sale created has never been on a localized
+	// surface, and carries the column's English default rather than nothing.
+	DigestLocale string
+}
+
+// customerColumns is every column a Customer is read back with, in the order
+// scanCustomer expects. One list because five statements select it.
+const customerColumns = `id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at, digest_locale`
+
+// scanRow is either a *sql.Row or a *sql.Rows positioned on one.
+type scanRow interface {
+	Scan(dest ...any) error
+}
+
+// scanCustomer reads one row selected with customerColumns.
+func scanCustomer(row scanRow) (*Customer, error) {
+	var c Customer
+	if err := row.Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber,
+		&c.Phone, &c.AvatarImageKey, &c.VerifiedAt, &c.DigestLocale); err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 // CustomerSession is a stored Customer Session.
@@ -52,35 +78,33 @@ type CustomerSession struct {
 // GetCustomerByEmail returns the Customer for a normalised email, or nil when no
 // record exists. The email must already be normalised by the service.
 func (r *Repository) GetCustomerByEmail(ctx context.Context, email string) (*Customer, error) {
-	var c Customer
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
+	c, err := scanCustomer(r.db.Pool.QueryRowContext(ctx, `
+		SELECT `+customerColumns+`
 		FROM customers WHERE email = $1
-	`, email).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
+	`, email))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return c, nil
 }
 
 // GetCustomerByID returns the Customer with the given id, or nil when it no
 // longer exists.
 func (r *Repository) GetCustomerByID(ctx context.Context, id string) (*Customer, error) {
-	var c Customer
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
+	c, err := scanCustomer(r.db.Pool.QueryRowContext(ctx, `
+		SELECT `+customerColumns+`
 		FROM customers WHERE id = $1
-	`, id).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
+	`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return c, nil
 }
 
 // VerifyCustomer creates the Customer for a normalised email if none exists and
@@ -90,19 +114,35 @@ func (r *Repository) GetCustomerByID(ctx context.Context, id string) (*Customer,
 // This is the only write in the system that sets verified_at. No Sales Channel,
 // no import, and no Confirmation Link redemption may reach it: only a completed
 // one-time passcode proves ownership of the address.
-func (r *Repository) VerifyCustomer(ctx context.Context, email string, now time.Time) (*Customer, error) {
-	var c Customer
-	err := r.db.Pool.QueryRowContext(ctx, `
-		INSERT INTO customers (email, first_name, last_name, verified_at, created_at)
-		VALUES ($1, '', '', $2, $2)
+//
+// digestLocale is the Locale of the Storefront this sign-in happened on, or
+// empty when the caller has no page to name one from. Empty leaves the stored
+// value exactly as it was — the column's English default on a record no
+// localized surface has ever touched — rather than blanking it, which is why the
+// guard is COALESCE on the parameter and not on the column. A Locale that IS
+// named always wins: it is the language the person was reading a moment ago, and
+// it is what their next Follow Digest must be written in (ADR 0030).
+func (r *Repository) VerifyCustomer(ctx context.Context, email string, now time.Time, digestLocale string) (*Customer, error) {
+	// Two binds for one value: $3 is NULL when no Locale was named, which is what
+	// leaves an existing Customer's remembered one alone; $4 is what a brand new
+	// record starts at, and cannot be NULL because the column is NOT NULL.
+	var named any
+	fresh := string(platform.DefaultLocale)
+	if digestLocale != "" {
+		named, fresh = digestLocale, digestLocale
+	}
+	c, err := scanCustomer(r.db.Pool.QueryRowContext(ctx, `
+		INSERT INTO customers (email, first_name, last_name, verified_at, created_at, digest_locale)
+		VALUES ($1, '', '', $2, $2, $4)
 		ON CONFLICT (email) DO UPDATE SET
-			verified_at = COALESCE(customers.verified_at, EXCLUDED.verified_at)
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
-	`, email, now).Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
+			verified_at = COALESCE(customers.verified_at, EXCLUDED.verified_at),
+			digest_locale = COALESCE($3, customers.digest_locale)
+		RETURNING `+customerColumns+`
+	`, email, now, named, fresh))
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return c, nil
 }
 
 // GetTicketSaleCustomer returns the Customer a Ticket Sale belongs to, and

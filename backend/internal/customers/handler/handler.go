@@ -33,6 +33,15 @@ type otpRequestBody struct {
 type otpVerifyBody struct {
 	Email string `json:"email"`
 	Code  string `json:"code"`
+	// Locale is the language of the Storefront page this sign-in happened on,
+	// and it is the one field here that is not part of proving anything. It is
+	// remembered as the Customer's Digest Locale (ADR 0030), because a Locale is
+	// a property of a page's address and the Follow Digest is mail. Optional and
+	// never validated into a refusal: a caller with no page to name — anything
+	// but the Storefront — omits it and leaves what was remembered standing, and
+	// a language this platform does not serve is dropped rather than made a
+	// reason a person cannot sign in.
+	Locale string `json:"locale"`
 }
 
 type verifyOTPResponse struct {
@@ -80,7 +89,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // VerifyOTP validates a passcode and issues a Customer Session.
 //
 // @Summary      Verify Customer passcode
-// @Description  Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.
+// @Description  Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -106,7 +115,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code)
+	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -122,6 +131,8 @@ type googleVerifyBody struct {
 	Code         string `json:"code"`
 	CodeVerifier string `json:"code_verifier"`
 	RedirectURI  string `json:"redirect_uri"`
+	// Locale is read exactly as it is on the passcode door; see otpVerifyBody.
+	Locale string `json:"locale"`
 }
 
 // VerifyGoogle completes a Google Sign-In and issues a Customer Session.
@@ -135,7 +146,7 @@ type googleVerifyBody struct {
 // credential rather than consuming one.
 //
 // @Summary      Verify a Google Sign-In
-// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -171,7 +182,7 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI)
+	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

@@ -86,7 +86,10 @@ func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*Cust
 // only path in the system that sets verified_at. Nobody registers, so the record
 // is created or reused from the proven email — a person who signs in before ever
 // buying gets the same record their first Ticket Sale would have reused anyway.
-func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*CustomerSessionView, string, error) {
+// locale is the Locale of the Storefront page the passcode was redeemed on, or
+// empty from any caller that has no page to name one from. It is remembered on
+// the Customer, never checked: see signInProvenEmail.
+func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*CustomerSessionView, string, error) {
 	email = platform.NormalizeEmail(email)
 	now := s.now()
 
@@ -94,7 +97,7 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*CustomerS
 		return nil, "", err
 	}
 
-	return s.signInProvenEmail(ctx, email, now, "")
+	return s.signInProvenEmail(ctx, email, now, "", locale)
 }
 
 // signInProvenEmail is what every Proof of Email Ownership converges on: the
@@ -114,9 +117,22 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*CustomerS
 // why it is a parameter here rather than a divergence: the session minted below
 // must be identical either way.
 //
+// locale is the second thing both doors carry alike: the language of the
+// Storefront page the sign-in happened on, remembered as the Customer's Digest
+// Locale because mail has no address to carry a Locale of its own (ADR 0030).
+// It is a preference and not a credential, so an unserved language is dropped
+// rather than refused — a sign-in is Proof of Email Ownership and must not fail
+// over the words a later email will be written in. A caller that names no
+// Locale at all leaves what was remembered exactly as it was.
+//
 // The email must already be normalised and proven by the caller.
-func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL string) (*CustomerSessionView, string, error) {
-	customer, err := s.repo.VerifyCustomer(ctx, email, now)
+func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL, locale string) (*CustomerSessionView, string, error) {
+	digestLocale := ""
+	if parsed, ok := platform.ParseLocale(locale); ok {
+		digestLocale = string(parsed)
+	}
+
+	customer, err := s.repo.VerifyCustomer(ctx, email, now, digestLocale)
 	if err != nil {
 		return nil, "", err
 	}
