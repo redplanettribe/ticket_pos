@@ -45,6 +45,7 @@
     "following": "Following",
     "followHint": "Get one weekly email about their events.",
     "followingHint": "Their events are in your weekly email. Press to unfollow.",
+    "signInHint": "Sign in to follow. We'll bring you back here.",
     "followedToast": "You now follow {name}.",
     "unfollowedToast": "You no longer follow {name}.",
     "failed": "That didn't work. Try again.",

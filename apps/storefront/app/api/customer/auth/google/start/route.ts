@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { safeNext } from "@/lib/destination";
+import { safeFollowIntent } from "@/lib/follow-intent";
 import {
   GOOGLE_STATE_COOKIE,
   authorizationUrl,
@@ -34,7 +35,12 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   const config = googleSignInConfig();
-  const destination = safeNext(new URL(request.url).searchParams.get("next"));
+  const params = new URL(request.url).searchParams;
+  const destination = safeNext(params.get("next"));
+  // The Follow the visitor pressed before signing in (#219). It is guarded by
+  // newPendingSignIn on the way into the cookie and again on the way out, and it
+  // never reaches Google — the cookie is what crosses the redirect.
+  const followIntent = params.get("follow");
 
   // No credentials configured: the button that leads here is hidden, so this is
   // either a stale bookmark or a hand-typed URL. It is not an error worth a page
@@ -42,12 +48,17 @@ export async function GET(request: Request) {
   if (!config) {
     // A page, so it needs a language; this route has none of its own to pass on.
     const locale = await redirectLocale();
-    return redirectTo(
-      localizedPath(locale, `/signin?next=${encodeURIComponent(destination)}`),
-    );
+    // The intent goes back with them: the passcode form they are being handed is
+    // a door that works, and it must not cost them what they pressed.
+    const safe = safeFollowIntent(followIntent);
+    const query = new URLSearchParams({ next: destination });
+    if (safe) {
+      query.set("follow", safe);
+    }
+    return redirectTo(localizedPath(locale, `/signin?${query.toString()}`));
   }
 
-  const pending = newPendingSignIn(destination);
+  const pending = newPendingSignIn(destination, followIntent);
   const codeChallenge = await codeChallengeS256(pending.codeVerifier);
 
   const store = await cookies();

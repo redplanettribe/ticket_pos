@@ -571,6 +571,25 @@ type EmailSender interface {
   session is minted from a token in an email somebody was *sent*, does not set `verified_at`, and
   proves nothing about who controls the address — so honouring a Follow from a forwarded receipt
   would subscribe a stranger's inbox to mail, which ADR 0010 forbids.
+- A **Follow intent** carries a Follow through sign-in, so an anonymous visitor who presses Follow
+  lands back where they started with it made (#219). It travels as one string, `organization:<slug>`
+  (`tag:<key>` when Tag Follows land), as an explicit `follow` parameter on the sign-in address and
+  then as an optional `follow` field on **both** verification doors — `POST
+  /api/v1/customer/auth/otp/verify` and `POST /api/v1/customer/auth/google/verify` — never in
+  browser storage, so it is server-visible and validatable. Both doors answer with a `follow` field
+  alongside `session`/`session_id`, holding the Follow that was made or `null`. The intent names a
+  **subject and never a subscriber**: it is applied against the Customer Session that verification
+  just minted, through the same service call the ordinary Follow endpoint uses, so an email supplied
+  beside it can never become the address that gets subscribed. It is validated **before** the
+  passcode is checked — a known kind, and a key matching the slug pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$`
+  under 100 characters, which admits no URL, path, host or address — and a malformed one is a 400
+  `VALIDATION_FAILED` on field `follow` that does not spend the passcode. A subject that does not
+  resolve does not fail the sign-in: the session is issued and `follow` is `null`. `POST
+  /api/v1/customer/auth/confirmation-link` refuses a `follow` outright with
+  `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403), because that door mints a sale-scoped session and
+  subscribing an address takes the same proof signing in does. On the Storefront the same guard runs
+  in `lib/follow-intent.ts`, which drops a malformed intent rather than refusing the sign-in, and
+  the Google leg carries it in the existing state cookie rather than through Google.
 - Each Ticket Sale keeps its own immutable Tax ID snapshot, and that snapshot — not the Customer's
   current assertion — is what organizers see and search. `GET /api/v1/staff/events/{id}/sales`
   returns it per row as `tax_id_type` / `tax_id_number` (null together on sales recorded without

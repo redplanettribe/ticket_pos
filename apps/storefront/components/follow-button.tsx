@@ -1,11 +1,13 @@
 "use client";
 
 import { Button, toast } from "@ticket-pos/ui";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMessages, useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
 
+import { Link, usePathname } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { followSignInHref } from "@/lib/follow-intent";
 
 /**
  * The Follow control (#217, parent #215).
@@ -29,9 +31,18 @@ import { apiErrorMessage } from "@/lib/api-errors";
  * the authorization and it never reaches page scripts, so this component cannot
  * name whose Follow it is even by mistake.
  *
- * It is drawn only for a signed-in Customer. Following while signed out is its
- * own problem — the press has to survive a round trip through sign-in — and is
- * #219, not this.
+ * It is drawn for ANYBODY, signed in or not (#219). The surfaces it lives on are
+ * overwhelmingly anonymous, so a control only signed-in visitors could see would
+ * be invisible to almost everyone it is for. Pressing it while signed out is a
+ * navigation rather than a write: it carries the intended Follow and the page it
+ * was pressed on into the existing sign-in flow, which does the writing on the
+ * far side against the session it mints. See lib/follow-intent.ts.
+ *
+ * Which of the two it is, is decided by the server that rendered it — this
+ * component is told, and never reads a cookie or a session to find out. The
+ * Customer Session lives in an httpOnly cookie that page scripts cannot see, and
+ * that is the property being preserved: nothing here can name whose Follow this
+ * would be even by mistake.
  */
 type FollowButtonProps = {
   /**
@@ -44,15 +55,40 @@ type FollowButtonProps = {
   following: boolean;
   /** What is being followed, named for the screen reader and for the toast. */
   subjectName: string;
+  /**
+   * The intended Follow as it travels through sign-in: "organization:<slug>",
+   * and "tag:<key>" when Tag Follows land (#218). Built by the page from the
+   * same slug the endpoint above is built from, so the two cannot name different
+   * things.
+   */
+  intent: string;
+  /**
+   * Whether the visitor holds a full Customer Session, as the server rendering
+   * this knew it. False makes the control a way into sign-in rather than a
+   * write — and it is a rendering decision only: the API refuses an
+   * unauthenticated Follow regardless, so nothing here is an access control.
+   */
+  signedIn: boolean;
 };
 
 type Envelope = {
   error: { code: string; message: string } | null;
 };
 
-export function FollowButton({ endpoint, following, subjectName }: FollowButtonProps) {
+export function FollowButton({
+  endpoint,
+  following,
+  subjectName,
+  intent,
+  signedIn,
+}: FollowButtonProps) {
   const router = useRouter();
   const t = useTranslations("follow");
+  // Where the visitor is, for the `next` that brings them back here. Only the
+  // browser's router knows which page this is, which is why the address is read
+  // here and the rules about what may be in it live in lib/follow-intent.ts.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   // Keys of API codes rather than message keys, so the catalog is read as plain
   // data rather than through `t`.
   const errorCopy = useMessages().errors;
@@ -93,6 +129,27 @@ export function FollowButton({ endpoint, following, subjectName }: FollowButtonP
       // repairs the optimistic state on the paths above that could not.
       startTransition(() => router.refresh());
     }
+  }
+
+  // Signed out: the same control, saying the same word, but a way into sign-in
+  // rather than a write. A plain Link and not a fetch — the visitor is leaving
+  // this page, and the whole point is that they come back to it with the Follow
+  // already made.
+  //
+  // The hint below is the one thing said differently, and it is worth saying:
+  // somebody about to be sent to a passcode form should be told that is what
+  // pressing this does, rather than discovering it.
+  if (!signedIn) {
+    return (
+      <div className="space-y-1">
+        <Button asChild variant="default" size="sm">
+          <Link href={followSignInHref(intent, pathname, searchParams.toString())}>
+            {t("follow")}
+          </Link>
+        </Button>
+        <p className="text-muted-foreground text-xs">{t("signInHint")}</p>
+      </div>
+    );
   }
 
   return (

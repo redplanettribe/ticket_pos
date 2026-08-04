@@ -102,6 +102,10 @@ const docTemplate = `{
             },
             "handler.confirmationLinkBody": {
                 "properties": {
+                    "follow": {
+                        "description": "Follow exists on this body only so that it can be refused, and refused\nloudly (#219).\n\nA Confirmation Link mints a sale-scoped session, which is possession of an\nemail somebody was SENT and may well have been forwarded. #217 already\nrefuses that session the three Follow routes; an intent riding the\nredemption would be the same subscription by another road — whoever a Sale\nConfirmation reached could sign the ticket-holder's address up for a\nweekly email without ever proving they own it (ADR 0010, CONTEXT.md\n\"Follow\"). Leaving the field off the struct would have refused it too, by\nsilently dropping it, and silence is the wrong answer to a request that\nmust never work.",
+                        "type": "string"
+                    },
                     "token": {
                         "type": "string"
                     }
@@ -507,6 +511,10 @@ const docTemplate = `{
                     "code_verifier": {
                         "type": "string"
                     },
+                    "follow": {
+                        "description": "Follow is read exactly as it is on the passcode door too, and deliberately\nso: both doors are Proof of Email Ownership and neither is worth more than\nthe other (ADR 0011), so a visitor who pressed Follow and then chose Google\nmust not silently lose it. This body cannot name an email at all, which\nmakes the rule that the intent never chooses a subscriber structural here.",
+                        "type": "string"
+                    },
                     "locale": {
                         "description": "Locale is read exactly as it is on the passcode door; see otpVerifyBody.",
                         "type": "string"
@@ -531,6 +539,10 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "email": {
+                        "type": "string"
+                    },
+                    "follow": {
+                        "description": "Follow is the Follow somebody asked for before they could be asked who\nthey are (#219): one string, \"organization:\u003cslug\u003e\", carried explicitly\nfrom the sign-in address rather than stashed in browser storage so that it\nis server-visible and can be validated at all.\n\nIt names a subject and never a subscriber. Whose Follow it becomes is\ndecided by the session this verification mints and by nothing in this\nbody — the Email field above proves who is signing in, and is never read\nas who is being subscribed. Optional; see service.ParseFollowIntent.",
                         "type": "string"
                     },
                     "locale": {
@@ -3395,7 +3407,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/confirmation-link": {
             "post": {
-                "description": "Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed.",
+                "description": "Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed. A ` + "`" + `follow` + "`" + ` intent is refused outright with CUSTOMER_SESSION_SCOPE_INSUFFICIENT: this door mints a sale-scoped session, and subscribing an address to mail takes the same proof signing in does.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3446,6 +3458,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
                     }
                 },
                 "summary": "Redeem a Confirmation Link",
@@ -3456,7 +3478,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/google/verify": {
             "post": {
-                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional ` + "`" + `locale` + "`" + ` is remembered as the Customer's Digest Locale, exactly as on the passcode route. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
+                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional ` + "`" + `locale` + "`" + ` is remembered as the Customer's Digest Locale, exactly as on the passcode route. An optional ` + "`" + `follow` + "`" + ` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3614,7 +3636,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/otp/verify": {
             "post": {
-                "description": "Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional ` + "`" + `locale` + "`" + ` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused.",
+                "description": "Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional ` + "`" + `locale` + "`" + ` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused. An optional ` + "`" + `follow` + "`" + ` carries a Follow the visitor pressed before signing in, as ` + "`" + `organization:\u003cslug\u003e` + "`" + `. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in ` + "`" + `follow` + "`" + `, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and ` + "`" + `follow` + "`" + ` is null.",
                 "requestBody": {
                     "content": {
                         "application/json": {
