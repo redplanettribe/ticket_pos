@@ -1425,7 +1425,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "sales_count": {
-                        "description": "SalesCount and NetProceedsCents are the link's Affiliate Attribution\nfigures: how many ACTIVE Ticket Sales it drove, and what they left the\nOrganization after the Platform Fee and its Fee IVA. Display-only — no\ncommission is computed from either — and a reversed sale drops out of both\nhowever it was reversed. A link that drove only free claims shows its count\nwith zero beside it.",
+                        "description": "SalesCount and NetProceedsCents are the link's Affiliate Attribution\nfigures: how many ACTIVE Ticket Sales it drove, and what they left the\nOrganization after the Platform Fee and its Fee IVA. Display-only — no\ncommission is computed from either — and a reversed sale drops out of both\nhowever it was reversed. A link that drove only free claims shows its count\nwith zero beside it.\n\nBoth are null — absent, not zero — on an Event that registers externally.\nSuch a link can never attribute a sale, so a 0 and a $0.00 would sit there\nforever reading as \"this link failed\" when the truth is \"this link's\nsuccess is not measured in sales\" (#213). Nullable rather than omitted so\nthe distinction is explicit in the payload: null is \"not measured here\",\n0 is \"measured, and nothing yet\", and a client that reads either as the\nother has to do so deliberately.",
                         "type": "integer"
                     },
                     "url": {
@@ -5973,7 +5973,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/affiliate-links": {
             "get": {
-                "description": "Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. Org Admin and Event Owner only.",
+                "description": "Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, the clicks it has drawn to the Event page, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. On an Event that registers externally both are null rather than 0: such a link can never attribute a sale, so it is measured by its clicks alone and a zero would misreport it as a failure. Org Admin and Event Owner only.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -6606,7 +6606,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/publish": {
             "post": {
-                "description": "Publishes a draft catalog event when required fields and ticket types are present.",
+                "description": "Publishes a draft catalog event when required fields and its way in are present: at least one ticket type, or a registration link when the event registers externally.",
                 "parameters": [
                     {
                         "description": "Event ID",

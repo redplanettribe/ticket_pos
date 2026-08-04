@@ -11,6 +11,7 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/affiliates"
 	"github.com/peter/ticket_pos/backend/internal/affiliates/repository"
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -62,8 +63,16 @@ type AffiliateLinkView struct {
 	// commission is computed from either — and a reversed sale drops out of both
 	// however it was reversed. A link that drove only free claims shows its count
 	// with zero beside it.
-	SalesCount       int       `json:"sales_count"`
-	NetProceedsCents int       `json:"net_proceeds_cents"`
+	//
+	// Both are null — absent, not zero — on an Event that registers externally.
+	// Such a link can never attribute a sale, so a 0 and a $0.00 would sit there
+	// forever reading as "this link failed" when the truth is "this link's
+	// success is not measured in sales" (#213). Nullable rather than omitted so
+	// the distinction is explicit in the payload: null is "not measured here",
+	// 0 is "measured, and nothing yet", and a client that reads either as the
+	// other has to do so deliberately.
+	SalesCount       *int      `json:"sales_count"`
+	NetProceedsCents *int      `json:"net_proceeds_cents"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -303,17 +312,36 @@ func NormalizeName(raw string) (string, bool) {
 const MaxNameLength = maxNameLength
 
 func (s *Service) toView(link repository.AffiliateLink, target repository.LinkTarget) AffiliateLinkView {
-	return AffiliateLinkView{
-		ID:               link.ID,
-		Name:             link.Name,
-		Code:             link.Code,
-		Active:           link.Active,
-		URL:              s.storefrontURL(target, link.Code),
-		Clicks:           link.ClickCount,
-		SalesCount:       link.SalesCount,
-		NetProceedsCents: link.NetProceedsCents,
-		CreatedAt:        link.CreatedAt,
+	view := AffiliateLinkView{
+		ID:        link.ID,
+		Name:      link.Name,
+		Code:      link.Code,
+		Active:    link.Active,
+		URL:       s.storefrontURL(target, link.Code),
+		Clicks:    link.ClickCount,
+		CreatedAt: link.CreatedAt,
 	}
+	// Everything above is the same on either kind of Event: a link points at the
+	// Event page, and the page is reached the same way whether the sign-up
+	// happens here or elsewhere. Only the attribution pair depends on the mode.
+	if attributesSales(target) {
+		salesCount, netProceeds := link.SalesCount, link.NetProceedsCents
+		view.SalesCount = &salesCount
+		view.NetProceedsCents = &netProceeds
+	}
+	return view
+}
+
+// attributesSales reports whether an Event is one where an Affiliate Link's
+// attribution figures mean anything: it sells Ticket Types here, so a link can
+// drive a Ticket Sale that names it.
+//
+// Read from the Event at each read rather than frozen onto the link, so an Event
+// that changes its mode while it is a draft changes what its links report with
+// it — and the figures underneath are never touched, so an Event that comes back
+// to selling tickets reports its history intact.
+func attributesSales(target repository.LinkTarget) bool {
+	return catalog.RegistrationModeOrDefault(target.RegistrationMode) != catalog.RegistrationModeExternal
 }
 
 // storefrontURL builds {storefrontBase}/{orgSlug}/events/{eventSlug}?ref=CODE.

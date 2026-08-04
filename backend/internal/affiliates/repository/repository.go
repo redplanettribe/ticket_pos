@@ -36,10 +36,16 @@ type AffiliateLink struct {
 }
 
 // LinkTarget is where an Event's Affiliate Links point: the two slugs that make
-// up the Storefront Event page path.
+// up the Storefront Event page path, and how that page takes sign-ups.
 type LinkTarget struct {
 	OrganizationSlug string
 	EventSlug        string
+	// RegistrationMode is the Event's raw registration_mode. An Event that hands
+	// its audience to a Registration Link can never attribute a Ticket Sale, so
+	// its links report no attribution figures at all rather than a permanent
+	// zero (#213). Kept raw here and interpreted by the service, which owns what
+	// an unrecognised value means.
+	RegistrationMode string
 }
 
 // Repository provides SQL access for Affiliate Links.
@@ -70,11 +76,11 @@ func prefixedColumns(alias string) string {
 func (r *Repository) GetLinkTarget(ctx context.Context, organizationID, eventID string) (*LinkTarget, error) {
 	var target LinkTarget
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT o.slug, e.slug
+		SELECT o.slug, e.slug, e.registration_mode
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE e.id = $1 AND e.organization_id = $2
-	`, eventID, organizationID).Scan(&target.OrganizationSlug, &target.EventSlug)
+	`, eventID, organizationID).Scan(&target.OrganizationSlug, &target.EventSlug, &target.RegistrationMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

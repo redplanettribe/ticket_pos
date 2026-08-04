@@ -22,9 +22,15 @@ export type AffiliateLink = {
    * drove and what they left the Organization after platform costs. Display-only
    * — nothing is owed on either — and a reversed sale drops out of both, however
    * it came to be reversed.
+   *
+   * Both are null on an Event that registers externally: such a link can never
+   * attribute a sale, so the API reports no figure at all rather than a
+   * permanent 0 and $0.00, which would read as "this link failed" instead of
+   * "this link is measured by its clicks". Null is not 0 — render nothing for
+   * it, never a zero and never a dash standing in for one.
    */
-  sales_count: number;
-  net_proceeds_cents: number;
+  sales_count: number | null;
+  net_proceeds_cents: number | null;
   created_at: string;
 };
 
