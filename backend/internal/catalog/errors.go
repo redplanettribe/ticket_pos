@@ -58,6 +58,35 @@ func ErrTicketTypeNotFound() apperror.DomainError {
 	return apperror.New("TICKET_TYPE_NOT_FOUND", "Ticket type not found.", nil)
 }
 
+// ErrEventIsExternalRegistration is returned when something that would only make
+// sense on a ticketed Event is attempted on one that registers externally: here,
+// creating a Ticket Type on it.
+//
+// The dedicated code exists because the alternative is worse than unhelpful.
+// Every one of these paths would fail anyway — each resolves a Ticket Type that
+// does not exist — but it would fail as a not-found, sending a staff member or an
+// Integration Partner's program hunting for a data problem that is not there. The
+// refusal names the actual reason: the two modes are exclusive (ADR 0028).
+func ErrEventIsExternalRegistration() apperror.DomainError {
+	return apperror.New(
+		"EVENT_IS_EXTERNAL_REGISTRATION",
+		"This event registers externally and does not sell tickets. Switch it back to selling tickets first.",
+		nil,
+	)
+}
+
+// ErrEventHasTicketTypes is returned when an Event would be switched to External
+// Registration while Ticket Types still exist on it — the other side of the
+// exclusivity invariant, which spans two tables and so cannot be a CHECK
+// constraint. The fix is in the organizer's hands: delete the Ticket Types first.
+func ErrEventHasTicketTypes() apperror.DomainError {
+	return apperror.New(
+		"EVENT_HAS_TICKET_TYPES",
+		"This event cannot register externally while it still has ticket types. Delete them first.",
+		nil,
+	)
+}
+
 // ErrTicketTypeDeleteForbidden is returned when delete is attempted while the parent Event is not draft.
 func ErrTicketTypeDeleteForbidden() apperror.DomainError {
 	return apperror.New("TICKET_TYPE_DELETE_FORBIDDEN", "Ticket types can only be deleted while the event is a draft.", nil)

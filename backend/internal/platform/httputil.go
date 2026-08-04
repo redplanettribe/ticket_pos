@@ -162,6 +162,15 @@ func domainHTTPStatus(code string) int {
 	// answer is to decline it or to submit a transfer first.
 	case "PAYOUT_REQUEST_TRANSFER_NOT_SUBMITTED":
 		return http.StatusConflict
+	// The two sides of the External Registration exclusivity invariant (ADR 0028),
+	// which spans events and ticket_types and so cannot be a CHECK constraint.
+	// Both 409: the request was well formed and the caller entitled to make it,
+	// and what stands in the way is the Event's own mode, or the Ticket Types
+	// already on it. Neither becomes the answer by being retried — one needs the
+	// mode switched back, the other needs the Ticket Types deleted. Two codes
+	// rather than one because they are two different instructions to the reader.
+	case "EVENT_IS_EXTERNAL_REGISTRATION", "EVENT_HAS_TICKET_TYPES":
+		return http.StatusConflict
 	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
 	// the caller was entitled to make it, but the catalog is not in a state that
 	// admits it — the one slot is taken, or the price would break the invariant

@@ -38,7 +38,14 @@ type Event struct {
 	// FeeHandling is the Event's Fee Handling mode ('pass_on' or 'absorb'),
 	// constrained by the column's CHECK (migration 021).
 	FeeHandling string
-	CreatedAt   time.Time
+	// RegistrationMode is 'tickets' or 'external', constrained by the column's
+	// CHECK (migration 048). RegistrationURL is the Registration Link, invalid
+	// while an external Event's registration page is still being built.
+	// RegistrationClickCount is the raw count of hand-offs to that link.
+	RegistrationMode       string
+	RegistrationURL        sql.NullString
+	RegistrationClickCount int64
+	CreatedAt              time.Time
 }
 
 // UpdateEventParams holds mutable Event fields for PATCH.
@@ -55,6 +62,22 @@ type UpdateEventParams struct {
 	CoverVideoKey sql.NullString
 	Discoverable  bool
 	FeeHandling   string
+	// RegistrationMode and RegistrationURL are the External Registration pair.
+	// registration_click_count is deliberately absent: it is a counter the
+	// redirect owns, and an Event form must never be able to rewrite it.
+	RegistrationMode string
+	RegistrationURL  sql.NullString
+}
+
+// CreateEventParams holds the fields a new draft Event may be created with.
+type CreateEventParams struct {
+	Name string
+	Slug string
+	// RegistrationMode and RegistrationURL let an organizer record External
+	// Registration at the moment they create the Event rather than having to
+	// create it as ticketed and immediately switch it.
+	RegistrationMode string
+	RegistrationURL  sql.NullString
 }
 
 // Repository provides SQL access for catalog data.
@@ -70,7 +93,8 @@ func New(db *platform.DB) *Repository {
 const eventColumns = `
 	id, organization_id, name, slug, status,
 	starts_at, ends_at, timezone, venue_name, venue_address,
-	description, cover_image_key, cover_video_key, discoverable, fee_handling, created_at
+	description, cover_image_key, cover_video_key, discoverable, fee_handling,
+	registration_mode, registration_url, registration_click_count, created_at
 `
 
 func scanEvent(row interface {
@@ -81,7 +105,8 @@ func scanEvent(row interface {
 	if err := row.Scan(
 		&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 		&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
+		&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
+		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -112,7 +137,8 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 		if err := rows.Scan(
 			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
-			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling, &e.CreatedAt,
+			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
+		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -146,12 +172,12 @@ func (r *Repository) EventSlugExistsInOrganizationExcluding(ctx context.Context,
 }
 
 // CreateEvent inserts a draft event for an organization.
-func (r *Repository) CreateEvent(ctx context.Context, orgID, name, slug string, createdAt time.Time) (*Event, error) {
+func (r *Repository) CreateEvent(ctx context.Context, orgID string, params CreateEventParams, createdAt time.Time) (*Event, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		INSERT INTO events (organization_id, name, slug, status, created_at)
-		VALUES ($1, $2, $3, 'draft', $4)
+		INSERT INTO events (organization_id, name, slug, status, registration_mode, registration_url, created_at)
+		VALUES ($1, $2, $3, 'draft', $4, $5, $6)
 		RETURNING `+eventColumns+`
-	`, orgID, name, slug, createdAt)
+	`, orgID, params.Name, params.Slug, params.RegistrationMode, nullString(params.RegistrationURL), createdAt)
 	return scanEvent(row)
 }
 
@@ -181,7 +207,9 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 			cover_image_key = $11,
 			cover_video_key = $12,
 			discoverable = $13,
-			fee_handling = $14
+			fee_handling = $14,
+			registration_mode = $15,
+			registration_url = $16
 		WHERE id = $1 AND organization_id = $2
 		RETURNING `+eventColumns+`
 	`, eventID, orgID,
@@ -191,6 +219,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, orgID, eventID string, par
 		nullString(params.VenueAddress), nullString(params.Description),
 		nullString(params.CoverImageKey), nullString(params.CoverVideoKey),
 		params.Discoverable, params.FeeHandling,
+		params.RegistrationMode, nullString(params.RegistrationURL),
 	)
 	return scanEvent(row)
 }

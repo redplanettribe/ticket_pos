@@ -21,6 +21,7 @@ import {
 } from "@ticket-pos/ui";
 
 import type { FeeHandling } from "@/lib/fees";
+import { isValidRegistrationURL, type RegistrationMode } from "@/lib/registration";
 import {
   dateTimeLocalToISO,
   fetchEventsJSON,
@@ -57,6 +58,8 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [coverVideoUrl, setCoverVideoUrl] = useState<string | null>(null);
   const [feeHandling, setFeeHandling] = useState<FeeHandling>("pass_on");
+  const [registrationMode, setRegistrationMode] = useState<RegistrationMode>("tickets");
+  const [registrationUrl, setRegistrationUrl] = useState("");
 
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
@@ -74,6 +77,8 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     setCoverImageUrl(event.cover_image_url);
     setCoverVideoUrl(event.cover_video_url);
     setFeeHandling(event.fee_handling);
+    setRegistrationMode(event.registration_mode);
+    setRegistrationUrl(event.registration_url ?? "");
   }, []);
 
   const loadEvent = useCallback(async () => {
@@ -93,6 +98,17 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     void loadEvent();
   }, [loadEvent]);
 
+  // Mirrors the backend's https-only allowlist so a bad Registration Link is
+  // caught as it is typed. The backend's check is the authoritative one — this
+  // is feedback, not the control (ADR 0028). An empty link is not an error: the
+  // mode may be chosen before the registration page exists.
+  const registrationUrlError =
+    registrationMode === "external" &&
+    registrationUrl.trim() !== "" &&
+    !isValidRegistrationURL(registrationUrl)
+      ? "Must be an https link, like https://lu.ma/your-event."
+      : null;
+
   async function saveEvent(): Promise<EventDetail | null> {
     try {
       const updated = await fetchEventsJSON<EventDetail>(`/api/events/${eventId}`, {
@@ -107,6 +123,8 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
           venue_address: venueAddress,
           description,
           fee_handling: feeHandling,
+          registration_mode: registrationMode,
+          registration_url: registrationUrl,
         }),
       });
       applyEvent(updated);
@@ -119,6 +137,10 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (registrationUrlError) {
+      toast.error(registrationUrlError);
+      return;
+    }
     setSaving(true);
     try {
       const updated = await saveEvent();
@@ -147,6 +169,10 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
   }
 
   const slugReadOnly = status !== "draft";
+  // The registration mode is settled while the Event is a draft. Once published
+  // it is frozen in both directions, and a new Event is the way to change your
+  // mind (ADR 0028).
+  const modeLocked = status !== "draft";
 
   const patchBody: EventPatchBody = {
     name,
@@ -253,38 +279,101 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
 
       <Card>
         <CardHeader>
-          <CardTitle>Service fee</CardTitle>
+          <CardTitle>Registration</CardTitle>
           <CardDescription>
-            Choose whether buyers cover the platform&apos;s service fee or you absorb it out of your
-            prices. Changes apply to future sales only.
+            Sell tickets here, or send people to another site to sign up. An event does one or the
+            other, and the choice is settled while it is a draft.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant={feeHandling === "pass_on" ? "secondary" : "outline"}
-              aria-pressed={feeHandling === "pass_on"}
-              onClick={() => setFeeHandling("pass_on")}
+              variant={registrationMode === "tickets" ? "secondary" : "outline"}
+              aria-pressed={registrationMode === "tickets"}
+              disabled={modeLocked}
+              onClick={() => setRegistrationMode("tickets")}
             >
-              Buyers cover it
+              Sell tickets here
             </Button>
             <Button
               type="button"
-              variant={feeHandling === "absorb" ? "secondary" : "outline"}
-              aria-pressed={feeHandling === "absorb"}
-              onClick={() => setFeeHandling("absorb")}
+              variant={registrationMode === "external" ? "secondary" : "outline"}
+              aria-pressed={registrationMode === "external"}
+              disabled={modeLocked}
+              onClick={() => setRegistrationMode("external")}
             >
-              I absorb it
+              Register on another site
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {feeHandling === "pass_on"
-              ? "Buyers pay a little above your ticket prices, and you receive exactly the price you set."
-              : "Buyers pay exactly the price you set, and the service fee comes out of it."}
-          </p>
+          {registrationMode === "external" ? (
+            <FormField
+              id="detail-registration-url"
+              label="Registration link"
+              description="The https page people sign up on — a Luma page, an Eventbrite listing, a form. You can choose this mode now and add the link later."
+              error={registrationUrlError}
+            >
+              <Input
+                id="detail-registration-url"
+                type="url"
+                inputMode="url"
+                value={registrationUrl}
+                onChange={(event) => setRegistrationUrl(event.target.value)}
+                placeholder="https://lu.ma/your-event"
+              />
+            </FormField>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              People buy ticket types on this event&apos;s page.
+            </p>
+          )}
+          {modeLocked ? (
+            <p className="text-sm text-muted-foreground">
+              Locked after publish. Create a new event to change how this one takes sign-ups.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
+
+      {/* Fee Handling is hidden on an externally registered Event: no Ticket Sale
+          is ever made here, so no Platform Fee is ever charged, and asking who
+          absorbs a fee that will never exist is a confusing question. */}
+      {registrationMode === "external" ? null : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Service fee</CardTitle>
+            <CardDescription>
+              Choose whether buyers cover the platform&apos;s service fee or you absorb it out of your
+              prices. Changes apply to future sales only.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={feeHandling === "pass_on" ? "secondary" : "outline"}
+                aria-pressed={feeHandling === "pass_on"}
+                onClick={() => setFeeHandling("pass_on")}
+              >
+                Buyers cover it
+              </Button>
+              <Button
+                type="button"
+                variant={feeHandling === "absorb" ? "secondary" : "outline"}
+                aria-pressed={feeHandling === "absorb"}
+                onClick={() => setFeeHandling("absorb")}
+              >
+                I absorb it
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {feeHandling === "pass_on"
+                ? "Buyers pay a little above your ticket prices, and you receive exactly the price you set."
+                : "Buyers pay exactly the price you set, and the service fee comes out of it."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

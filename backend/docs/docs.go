@@ -132,6 +132,13 @@ const docTemplate = `{
                     "name": {
                         "type": "string"
                     },
+                    "registration_mode": {
+                        "description": "RegistrationMode and RegistrationURL let an Event be created as externally\nregistered in one step. Both absent is the ordinary ticketed Event.",
+                        "type": "string"
+                    },
+                    "registration_url": {
+                        "type": "string"
+                    },
                     "slug": {
                         "type": "string"
                     }
@@ -400,6 +407,13 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "registration_mode": {
+                        "description": "RegistrationMode is 'tickets' or 'external' (ADR 0028), and RegistrationURL\nis the Registration Link. Both follow fee_handling's rule — absent leaves\nthe stored value alone — and the link additionally clears on an empty\nstring, the way cover_image_key does.",
+                        "type": "string"
+                    },
+                    "registration_url": {
                         "type": "string"
                     },
                     "slug": {
@@ -1617,6 +1631,17 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "registration_click_count": {
+                        "description": "RegistrationClickCount is how many times the hand-off to the Registration\nLink has been made. It counts clicks, never registrations or people: the\nplatform loses sight of the buyer at the link and never learns what happened\nnext. Read-only here — the redirect owns it, no Event form may write it.",
+                        "type": "integer"
+                    },
+                    "registration_mode": {
+                        "description": "RegistrationMode is how this Event takes sign-ups: 'tickets' or 'external'\n(ADR 0028). RegistrationURL is the Registration Link, null while an external\nEvent's registration page is still being built.",
+                        "type": "string"
+                    },
+                    "registration_url": {
                         "type": "string"
                     },
                     "slug": {

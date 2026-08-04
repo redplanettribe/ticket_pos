@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/service"
 	"github.com/peter/ticket_pos/backend/internal/identity/middleware"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -29,6 +30,10 @@ var slugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 type createEventBody struct {
 	Name string `json:"name"`
 	Slug string `json:"slug"`
+	// RegistrationMode and RegistrationURL let an Event be created as externally
+	// registered in one step. Both absent is the ordinary ticketed Event.
+	RegistrationMode *string `json:"registration_mode"`
+	RegistrationURL  *string `json:"registration_url"`
 }
 
 type updateEventBody struct {
@@ -47,6 +52,12 @@ type updateEventBody struct {
 	// FeeHandling is the Event's Fee Handling mode. Absent means "leave it
 	// alone": a form that does not know about the switch must not reset it.
 	FeeHandling *string `json:"fee_handling"`
+	// RegistrationMode is 'tickets' or 'external' (ADR 0028), and RegistrationURL
+	// is the Registration Link. Both follow fee_handling's rule — absent leaves
+	// the stored value alone — and the link additionally clears on an empty
+	// string, the way cover_image_key does.
+	RegistrationMode *string `json:"registration_mode"`
+	RegistrationURL  *string `json:"registration_url"`
 }
 
 type coverUploadURLBody struct {
@@ -116,7 +127,12 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	if fields := validateCreateEvent(body.Name, body.Slug); len(fields) > 0 {
+	fields := validateCreateEvent(body.Name, body.Slug)
+	mode, modeFields := parseRegistrationMode(body.RegistrationMode)
+	fields = append(fields, modeFields...)
+	registrationURL, urlFields := parseRegistrationURL(body.RegistrationURL)
+	fields = append(fields, urlFields...)
+	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
@@ -124,8 +140,10 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromRequest(r)
 
 	event, err := h.svc.CreateEvent(r.Context(), actor, service.CreateEventInput{
-		Name: body.Name,
-		Slug: body.Slug,
+		Name:             body.Name,
+		Slug:             body.Slug,
+		RegistrationMode: mode,
+		RegistrationURL:  registrationURL,
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
@@ -744,6 +762,45 @@ func validateCreateEvent(name, slug string) []platform.FieldError {
 	return fields
 }
 
+// parseRegistrationMode reads a submitted registration mode, returning nil when
+// the caller said nothing about it — which every form that predates External
+// Registration does, and which must leave the Event's mode alone.
+func parseRegistrationMode(raw *string) (*catalog.RegistrationMode, []platform.FieldError) {
+	if raw == nil {
+		return nil, nil
+	}
+	mode, ok := catalog.ParseRegistrationMode(strings.TrimSpace(*raw))
+	if !ok {
+		return nil, []platform.FieldError{{
+			Field:   "registration_mode",
+			Code:    platform.CodeInvalidRegistrationMode,
+			Message: "must be tickets or external",
+		}}
+	}
+	return &mode, nil
+}
+
+// parseRegistrationURL reads a submitted Registration Link. Absent leaves it
+// alone; blank clears it; anything else must pass the https scheme allowlist,
+// which is the security control this value's whole safety rests on.
+func parseRegistrationURL(raw *string) (*string, []platform.FieldError) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return &trimmed, nil
+	}
+	if !catalog.IsValidRegistrationURL(trimmed) {
+		return nil, []platform.FieldError{{
+			Field:   "registration_url",
+			Code:    platform.CodeInvalidRegistrationURL,
+			Message: "must be an https URL",
+		}}
+	}
+	return &trimmed, nil
+}
+
 func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platform.FieldError) {
 	var fields []platform.FieldError
 
@@ -803,21 +860,28 @@ func parseUpdateEvent(body updateEventBody) (service.UpdateEventInput, []platfor
 		}
 	}
 
+	registrationMode, modeFields := parseRegistrationMode(body.RegistrationMode)
+	fields = append(fields, modeFields...)
+	registrationURL, urlFields := parseRegistrationURL(body.RegistrationURL)
+	fields = append(fields, urlFields...)
+
 	if len(fields) > 0 {
 		return service.UpdateEventInput{}, fields
 	}
 
 	return service.UpdateEventInput{
-		Name:          name,
-		Slug:          slug,
-		StartsAt:      startsAt,
-		EndsAt:        endsAt,
-		Timezone:      body.Timezone,
-		VenueName:     body.VenueName,
-		VenueAddress:  body.VenueAddress,
-		Description:   body.Description,
-		CoverImageKey: body.CoverImageKey,
-		CoverVideoKey: body.CoverVideoKey,
-		FeeHandling:   feeHandling,
+		Name:             name,
+		Slug:             slug,
+		StartsAt:         startsAt,
+		EndsAt:           endsAt,
+		Timezone:         body.Timezone,
+		VenueName:        body.VenueName,
+		VenueAddress:     body.VenueAddress,
+		Description:      body.Description,
+		CoverImageKey:    body.CoverImageKey,
+		CoverVideoKey:    body.CoverVideoKey,
+		FeeHandling:      feeHandling,
+		RegistrationMode: registrationMode,
+		RegistrationURL:  registrationURL,
 	}, nil
 }

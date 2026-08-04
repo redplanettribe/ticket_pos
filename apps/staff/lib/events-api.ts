@@ -1,5 +1,6 @@
 import type { FeeHandling } from "./fees";
 import type { Promotion } from "./promotions";
+import type { RegistrationMode } from "./registration";
 
 export type APIEnvelope<T> = {
   data: T | null;
@@ -52,6 +53,15 @@ export type EventDetail = {
   /** The fee schedule in force, in basis points — the derived-line inputs. */
   fee_basis_points: number;
   fee_iva_basis_points: number;
+  /** How this Event takes sign-ups: tickets here, or a Registration Link
+   * elsewhere. Never both (ADR 0028). */
+  registration_mode: RegistrationMode;
+  /** The Registration Link, null while an external Event's registration page is
+   * still being built. */
+  registration_url: string | null;
+  /** Hand-offs to the Registration Link. Clicks — never registrations, never
+   * people: the platform loses sight of the buyer at the link. */
+  registration_click_count: number;
   created_at: string;
 };
 
@@ -71,6 +81,15 @@ export type EventPatchBody = {
   venue_address: string;
   description: string;
   fee_handling: FeeHandling;
+  /**
+   * The External Registration pair, both optional because the API's rule is
+   * that an absent field leaves the stored value alone. The side-saves that
+   * borrow this body — the cover image and the cover video — deliberately omit
+   * them, so a half-typed Registration Link can never block an upload from
+   * saving. "" clears the link.
+   */
+  registration_mode?: RegistrationMode;
+  registration_url?: string;
 };
 
 export type TicketType = {

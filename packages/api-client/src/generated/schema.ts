@@ -5662,6 +5662,12 @@ export interface components {
         };
         "handler.createEventBody": {
             name?: string;
+            /**
+             * @description RegistrationMode and RegistrationURL let an Event be created as externally
+             *     registered in one step. Both absent is the ordinary ticketed Event.
+             */
+            registration_mode?: string;
+            registration_url?: string;
             slug?: string;
         };
         "handler.createOrganizationBody": {
@@ -5770,6 +5776,14 @@ export interface components {
              */
             fee_handling?: string;
             name?: string;
+            /**
+             * @description RegistrationMode is 'tickets' or 'external' (ADR 0028), and RegistrationURL
+             *     is the Registration Link. Both follow fee_handling's rule — absent leaves
+             *     the stored value alone — and the link additionally clears on an empty
+             *     string, the way cover_image_key does.
+             */
+            registration_mode?: string;
+            registration_url?: string;
             slug?: string;
             starts_at?: string;
             timezone?: string;
@@ -6279,6 +6293,20 @@ export interface components {
             fee_iva_basis_points?: number;
             id?: string;
             name?: string;
+            /**
+             * @description RegistrationClickCount is how many times the hand-off to the Registration
+             *     Link has been made. It counts clicks, never registrations or people: the
+             *     platform loses sight of the buyer at the link and never learns what happened
+             *     next. Read-only here — the redirect owns it, no Event form may write it.
+             */
+            registration_click_count?: number;
+            /**
+             * @description RegistrationMode is how this Event takes sign-ups: 'tickets' or 'external'
+             *     (ADR 0028). RegistrationURL is the Registration Link, null while an external
+             *     Event's registration page is still being built.
+             */
+            registration_mode?: string;
+            registration_url?: string;
             slug?: string;
             starts_at?: string;
             status?: string;

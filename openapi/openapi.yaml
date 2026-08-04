@@ -104,6 +104,13 @@ components:
       properties:
         name:
           type: string
+        registration_mode:
+          description: |-
+            RegistrationMode and RegistrationURL let an Event be created as externally
+            registered in one step. Both absent is the ordinary ticketed Event.
+          type: string
+        registration_url:
+          type: string
         slug:
           type: string
       type: object
@@ -285,6 +292,15 @@ components:
             alone": a form that does not know about the switch must not reset it.
           type: string
         name:
+          type: string
+        registration_mode:
+          description: |-
+            RegistrationMode is 'tickets' or 'external' (ADR 0028), and RegistrationURL
+            is the Registration Link. Both follow fee_handling's rule — absent leaves
+            the stored value alone — and the link additionally clears on an empty
+            string, the way cover_image_key does.
+          type: string
+        registration_url:
           type: string
         slug:
           type: string
@@ -1140,6 +1156,21 @@ components:
         id:
           type: string
         name:
+          type: string
+        registration_click_count:
+          description: |-
+            RegistrationClickCount is how many times the hand-off to the Registration
+            Link has been made. It counts clicks, never registrations or people: the
+            platform loses sight of the buyer at the link and never learns what happened
+            next. Read-only here — the redirect owns it, no Event form may write it.
+          type: integer
+        registration_mode:
+          description: |-
+            RegistrationMode is how this Event takes sign-ups: 'tickets' or 'external'
+            (ADR 0028). RegistrationURL is the Registration Link, null while an external
+            Event's registration page is still being built.
+          type: string
+        registration_url:
           type: string
         slug:
           type: string
