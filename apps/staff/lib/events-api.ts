@@ -344,6 +344,13 @@ export type PublishReadinessEvent = {
   slug: string;
   starts_at: string | null;
   timezone: string | null;
+  /**
+   * The registration pair. Optional so callers that predate External
+   * Registration keep the ticketed reading, which is the same default the
+   * server applies to a row it does not recognise.
+   */
+  registration_mode?: RegistrationMode;
+  registration_url?: string | null;
 };
 
 /**
@@ -351,6 +358,10 @@ export type PublishReadinessEvent = {
  * missing requirement keys (empty when the persisted Event may be published).
  * Kept pure and dependency-free so it is directly unit-testable and can drive
  * the header bar's Publish button without any form state.
+ *
+ * A mirror of the server's publish gate, and wrong when it drifts from it: the
+ * server is what decides, and this exists only so the button and its hint say
+ * the same thing before the request is made.
  */
 export function getPublishMissingFields(event: PublishReadinessEvent, ticketTypeCount: number): string[] {
   const missing: string[] = [];
@@ -366,7 +377,14 @@ export function getPublishMissingFields(event: PublishReadinessEvent, ticketType
   if (!event.timezone || !event.timezone.trim()) {
     missing.push("timezone");
   }
-  if (ticketTypeCount === 0) {
+  // The way in is the mode's: an externally registered Event needs its
+  // Registration Link and never a Ticket Type, so naming ticket types here would
+  // point the organizer at something the Event does not have and cannot use.
+  if (event.registration_mode === "external") {
+    if (!event.registration_url || !event.registration_url.trim()) {
+      missing.push("registration_url");
+    }
+  } else if (ticketTypeCount === 0) {
     missing.push("ticket_types");
   }
   return missing;
@@ -379,6 +397,7 @@ export const PUBLISH_FIELD_LABELS: Record<string, string> = {
   starts_at: "schedule",
   timezone: "timezone",
   ticket_types: "at least one ticket type",
+  registration_url: "a registration link",
 };
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string): number {

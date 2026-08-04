@@ -271,7 +271,7 @@ func (h *Handler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 // PublishEvent publishes a draft Event when requirements are met.
 //
 // @Summary      Publish event
-// @Description  Publishes a draft catalog event when required fields and ticket types are present.
+// @Description  Publishes a draft catalog event when required fields and its way in are present: at least one ticket type, or a registration link when the event registers externally.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth

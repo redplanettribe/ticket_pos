@@ -24,6 +24,7 @@ import {
   statusBadgeVariant,
   type EventDetail,
 } from "@/lib/events-api";
+import type { RegistrationMode } from "@/lib/registration";
 
 import { DiscoverabilityToggle } from "../discoverability-toggle";
 
@@ -36,6 +37,9 @@ type EventHeaderBarProps = {
   startsAt: string | null;
   timezone: string | null;
   ticketTypeCount: number;
+  /** The registration pair: which way in the Event needs before it can publish. */
+  registrationMode: RegistrationMode;
+  registrationUrl: string | null;
   /** Seeds the Discoverable toggle; the same flag the events list edits. */
   discoverable: boolean;
 };
@@ -52,6 +56,8 @@ export function EventHeaderBar({
   startsAt,
   timezone,
   ticketTypeCount,
+  registrationMode,
+  registrationUrl,
   discoverable: initialDiscoverable,
 }: EventHeaderBarProps) {
   const router = useRouter();
@@ -69,7 +75,17 @@ export function EventHeaderBar({
   // fetched by the layout + persisted Ticket Type count) — never form state.
   const missingFields =
     backendMissingFields ??
-    getPublishMissingFields({ name, slug, starts_at: startsAt, timezone }, ticketTypeCount);
+    getPublishMissingFields(
+      {
+        name,
+        slug,
+        starts_at: startsAt,
+        timezone,
+        registration_mode: registrationMode,
+        registration_url: registrationUrl,
+      },
+      ticketTypeCount,
+    );
   const canPublish = status === "draft" && missingFields.length === 0;
 
   async function handlePublish() {

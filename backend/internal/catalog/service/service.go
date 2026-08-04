@@ -380,6 +380,30 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 		params.RegistrationURL = nullStringFromPtr(input.RegistrationURL)
 	}
 
+	// The published-state freezes, enforced here because the server is the only
+	// place enforcement lives: a disabled button in the staff form stops a click,
+	// not a request (#208).
+	//
+	// Both bind on the final state of the update rather than on which fields the
+	// request happened to carry, like the poster rule above — the Event form
+	// resubmits the whole registration pair on every save, so restating the mode
+	// an Event already has is not a change and must go through.
+	if event.Status != repository.EventStatusDraft {
+		currentMode := string(catalog.RegistrationModeOrDefault(event.RegistrationMode))
+		// The mode is settled while the Event is a draft and frozen in both
+		// directions afterwards; the escape hatch is a new Event.
+		if params.RegistrationMode != currentMode {
+			return nil, catalog.ErrEventRegistrationModeLocked()
+		}
+	}
+	if event.Status == repository.EventStatusPublished &&
+		params.RegistrationMode == string(catalog.RegistrationModeExternal) &&
+		strings.TrimSpace(params.RegistrationURL.String) == "" {
+		// A published external Event has no Ticket Types behind it, so the
+		// Registration Link is the only way in: it is correctable, never removable.
+		return nil, catalog.ErrEventRegistrationURLRequired()
+	}
+
 	// The exclusivity invariant, seen from the Event's side: an Event may not
 	// register externally while Ticket Types still sit behind it (ADR 0028). It
 	// binds on the final state of the update rather than on whether the request
@@ -476,12 +500,25 @@ func (s *Service) PublishEvent(ctx context.Context, actor ActorContext, eventID 
 	}
 
 	missing := publishMissingFields(event)
-	ticketCount, err := s.repo.CountTicketTypesByEventID(ctx, actor.OrganizationID, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if ticketCount == 0 {
-		missing = append(missing, "ticket_types")
+
+	// The way in. Every Event needs one, and which one it needs is the mode: a
+	// ticketed Event needs at least one Ticket Type, exactly as it always has,
+	// and an externally registered one needs its Registration Link instead
+	// (ADR 0028). Naming the wrong one sends the organizer to fix something the
+	// Event does not use — an external Event has no Ticket Types by construction,
+	// so "add a ticket type" is advice it cannot take.
+	if catalog.RegistrationModeOrDefault(event.RegistrationMode) == catalog.RegistrationModeExternal {
+		if !event.RegistrationURL.Valid || strings.TrimSpace(event.RegistrationURL.String) == "" {
+			missing = append(missing, "registration_url")
+		}
+	} else {
+		ticketCount, err := s.repo.CountTicketTypesByEventID(ctx, actor.OrganizationID, eventID)
+		if err != nil {
+			return nil, err
+		}
+		if ticketCount == 0 {
+			missing = append(missing, "ticket_types")
+		}
 	}
 	if len(missing) > 0 {
 		return nil, catalog.ErrEventPublishRequirementsNotMet(missing)

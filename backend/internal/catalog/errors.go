@@ -87,6 +87,44 @@ func ErrEventHasTicketTypes() apperror.DomainError {
 	)
 }
 
+// ErrEventRegistrationModeLocked is returned when the mode of an Event that is no
+// longer a draft would change, in either direction (ADR 0028, issue #208).
+//
+// Publishing is the moment the mode sets. Ticketed → external on a published Event
+// would orphan real Ticket Sales, leaving Customers holding Sale Confirmations for
+// an Event whose page no longer mentions tickets while capacity, Net Proceeds and
+// the Withdrawable Balance still count those sales. External → ticketed risks
+// nothing in itself, but passes through the exact state the publish gate exists to
+// forbid: published with zero Ticket Types, which renders as an empty ticket
+// selector on a listing card that shows no price and is not marked sold out.
+//
+// The Event status machine has no unpublish transition, so the escape hatch for a
+// genuine change of mind is a new Event — which is what the message says, because
+// an organizer told only "no" would go looking for a setting that does not exist.
+func ErrEventRegistrationModeLocked() apperror.DomainError {
+	return apperror.New(
+		"EVENT_REGISTRATION_MODE_LOCKED",
+		"How an event takes sign-ups is settled when it is published and cannot change afterwards. Create a new event instead.",
+		nil,
+	)
+}
+
+// ErrEventRegistrationURLRequired is returned when an update would leave a
+// published externally registered Event with no Registration Link.
+//
+// The link may be corrected — a typo, a rescheduled registration page — but never
+// emptied, because on such an Event it is the only way in: there are no Ticket
+// Types behind it, so an Event without it is a published page its audience cannot
+// act on. Distinct from the format refusal (INVALID_REGISTRATION_URL), which is
+// about a value this platform will not store at all.
+func ErrEventRegistrationURLRequired() apperror.DomainError {
+	return apperror.New(
+		"EVENT_REGISTRATION_URL_REQUIRED",
+		"A published event that registers externally must keep its registration link: it is the only way in. Replace it rather than removing it.",
+		nil,
+	)
+}
+
 // ErrTicketTypeDeleteForbidden is returned when delete is attempted while the parent Event is not draft.
 func ErrTicketTypeDeleteForbidden() apperror.DomainError {
 	return apperror.New("TICKET_TYPE_DELETE_FORBIDDEN", "Ticket types can only be deleted while the event is a draft.", nil)

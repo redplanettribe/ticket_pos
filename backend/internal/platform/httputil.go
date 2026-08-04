@@ -171,6 +171,14 @@ func domainHTTPStatus(code string) int {
 	// rather than one because they are two different instructions to the reader.
 	case "EVENT_IS_EXTERNAL_REGISTRATION", "EVENT_HAS_TICKET_TYPES":
 		return http.StatusConflict
+	// The two published-state freezes on the same pair (#208). Both 409 for the
+	// same reason as their neighbours above: the request was well formed and the
+	// caller entitled to make it, and what stands in the way is the Event's own
+	// status. Neither is a body the caller can fix into success — one needs a new
+	// Event, the other needs a replacement link rather than a removal — which is
+	// why they are 409 and not 400.
+	case "EVENT_REGISTRATION_MODE_LOCKED", "EVENT_REGISTRATION_URL_REQUIRED":
+		return http.StatusConflict
 	// The Promotion refusals (ADR 0021). All 409: the request was well formed and
 	// the caller was entitled to make it, but the catalog is not in a state that
 	// admits it — the one slot is taken, or the price would break the invariant

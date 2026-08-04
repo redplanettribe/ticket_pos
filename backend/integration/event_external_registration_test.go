@@ -401,3 +401,303 @@ func TestEventCreationRefusedWithExternalRegistrationAndABadRegistrationLink(t *
 		t.Fatalf("listed %d events after a refused create; want none", len(listed))
 	}
 }
+
+// Publishing an externally registered Event (issue #208). The publish gate takes
+// a Registration Link in place of Ticket Types, and publishing is the moment the
+// mode sets: afterwards the mode is frozen in both directions and the link may be
+// corrected but never emptied.
+
+// createExternalEvent creates a draft Event that registers externally, with a
+// Registration Link when one is given, and fills in everything else the publish
+// gate asks for so the only open question is the registration pair.
+func createPublishableExternalEvent(t *testing.T, env *testEnv, sessionID, registrationURL string) string {
+	t.Helper()
+	create := map[string]any{
+		"name":              "External Event",
+		"slug":              "external-event",
+		"registration_mode": "external",
+	}
+	if registrationURL != "" {
+		create["registration_url"] = registrationURL
+	}
+	resp, body := env.post(t, "/api/v1/staff/events", create, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create external event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body.Data, &created); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	// patchEventRegistration carries the schedule and timezone the publish gate
+	// requires of every Event, external or not.
+	if resp, body = patchEventRegistration(t, env, sessionID, created.ID, nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch external event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	return created.ID
+}
+
+func publishExternalRegistrationEvent(t *testing.T, env *testEnv, sessionID, registrationURL string) string {
+	t.Helper()
+	eventID := createPublishableExternalEvent(t, env, sessionID, registrationURL)
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish external event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	return eventID
+}
+
+func TestExternalEventPublishesWithARegistrationLinkAndNoTicketTypes(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createPublishableExternalEvent(t, env, sessionID, "https://lu.ma/my-meetup")
+
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish status=%d error=%+v; want 200", resp.StatusCode, body.Error)
+	}
+	if body.Error != nil {
+		t.Fatalf("publish error=%+v; want none", body.Error)
+	}
+	var published eventRegistrationView
+	if err := json.Unmarshal(body.Data, &published); err != nil {
+		t.Fatalf("decode published event: %v", err)
+	}
+	if published.Status != "published" {
+		t.Fatalf("status = %q; want published", published.Status)
+	}
+	if published.RegistrationMode != "external" || published.RegistrationURL == nil {
+		t.Fatalf("published registration = %+v; want external with its link", published)
+	}
+
+	// It really has no Ticket Types: the Registration Link stood in for them.
+	resp, body = env.get(t, "/api/v1/staff/events/"+eventID+"/ticket-types", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list ticket types status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var types []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body.Data, &types); err != nil {
+		t.Fatalf("decode ticket types: %v", err)
+	}
+	if len(types) != 0 {
+		t.Fatalf("published external event has %d ticket types; want none", len(types))
+	}
+}
+
+func TestExternalEventPublishRefusedWithoutARegistrationLink(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createPublishableExternalEvent(t, env, sessionID, "")
+
+	// The missing field names the Registration Link, not ticket types: an
+	// organizer told to add a ticket type to an Event that sells none has been
+	// sent to fix the wrong thing.
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("publish without a link status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "EVENT_PUBLISH_REQUIREMENTS_NOT_MET" {
+		t.Fatalf("publish error=%+v; want EVENT_PUBLISH_REQUIREMENTS_NOT_MET", body.Error)
+	}
+	assertMissingFields(t, body.Error.Details, "registration_url")
+
+	// Adding the link is the whole fix.
+	if resp, body = patchEventRegistration(t, env, sessionID, eventID, map[string]any{
+		"registration_url": "https://lu.ma/my-meetup",
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("add registration link status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if resp, body = env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish after adding the link status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+func TestExternalEventPublishStillRequiresTheEventsOwnFields(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	// An Event created but never filled in: no schedule, no timezone, and no
+	// Registration Link either.
+	resp, body := env.post(t, "/api/v1/staff/events", map[string]any{
+		"name":              "External Event",
+		"slug":              "external-event",
+		"registration_mode": "external",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create external event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body.Data, &created); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	resp, body = env.post(t, "/api/v1/staff/events/"+created.ID+"/publish", nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("publish status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "EVENT_PUBLISH_REQUIREMENTS_NOT_MET" {
+		t.Fatalf("publish error=%+v; want EVENT_PUBLISH_REQUIREMENTS_NOT_MET", body.Error)
+	}
+	assertMissingFields(t, body.Error.Details, "starts_at", "timezone", "registration_url")
+}
+
+func TestTicketedEventPublishStillRefusedWithoutTicketTypes(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "External Event", "external-event")
+
+	// The regression guard: External Registration changed nothing for an Event
+	// that sells tickets here, and the refusal still names ticket types.
+	if resp, body := patchEventRegistration(t, env, sessionID, eventID, nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	resp, body := env.post(t, "/api/v1/staff/events/"+eventID+"/publish", nil, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("publish status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "EVENT_PUBLISH_REQUIREMENTS_NOT_MET" {
+		t.Fatalf("publish error=%+v; want EVENT_PUBLISH_REQUIREMENTS_NOT_MET", body.Error)
+	}
+	assertMissingFields(t, body.Error.Details, "ticket_types")
+}
+
+func TestRegistrationLinkEditableOnAPublishedEventAndTheClickCountSurvives(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := publishExternalRegistrationEvent(t, env, sessionID, "https://lu.ma/typo")
+
+	// The click counter belongs to the redirect route, which no staff or public
+	// API exposes yet, so SQL is the only way to put a count on the Event.
+	if _, err := env.db.ExecContext(t.Context(),
+		`UPDATE events SET registration_click_count = 17 WHERE id = $1`, eventID,
+	); err != nil {
+		t.Fatalf("seed click count: %v", err)
+	}
+
+	resp, body := patchEventRegistration(t, env, sessionID, eventID, map[string]any{
+		"registration_url": "https://lu.ma/rescheduled",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("edit link on a published event status=%d error=%+v; want 200", resp.StatusCode, body.Error)
+	}
+
+	view := getEventRegistration(t, env, sessionID, eventID)
+	if view.RegistrationURL == nil || *view.RegistrationURL != "https://lu.ma/rescheduled" {
+		t.Fatalf("registration_url = %v; want the corrected link", view.RegistrationURL)
+	}
+	// Correcting a typo is not a reason to forget how many people the Event has
+	// already handed over.
+	if view.RegistrationClickCount != 17 {
+		t.Fatalf("registration_click_count = %d after an edit; want the untouched 17", view.RegistrationClickCount)
+	}
+	if view.Status != "published" {
+		t.Fatalf("status = %q; want published", view.Status)
+	}
+}
+
+func TestRegistrationLinkCannotBeClearedOnAPublishedEvent(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := publishExternalRegistrationEvent(t, env, sessionID, "https://lu.ma/my-meetup")
+
+	// Blank in any spelling the form can produce is refused: the guard is on the
+	// state the update would leave behind, so a published external Event can
+	// never end a request with nowhere to send its audience.
+	for _, submitted := range []any{"", "   "} {
+		resp, body := patchEventRegistration(t, env, sessionID, eventID, map[string]any{
+			"registration_url": submitted,
+		})
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("clear link with %#v status=%d error=%+v; want 409", submitted, resp.StatusCode, body.Error)
+		}
+		if body.Error == nil || body.Error.Code != "EVENT_REGISTRATION_URL_REQUIRED" {
+			t.Fatalf("clear link with %#v error=%+v; want EVENT_REGISTRATION_URL_REQUIRED", submitted, body.Error)
+		}
+		if body.Data != nil && string(body.Data) != "null" {
+			t.Fatalf("expected null data on a refusal, got %s", body.Data)
+		}
+	}
+
+	// A JSON null is how this API says nothing about a field (#207), so it cannot
+	// empty the link either — it leaves the Event exactly as it was.
+	resp, body := patchEventRegistration(t, env, sessionID, eventID, map[string]any{
+		"registration_url": nil,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("null registration_url status=%d error=%+v; want 200", resp.StatusCode, body.Error)
+	}
+
+	// The link the Customers are following is still there.
+	view := getEventRegistration(t, env, sessionID, eventID)
+	if view.RegistrationURL == nil || *view.RegistrationURL != "https://lu.ma/my-meetup" {
+		t.Fatalf("registration_url after the refusals = %v; want the untouched link", view.RegistrationURL)
+	}
+}
+
+func TestRegistrationModeFrozenOnAPublishedEventInBothDirections(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	// External to ticketed: refused because it passes through the state the
+	// publish gate exists to forbid — published with zero Ticket Types.
+	externalID := publishExternalRegistrationEvent(t, env, sessionID, "https://lu.ma/my-meetup")
+	resp, body := patchEventRegistration(t, env, sessionID, externalID, map[string]any{
+		"registration_mode": "tickets",
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("external to tickets status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "EVENT_REGISTRATION_MODE_LOCKED" {
+		t.Fatalf("external to tickets error=%+v; want EVENT_REGISTRATION_MODE_LOCKED", body.Error)
+	}
+	if got := getEventRegistration(t, env, sessionID, externalID).RegistrationMode; got != "external" {
+		t.Fatalf("registration_mode after the refusal = %q; want external", got)
+	}
+
+	// Resubmitting the mode it already has is not a change and goes through: the
+	// Event form sends the whole registration pair on every save.
+	if resp, body = patchEventRegistration(t, env, sessionID, externalID, map[string]any{
+		"registration_mode": "external",
+		"registration_url":  "https://lu.ma/my-meetup",
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("resubmit the same mode status=%d error=%+v; want 200", resp.StatusCode, body.Error)
+	}
+
+	// Ticketed to external: refused because it would orphan real Ticket Sales.
+	ticketedID := createDraftEvent(t, env, sessionID, "Ticketed Event", "ticketed-event")
+	createTicketType(t, env, sessionID, ticketedID)
+	if resp, body = env.patch(t, "/api/v1/staff/events/"+ticketedID, map[string]any{
+		"name":      "Ticketed Event",
+		"slug":      "ticketed-event",
+		"starts_at": env.fixedClock.Add(72 * time.Hour).Format(time.RFC3339),
+		"timezone":  "America/Guayaquil",
+	}, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch ticketed event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if resp, body = env.post(t, "/api/v1/staff/events/"+ticketedID+"/publish", nil, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish ticketed event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	resp, body = env.patch(t, "/api/v1/staff/events/"+ticketedID, map[string]any{
+		"name":              "Ticketed Event",
+		"slug":              "ticketed-event",
+		"starts_at":         env.fixedClock.Add(72 * time.Hour).Format(time.RFC3339),
+		"timezone":          "America/Guayaquil",
+		"registration_mode": "external",
+		"registration_url":  "https://lu.ma/my-meetup",
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("tickets to external status=%d error=%+v; want 409", resp.StatusCode, body.Error)
+	}
+	if body.Error == nil || body.Error.Code != "EVENT_REGISTRATION_MODE_LOCKED" {
+		t.Fatalf("tickets to external error=%+v; want EVENT_REGISTRATION_MODE_LOCKED", body.Error)
+	}
+	if got := getEventRegistration(t, env, sessionID, ticketedID).RegistrationMode; got != "tickets" {
+		t.Fatalf("registration_mode after the refusal = %q; want tickets", got)
+	}
+}
