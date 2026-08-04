@@ -74,6 +74,7 @@ func actorFromRequest(r *http.Request) service.ActorContext {
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Failure      404  {object}  platform.Envelope
+// @Failure      409  {object}  platform.Envelope
 // @Router       /api/v1/staff/events/{id}/sale-imports/template [get]
 func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -114,6 +115,7 @@ func (h *Handler) DownloadSaleImportTemplate(w http.ResponseWriter, r *http.Requ
 // @Failure      401   {object}  platform.Envelope
 // @Failure      403   {object}  platform.Envelope
 // @Failure      404   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
 // @Router       /api/v1/staff/events/{id}/sale-imports/preview [post]
 func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -121,6 +123,14 @@ func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return
+	}
+
+	// Ahead of the upload, for the reason the commit checks ahead of the body:
+	// there is nothing to preview against an Event that sells no tickets, and
+	// the file's own problems are beside the point (issue #212).
+	if err := h.svc.EnsureEventSellsTickets(r.Context(), actorFromRequest(r), eventID); err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 
@@ -142,7 +152,7 @@ func (h *Handler) PreviewSaleImport(w http.ResponseWriter, r *http.Request) {
 // `idempotency_key` and `source` fields) or as a JSON body.
 //
 // @Summary      Commit a Direct Sale Import
-// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).
+// @Description  Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025). An Event that registers externally sells no tickets on this platform, so every form of this call — both Sales Sources, file and JSON alike — is refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and before any Ticket Type is resolved: the refusal names the mode rather than a Ticket Type that does not exist and never will (ADR 0028).
 // @Tags         staff
 // @Accept       json
 // @Accept       multipart/form-data
@@ -163,6 +173,17 @@ func (h *Handler) CommitDirectSaleImport(w http.ResponseWriter, r *http.Request)
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return
+	}
+
+	// Before the body is read at all: an externally registered Event sells no
+	// tickets, so no batch it could be carrying is importable, and telling the
+	// caller to fix their Sales Source or their ticket_type_id would be sending
+	// them after a problem that is not there (ADR 0028, issue #212). The service
+	// enforces the same invariant on the way in; this is what makes the refusal
+	// beat the body's own validation.
+	if err := h.svc.EnsureEventSellsTickets(r.Context(), actorFromRequest(r), eventID); err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 

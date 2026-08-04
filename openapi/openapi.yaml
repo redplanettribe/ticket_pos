@@ -1926,6 +1926,28 @@ components:
             anywhere. No amount is exposed; the platform's cut is never a number a
             Customer sees (ADR 0014).
           type: boolean
+        registration_mode:
+          description: |-
+            RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+            Ticket Types here) or 'external' (it hands its audience to the Registration
+            Link). Never both (ADR 0028). It is what tells the Storefront whether to
+            render a ticket selector at all, so it is stated on every Event rather than
+            inferred from an empty ticket_types — an Event whose Ticket Types are all
+            sold out is not the same page as one that sells nothing here.
+          type: string
+        registration_url:
+          description: |-
+            RegistrationURL is the Registration Link, present only on an external
+            Event. The Storefront needs the URL itself and not merely the fact of it:
+            the Register panel names the destination's hostname beneath the call to
+            action, because a Customer being handed to a stranger should learn which
+            one before they click rather than after.
+
+            It is null for a ticketed Event even if a link is stored — a link a
+            ticketed Event does not use is nothing a Customer should be offered — and
+            null for an external Event still missing one, which a published Event
+            cannot be (the publish gate requires it, #208).
+          type: string
         slug:
           type: string
         starts_at:
@@ -5172,7 +5194,11 @@ paths:
         a refusal through, and a Purchase Limit is a guardrail an Organization sets
         for itself — the same Org Admin may clear the limit, import, and set it back,
         which is the documented way to import history recorded before the limit existed
-        (ADR 0025).'
+        (ADR 0025). An Event that registers externally sells no tickets on this platform,
+        so every form of this call — both Sales Sources, file and JSON alike — is
+        refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and
+        before any Ticket Type is resolved: the refusal names the mode rather than
+        a Ticket Type that does not exist and never will (ADR 0028).'
       parameters:
       - description: Event ID
         in: path
@@ -5370,6 +5396,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
       security:
       - BearerAuth: []
       summary: Preview a Sale Import file
@@ -5415,6 +5447,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Not Found
+        "409":
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
       security:
       - BearerAuth: []
       summary: Download the Sale Import template

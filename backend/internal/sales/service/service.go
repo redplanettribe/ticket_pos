@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	"github.com/peter/ticket_pos/backend/internal/sales/importfile"
@@ -213,6 +214,42 @@ func (s *Service) WithAffiliateLinks(resolver AffiliateLinkResolver) *Service {
 	return s
 }
 
+// EnsureEventSellsTickets refuses, with the dedicated code, when the Event
+// registers externally: it sells nothing here and never will, so no path may
+// record a Ticket Sale against it (ADR 0028, issue #212).
+//
+// It exists as its own exported step because the refusal has to come FIRST — the
+// handler calls it before it judges the request body, so a caller is told the
+// one thing that is actually true about this Event rather than being sent to fix
+// a Ticket Type id, a Sales Source or a spreadsheet cell that would not have
+// helped. Every path that records a Ticket Sale outside online checkout belongs
+// here: the Sale Import today, the In-Person Sale and the Integration Partner
+// endpoints when they land.
+//
+// An Event that does not exist is NOT this function's business: it returns nil
+// and leaves EVENT_NOT_FOUND to the path that was going to say it, so calling
+// this first reorders nothing but the mode.
+func (s *Service) EnsureEventSellsTickets(ctx context.Context, actor ActorContext, eventID string) error {
+	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	return refuseExternalRegistration(event)
+}
+
+// refuseExternalRegistration is the guard itself, applied wherever the sales
+// domain has already loaded an Event's context. Ticketed Events — and rows
+// carrying a mode this binary does not recognise — pass straight through.
+func refuseExternalRegistration(event *repository.EventImportContext) error {
+	if catalog.RegistrationModeOrDefault(event.RegistrationMode) == catalog.RegistrationModeExternal {
+		return catalog.ErrEventIsExternalRegistration()
+	}
+	return nil
+}
+
 // CommitImport records a Direct Sale Import for an Event: each row becomes a
 // Ticket Sale with one Line, capacity decrements atomically, and each customer is
 // emailed a Sale Confirmation. The batch is all-or-nothing and idempotent.
@@ -226,6 +263,11 @@ func (s *Service) CommitImport(ctx context.Context, actor ActorContext, eventID 
 	}
 	if !ok {
 		return nil, sales.ErrEventNotFound()
+	}
+	// The invariant, not just the handler's early word: an externally registered
+	// Event records no Ticket Sale by any route into this service.
+	if err := refuseExternalRegistration(event); err != nil {
+		return nil, err
 	}
 	return s.commit(ctx, actor, eventID, event, input.Source, input.IdempotencyKey, input.Sales)
 }
@@ -840,6 +882,14 @@ func (s *Service) loadImportContext(ctx context.Context, orgID, eventID string) 
 	}
 	if !ok {
 		return nil, nil, nil, sales.ErrEventNotFound()
+	}
+	// Before the Ticket Types are read, never after: on an externally registered
+	// Event the read would come back empty and every downstream surface — the
+	// template's type list, the preview's per-row match, the file commit — would
+	// report a missing Ticket Type instead of the mode that guarantees there is
+	// none (ADR 0028, issue #212).
+	if err := refuseExternalRegistration(event); err != nil {
+		return nil, nil, nil, err
 	}
 
 	rows, err := s.repo.ListEventTicketTypes(ctx, orgID, eventID)

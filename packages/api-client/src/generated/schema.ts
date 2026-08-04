@@ -3559,7 +3559,7 @@ export interface paths {
         put?: never;
         /**
          * Commit a Direct Sale Import
-         * @description Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).
+         * @description Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025). An Event that registers externally sells no tickets on this platform, so every form of this call — both Sales Sources, file and JSON alike — is refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and before any Ticket Type is resolved: the refusal names the mode rather than a Ticket Type that does not exist and never will (ADR 0028).
          */
         post: {
             parameters: {
@@ -3811,6 +3811,15 @@ export interface paths {
                         "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -3871,6 +3880,15 @@ export interface paths {
                 };
                 /** @description Not Found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6844,6 +6862,28 @@ export interface components {
              *     Customer sees (ADR 0014).
              */
             price_includes_fee?: boolean;
+            /**
+             * @description RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+             *     Ticket Types here) or 'external' (it hands its audience to the Registration
+             *     Link). Never both (ADR 0028). It is what tells the Storefront whether to
+             *     render a ticket selector at all, so it is stated on every Event rather than
+             *     inferred from an empty ticket_types — an Event whose Ticket Types are all
+             *     sold out is not the same page as one that sells nothing here.
+             */
+            registration_mode?: string;
+            /**
+             * @description RegistrationURL is the Registration Link, present only on an external
+             *     Event. The Storefront needs the URL itself and not merely the fact of it:
+             *     the Register panel names the destination's hostname beneath the call to
+             *     action, because a Customer being handed to a stranger should learn which
+             *     one before they click rather than after.
+             *
+             *     It is null for a ticketed Event even if a link is stored — a link a
+             *     ticketed Event does not use is nothing a Customer should be offered — and
+             *     null for an external Event still missing one, which a published Event
+             *     cannot be (the publish gate requires it, #208).
+             */
+            registration_url?: string;
             slug?: string;
             starts_at?: string;
             tags?: components["schemas"]["service.TagView"][];

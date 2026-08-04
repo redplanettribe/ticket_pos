@@ -2455,6 +2455,14 @@ const docTemplate = `{
                         "description": "PriceIncludesFee reports that the quoted prices carry the platform's\nservice fee — true under 'pass_on' Fee Handling. It is the whole basis of\nthe Storefront's single muted \"includes service fee\" note: under 'absorb'\nthe buyer pays exactly what the Organization set and no fee is mentioned\nanywhere. No amount is exposed; the platform's cut is never a number a\nCustomer sees (ADR 0014).",
                         "type": "boolean"
                     },
+                    "registration_mode": {
+                        "description": "RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells\nTicket Types here) or 'external' (it hands its audience to the Registration\nLink). Never both (ADR 0028). It is what tells the Storefront whether to\nrender a ticket selector at all, so it is stated on every Event rather than\ninferred from an empty ticket_types — an Event whose Ticket Types are all\nsold out is not the same page as one that sells nothing here.",
+                        "type": "string"
+                    },
+                    "registration_url": {
+                        "description": "RegistrationURL is the Registration Link, present only on an external\nEvent. The Storefront needs the URL itself and not merely the fact of it:\nthe Register panel names the destination's hostname beneath the call to\naction, because a Customer being handed to a stranger should learn which\none before they click rather than after.\n\nIt is null for a ticketed Event even if a link is stored — a link a\nticketed Event does not use is nothing a Customer should be offered — and\nnull for an external Event still missing one, which a published Event\ncannot be (the publish gate requires it, #208).",
+                        "type": "string"
+                    },
                     "slug": {
                         "type": "string"
                     },
@@ -6748,7 +6756,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
-                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional ` + "`" + `skip_rows` + "`" + `, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).",
+                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional ` + "`" + `skip_rows` + "`" + `, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025). An Event that registers externally sells no tickets on this platform, so every form of this call — both Sales Sources, file and JSON alike — is refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and before any Ticket Type is resolved: the refusal names the mode rather than a Ticket Type that does not exist and never will (ADR 0028).",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -6938,6 +6946,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     }
                 },
                 "security": [
@@ -7006,6 +7024,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     }
                 },
                 "security": [
