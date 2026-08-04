@@ -207,3 +207,26 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 	}
 	return nil
 }
+
+// SendFollowDigest delivers the weekly Follow Digest — the first
+// non-transactional mail this platform sends, and the first whose language
+// depends on its reader.
+//
+// Best-effort from this sender's point of view, but NOT from its caller's: the
+// error is returned and the drain acts on it, because a Digest is the whole
+// payload of a Follow and a failed one is retried rather than shrugged off
+// (ADR 0030). That is the opposite of the notices above, where the money record
+// is the fact and the mail is the courtesy.
+//
+// ADR 0030 requires this to send from a subdomain separate from transactional
+// mail, so that complaints about a Digest cannot degrade the reputation the
+// One-time Passcodes depend on. That is a second sender with its own From and
+// its own verified domain, wired by configuration; this sender is the one this
+// deployment has, and the separation lands with the DNS records (#226).
+func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
+		s.logger.Error("resend send follow digest failed", "email", d.To, "locale", string(d.Locale), "events", len(d.Events), "error", err)
+		return err
+	}
+	return nil
+}

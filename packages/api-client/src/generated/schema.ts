@@ -1356,6 +1356,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/follow-digests/drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send due Follow Digests
+         * @description Claims a batch of pending Follow Digests, composes each one at send time, sends it, records everything it carried in the sent-ledger, and marks the row done (ADR 0030). Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Composition happens here rather than at enqueue, so a Digest delayed by a backlog or a retry still reflects the catalogue as it stands when it is sent. A Digest lists the Events matched by that Customer's Follows that they have not already been shown, filtered exactly as the public explorer filters — published, discoverable and not yet ended — so an Event an Organization chose not to list is never mailed out. It is written in the Customer's remembered Digest Locale, naming Preset Tags in that language and Custom Tags exactly as their Organization coined them. A Customer whose Follows matched nothing receives no email at all rather than an empty one, and that Digest is recorded as having had nothing to say. Every Event included is written to the sent-ledger and only those Events are, which is what stops a later Digest repeating them. Re-running after a completed send produces no second email for that Customer and week. A delivery failure leaves the Digest in the queue on a backoff and a later run sends exactly one email; after its attempts are spent the Digest is abandoned, because a Digest is about the week it names and one delivered days late is worse than none. Each run claims one Digest at a time and stops at a time budget of its own that expires before any deadline outside it, so a backlog can never wedge it; whatever it did not reach stays exactly as due as it was found. Safe to call by hand at any time and a no-op on an empty queue. The response tallies what the run did and reports the standing backlog, so two calls a minute apart say whether an incident is getting better or worse.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeFollowDigestDrain"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/follow-digests/enqueue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue this week's Follow Digests
+         * @description Creates one pending Follow Digest per eligible Customer for the current week (ADR 0030). A Customer is eligible when they hold at least one Follow — of an Organization or of a Tag — and their email has been verified: a Follow is a request to be written to, and somebody who never pressed one is never enqueued. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Which week is enqueued is taken from the clock and cannot be named by the caller — it is the Monday that begins the current week in Ecuador's timezone, echoed back in the response. Nothing is composed here and no email is sent: the row records only that this Customer is owed a Digest for this week, and what it will say is decided when the drain sends it. Safe to call by hand at any time and idempotent within a week — a second call creates no rows, because the database refuses more than one Digest per Customer per week, and the response reports those Customers as already enqueued.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeFollowDigestEnqueue"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/reversals/drain": {
         parameters: {
             query?: never;
@@ -6390,6 +6486,16 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeFollowDigestDrain": {
+            data?: components["schemas"]["service.DrainResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeFollowDigestEnqueue": {
+            data?: components["schemas"]["service.EnqueueResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeLogout": {
             data?: components["schemas"]["internal_identity_openapi.MessageData"];
             error?: components["schemas"]["platform.APIError"];
@@ -6698,6 +6804,61 @@ export interface components {
              */
             ticket_sale_id?: string;
             verified_at?: string;
+        };
+        "service.DrainResult": {
+            /**
+             * @description Claimed is how many pending Digests this run took out of the queue. Zero is
+             *     the ordinary answer on all but one hour of the week.
+             */
+            claimed?: number;
+            /**
+             * @description Empty is Digests whose Customer's Follows matched nothing they had not
+             *     already been shown. NO EMAIL WAS SENT for these, which is the rule and not
+             *     a failure: an empty Digest teaches its reader to ignore the next one.
+             */
+            empty?: number;
+            /**
+             * @description GaveUp counts the Digests THIS RUN abandoned after exhausting their
+             *     attempts. Each one is a Customer who gets no Digest this week, and it is
+             *     the number worth alerting on.
+             */
+            gave_up?: number;
+            oldest_pending_week?: string;
+            /**
+             * @description PendingTotal is how many Digests are still waiting once this run finished,
+             *     and OldestPendingWeek is the week the oldest of them belongs to (a date,
+             *     absent when the queue is empty).
+             *
+             *     They are the answer to "is this getting better or worse", and two curls a
+             *     minute apart answer it without a database session. The oldest week is the
+             *     one that matters most: a pending Digest from LAST week is a backlog that
+             *     has outlived the thing it was about.
+             */
+            pending_total?: number;
+            /**
+             * @description Retrying is Digests whose delivery failed and which are back in the queue
+             *     on a backoff. It is the number that says a provider is unwell.
+             */
+            retrying?: number;
+            /** @description Sent is Digests delivered and recorded in the sent-ledger. */
+            sent?: number;
+        };
+        "service.EnqueueResult": {
+            /**
+             * @description AlreadyEnqueued is the Customers who already had a Digest for this week. It
+             *     is reported rather than swallowed so that a repeated run reads as
+             *     idempotent rather than as a failure that enqueued nothing.
+             */
+            already_enqueued?: number;
+            eligible?: number;
+            enqueued?: number;
+            /**
+             * @description WeekStart is the week this run declared, as a date — the Monday that begins
+             *     it in Ecuador's zone (platform.DigestWeekStart). It is echoed back because
+             *     the endpoint takes no arguments, so this is the only way a caller learns
+             *     which week they just enqueued.
+             */
+            week_start?: string;
         };
         "service.Event": {
             discoverable?: boolean;

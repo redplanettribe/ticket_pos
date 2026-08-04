@@ -21,6 +21,9 @@ import (
 	customershandler "github.com/peter/ticket_pos/backend/internal/customers/handler"
 	customersrepo "github.com/peter/ticket_pos/backend/internal/customers/repository"
 	customerssvc "github.com/peter/ticket_pos/backend/internal/customers/service"
+	digesthandler "github.com/peter/ticket_pos/backend/internal/digest/handler"
+	digestrepo "github.com/peter/ticket_pos/backend/internal/digest/repository"
+	digestsvc "github.com/peter/ticket_pos/backend/internal/digest/service"
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
@@ -63,6 +66,12 @@ type App struct {
 	// that own the data it shows (ADR 0015).
 	OperatorService *operatorsvc.Service
 	OperatorHandler *operatorhandler.Handler
+	// The Follow Digest pipeline (#220, ADR 0030). It owns two tables nobody else
+	// could — the pending-Digest queue and the sent-ledger — and reads Follows,
+	// Events and Tags that belong to other modules.
+	DigestRepo    *digestrepo.Repository
+	DigestService *digestsvc.Service
+	DigestHandler *digesthandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -270,6 +279,24 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// attributes nothing (#146).
 	salesService = salesService.WithAffiliateLinks(affiliatesService)
 
+	// The Follow Digest pipeline (#220, ADR 0030): the platform's second piece of
+	// scheduled work, driven by two internal endpoints.
+	//
+	// It is built after catalog because it needs catalog's localized Tag names,
+	// and it takes the Storefront origin for the reason affiliates does: the link
+	// on each Event in a Digest is derived at send time and never stored.
+	digestRepo := digestrepo.New(db)
+	digestService := digestsvc.New(digestRepo, emailSender, cfg.StorefrontBaseURL, platformLogger)
+	if options.clock != nil {
+		digestService = digestService.WithClock(options.clock)
+	}
+	// Naming a Tag in the reader's Digest Locale is catalog's rule and not this
+	// module's — a Preset Tag from the catalogue, a Custom Tag exactly as coined
+	// (ADR 0027 as amended by ADR 0030). The digest module declares the narrow
+	// interface and catalog satisfies it, as customers does for Tag ids.
+	digestService = digestService.WithTags(catalogService)
+	digestHandler := digesthandler.New(digestService)
+
 	// The Operator Dashboard is composed from the modules that own its data:
 	// identity for Organizations, catalog for Events, sales for money. It is
 	// wired last because it depends on all three and none of them on it.
@@ -299,6 +326,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		CustomersHandler:  customersHandler,
 		OperatorService:   operatorService,
 		OperatorHandler:   operatorHandler,
+		DigestRepo:        digestRepo,
+		DigestService:     digestService,
+		DigestHandler:     digestHandler,
 	}, nil
 }
 

@@ -170,6 +170,10 @@ func setupTest(t *testing.T) *testEnv {
 	// move both clocks past it together, so both are reset together.
 	sharedApp.SalesService.WithClock(func() time.Time { return fixedClock })
 	sharedApp.CatalogService.WithClock(func() time.Time { return fixedClock })
+	// The Follow Digest pipeline has its own clock because it reasons in WEEKS:
+	// which week a Customer is owed a Digest for, and when a failed one comes due
+	// again (#220, ADR 0030). Its tests move time further than any other.
+	sharedApp.DigestService.WithClock(func() time.Time { return fixedClock })
 	googleStub.reset()
 	payphoneStub.reset()
 	return sharedEnv
@@ -178,7 +182,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, customer_sessions, sale_reversals, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_type_promotions, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, customer_sessions, sale_reversals, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_type_promotions, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}

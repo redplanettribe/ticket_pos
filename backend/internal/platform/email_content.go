@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -239,6 +240,189 @@ func (p PayoutRequestTransferFailed) Subject() string {
 func (p PayoutRequestTransferFailed) Text() string {
 	return fmt.Sprintf("The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request — the transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request — this one cannot be retried, because it carries a frozen copy of the details it was sent with.",
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
+}
+
+// The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike
+// everything above it for two reasons, and both are worth stating before the
+// code.
+//
+// IT IS THE FIRST MESSAGE THAT BRANCHES ON LANGUAGE. Every other Text() here is
+// English because every other message answers something its reader just did on
+// a page, and the page was already worded. This one arrives unbidden, in
+// whatever language the reader last used the Storefront in (ADR 0030), so every
+// sentence exists twice. The branching is done with a small lookup per sentence
+// rather than by writing two whole methods: two methods drift, and the drift
+// shows up as a Spanish reader missing a line an English reader gets.
+//
+// IT NAMES TAGS IT DID NOT TRANSLATE. The Tag names arriving on each entry have
+// already been resolved by catalog's LocalizedTagNames — a Preset Tag in the
+// reader's language, a Custom Tag exactly as its Organization coined it. Nothing
+// below touches them. There is one localization rule for Tags in this system and
+// it lives in catalog; a second one here would only have to agree with it.
+
+// digestCopy is one sentence in both languages. Every piece of Digest copy is
+// declared as one of these, so a line added in English cannot be shipped without
+// its Spanish, and the two are read side by side rather than a screen apart.
+type digestCopy struct {
+	en string
+	es string
+}
+
+// in picks the sentence for a Locale, falling back to English for anything this
+// platform does not write — which is the same fallback DefaultLocale states, and
+// is unreachable while ParseLocale and the digest_locale CHECK both hold.
+func (c digestCopy) in(locale Locale) string {
+	if locale == LocaleES {
+		return c.es
+	}
+	return c.en
+}
+
+var (
+	digestSubjectCopy = digestCopy{
+		en: "What's on from the things you follow",
+		es: "Novedades de lo que sigues",
+	}
+	digestGreetingCopy = digestCopy{
+		en: "Hi %s,\n\nHere is what's coming up from the things you follow.",
+		es: "Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
+	}
+	// The attribution line, which is the Digest answering "why am I being told
+	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
+	// recorded; this is the half of that the reader sees.
+	digestBecauseCopy = digestCopy{
+		en: "Because you follow: %s",
+		es: "Porque sigues: %s",
+	}
+	digestClosingCopy = digestCopy{
+		en: "You are getting this because you follow organizers and topics on Multiticketing.",
+		es: "Recibes esto porque sigues organizadores y temas en Multiticketing.",
+	}
+)
+
+// Subject is the Follow Digest's subject line.
+//
+// It names no Event and counts none. The obvious alternative — "3 new events
+// from the things you follow" — reads as a campaign, and this message has to
+// survive arriving every week for a year without being trained away as one; a
+// count also makes a week with one Event look like a mistake. What the line says
+// is what the mail is, which is the only thing that stays true every week.
+func (d FollowDigest) Subject() string {
+	return digestSubjectCopy.in(d.Locale)
+}
+
+// Text is the Follow Digest's plain-text body: a greeting, a flat list of
+// Events, and one closing line saying why this arrived.
+//
+// FLAT, deliberately, and this is the shape most likely to be mistaken for an
+// oversight. There are no sections, no cap and no "+N more", and no marking of
+// Events the reader already holds Tickets to. Those are #221 to #224 and each
+// arrives with its own decisions; a first cut that guessed at them would have to
+// be undone rather than extended.
+//
+// There is also no unsubscribe link, which is the one absence that is a debt
+// rather than a decision: ADR 0030 makes the Digest the only mail a Customer can
+// turn off, and #223 is where the switch and the signed link land. Until then
+// this mail must not be sent to anybody who did not press Follow, which is the
+// enqueue's rule and not this method's.
+//
+// An empty Digest cannot be rendered here because it is never composed: the
+// caller sends nothing at all when nothing matched (digest/service.deliverDigest).
+func (d FollowDigest) Text() string {
+	text := fmt.Sprintf(digestGreetingCopy.in(d.Locale), d.CustomerName)
+	for _, event := range d.Events {
+		text += "\n\n" + event.render(d.Locale)
+	}
+	return text + "\n\n" + digestClosingCopy.in(d.Locale)
+}
+
+// render is one Event's block in the Digest: what it is, when and where, a link,
+// and why the reader is hearing about it.
+//
+// The date is rendered in the EVENT's own timezone rather than the reader's,
+// which is how every other Event-facing surface in this system states a time and
+// the only way a Digest read from another country names the day the doors
+// actually open.
+func (e FollowDigestEvent) render(locale Locale) string {
+	block := e.Name
+	if when := formatEventDate(e.StartsAt, e.Timezone, locale); when != "" {
+		block += "\n" + when
+	}
+	if e.OrganizationName != "" {
+		block += "\n" + e.OrganizationName
+	}
+	if e.URL != "" {
+		block += "\n" + e.URL
+	}
+	if reasons := e.reasons(); len(reasons) > 0 {
+		block += "\n" + fmt.Sprintf(digestBecauseCopy.in(locale), strings.Join(reasons, ", "))
+	}
+	return block
+}
+
+// reasons is the Follows this Event matched, as the reader would name them: the
+// Organization putting it on, and the Tags they follow that it carries.
+//
+// The Organization comes first because it is the more specific subscription —
+// somebody who followed this organizer chose them, where a Tag is a whole
+// category — and because it is the one a reader recognises without thinking.
+func (e FollowDigestEvent) reasons() []string {
+	reasons := make([]string, 0, len(e.MatchedTagNames)+1)
+	if e.MatchedOrganization && e.OrganizationName != "" {
+		reasons = append(reasons, e.OrganizationName)
+	}
+	reasons = append(reasons, e.MatchedTagNames...)
+	return reasons
+}
+
+// formatEventDate renders an Event's start in the Event's own zone, in the
+// reader's language — "Friday 10 July, 20:00" / "viernes 10 de julio, 20:00".
+//
+// The month and weekday names are spelled out here rather than taken from
+// time.Format's English-only names, because Go's standard library carries no
+// localized calendar and pulling in one for twelve words would be a dependency
+// bigger than the feature. An unknown or unloadable timezone yields no date line
+// at all rather than one in the wrong zone: a Digest that tells somebody the
+// wrong day is worse than one that tells them to open the link.
+func formatEventDate(startsAt time.Time, timezone string, locale Locale) string {
+	if startsAt.IsZero() {
+		return ""
+	}
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		return ""
+	}
+	local := startsAt.In(loc)
+	if locale == LocaleES {
+		return fmt.Sprintf("%s %d de %s, %s",
+			spanishWeekdays[local.Weekday()], local.Day(), spanishMonths[local.Month()], local.Format("15:04"))
+	}
+	return local.Format("Monday 2 January, 15:04")
+}
+
+var spanishWeekdays = map[time.Weekday]string{
+	time.Sunday:    "domingo",
+	time.Monday:    "lunes",
+	time.Tuesday:   "martes",
+	time.Wednesday: "miércoles",
+	time.Thursday:  "jueves",
+	time.Friday:    "viernes",
+	time.Saturday:  "sábado",
+}
+
+var spanishMonths = map[time.Month]string{
+	time.January:   "enero",
+	time.February:  "febrero",
+	time.March:     "marzo",
+	time.April:     "abril",
+	time.May:       "mayo",
+	time.June:      "junio",
+	time.July:      "julio",
+	time.August:    "agosto",
+	time.September: "septiembre",
+	time.October:   "octubre",
+	time.November:  "noviembre",
+	time.December:  "diciembre",
 }
 
 // formatEcuadorDate renders an instant as the calendar date it falls on in

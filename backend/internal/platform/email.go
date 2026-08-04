@@ -179,6 +179,84 @@ type PayoutRequestTransferFailed struct {
 	Reason           string
 }
 
+// FollowDigest is the one weekly email carrying everything a Customer Follows
+// (#220, parent #215, ADR 0030), and it is unlike every message above it in two
+// ways that shape this type.
+//
+// It is the platform's FIRST NON-TRANSACTIONAL mail. Everything else here
+// answers something the reader just did — a passcode they asked for, a receipt
+// for a purchase they made, a notice about money they are owed. This one arrives
+// unbidden, which is why it is the only mail a Customer can turn off, and why
+// nothing in this system may ever send it to somebody who did not press Follow.
+//
+// It is also the FIRST MESSAGE THAT BRANCHES ON LANGUAGE, which is why Locale is
+// a field here and on nothing else. A Locale is otherwise a property of a page's
+// address (ADR 0027) and mail has no address, so the Customer's Digest Locale is
+// remembered at sign-in (#216) and carried here.
+//
+// It is NEVER SENT EMPTY. A Digest with no Events is not composed into a message
+// at all — see digest/service.deliverDigest, which records the Digest as `empty`
+// and sends nothing. The Digest is the whole payload of a Follow, and one that
+// says nothing teaches its reader to ignore the next one.
+type FollowDigest struct {
+	To string
+	// CustomerName is the reader's first name, for the greeting. A Customer
+	// record always has one — it is required on every path that creates one — so
+	// there is no absent case to render around.
+	CustomerName string
+	// Locale is the Customer's Digest Locale and decides which language every
+	// word of this message is written in, including the Tag names already
+	// resolved into Events below. It is never empty: DefaultLocale is what a
+	// Customer who has never been on a localized surface reads in.
+	Locale Locale
+	// Events is what this Digest is about, soonest first. It is a FLAT LIST in
+	// this first cut, deliberately: sections, caps, carried overflow and the
+	// marking of Events the reader already holds Tickets to are #221 to #224, and
+	// each of them changes this shape rather than being squeezed into it.
+	//
+	// Never empty. A caller with nothing to say sends nothing at all.
+	Events []FollowDigestEvent
+}
+
+// FollowDigestEvent is one Event as a Follow Digest lists it.
+//
+// Every string here is ALREADY RENDERED in the reader's Digest Locale by the
+// time it arrives. In particular the Tag names have already been resolved
+// through catalog's LocalizedTagNames, which is the one place the rule lives:
+// a Preset Tag is named in the reader's language, a Custom Tag exactly as the
+// Organization coined it (ADR 0027 as amended by ADR 0030). This type does no
+// language work of its own beyond choosing its own sentences, because doing it
+// twice is how the two copies come to disagree.
+type FollowDigestEvent struct {
+	Name string
+	// StartsAt and Timezone are the Event's own start and its own zone. The date
+	// is rendered in the EVENT's zone rather than in the reader's or the
+	// platform's, for the reason every other Event-facing surface does it: an
+	// Event starting at 20:00 in Guayaquil starts at 20:00 for everybody reading
+	// about it, and a date shifted into somebody else's zone is a date they will
+	// turn up on the wrong day for.
+	StartsAt time.Time
+	Timezone string
+	// OrganizationName is who is putting it on — the fact a reader uses to place
+	// an Event they have not heard of.
+	OrganizationName string
+	// URL opens the Event on the Storefront. Built in the same shape an Affiliate
+	// Link is (service.storefrontURL), because an Event listing with nothing to
+	// press is a list of things the reader now has to go and search for.
+	URL string
+	// MatchedOrganization and MatchedTagNames are WHY this Event is in this
+	// person's Digest: the Follows of theirs it matched.
+	//
+	// An Event can match both, and both are carried rather than one being picked:
+	// the reason a Digest gives has to be the true one, and "because you follow
+	// Music" is a strange thing to read about an Event by an Organization you
+	// deliberately subscribed to. ADR 0030 also asks that which Follow matched be
+	// recorded, so that Tag stuffing can be measured before anything is
+	// legislated against it.
+	MatchedOrganization bool
+	MatchedTagNames     []string
+}
+
 // EmailSender delivers transactional email: staff one-time passcodes,
 // Customer Sale Confirmations, Sale void/cancellation notices, the notice
 // that a refund the Customer was told was being processed could not be made, and
@@ -194,6 +272,10 @@ type EmailSender interface {
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
 	SendPayoutRequestTransferSent(ctx context.Context, sent PayoutRequestTransferSent) error
 	SendPayoutRequestTransferFailed(ctx context.Context, failed PayoutRequestTransferFailed) error
+	// SendFollowDigest delivers the one weekly Follow Digest. The only
+	// non-transactional message on this interface, and the only one whose
+	// language depends on its reader.
+	SendFollowDigest(ctx context.Context, digest FollowDigest) error
 }
 
 // LoggingEmailSender logs email delivery to the configured logger (development use).
@@ -266,6 +348,15 @@ func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 	return nil
 }
 
+// SendFollowDigest logs the weekly Follow Digest for local development. The
+// Event count and the Locale are logged rather than the Events themselves: what
+// a local developer needs from this line is that a Digest went out, to whom, in
+// which language, and that it was not empty.
+func (s *LoggingEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
+	s.Logger.Info("follow digest sent", "email", d.To, "locale", string(d.Locale), "events", len(d.Events))
+	return nil
+}
+
 // NoopEmailSender discards delivery (tests).
 type NoopEmailSender struct{}
 
@@ -314,6 +405,11 @@ func (NoopEmailSender) SendPayoutRequestTransferFailed(_ context.Context, _ Payo
 	return nil
 }
 
+// SendFollowDigest discards the weekly Follow Digest.
+func (NoopEmailSender) SendFollowDigest(_ context.Context, _ FollowDigest) error {
+	return nil
+}
+
 // CaptureEmailSender records delivered email for integration tests. It is safe
 // for concurrent use so tests can exercise concurrent sales.
 type CaptureEmailSender struct {
@@ -330,6 +426,12 @@ type CaptureEmailSender struct {
 	DeclinedPayoutRequests     []PayoutRequestDeclined
 	TransferSentPayoutRequests []PayoutRequestTransferSent
 	FailedPayoutRequests       []PayoutRequestTransferFailed
+	// The weekly Follow Digests (#220). Kept as the whole value rather than as a
+	// rendered string, so a test can assert on the message a Customer would read
+	// by calling Subject() and Text() itself — which is what makes the Digest
+	// Locale assertable at all: the language is only visible once the message is
+	// rendered.
+	FollowDigests []FollowDigest
 	// failure, when set, makes every send fail with it and record nothing —
 	// a provider outage, as the calling code would meet one.
 	//
@@ -464,6 +566,17 @@ func (s *CaptureEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 	return nil
 }
 
+// SendFollowDigest records a delivered weekly Follow Digest.
+func (s *CaptureEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.FollowDigests = append(s.FollowDigests, d)
+	return nil
+}
+
 // Confirmations returns a copy of the captured Sale Confirmations.
 func (s *CaptureEmailSender) Confirmations() []SaleConfirmation {
 	s.mu.Lock()
@@ -545,6 +658,21 @@ func (s *CaptureEmailSender) PayoutRequestTransfersFailed() []PayoutRequestTrans
 	return out
 }
 
+// FollowDigestsSent returns a copy of the captured weekly Follow Digests.
+//
+// Tests assert on its LENGTH more than on anything else in this file. Almost
+// every rule in the Digest pipeline is a rule about how many emails one person
+// gets — exactly one per week, none at all when nothing matched, and still
+// exactly one after a failed send and a retry — and none of those can be told
+// apart by looking at a message's contents.
+func (s *CaptureEmailSender) FollowDigestsSent() []FollowDigest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]FollowDigest, len(s.FollowDigests))
+	copy(out, s.FollowDigests)
+	return out
+}
+
 // OTPSendCount returns how many passcode emails were delivered. Tests that care
 // about a send being suppressed assert on this rather than on the last code,
 // which a refused request leaves untouched either way.
@@ -569,5 +697,6 @@ func (s *CaptureEmailSender) Reset() {
 	s.DeclinedPayoutRequests = nil
 	s.TransferSentPayoutRequests = nil
 	s.FailedPayoutRequests = nil
+	s.FollowDigests = nil
 	s.failure = nil
 }

@@ -57,6 +57,19 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// the same Reversal Request being pursued by a different actor, through the
 	// same reversal primitive and the same per-sale lock.
 	mux.HandleFunc("POST /api/v1/internal/reversals/drain", app.SalesHandler.DrainReversalRequests)
+
+	// The weekly Follow Digest, in two halves (#220, ADR 0030). The split is
+	// deliberate and is not an implementation detail leaking into the API: the
+	// mail provider will not take a whole platform's Digests inside one request
+	// (ADR 0009), so declaring the week and working through it are different
+	// jobs on different cadences — one a week, and one a minute.
+	//
+	// Both obey this namespace's rule that a caller cannot aim a route. WHICH
+	// week is enqueued comes from the clock, and WHICH Digests are sent is a
+	// property of the queue; a caller who could name either could re-mail an old
+	// week to every following Customer on the platform.
+	mux.HandleFunc("POST /api/v1/internal/follow-digests/enqueue", app.DigestHandler.EnqueueFollowDigests)
+	mux.HandleFunc("POST /api/v1/internal/follow-digests/drain", app.DigestHandler.DrainFollowDigests)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.
