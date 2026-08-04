@@ -54,6 +54,50 @@ func ErrReversalRequiresFullSession() apperror.DomainError {
 	)
 }
 
+// ErrFollowRequiresFullSession is the same refusal once more, for the Follows
+// (#217): a Confirmation Link session asking to Follow, Unfollow, or read what
+// the Customer Follows.
+//
+// It shares the code above because it is the same fact — this credential is too
+// narrow — and carries its own message because neither "change your details" nor
+// "undo this purchase" is what this caller was doing.
+//
+// The reason it must be refused at all is worth stating, because the ticket's
+// own wording ("an active Customer Session, which by definition implies a
+// verified email") is true of a FULL Customer Session and not of this one. A
+// sale-scoped session is minted by redeeming a Confirmation Link, which is
+// possession of an email that was sent to somebody and nothing more — it does
+// not mark the Customer verified. A Follow is a standing request to be written
+// to (ADR 0030), so accepting one from a forwarded receipt would let a stranger
+// subscribe another person's inbox to mail they never asked for, which ADR 0010
+// forbids.
+func ErrFollowRequiresFullSession() apperror.DomainError {
+	return apperror.New(
+		"CUSTOMER_SESSION_SCOPE_INSUFFICIENT",
+		"Sign in with a passcode to follow organizations.",
+		nil,
+	)
+}
+
+// ErrFollowedOrganizationNotFound is returned when a Follow names a slug no
+// Organization owns.
+//
+// It carries identity's code rather than one of its own, so that following an
+// unknown Organization and reading its public profile answer alike — a caller
+// learns nothing here about which Organizations exist that the public endpoint
+// would not have told them.
+func ErrFollowedOrganizationNotFound() apperror.DomainError {
+	return apperror.New("ORGANIZATION_NOT_FOUND", "Organization not found.", nil)
+}
+
+// ErrFollowsUnavailable is returned when the service was built without the
+// resolver that turns an Organization slug into an id. A deployment fault, not a
+// caller error, mirroring ErrConfirmationLinkUnavailable's posture: refuse
+// plainly rather than silently record a Follow of nothing.
+func ErrFollowsUnavailable() apperror.DomainError {
+	return apperror.New("FOLLOWS_UNAVAILABLE", "Following is not available.", nil)
+}
+
 // ErrAvatarUploadUnavailable is returned when the service holds no object
 // storage. A deployment fault, not a caller error, mirroring
 // ErrConfirmationLinkUnavailable's posture: refuse plainly rather than degrade.

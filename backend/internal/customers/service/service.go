@@ -54,6 +54,10 @@ type Service struct {
 	// nothing, which is the correct behaviour for every surface that is not the
 	// Customer Area.
 	reversals ReversalRequestResolver
+	// organizations turns the Organization slug a Customer sees into the id a
+	// Follow is stored against (#217). Declared as an interface on this side and
+	// implemented by identity, exactly as reversals is by sales; see follows.go.
+	organizations OrganizationResolver
 }
 
 // ReversalRequestResolver asks the Payment Provider again about the Reversal

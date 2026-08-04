@@ -189,6 +189,19 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("POST /api/v1/customer/profile/avatar-upload-url", signedIn(http.HandlerFunc(h.CreateAvatarUploadURL)))
 	mux.Handle("PUT /api/v1/customer/profile/avatar", signedIn(http.HandlerFunc(h.UpdateAvatar)))
 	mux.Handle("DELETE /api/v1/customer/profile/avatar", signedIn(http.HandlerFunc(h.DeleteAvatar)))
+	// The Follows (#217). One listing endpoint for everything the Customer
+	// Follows, and a follow/unfollow pair per kind of thing that can be followed
+	// — Organizations today, Tags next (#218), joining the SAME list rather than
+	// adding a second one.
+	//
+	// All three draw the same full-session line the profile writes do, and the
+	// read is gated with them. A Confirmation Link session is a forwarded email:
+	// it is not authority to subscribe that inbox to mail, nor to read back what
+	// its owner has subscribed to. That narrowing is the service's rather than
+	// this middleware's, exactly as for the profile PATCH.
+	mux.Handle("GET /api/v1/customer/follows", signedIn(http.HandlerFunc(h.ListFollows)))
+	mux.Handle("POST /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.FollowOrganization)))
+	mux.Handle("DELETE /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.UnfollowOrganization)))
 }
 
 func registerPublicRoutes(mux *http.ServeMux, app *App) {
