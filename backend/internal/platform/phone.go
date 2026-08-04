@@ -14,7 +14,7 @@ import (
 //     hosted card form arrives with the cardholder's number already filled,
 //     leaving the buyer nothing to type but their card.
 //   - The Organization's Support WhatsApp number is published on its public Event
-//     pages, where a Customer taps it to open a WhatsApp conversation (ADR 0027).
+//     pages, where a Customer taps it to open a WhatsApp conversation (ADR 0029).
 //
 // The second arrived later and reuses this rule unchanged rather than growing a
 // second one, because the number of definitions of "a valid phone number" a
@@ -27,7 +27,7 @@ import (
 // message, and a Customer discovering that mid-purchase is a worse failure than
 // a rejection at the settings form. The knowing cost is that WhatsApp Business
 // can be verified on a landline by voice call, so an Ecuadorian Organization
-// running support from an 02… number cannot enter it here. ADR 0027 records that
+// running support from an 02… number cannot enter it here. ADR 0029 records that
 // exclusion as chosen rather than overlooked.
 //
 // This file is the source of truth for what counts as a valid phone number. The

@@ -6977,7 +6977,7 @@ export interface components {
              *     rather than on an empty string.
              *
              *     Served on the Event detail only. It is absent from the Event listings by
-             *     design, so do not read it from a card — see ADR 0027.
+             *     design, so do not read it from a card — see ADR 0029.
              */
             support_whatsapp?: string;
         };

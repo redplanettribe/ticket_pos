@@ -296,7 +296,7 @@ export default async function EventPage({ params, searchParams }: EventPageProps
           </section>
         )}
 
-        {/* The Organization's support line, when it published one (ADR 0027).
+        {/* The Organization's support line, when it published one (ADR 0029).
             Below the tickets and quiet by design: the page exists to sell, and a
             prominent support control above the fold reads as "expect problems".
 

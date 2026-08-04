@@ -1,10 +1,10 @@
 /**
  * Building the link a Customer taps to message an Organization's support
- * (#201, parent #199, ADR 0027).
+ * (#201, parent #199, ADR 0029).
  *
  * The Organization's Support WhatsApp number arrives from the API in canonical
  * E.164 form — a leading plus and nothing but digits, e.g. "+593987654321" —
- * because that is the single form the platform stores it in (migration 047).
+ * because that is the single form the platform stores it in (migration 049).
  * Turning that into a link is two steps, one of which fails silently if you get
  * it wrong, which is why this is a module with a test rather than a template
  * literal in a page component.

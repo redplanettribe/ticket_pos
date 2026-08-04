@@ -8,7 +8,7 @@ import (
 )
 
 // Where the Organization's Support WhatsApp number is published, and — more
-// importantly — where it is not (#201, parent #199, ADR 0027).
+// importantly — where it is not (#201, parent #199, ADR 0029).
 //
 // The public Organization summary is ONE structure serving three payloads: the
 // Event detail, every Event card in the global explorer, and the Organization
@@ -93,7 +93,7 @@ func TestPublicEventDetailOmitsSupportWhatsAppWhenUnset(t *testing.T) {
 	}
 }
 
-// TestPublicListingsNeverCarrySupportWhatsApp is the guard on ADR 0027's
+// TestPublicListingsNeverCarrySupportWhatsApp is the guard on ADR 0029's
 // exposure decision.
 //
 // Both endpoints below return the same Organization summary structure the Event

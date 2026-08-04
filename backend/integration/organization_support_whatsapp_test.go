@@ -13,7 +13,7 @@ import (
 // These sit beside organization_settings_test.go, which covers the rest of the
 // profile PATCH, and lean on the phone fixtures in
 // checkout_payphone_prefill_test.go — the same numbers, because it is the same
-// rule. ADR 0027 records why the strict Ecuadorian tier applies to a support
+// rule. ADR 0029 records why the strict Ecuadorian tier applies to a support
 // line even though platform.ValidatePhone was written for a card form.
 //
 // What renders from this value lives in #201; nothing here reaches the

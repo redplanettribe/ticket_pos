@@ -16,8 +16,8 @@ type Organization struct {
 	Currency     string
 	LogoImageKey sql.NullString
 	// SupportWhatsApp is the Organization's Support WhatsApp number in canonical
-	// E.164 form, null when it has none (migration 047). Published on its public
-	// Event pages; see ADR 0027.
+	// E.164 form, null when it has none (migration 049). Published on its public
+	// Event pages; see ADR 0029.
 	SupportWhatsApp sql.NullString
 	CreatedAt       time.Time
 }

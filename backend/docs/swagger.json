@@ -2541,7 +2541,7 @@
                         "type": "string"
                     },
                     "support_whatsapp": {
-                        "description": "SupportWhatsApp is the Organization's Support WhatsApp number in canonical\nE.164 form — a link a Customer taps to message them for support.\n\nDELIBERATELY PUBLIC. An Org Admin entered it in a form that states it is\npublished on every one of their Event pages and that Customers will message\nit; it is safe to display and was not exposed by accident. Omitted entirely\nwhen the Organization has none, so a client branches on the key's presence\nrather than on an empty string.\n\nServed on the Event detail only. It is absent from the Event listings by\ndesign, so do not read it from a card — see ADR 0027.",
+                        "description": "SupportWhatsApp is the Organization's Support WhatsApp number in canonical\nE.164 form — a link a Customer taps to message them for support.\n\nDELIBERATELY PUBLIC. An Org Admin entered it in a form that states it is\npublished on every one of their Event pages and that Customers will message\nit; it is safe to display and was not exposed by accident. Omitted entirely\nwhen the Organization has none, so a client branches on the key's presence\nrather than on an empty string.\n\nServed on the Event detail only. It is absent from the Event listings by\ndesign, so do not read it from a card — see ADR 0029.",
                         "type": "string"
                     }
                 },

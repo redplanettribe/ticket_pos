@@ -13,7 +13,7 @@
 -- every one they publish later — carries it, where a per-Event column would
 -- start blank on each new Event and in practice go unfilled. A per-Event
 -- override stays available as a strictly additive column plus a resolution rule
--- falling back to this one; it is not built speculatively. See ADR 0027.
+-- falling back to this one; it is not built speculatively. See ADR 0029.
 --
 -- ONE column, canonical E.164 ("+593987654321"), never split into a dialling
 -- code and a national part — the same call migration 029 made for the Customer's

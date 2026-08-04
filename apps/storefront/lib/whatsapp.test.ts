@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { whatsappLink } from "./whatsapp.ts";
 
-// The canonical form the API stores and serves (migration 047).
+// The canonical form the API stores and serves (migration 049).
 const NUMBER = "+593987654321";
 
 test("the leading plus is stripped, because wa.me fails silently with it", () => {

@@ -26,9 +26,9 @@ type PublicEventRow struct {
 	OrgSlug    string
 	OrgLogoKey sql.NullString
 	// OrgSupportWhatsApp is the Organization's Support WhatsApp number (migration
-	// 047). Selected by every query below because they share one column list and
+	// 049). Selected by every query below because they share one column list and
 	// one scanner, but READ only when building the Event detail: the listings
-	// deliberately do not publish it. See ADR 0027 and the summary it builds.
+	// deliberately do not publish it. See ADR 0029 and the summary it builds.
 	OrgSupportWhatsApp sql.NullString
 	OrgCurrency        string
 	MinPriceCents sql.NullInt64

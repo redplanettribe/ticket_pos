@@ -222,7 +222,7 @@ export type PublicOrganizationSummary = {
   slug: string;
   logo_url: string | null;
   // The Organization's Support WhatsApp number in canonical E.164 form — the
-  // number a Customer messages for help (ADR 0027).
+  // number a Customer messages for help (ADR 0029).
   //
   // Present ONLY on the Event detail, and optional even there: the API omits the
   // key entirely for an Organization that has set no number. It is deliberately

@@ -26,7 +26,7 @@ const (
 // unless you are building the detail, in which case use
 // publicOrgSummaryWithSupport.
 //
-// That asymmetry is deliberate and is the whole of ADR 0027's exposure decision.
+// That asymmetry is deliberate and is the whole of ADR 0029's exposure decision.
 // Publishing an Organization's support number on the Event detail is the point
 // of the feature and the organizer opted into it. Publishing it on a paginated,
 // unauthenticated listing is different in kind: it would let one crawl of the
@@ -51,7 +51,7 @@ type PublicOrganizationSummary struct {
 	// rather than on an empty string.
 	//
 	// Served on the Event detail only. It is absent from the Event listings by
-	// design, so do not read it from a card — see ADR 0027.
+	// design, so do not read it from a card — see ADR 0029.
 	SupportWhatsApp *string `json:"support_whatsapp,omitempty"`
 }
 
@@ -593,7 +593,7 @@ func (s *Service) publicOrgSummary(name, slug string, logoKey sql.NullString) Pu
 //
 // Only the Event detail calls this. The two listing payloads call
 // publicOrgSummary and must keep doing so — see the note on
-// PublicOrganizationSummary and ADR 0027 for why a paginated endpoint carrying
+// PublicOrganizationSummary and ADR 0029 for why a paginated endpoint carrying
 // this number is a different exposure than a detail endpoint carrying it.
 func (s *Service) publicOrgSummaryWithSupport(name, slug string, logoKey, supportWhatsApp sql.NullString) PublicOrganizationSummary {
 	summary := s.publicOrgSummary(name, slug, logoKey)

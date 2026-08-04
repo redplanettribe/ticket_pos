@@ -38,7 +38,7 @@ type Organization = {
   currency_locked: boolean;
   logo_url: string | null;
   // The Support WhatsApp number in canonical E.164 form, null when the
-  // Organization has none. Published on every one of its Event pages (ADR 0027).
+  // Organization has none. Published on every one of its Event pages (ADR 0029).
   support_whatsapp: string | null;
 };
 
