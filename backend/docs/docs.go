@@ -762,6 +762,34 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeCustomerFollow": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.FollowView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerFollows": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.FollowsView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeCustomerLogout": {
                 "properties": {
                     "data": {
@@ -1716,6 +1744,46 @@ const docTemplate = `{
                     },
                     "venue_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.FollowView": {
+                "properties": {
+                    "followed_at": {
+                        "type": "string"
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/service.FollowedOrganizationView"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.FollowedOrganizationView": {
+                "properties": {
+                    "logo_url": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.FollowsView": {
+                "properties": {
+                    "follows": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.FollowView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -3638,6 +3706,184 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get Customer Session",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/follows": {
+            "get": {
+                "description": "Returns everything the signed-in Customer Follows, most recently followed first. One list rather than one per kind: each entry carries a ` + "`" + `type` + "`" + ` discriminator and the subject hangs off the field named by it, so a client switches on ` + "`" + `type` + "`" + ` and keeps working as further kinds of Follow are added. Always scoped by the Customer Session, never by any identifier in the request. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerFollows"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the Customer's Follows",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/follows/organizations/{slug}": {
+            "delete": {
+                "description": "Removes the signed-in Customer's Follow of the Organization named by slug. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerLogout"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Unfollow an Organization",
+                "tags": [
+                    "customer"
+                ]
+            },
+            "post": {
+                "description": "Records that the signed-in Customer Follows the Organization named by slug, and returns the Follow. Idempotent: following something already followed returns the existing Follow with its original ` + "`" + `followed_at` + "`" + ` rather than a conflict, so a retried or double-tapped request is safe. Answers 200 on both the first call and every repeat. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded Sale Confirmation is not authority to subscribe somebody's inbox to mail.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerFollow"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Follow an Organization",
                 "tags": [
                     "customer"
                 ]

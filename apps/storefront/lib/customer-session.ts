@@ -353,3 +353,56 @@ export async function getCustomerSession(): Promise<SessionOutcome<CustomerSessi
 export async function getCustomerArea(): Promise<SessionOutcome<CustomerArea>> {
   return readWithSession<CustomerArea>("/api/v1/customer/ticket-sales");
 }
+
+/**
+ * The Organization as a Follow reports it: the same three facts its public
+ * profile publishes. No id — a Follow is addressed by slug everywhere, on the
+ * API and in this app's own addresses.
+ */
+export type FollowedOrganization = {
+  name: string;
+  slug: string;
+  logo_url: string | null;
+};
+
+/**
+ * One of the Customer's Follows.
+ *
+ * `type` is the discriminator, and it is a union of one today on purpose: Tag
+ * Follows arrive in this same list as `{ type: "tag", tag: … }`, so widening
+ * this union is the whole of what a consumer has to do — nothing switches
+ * endpoint and nothing already written stops compiling. The subject hangs off
+ * the field the discriminator names rather than being inlined, which is why
+ * adding a kind cannot collide with the fields of another.
+ */
+export type Follow = {
+  type: "organization";
+  /**
+   * When the Customer subscribed. Stable across repeats: following something
+   * already followed returns this instant rather than a new one, so the list's
+   * order does not shuffle under a double tap.
+   */
+  followed_at: string;
+  organization: FollowedOrganization;
+};
+
+/** Everything the Customer Follows, most recently followed first. */
+export type Follows = {
+  follows: Follow[];
+};
+
+/**
+ * Reads everything the signed-in Customer Follows.
+ *
+ * Like the Customer Area, the request carries no identifier of whose list it is:
+ * the session is the only scope. An anonymous visitor never reaches the API at
+ * all — no cookie, no call — so a page that asks this in order to decide how to
+ * draw a Follow control costs a signed-out reader nothing.
+ *
+ * One read answers every Follow control on a page, which is why it is a list
+ * rather than a per-subject "do I follow this" probe: a page showing several
+ * followable things asks once.
+ */
+export async function getFollows(): Promise<SessionOutcome<Follows>> {
+  return readWithSession<Follows>("/api/v1/customer/follows");
+}

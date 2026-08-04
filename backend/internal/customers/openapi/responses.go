@@ -85,6 +85,23 @@ type EnvelopeCheckoutReversal struct {
 	RequestID string                `json:"request_id"`
 }
 
+// EnvelopeCustomerFollows documents GET /api/v1/customer/follows success
+// responses: everything the Customer Follows, as one discriminated list.
+type EnvelopeCustomerFollows struct {
+	Data      service.FollowsView `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeCustomerFollow documents POST
+// /api/v1/customer/follows/organizations/{slug} success responses: the one
+// Follow, in exactly the shape it takes inside the list above.
+type EnvelopeCustomerFollow struct {
+	Data      service.FollowView `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
 // EnvelopeCustomerArea documents GET /api/v1/customer/ticket-sales success responses.
 type EnvelopeCustomerArea struct {
 	Data      service.CustomerAreaView `json:"data"`

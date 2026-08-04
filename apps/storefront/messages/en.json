@@ -40,6 +40,16 @@
     "emptyTitle": "No upcoming events",
     "emptyDescription": "This organizer has no events on sale right now. Check back soon."
   },
+  "follow": {
+    "follow": "Follow",
+    "following": "Following",
+    "followHint": "Get one weekly email about their events.",
+    "followingHint": "Their events are in your weekly email. Press to unfollow.",
+    "followedToast": "You now follow {name}.",
+    "unfollowedToast": "You no longer follow {name}.",
+    "failed": "That didn't work. Try again.",
+    "networkFailed": "That didn't work. Check your connection and try again."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Get tickets for {event}.",
@@ -283,6 +293,10 @@
     },
     "myInfo": {
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to change your details."
+    },
+    "follow": {
+      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to follow organizers.",
+      "ORGANIZATION_NOT_FOUND": "This organizer is no longer available."
     }
   },
   "tags": {

@@ -648,6 +648,185 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/follows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Customer's Follows
+         * @description Returns everything the signed-in Customer Follows, most recently followed first. One list rather than one per kind: each entry carries a `type` discriminator and the subject hangs off the field named by it, so a client switches on `type` and keeps working as further kinds of Follow are added. Always scoped by the Customer Session, never by any identifier in the request. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollows"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/follows/organizations/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Follow an Organization
+         * @description Records that the signed-in Customer Follows the Organization named by slug, and returns the Follow. Idempotent: following something already followed returns the existing Follow with its original `followed_at` rather than a conflict, so a retried or double-tapped request is safe. Answers 200 on both the first call and every repeat. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded Sale Confirmation is not authority to subscribe somebody's inbox to mail.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollow"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        /**
+         * Unfollow an Organization
+         * @description Removes the signed-in Customer's Follow of the Organization named by slug. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerLogout"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/profile": {
         parameters: {
             query?: never;
@@ -5982,6 +6161,16 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerFollow": {
+            data?: components["schemas"]["service.FollowView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerFollows": {
+            data?: components["schemas"]["service.FollowsView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeCustomerLogout": {
             data?: components["schemas"]["internal_customers_openapi.MessageData"];
             error?: components["schemas"]["platform.APIError"];
@@ -6402,6 +6591,19 @@ export interface components {
             starts_at?: string;
             timezone?: string;
             venue_name?: string;
+        };
+        "service.FollowView": {
+            followed_at?: string;
+            organization?: components["schemas"]["service.FollowedOrganizationView"];
+            type?: string;
+        };
+        "service.FollowedOrganizationView": {
+            logo_url?: string;
+            name?: string;
+            slug?: string;
+        };
+        "service.FollowsView": {
+            follows?: components["schemas"]["service.FollowView"][];
         };
         "service.MembershipView": {
             member_id?: string;

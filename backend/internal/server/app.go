@@ -199,6 +199,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}
+	// A Follow is stored against an Organization id, and the Customer names one
+	// by the slug they see in the address bar (#217). Turning the one into the
+	// other is identity's rule — including that an unknown slug is
+	// ORGANIZATION_NOT_FOUND rather than an empty answer — so customers declares
+	// the narrow interface and identity satisfies it, as sales does for in-flight
+	// Reversal Requests below.
+	customersService = customersService.WithOrganizations(identityService)
 	customersHandler := customershandler.New(customersService)
 
 	salesRepo := salesrepo.New(db)

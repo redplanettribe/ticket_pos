@@ -5,10 +5,12 @@ import { notFound } from "next/navigation";
 import { Breadcrumb, PageHeader } from "@ticket-pos/ui";
 
 import { EmptyState, EventGrid } from "@/components/event-grid";
+import { FollowButton } from "@/components/follow-button";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { localeAlternates } from "@/lib/alternates";
 import { getOrganizationEvents } from "@/lib/api";
+import { getFollows } from "@/lib/customer-session";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
 
@@ -52,6 +54,24 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
   }
 
   const { organization, upcoming, past } = data;
+
+  // Whether this visitor Follows this Organization, read on the server so the
+  // control renders in its true state on first paint rather than flickering into
+  // it. An anonymous visitor never reaches the API for this — no Customer
+  // Session cookie, no call — so a signed-out reader pays nothing, and the
+  // control is simply not drawn for them: following while signed out has to
+  // survive a round trip through sign-in and is its own problem (#219).
+  //
+  // A failed read is treated as signed out for this one purpose. The page is the
+  // Organization's Events; a Follow control that could not be resolved is worth
+  // less than the page being served without it.
+  const follows = await getFollows();
+  const following =
+    follows.status === "ok" &&
+    follows.data.follows.some(
+      (follow) => follow.type === "organization" && follow.organization.slug === organization.slug,
+    );
+
   const t = await getTranslations("organization");
   const shell = await getTranslations("shell");
   const explorer = await getTranslations("explorer");
@@ -75,7 +95,16 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
             { label: organization.name },
           ]}
         />
-        <PageHeader title={organization.name} description={t("subtitle")} />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <PageHeader title={organization.name} description={t("subtitle")} />
+          {follows.status === "ok" ? (
+            <FollowButton
+              endpoint={`/api/customer/follows/organizations/${encodeURIComponent(organization.slug)}`}
+              following={following}
+              subjectName={organization.name}
+            />
+          ) : null}
+        </div>
 
         <section className="space-y-4">
           <h2 className="text-lg font-semibold tracking-tight">{t("upcomingHeading")}</h2>

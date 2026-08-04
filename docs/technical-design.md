@@ -547,6 +547,30 @@ type EmailSender interface {
   session is refused with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403), because possession of a
   forwarded Sale Confirmation is not ownership of the address. The edit moves the Customer's current
   assertion only; every Ticket Sale keeps the name and Tax ID it was transacted under.
+- A Customer holds **Follows**: standing subscriptions to Organizations (and, later, Tags), whose
+  whole payload is the weekly **Follow Digest** (ADR 0030). They live in `customer_organization_follows`,
+  a composite-primary-key join table owned by the customers module, with `ON DELETE CASCADE` on both
+  ends — a deleted Organization takes its Follows with it rather than orphaning rows that feed a
+  mailing. The surface is three routes: `GET /api/v1/customer/follows` returns **one list of every
+  kind of Follow**, each entry carrying a `type` discriminator with the subject hanging off the
+  field it names (`{"type":"organization","followed_at":…,"organization":{name,slug,logo_url}}`),
+  ordered `followed_at DESC`; `POST` and `DELETE
+  /api/v1/customer/follows/organizations/{slug}` follow and unfollow. Tag Follows extend the same
+  list rather than adding a second endpoint. The Organization is named by **slug**, never by id: the
+  public Organization profile publishes no internal id, every Storefront address already names an
+  Organization that way, and an unknown slug is identity's own `ORGANIZATION_NOT_FOUND` (404), so
+  the Follow routes are not an oracle the public profile is not. The slug is resolved to an id
+  **service-to-service**, through a one-method interface declared on the customers side and
+  implemented by identity — the same shape as the reversal resolver. Following is **idempotent** and
+  answers 200 on every call, never 201 and never 409: the repeat returns the existing Follow with
+  its original `followed_at` rather than moving it, so a retry or double tap is safe. Unfollowing
+  something not followed is likewise not an error. All three routes require a **full** Customer
+  Session and refuse a Confirmation Link session with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403).
+  That is a session-scope check and not a second email-verification check, and it is the one place
+  the "an active Customer Session implies a verified email" shorthand does not hold: a sale-scoped
+  session is minted from a token in an email somebody was *sent*, does not set `verified_at`, and
+  proves nothing about who controls the address — so honouring a Follow from a forwarded receipt
+  would subscribe a stranger's inbox to mail, which ADR 0010 forbids.
 - Each Ticket Sale keeps its own immutable Tax ID snapshot, and that snapshot — not the Customer's
   current assertion — is what organizers see and search. `GET /api/v1/staff/events/{id}/sales`
   returns it per row as `tax_id_type` / `tax_id_number` (null together on sales recorded without

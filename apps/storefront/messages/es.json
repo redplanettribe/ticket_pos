@@ -40,6 +40,16 @@
     "emptyTitle": "No hay próximos eventos",
     "emptyDescription": "Este organizador no tiene eventos a la venta en este momento. Vuelva pronto."
   },
+  "follow": {
+    "follow": "Seguir",
+    "following": "Siguiendo",
+    "followHint": "Reciba un correo semanal sobre sus eventos.",
+    "followingHint": "Sus eventos están en su correo semanal. Pulse para dejar de seguir.",
+    "followedToast": "Ahora sigue a {name}.",
+    "unfollowedToast": "Ya no sigue a {name}.",
+    "failed": "No se pudo completar. Inténtelo de nuevo.",
+    "networkFailed": "No se pudo completar. Revise su conexión e inténtelo de nuevo."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Obtenga entradas para {event}.",
@@ -283,6 +293,10 @@
     },
     "myInfo": {
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para cambiar sus datos."
+    },
+    "follow": {
+      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para seguir organizadores.",
+      "ORGANIZATION_NOT_FOUND": "Este organizador ya no está disponible."
     }
   },
   "tags": {
