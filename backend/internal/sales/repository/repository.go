@@ -206,6 +206,16 @@ type EventImportContext struct {
 	// may be scheduled loosely or not at all.
 	StartsAt sql.NullTime
 	EndsAt   sql.NullTime
+	// RegistrationMode is how the Event takes sign-ups (ADR 0028). It rides along
+	// with the rest of the context because every import operation must answer
+	// "does this Event sell tickets at all?" before it looks at a single Ticket
+	// Type, and a second query for one column would be a second round trip to
+	// learn something this row already knows.
+	//
+	// Raw as stored: catalog.RegistrationModeOrDefault interprets it, so a value
+	// this binary does not recognise reads as an ordinary ticketed Event rather
+	// than locking the Organization out of its own imports.
+	RegistrationMode string
 }
 
 // End is the moment the Event finishes, or the zero time when it has no
@@ -222,17 +232,17 @@ func (e *EventImportContext) End() time.Time {
 	}
 }
 
-// GetEventImportContext returns the Event's name, timezone, and schedule, and
-// whether it belongs to the Organization.
+// GetEventImportContext returns the Event's name, timezone, schedule, and
+// registration mode, and whether it belongs to the Organization.
 func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID string) (*EventImportContext, bool, error) {
 	var out EventImportContext
 	var tz sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.name, e.timezone, o.currency, e.starts_at, e.ends_at
+		SELECT e.name, e.timezone, o.currency, e.starts_at, e.ends_at, e.registration_mode
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE e.id = $1 AND e.organization_id = $2
-	`, eventID, orgID).Scan(&out.Name, &tz, &out.Currency, &out.StartsAt, &out.EndsAt)
+	`, eventID, orgID).Scan(&out.Name, &tz, &out.Currency, &out.StartsAt, &out.EndsAt, &out.RegistrationMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}

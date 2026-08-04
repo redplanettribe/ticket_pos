@@ -75,10 +75,20 @@ type EventDetail struct {
 	// Platform Fee schedule it is read with. The rates travel with the Event so
 	// the staff forms can show an organizer what a price means for the buyer and
 	// for their own take-home using the same arithmetic checkout uses (ADR 0014).
-	FeeHandling       string    `json:"fee_handling"`
-	FeeBasisPoints    int       `json:"fee_basis_points"`
-	FeeIVABasisPoints int       `json:"fee_iva_basis_points"`
-	CreatedAt         time.Time `json:"created_at"`
+	FeeHandling       string `json:"fee_handling"`
+	FeeBasisPoints    int    `json:"fee_basis_points"`
+	FeeIVABasisPoints int    `json:"fee_iva_basis_points"`
+	// RegistrationMode is how this Event takes sign-ups: 'tickets' or 'external'
+	// (ADR 0028). RegistrationURL is the Registration Link, null while an external
+	// Event's registration page is still being built.
+	RegistrationMode string  `json:"registration_mode"`
+	RegistrationURL  *string `json:"registration_url"`
+	// RegistrationClickCount is how many times the hand-off to the Registration
+	// Link has been made. It counts clicks, never registrations or people: the
+	// platform loses sight of the buyer at the link and never learns what happened
+	// next. Read-only here — the redirect owns it, no Event form may write it.
+	RegistrationClickCount int64     `json:"registration_click_count"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // ActorContext is the acting member for catalog operations.
@@ -91,6 +101,13 @@ type ActorContext struct {
 type CreateEventInput struct {
 	Name string
 	Slug string
+	// RegistrationMode is the submitted mode, or nil when the caller said nothing
+	// about it — which is most callers, and which means the Event sells tickets.
+	RegistrationMode *catalog.RegistrationMode
+	// RegistrationURL is the Registration Link, or nil when there is none yet. A
+	// new Event may name External Registration before its registration page
+	// exists, exactly as it may be created before its start time is known.
+	RegistrationURL *string
 }
 
 // CreateTicketTypeInput creates a Ticket Type on an Event.
@@ -134,6 +151,13 @@ type UpdateEventInput struct {
 	// FeeHandling is the submitted Fee Handling mode, or nil when the form said
 	// nothing about it — an update that omits it leaves the Event's mode alone.
 	FeeHandling *sales.FeeHandling
+	// RegistrationMode is the submitted registration mode, nil to leave it alone.
+	RegistrationMode *catalog.RegistrationMode
+	// RegistrationURL is the submitted Registration Link. Nil leaves it alone, an
+	// empty string clears it, mirroring cover_image_key. The link and the mode
+	// move independently: repointing a link is not a mode change, and choosing
+	// External Registration does not require having the link yet.
+	RegistrationURL *string
 }
 
 // CreateCoverUploadURLInput requests a presigned cover upload URL.
@@ -235,7 +259,17 @@ func (s *Service) CreateEvent(ctx context.Context, actor ActorContext, input Cre
 		return nil, catalog.ErrEventSlugTaken(slug)
 	}
 
-	event, err := s.repo.CreateEvent(ctx, actor.OrganizationID, name, slug, s.now())
+	mode := catalog.RegistrationModeTickets
+	if input.RegistrationMode != nil {
+		mode = *input.RegistrationMode
+	}
+
+	event, err := s.repo.CreateEvent(ctx, actor.OrganizationID, repository.CreateEventParams{
+		Name:             name,
+		Slug:             slug,
+		RegistrationMode: string(mode),
+		RegistrationURL:  nullStringFromPtr(input.RegistrationURL),
+	}, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -335,6 +369,59 @@ func (s *Service) UpdateEvent(ctx context.Context, actor ActorContext, eventID s
 		params.FeeHandling = string(*input.FeeHandling)
 	}
 
+	// The mode and the Registration Link move independently, and a form that
+	// mentions neither leaves both where they are.
+	params.RegistrationMode = string(catalog.RegistrationModeOrDefault(event.RegistrationMode))
+	if input.RegistrationMode != nil {
+		params.RegistrationMode = string(*input.RegistrationMode)
+	}
+	params.RegistrationURL = event.RegistrationURL
+	if input.RegistrationURL != nil {
+		params.RegistrationURL = nullStringFromPtr(input.RegistrationURL)
+	}
+
+	// The published-state freezes, enforced here because the server is the only
+	// place enforcement lives: a disabled button in the staff form stops a click,
+	// not a request (#208).
+	//
+	// Both bind on the final state of the update rather than on which fields the
+	// request happened to carry, like the poster rule above — the Event form
+	// resubmits the whole registration pair on every save, so restating the mode
+	// an Event already has is not a change and must go through.
+	if event.Status != repository.EventStatusDraft {
+		currentMode := string(catalog.RegistrationModeOrDefault(event.RegistrationMode))
+		// The mode is settled while the Event is a draft and frozen in both
+		// directions afterwards; the escape hatch is a new Event.
+		if params.RegistrationMode != currentMode {
+			return nil, catalog.ErrEventRegistrationModeLocked()
+		}
+	}
+	if event.Status == repository.EventStatusPublished &&
+		params.RegistrationMode == string(catalog.RegistrationModeExternal) &&
+		strings.TrimSpace(params.RegistrationURL.String) == "" {
+		// A published external Event has no Ticket Types behind it, so the
+		// Registration Link is the only way in: it is correctable, never removable.
+		return nil, catalog.ErrEventRegistrationURLRequired()
+	}
+
+	// The exclusivity invariant, seen from the Event's side: an Event may not
+	// register externally while Ticket Types still sit behind it (ADR 0028). It
+	// binds on the final state of the update rather than on whether the request
+	// happened to name the mode, for the same reason the Cover Video poster rule
+	// does — an Event that ends this request external must end it with no Ticket
+	// Types, however it got there. The other side of the invariant is in
+	// CreateTicketType; neither is expressible as a CHECK constraint because the
+	// fact spans two tables.
+	if params.RegistrationMode == string(catalog.RegistrationModeExternal) {
+		ticketTypeCount, err := s.repo.CountTicketTypesByEventID(ctx, actor.OrganizationID, eventID)
+		if err != nil {
+			return nil, err
+		}
+		if ticketTypeCount > 0 {
+			return nil, catalog.ErrEventHasTicketTypes()
+		}
+	}
+
 	updated, err := s.repo.UpdateEvent(ctx, actor.OrganizationID, eventID, params)
 	if err != nil {
 		return nil, err
@@ -413,12 +500,25 @@ func (s *Service) PublishEvent(ctx context.Context, actor ActorContext, eventID 
 	}
 
 	missing := publishMissingFields(event)
-	ticketCount, err := s.repo.CountTicketTypesByEventID(ctx, actor.OrganizationID, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if ticketCount == 0 {
-		missing = append(missing, "ticket_types")
+
+	// The way in. Every Event needs one, and which one it needs is the mode: a
+	// ticketed Event needs at least one Ticket Type, exactly as it always has,
+	// and an externally registered one needs its Registration Link instead
+	// (ADR 0028). Naming the wrong one sends the organizer to fix something the
+	// Event does not use — an external Event has no Ticket Types by construction,
+	// so "add a ticket type" is advice it cannot take.
+	if catalog.RegistrationModeOrDefault(event.RegistrationMode) == catalog.RegistrationModeExternal {
+		if !event.RegistrationURL.Valid || strings.TrimSpace(event.RegistrationURL.String) == "" {
+			missing = append(missing, "registration_url")
+		}
+	} else {
+		ticketCount, err := s.repo.CountTicketTypesByEventID(ctx, actor.OrganizationID, eventID)
+		if err != nil {
+			return nil, err
+		}
+		if ticketCount == 0 {
+			missing = append(missing, "ticket_types")
+		}
 	}
 	if len(missing) > 0 {
 		return nil, catalog.ErrEventPublishRequirementsNotMet(missing)
@@ -671,6 +771,13 @@ func (s *Service) CreateTicketType(ctx context.Context, actor ActorContext, even
 		return nil, catalog.ErrEventNotFound()
 	}
 
+	// The exclusivity invariant, seen from the Ticket Type's side (ADR 0028). The
+	// refusal names the mode rather than letting the organizer discover it as a
+	// generic failure, and it is the same code every sale path will raise.
+	if catalog.RegistrationModeOrDefault(event.RegistrationMode) == catalog.RegistrationModeExternal {
+		return nil, catalog.ErrEventIsExternalRegistration()
+	}
+
 	currency, err := s.repo.GetOrganizationCurrency(ctx, actor.OrganizationID)
 	if err != nil {
 		return nil, err
@@ -815,7 +922,14 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		FeeHandling:       e.FeeHandling,
 		FeeBasisPoints:    s.fees.FeeBasisPoints,
 		FeeIVABasisPoints: s.fees.FeeIVABasisPoints,
-		CreatedAt:         e.CreatedAt,
+		// A row written before migration 048 reads as an ordinary ticketed Event.
+		RegistrationMode:       string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
+		RegistrationClickCount: e.RegistrationClickCount,
+		CreatedAt:              e.CreatedAt,
+	}
+	if e.RegistrationURL.Valid {
+		v := e.RegistrationURL.String
+		detail.RegistrationURL = &v
 	}
 	if e.StartsAt.Valid {
 		t := e.StartsAt.Time

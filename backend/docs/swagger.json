@@ -125,6 +125,13 @@
                     "name": {
                         "type": "string"
                     },
+                    "registration_mode": {
+                        "description": "RegistrationMode and RegistrationURL let an Event be created as externally\nregistered in one step. Both absent is the ordinary ticketed Event.",
+                        "type": "string"
+                    },
+                    "registration_url": {
+                        "type": "string"
+                    },
                     "slug": {
                         "type": "string"
                     }
@@ -393,6 +400,13 @@
                         "type": "string"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "registration_mode": {
+                        "description": "RegistrationMode is 'tickets' or 'external' (ADR 0028), and RegistrationURL\nis the Registration Link. Both follow fee_handling's rule — absent leaves\nthe stored value alone — and the link additionally clears on an empty\nstring, the way cover_image_key does.",
+                        "type": "string"
+                    },
+                    "registration_url": {
                         "type": "string"
                     },
                     "slug": {
@@ -1404,7 +1418,7 @@
                         "type": "integer"
                     },
                     "sales_count": {
-                        "description": "SalesCount and NetProceedsCents are the link's Affiliate Attribution\nfigures: how many ACTIVE Ticket Sales it drove, and what they left the\nOrganization after the Platform Fee and its Fee IVA. Display-only — no\ncommission is computed from either — and a reversed sale drops out of both\nhowever it was reversed. A link that drove only free claims shows its count\nwith zero beside it.",
+                        "description": "SalesCount and NetProceedsCents are the link's Affiliate Attribution\nfigures: how many ACTIVE Ticket Sales it drove, and what they left the\nOrganization after the Platform Fee and its Fee IVA. Display-only — no\ncommission is computed from either — and a reversed sale drops out of both\nhowever it was reversed. A link that drove only free claims shows its count\nwith zero beside it.\n\nBoth are null — absent, not zero — on an Event that registers externally.\nSuch a link can never attribute a sale, so a 0 and a $0.00 would sit there\nforever reading as \"this link failed\" when the truth is \"this link's\nsuccess is not measured in sales\" (#213). Nullable rather than omitted so\nthe distinction is explicit in the payload: null is \"not measured here\",\n0 is \"measured, and nothing yet\", and a client that reads either as the\nother has to do so deliberately.",
                         "type": "integer"
                     },
                     "url": {
@@ -1610,6 +1624,17 @@
                         "type": "string"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "registration_click_count": {
+                        "description": "RegistrationClickCount is how many times the hand-off to the Registration\nLink has been made. It counts clicks, never registrations or people: the\nplatform loses sight of the buyer at the link and never learns what happened\nnext. Read-only here — the redirect owns it, no Event form may write it.",
+                        "type": "integer"
+                    },
+                    "registration_mode": {
+                        "description": "RegistrationMode is how this Event takes sign-ups: 'tickets' or 'external'\n(ADR 0028). RegistrationURL is the Registration Link, null while an external\nEvent's registration page is still being built.",
+                        "type": "string"
+                    },
+                    "registration_url": {
                         "type": "string"
                     },
                     "slug": {
@@ -2363,6 +2388,10 @@
                     "price_from_cents": {
                         "type": "integer"
                     },
+                    "registration_mode": {
+                        "description": "RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells\nTicket Types here) or 'external' (it hands its audience to a Registration\nLink elsewhere). Never both (ADR 0028).\n\nA listing card needs it because a null price_from_cents alone cannot be\nread: on a ticketed Event it is a data anomaly, and on an external one it\nis the normal, permanent state — the platform does not know what the other\nsite charges and never will. The mode is what lets the card say so in\nwords instead of leaving the price slot blank and looking broken.\n\nThe Registration Link itself is deliberately not here. A card is an\ninvitation to the Event page, and the destination is named there, next to\nthe button that goes to it; a listing that linked straight out would hand\na Customer to a stranger from a surface that never told them where.",
+                        "type": "string"
+                    },
                     "slug": {
                         "type": "string"
                     },
@@ -2422,6 +2451,14 @@
                     "price_includes_fee": {
                         "description": "PriceIncludesFee reports that the quoted prices carry the platform's\nservice fee — true under 'pass_on' Fee Handling. It is the whole basis of\nthe Storefront's single muted \"includes service fee\" note: under 'absorb'\nthe buyer pays exactly what the Organization set and no fee is mentioned\nanywhere. No amount is exposed; the platform's cut is never a number a\nCustomer sees (ADR 0014).",
                         "type": "boolean"
+                    },
+                    "registration_mode": {
+                        "description": "RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells\nTicket Types here) or 'external' (it hands its audience to the Registration\nLink). Never both (ADR 0028). It is what tells the Storefront whether to\nrender a ticket selector at all, so it is stated on every Event rather than\ninferred from an empty ticket_types — an Event whose Ticket Types are all\nsold out is not the same page as one that sells nothing here.",
+                        "type": "string"
+                    },
+                    "registration_url": {
+                        "description": "RegistrationURL is the Registration Link, present only on an external\nEvent. The Storefront needs the URL itself and not merely the fact of it:\nthe Register panel names the destination's hostname beneath the call to\naction, because a Customer being handed to a stranger should learn which\none before they click rather than after.\n\nIt is null for a ticketed Event even if a link is stored — a link a\nticketed Event does not use is nothing a Customer should be offered — and\nnull for an external Event still missing one, which a published Event\ncannot be (the publish gate requires it, #208).",
+                        "type": "string"
                     },
                     "slug": {
                         "type": "string"
@@ -5531,6 +5568,47 @@
                 ]
             }
         },
+        "/api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click": {
+            "post": {
+                "description": "Counts one hand-off from an Event page to its Registration Link. Public and unauthenticated: the caller is the Storefront redirect route a Customer is passing through on their way to the registration site, not a browser talking to this API directly. Raw counting — a Customer who returns counts again, with no dedup and no visitor identification — and it counts CLICKS, never registrations and never people: the platform loses sight of the Customer at the link and never learns whether they signed up. An address that resolves to nothing (unknown Organization, unknown Event, or an Event that sells Ticket Types here) is accepted and counts nothing, so a tracking miss can never become an error that stops somebody registering.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Event slug",
+                        "in": "path",
+                        "name": "eventSlug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Accepted"
+                    }
+                },
+                "summary": "Record registration link click",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
         "/api/v1/public/tags": {
             "get": {
                 "description": "Lists preset tags carried by at least one discoverable upcoming event, for the storefront explorer chip bar. Independent of any q/date filter.",
@@ -5941,7 +6019,7 @@
         },
         "/api/v1/staff/events/{id}/affiliate-links": {
             "get": {
-                "description": "Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. Org Admin and Event Owner only.",
+                "description": "Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, the clicks it has drawn to the Event page, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. On an Event that registers externally both are null rather than 0: such a link can never attribute a sale, so it is measured by its clicks alone and a zero would misreport it as a failure. Org Admin and Event Owner only.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -6574,7 +6652,7 @@
         },
         "/api/v1/staff/events/{id}/publish": {
             "post": {
-                "description": "Publishes a draft catalog event when required fields and ticket types are present.",
+                "description": "Publishes a draft catalog event when required fields and its way in are present: at least one ticket type, or a registration link when the event registers externally.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -6716,7 +6794,7 @@
                 ]
             },
             "post": {
-                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).",
+                "description": "Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025). An Event that registers externally sells no tickets on this platform, so every form of this call — both Sales Sources, file and JSON alike — is refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and before any Ticket Type is resolved: the refusal names the mode rather than a Ticket Type that does not exist and never will (ADR 0028).",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -6906,6 +6984,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     }
                 },
                 "security": [
@@ -6974,6 +7062,16 @@
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     }
                 },
                 "security": [

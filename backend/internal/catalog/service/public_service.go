@@ -38,6 +38,21 @@ type PublicEventCard struct {
 	PriceFromCents *int                      `json:"price_from_cents"`
 	SoldOut        bool                      `json:"sold_out"`
 	Tags           []TagView                 `json:"tags"`
+	// RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+	// Ticket Types here) or 'external' (it hands its audience to a Registration
+	// Link elsewhere). Never both (ADR 0028).
+	//
+	// A listing card needs it because a null price_from_cents alone cannot be
+	// read: on a ticketed Event it is a data anomaly, and on an external one it
+	// is the normal, permanent state — the platform does not know what the other
+	// site charges and never will. The mode is what lets the card say so in
+	// words instead of leaving the price slot blank and looking broken.
+	//
+	// The Registration Link itself is deliberately not here. A card is an
+	// invitation to the Event page, and the destination is named there, next to
+	// the button that goes to it; a listing that linked straight out would hand
+	// a Customer to a stranger from a surface that never told them where.
+	RegistrationMode string `json:"registration_mode"`
 }
 
 // PublicTicketType is a Ticket Type as shown on a Storefront event page.
@@ -144,6 +159,24 @@ type PublicEventDetail struct {
 	// it says nothing about who may load the page, only about who should index
 	// it, so reachability is unchanged.
 	Discoverable bool `json:"discoverable"`
+	// RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+	// Ticket Types here) or 'external' (it hands its audience to the Registration
+	// Link). Never both (ADR 0028). It is what tells the Storefront whether to
+	// render a ticket selector at all, so it is stated on every Event rather than
+	// inferred from an empty ticket_types — an Event whose Ticket Types are all
+	// sold out is not the same page as one that sells nothing here.
+	RegistrationMode string `json:"registration_mode"`
+	// RegistrationURL is the Registration Link, present only on an external
+	// Event. The Storefront needs the URL itself and not merely the fact of it:
+	// the Register panel names the destination's hostname beneath the call to
+	// action, because a Customer being handed to a stranger should learn which
+	// one before they click rather than after.
+	//
+	// It is null for a ticketed Event even if a link is stored — a link a
+	// ticketed Event does not use is nothing a Customer should be offered — and
+	// null for an external Event still missing one, which a published Event
+	// cannot be (the publish gate requires it, #208).
+	RegistrationURL *string `json:"registration_url"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -341,6 +374,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 	}
 
 	handling := sales.FeeHandlingOrDefault(row.FeeHandling)
+	mode := catalog.RegistrationModeOrDefault(row.RegistrationMode)
 	detail := &PublicEventDetail{
 		Slug:             row.Slug,
 		Name:             row.Name,
@@ -354,6 +388,12 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		TicketTypes:      make([]PublicTicketType, 0, len(types)),
 		Tags:             toTagViews(tags),
 		Discoverable:     row.Discoverable,
+		RegistrationMode: string(mode),
+	}
+	// The Registration Link travels only on the Event that actually registers
+	// through it.
+	if mode == catalog.RegistrationModeExternal {
+		detail.RegistrationURL = nullStringPtr(row.RegistrationURL)
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time
@@ -437,15 +477,17 @@ func (s *Service) toPublicPromotion(
 }
 
 func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagView) PublicEventCard {
+	mode := catalog.RegistrationModeOrDefault(row.RegistrationMode)
 	card := PublicEventCard{
-		Slug:          row.Slug,
-		Name:          row.Name,
-		VenueName:     nullStringPtr(row.VenueName),
-		Timezone:      nullStringPtr(row.Timezone),
-		CoverImageURL: s.coverURL(row.CoverImageKey),
-		Organization:  s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
-		Currency:      row.OrgCurrency,
-		Tags:          tags,
+		Slug:             row.Slug,
+		Name:             row.Name,
+		VenueName:        nullStringPtr(row.VenueName),
+		Timezone:         nullStringPtr(row.Timezone),
+		CoverImageURL:    s.coverURL(row.CoverImageKey),
+		Organization:     s.publicOrgSummary(row.OrgName, row.OrgSlug, row.OrgLogoKey),
+		Currency:         row.OrgCurrency,
+		Tags:             tags,
+		RegistrationMode: string(mode),
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time
@@ -454,6 +496,18 @@ func (s *Service) toPublicEventCard(row *repository.PublicEventRow, tags []TagVi
 	if row.EndsAt.Valid {
 		t := row.EndsAt.Time
 		card.EndsAt = &t
+	}
+	// An externally registered Event sells nothing here, so the two claims a card
+	// makes about a sale — what it costs and whether any is left — are claims
+	// this platform is not in a position to make. Both are answered here, by the
+	// mode, rather than left to the Ticket Type aggregates: over an Event with no
+	// Ticket Types those aggregates are NULL, and a NULL sold_out landing on
+	// false is an accident that happens to be right today. Saying it explicitly
+	// means an external Event stays not-sold-out even if the aggregate's shape
+	// ever changes, and it can never be sold out for real: it has no capacity on
+	// this platform to exhaust.
+	if mode == catalog.RegistrationModeExternal {
+		return card
 	}
 	if row.MinPriceCents.Valid {
 		// The card's "from" price is a buyer price too: a Customer must never see

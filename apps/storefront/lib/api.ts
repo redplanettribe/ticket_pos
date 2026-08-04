@@ -236,6 +236,12 @@ export type PublicEventCard = {
   price_from_cents: number | null;
   sold_out: boolean;
   tags: PublicTag[];
+  // How the Event takes sign-ups, "tickets" or "external"; see
+  // lib/registration.ts, which reads it so the cards do not have to. A card
+  // needs it because a null price_from_cents cannot be read on its own: on a
+  // ticketed Event it is an anomaly worth no words, and on an external one it is
+  // the normal state and gets them.
+  registration_mode: string;
 };
 
 // A live Promotion on a Ticket Type: the Promotional Price that overrides the
@@ -321,6 +327,15 @@ export type PublicEventDetail = {
   // non-Discoverable Event noindex so a leaked URL cannot put it in a search
   // result the organizer opted out of.
   discoverable: boolean;
+  // How this Event takes sign-ups: "tickets" (it sells Ticket Types here) or
+  // "external" (it hands its audience to the Registration Link). Never both
+  // (ADR 0028). It is what decides whether the page renders a tickets section at
+  // all; see lib/registration.ts, which reads it so the page does not have to.
+  registration_mode: string;
+  // The Registration Link of an external Event, and null on a ticketed one. The
+  // page needs the URL itself and not merely the fact of it: the Register panel
+  // names the destination's hostname beneath the call to action.
+  registration_url: string | null;
 };
 
 export type PublicEventPage = {

@@ -7,6 +7,7 @@ import { Badge, Breadcrumb, Markdown } from "@ticket-pos/ui";
 
 import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { RegisterPanel } from "@/components/register-panel";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { TagBadges } from "@/components/tag-badges";
 import { TicketSelection } from "@/components/ticket-selection";
@@ -20,6 +21,7 @@ import { customerSessionToken } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
+import { isExternallyRegistered } from "@/lib/registration";
 import { storefrontBaseUrl } from "@/lib/site";
 import { toTagTranslator } from "@/lib/tag-name";
 
@@ -228,39 +230,52 @@ export default async function EventPage({ params, searchParams }: EventPageProps
           <Markdown className="mt-6 text-foreground">{event.description}</Markdown>
         ) : null}
 
-        <section className="mt-8 space-y-4" aria-labelledby="tickets-heading">
-          <h2 id="tickets-heading" className="text-lg font-semibold tracking-tight">
-            {t("ticketsHeading")}
-          </h2>
-          {event.has_ended ? (
-            // An ended Event stays reachable but is no longer sellable: the
-            // Ticket Types render read-only, with no steppers and no checkout.
-            <div className="space-y-3">
-              {event.ticket_types.map((ticketType) => (
-                <TicketTypeCard
-                  key={ticketType.name}
-                  ticketType={ticketType}
-                  timezone={event.timezone}
-                />
-              ))}
-              {event.price_includes_fee ? (
-                <p className="text-xs text-muted-foreground">{t("feeIncluded")}</p>
-              ) : null}
-            </div>
-          ) : (
-            // Draft and cancelled Events never reach this page at all — the
-            // public event read only acknowledges published Events — so the
-            // purchase UI only ever exists where selling is allowed.
-            <TicketSelection
-              orgSlug={event.organization.slug}
-              eventSlug={event.slug}
-              eventName={event.name}
-              ticketTypes={event.ticket_types}
-              priceIncludesFee={event.price_includes_fee}
-              timezone={event.timezone}
-            />
-          )}
-        </section>
+        {isExternallyRegistered(event) ? (
+          // An externally registered Event sells nothing here (ADR 0028), so the
+          // whole tickets section — heading, selection and sticky total — is
+          // replaced rather than trimmed: a price, a stepper or a total anywhere
+          // on this page would claim a sale this platform is not making.
+          <RegisterPanel
+            orgSlug={orgSlug}
+            eventSlug={eventSlug}
+            registrationUrl={event.registration_url}
+            hasEnded={event.has_ended}
+          />
+        ) : (
+          <section className="mt-8 space-y-4" aria-labelledby="tickets-heading">
+            <h2 id="tickets-heading" className="text-lg font-semibold tracking-tight">
+              {t("ticketsHeading")}
+            </h2>
+            {event.has_ended ? (
+              // An ended Event stays reachable but is no longer sellable: the
+              // Ticket Types render read-only, with no steppers and no checkout.
+              <div className="space-y-3">
+                {event.ticket_types.map((ticketType) => (
+                  <TicketTypeCard
+                    key={ticketType.name}
+                    ticketType={ticketType}
+                    timezone={event.timezone}
+                  />
+                ))}
+                {event.price_includes_fee ? (
+                  <p className="text-xs text-muted-foreground">{t("feeIncluded")}</p>
+                ) : null}
+              </div>
+            ) : (
+              // Draft and cancelled Events never reach this page at all — the
+              // public event read only acknowledges published Events — so the
+              // purchase UI only ever exists where selling is allowed.
+              <TicketSelection
+                orgSlug={event.organization.slug}
+                eventSlug={event.slug}
+                eventName={event.name}
+                ticketTypes={event.ticket_types}
+                priceIncludesFee={event.price_includes_fee}
+                timezone={event.timezone}
+              />
+            )}
+          </section>
+        )}
       </article>
     </StorefrontShell>
   );

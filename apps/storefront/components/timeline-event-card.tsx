@@ -6,7 +6,8 @@ import { TagBadges } from "@/components/tag-badges";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { PublicEventCard } from "@/lib/api";
-import { formatEventDateShort, formatEventTime, priceFrom } from "@/lib/format";
+import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { eventCardPriceSlot } from "@/lib/registration";
 import { toTagTranslator } from "@/lib/tag-name";
 
 type TimelineEventCardProps = {
@@ -35,7 +36,9 @@ export function TimelineEventCard({ event, showStartDate = false }: TimelineEven
   const whenLabel = showStartDate
     ? formatEventDateShort(event.starts_at, event.timezone, locale)
     : formatEventTime(event.starts_at, event.timezone, locale);
-  const price = priceFrom(event.price_from_cents, event.currency, locale);
+  // The same slot the grid card has, decided the same way: a price, or the fact
+  // that this Event registers its audience elsewhere (issue #211).
+  const priceSlot = eventCardPriceSlot(event, locale);
 
   return (
     <Link
@@ -57,9 +60,13 @@ export function TimelineEventCard({ event, showStartDate = false }: TimelineEven
           {event.venue_name ? (
             <p className="text-sm text-muted-foreground">{event.venue_name}</p>
           ) : null}
-          {price ? (
+          {priceSlot ? (
             <p className="pt-1 text-sm font-medium text-foreground">
-              {price.kind === "free" ? t("priceFree") : t("priceFrom", { price: price.price })}
+              {priceSlot.kind === "registration"
+                ? t("registrationRequired")
+                : priceSlot.kind === "free"
+                  ? t("priceFree")
+                  : t("priceFrom", { price: priceSlot.price })}
             </p>
           ) : null}
           <TagBadges tags={event.tags} t={tTags} className="pt-2" />

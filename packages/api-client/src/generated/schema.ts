@@ -2503,6 +2503,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record registration link click
+         * @description Counts one hand-off from an Event page to its Registration Link. Public and unauthenticated: the caller is the Storefront redirect route a Customer is passing through on their way to the registration site, not a browser talking to this API directly. Raw counting — a Customer who returns counts again, with no dedup and no visitor identification — and it counts CLICKS, never registrations and never people: the platform loses sight of the Customer at the link and never learns whether they signed up. An address that resolves to nothing (unknown Organization, unknown Event, or an Event that sells Ticket Types here) is accepted and counts nothing, so a tracking miss can never become an error that stops somebody registering.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                    /** @description Event slug */
+                    eventSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/tags": {
         parameters: {
             query?: never;
@@ -2888,7 +2932,7 @@ export interface paths {
         };
         /**
          * List affiliate links
-         * @description Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. Org Admin and Event Owner only.
+         * @description Lists an Event's Affiliate Links, newest first: name, immutable code, active status, the full copyable Storefront URL, when it was created, the clicks it has drawn to the Event page, and the link's Affiliate Attribution figures — sales_count, the ACTIVE Ticket Sales it drove, and net_proceeds_cents, what those sales left the Organization after the Platform Fee and its Fee IVA. Both figures are display-only and count active sales only: a Sale Reversal by any route drops the sale out of each, and an attributed free claim counts as a sale worth nothing. On an Event that registers externally both are null rather than 0: such a link can never attribute a sale, so it is measured by its clicks alone and a zero would misreport it as a failure. Org Admin and Event Owner only.
          */
         get: {
             parameters: {
@@ -3428,7 +3472,7 @@ export interface paths {
         put?: never;
         /**
          * Publish event
-         * @description Publishes a draft catalog event when required fields and ticket types are present.
+         * @description Publishes a draft catalog event when required fields and its way in are present: at least one ticket type, or a registration link when the event registers externally.
          */
         post: {
             parameters: {
@@ -3559,7 +3603,7 @@ export interface paths {
         put?: never;
         /**
          * Commit a Direct Sale Import
-         * @description Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025).
+         * @description Records off-platform (cash/transfer) sales against an Event, decrementing capacity and emailing each customer a Sale Confirmation. All-or-nothing and idempotent. Accepts an uploaded .csv/.xlsx file (with optional `skip_rows`, a comma-separated list of file row numbers to exclude, e.g. resolved duplicates) or a JSON body. The file form re-runs the preview's max_per_customer check rather than trusting that a preview ran, so a row over a ticket type's limit fails the batch with VALIDATION_FAILED. The JSON form does NOT check it, and no parity should be inferred: it carries no per-row complaint channel to report a refusal through, and a Purchase Limit is a guardrail an Organization sets for itself — the same Org Admin may clear the limit, import, and set it back, which is the documented way to import history recorded before the limit existed (ADR 0025). An Event that registers externally sells no tickets on this platform, so every form of this call — both Sales Sources, file and JSON alike — is refused with EVENT_IS_EXTERNAL_REGISTRATION before the body is judged and before any Ticket Type is resolved: the refusal names the mode rather than a Ticket Type that does not exist and never will (ADR 0028).
          */
         post: {
             parameters: {
@@ -3811,6 +3855,15 @@ export interface paths {
                         "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -3871,6 +3924,15 @@ export interface paths {
                 };
                 /** @description Not Found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -5662,6 +5724,12 @@ export interface components {
         };
         "handler.createEventBody": {
             name?: string;
+            /**
+             * @description RegistrationMode and RegistrationURL let an Event be created as externally
+             *     registered in one step. Both absent is the ordinary ticketed Event.
+             */
+            registration_mode?: string;
+            registration_url?: string;
             slug?: string;
         };
         "handler.createOrganizationBody": {
@@ -5770,6 +5838,14 @@ export interface components {
              */
             fee_handling?: string;
             name?: string;
+            /**
+             * @description RegistrationMode is 'tickets' or 'external' (ADR 0028), and RegistrationURL
+             *     is the Registration Link. Both follow fee_handling's rule — absent leaves
+             *     the stored value alone — and the link additionally clears on an empty
+             *     string, the way cover_image_key does.
+             */
+            registration_mode?: string;
+            registration_url?: string;
             slug?: string;
             starts_at?: string;
             timezone?: string;
@@ -6148,6 +6224,14 @@ export interface components {
              *     commission is computed from either — and a reversed sale drops out of both
              *     however it was reversed. A link that drove only free claims shows its count
              *     with zero beside it.
+             *
+             *     Both are null — absent, not zero — on an Event that registers externally.
+             *     Such a link can never attribute a sale, so a 0 and a $0.00 would sit there
+             *     forever reading as "this link failed" when the truth is "this link's
+             *     success is not measured in sales" (#213). Nullable rather than omitted so
+             *     the distinction is explicit in the payload: null is "not measured here",
+             *     0 is "measured, and nothing yet", and a client that reads either as the
+             *     other has to do so deliberately.
              */
             sales_count?: number;
             /**
@@ -6279,6 +6363,20 @@ export interface components {
             fee_iva_basis_points?: number;
             id?: string;
             name?: string;
+            /**
+             * @description RegistrationClickCount is how many times the hand-off to the Registration
+             *     Link has been made. It counts clicks, never registrations or people: the
+             *     platform loses sight of the buyer at the link and never learns what happened
+             *     next. Read-only here — the redirect owns it, no Event form may write it.
+             */
+            registration_click_count?: number;
+            /**
+             * @description RegistrationMode is how this Event takes sign-ups: 'tickets' or 'external'
+             *     (ADR 0028). RegistrationURL is the Registration Link, null while an external
+             *     Event's registration page is still being built.
+             */
+            registration_mode?: string;
+            registration_url?: string;
             slug?: string;
             starts_at?: string;
             status?: string;
@@ -6768,6 +6866,23 @@ export interface components {
             name?: string;
             organization?: components["schemas"]["service.PublicOrganizationSummary"];
             price_from_cents?: number;
+            /**
+             * @description RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+             *     Ticket Types here) or 'external' (it hands its audience to a Registration
+             *     Link elsewhere). Never both (ADR 0028).
+             *
+             *     A listing card needs it because a null price_from_cents alone cannot be
+             *     read: on a ticketed Event it is a data anomaly, and on an external one it
+             *     is the normal, permanent state — the platform does not know what the other
+             *     site charges and never will. The mode is what lets the card say so in
+             *     words instead of leaving the price slot blank and looking broken.
+             *
+             *     The Registration Link itself is deliberately not here. A card is an
+             *     invitation to the Event page, and the destination is named there, next to
+             *     the button that goes to it; a listing that linked straight out would hand
+             *     a Customer to a stranger from a surface that never told them where.
+             */
+            registration_mode?: string;
             slug?: string;
             sold_out?: boolean;
             starts_at?: string;
@@ -6808,6 +6923,28 @@ export interface components {
              *     Customer sees (ADR 0014).
              */
             price_includes_fee?: boolean;
+            /**
+             * @description RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+             *     Ticket Types here) or 'external' (it hands its audience to the Registration
+             *     Link). Never both (ADR 0028). It is what tells the Storefront whether to
+             *     render a ticket selector at all, so it is stated on every Event rather than
+             *     inferred from an empty ticket_types — an Event whose Ticket Types are all
+             *     sold out is not the same page as one that sells nothing here.
+             */
+            registration_mode?: string;
+            /**
+             * @description RegistrationURL is the Registration Link, present only on an external
+             *     Event. The Storefront needs the URL itself and not merely the fact of it:
+             *     the Register panel names the destination's hostname beneath the call to
+             *     action, because a Customer being handed to a stranger should learn which
+             *     one before they click rather than after.
+             *
+             *     It is null for a ticketed Event even if a link is stored — a link a
+             *     ticketed Event does not use is nothing a Customer should be offered — and
+             *     null for an external Event still missing one, which a published Event
+             *     cannot be (the publish gate requires it, #208).
+             */
+            registration_url?: string;
             slug?: string;
             starts_at?: string;
             tags?: components["schemas"]["service.TagView"][];

@@ -56,7 +56,13 @@
     "limitReachedNote": "Este tipo de entrada tiene un límite de {limit} por persona y usted ya alcanzó el suyo. No es que se hayan agotado: es solo su propio límite.",
     "remaining": "{count, plural, one {queda #} other {quedan #}}",
     "promotionSavings": "{percent}% de descuento",
-    "promotionDeadline": "Precio promocional hasta <when>{deadline}</when>"
+    "promotionDeadline": "Precio promocional hasta <when>{deadline}</when>",
+    "registrationHeading": "Inscripción",
+    "registerCta": "Inscribirse",
+    "registerContinueOn": "Continuará en {host}",
+    "registrationClosed": "Las inscripciones para este evento están cerradas.",
+    "registrationUnavailable": "La inscripción no está disponible en este momento.",
+    "registrationRequired": "Requiere inscripción"
   },
   "checkout": {
     "decreaseQuantity": "Quitar una entrada de {ticketType}",

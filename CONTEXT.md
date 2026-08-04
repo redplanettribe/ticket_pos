@@ -91,6 +91,7 @@ _Avoid_: Trailer, promo video, hero video, clip
 
 **Event status**:
 Where an Event is in its lifecycle: `draft` (being prepared), `published` (visible and sellable when sales exist), or `cancelled` (terminal; no longer active).
+Publishing requires a way in — Ticket Types or a Registration Link — alongside the Event's own description; which of the two it is is settled while `draft` and cannot change afterwards.
 Governs whether an Event is reachable at all; distinct from Discoverable, which governs whether a reachable Event advertises itself in listings.
 _Avoid_: State, visibility flag, active/inactive
 
@@ -116,6 +117,17 @@ _Avoid_: Section, day group, date header
 **Ongoing**:
 The Timeline group above the Day Buckets holding every Event that has started but not yet ended — a multi-day Event mid-run or tonight's Event during its own runtime. Membership is a pure instant comparison (start passed, end not reached); an Event with no end never appears here, since it leaves the Timeline at its start. Cards in this group show their full start date, since the group header names no date.
 _Avoid_: Live, in progress, happening now, started
+
+**External Registration**:
+An Event that sells no tickets and sends its audience to a third-party site to sign up — a Luma page, an Eventbrite listing, a form, the Organization's own site.
+The alternative to selling Ticket Types, never a companion to it: an Event does one or the other, chosen while `draft` and fixed once `published`. Such an Event is otherwise an ordinary Event — it is described, Tagged, Discoverable, and promotable through Affiliate Links — but it has no capacity, is never sold out, and produces no Ticket Sale, so it reaches no Payment, Platform Fee, Net Proceeds, balance or Payout.
+_Avoid_: External ticketing, off-platform sales, third-party event, RSVP
+
+**Registration Link**:
+The URL an Event with External Registration sends its audience to, and the only way into such an Event.
+Editable while `published`, since a typo or a rescheduled registration page must be fixable, but never emptied. It carries no vendor identity: the platform stores a URL, not a relationship with whoever is on the other end.
+Shows its clicks — never registrations and never people. The platform loses sight of the buyer at the link and never learns whether they signed up; only the site on the other side knows that.
+_Avoid_: Affiliate Link, external ticket link, signup URL, RSVP link, registrations (as the counter's name)
 
 **Ticket Type**:
 A purchasable ticket category belonging to an Event, with a name, description, List Price, capacity, and display order.
@@ -315,6 +327,7 @@ The link itself is the whole concept: there is no affiliate person entity, no co
 Belongs to one Event. Carries an editable display name and an immutable system-generated code; can be deactivated (it stops attributing but keeps its history) and reactivated, and deleted only while it has attributed nothing.
 Shows its clicks, attributed active-sale count, and attributed Net Proceeds — a reversed sale drops out of the figures like it does everywhere else.
 A dead or deactivated code in a URL never gets in the buyer's way: the Event page renders normally and nothing is counted.
+Points the opposite way to a Registration Link: an Affiliate Link points *at* the Event page and attributes the sales that follow, while a Registration Link points *away* from it and attributes nothing.
 _Avoid_: Referral link, promo link, tracking link, UTM, campaign, affiliate (as a person)
 
 **Affiliate Attribution**:
@@ -330,6 +343,7 @@ _Avoid_: Cookie lifetime, lookback window, click validity period
 **External Platform**:
 A third-party ticketing service through which tickets may be sold outside this system.
 Distinct from an Integration Partner, which manages this system programmatically rather than supplying sales to import.
+Distinct too from External Registration: an External Platform is about sales that happened elsewhere and came back through a Sale Import, whereas External Registration is about a buyer who left and never came back — the site behind a Registration Link is deliberately not an External Platform, since the system stores a URL rather than a vendor.
 _Avoid_: Partner platform, external vendor
 
 **Sales Source**:

@@ -249,6 +249,15 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// two Storefront slugs. It answers 202 to everything — see the handler.
 	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/affiliate-links/{code}/click",
 		app.AffiliatesHandler.RecordAffiliateLinkClick)
+	// The Registration Link hand-off counter (#210), reported by the Storefront
+	// redirect route a Customer passes through on their way to the registration
+	// site. Public and unauthenticated, and shaped like the two routes above
+	// because it names the same thing by the same two Storefront slugs. It takes
+	// NO destination: the Event owns where it sends people, and a target this
+	// route accepted would be an open redirect wearing the platform's own domain.
+	// It answers 202 to everything — see the handler.
+	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click",
+		app.CatalogHandler.RecordRegistrationClick)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

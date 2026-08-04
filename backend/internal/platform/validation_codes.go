@@ -107,6 +107,16 @@ const (
 
 	// CodeInvalidFeeHandling — "must be pass_on or absorb".
 	CodeInvalidFeeHandling = "INVALID_FEE_HANDLING"
+	// CodeInvalidRegistrationMode — "must be tickets or external". How an Event
+	// takes sign-ups (ADR 0028).
+	CodeInvalidRegistrationMode = "INVALID_REGISTRATION_MODE"
+	// CodeInvalidRegistrationURL — "must be an https URL". The Registration Link's
+	// scheme allowlist, which is a security control rather than a formatting
+	// preference: it is what keeps javascript: and data: out of a value destined
+	// for both an href and a Location header, and what stops a Customer being
+	// downgraded to http mid-journey. Its own code rather than a generic
+	// INVALID_URL because the sentence a reader needs names the scheme.
+	CodeInvalidRegistrationURL = "INVALID_REGISTRATION_URL"
 	// CodeInvalidCurrency — "must be a supported ISO 4217 currency code".
 	CodeInvalidCurrency = "INVALID_CURRENCY"
 	// CodeInvalidRole — "must be org_admin, event_owner, or event_staff" and the

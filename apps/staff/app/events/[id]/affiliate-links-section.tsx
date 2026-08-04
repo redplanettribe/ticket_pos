@@ -193,13 +193,27 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
     }
   }
 
+  // Whether this Event's links are measured in sales at all, read off the rows
+  // themselves: the API suppresses both attribution figures on an Event that
+  // registers externally, and that absence is the only signal this section needs
+  // — no second request, and no second copy of the Event's registration mode to
+  // fall out of step with the figures it explains. With no links yet there is
+  // nothing to explain either way, and the ordinary wording stands.
+  const attributionMeasured = links.length === 0 || links.some((link) => link.sales_count !== null);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Affiliate Links</CardTitle>
         <CardDescription>
-          Named links to this Event&apos;s page that attribute Online Sales to whoever is promoting it. The
-          code is generated for you and never changes.
+          {/* The promise the card makes has to be one this Event can keep. An
+              Event that registers externally never attributes a sale, and the
+              API says so by reporting no attribution figures at all — so the
+              description drops the claim rather than leaving it standing over
+              rows that will never show it. */}
+          {attributionMeasured
+            ? "Named links to this Event's page that attribute Online Sales to whoever is promoting it. The code is generated for you and never changes."
+            : "Named links to this Event's page, counting the traffic each one sends. This Event registers elsewhere, so its links are measured by clicks rather than sales. The code is generated for you and never changes."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -253,16 +267,27 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                   {/* What the link has actually done: active attributed sales,
                       and what they left the Organization. A reversed sale is in
                       neither. Both are informational — no commission is owed on
-                      either figure. */}
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">{link.sales_count}</span>{" "}
-                    {link.sales_count === 1 ? "sale" : "sales"}
-                    {" · "}
-                    <span className="font-medium text-foreground">
-                      {currency ? formatPriceCents(link.net_proceeds_cents, currency) : "—"}
-                    </span>{" "}
-                    net proceeds
-                  </p>
+                      either figure.
+
+                      On an Event that registers externally the API reports
+                      neither, and the whole line goes with them: a link there
+                      can never attribute a sale, so a "0 sales · $0.00 net
+                      proceeds" would read as a failed link rather than one whose
+                      success is measured in clicks. Absent, not zeroed, and not
+                      an em dash either — a dash is still a claim that something
+                      is missing. The clicks beside it are the figure that
+                      means something. */}
+                  {link.sales_count !== null && link.net_proceeds_cents !== null ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{link.sales_count}</span>{" "}
+                      {link.sales_count === 1 ? "sale" : "sales"}
+                      {" · "}
+                      <span className="font-medium text-foreground">
+                        {currency ? formatPriceCents(link.net_proceeds_cents, currency) : "—"}
+                      </span>{" "}
+                      net proceeds
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Clicks sit next to the link so a bad link reads differently
