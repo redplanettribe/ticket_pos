@@ -158,6 +158,24 @@ Each Ticket Type is a **card** with:
 
 Sold-out types remain visible but clearly unavailable — do not hide them without reason.
 
+## External Registration
+
+An Event that registers externally has no Ticket Types, so it shows none of the above.
+The whole tickets section is **replaced**, not emptied: no price, no stepper, no total, no sticky bar.
+A price left standing on such a page would say the platform is selling something it is not.
+
+In its place, one **Register** call to action and the destination's hostname beneath it —
+"You'll continue on lu.ma". The Customer is being handed to a stranger and should know
+which one before they click, not after. The link opens in a new tab and is fully de-referred,
+like every other outbound link.
+
+An ended Event drops the call to action, the way a ticketed one drops its steppers.
+
+On **listing cards**, the price slot reads "Registration required" rather than standing blank —
+a blank slot makes an external Event look like a broken one. It never reads **Free**:
+the registration site may well charge, and the platform does not know the price.
+Such an Event is never shown as sold out; it has no capacity to exhaust.
+
 ## Checkout
 
 Guest checkout only at launch.

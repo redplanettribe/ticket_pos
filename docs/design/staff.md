@@ -88,6 +88,13 @@ Usable on phone in a pinch; tablet landscape is the primary target.
 - Primary action right-aligned or full-width on mobile.
 - Destructive actions (delete event, delete ticket type) require a blocking Dialog confirmation.
 - On save success: toast + stay on page (do not redirect away from edit forms).
+- **Registration**: an Event chooses between selling Ticket Types and carrying a Registration Link.
+  The choice is offered only while the Event is a `draft` and is disabled afterwards — it settles at publish.
+  The Registration Link field appears only for the external choice, and Fee Handling disappears with it:
+  there is no fee to apportion on an Event that sells nothing.
+- The Registration Link's **click count** sits beside the link, on every Event page, for every Member —
+  the same audience as the Sales list, since it stands in for the sales figures such an Event will never have.
+  It is worded as clicks, never registrations or people: what happens on the other site is not visible here.
 
 ## Lists and tables
 

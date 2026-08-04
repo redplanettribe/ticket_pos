@@ -124,7 +124,12 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
           description,
           fee_handling: feeHandling,
           registration_mode: registrationMode,
-          registration_url: registrationUrl,
+          // Only sent while the field is on screen. Sending it in `tickets` mode
+          // would submit a value the organizer cannot see and the form does not
+          // validate, so a link typed and then abandoned would fail the save
+          // with nothing to point at. Omitting it leaves the stored link alone,
+          // which is what a mode flip should do anyway (ADR 0028).
+          ...(registrationMode === "external" ? { registration_url: registrationUrl } : {}),
         }),
       });
       applyEvent(updated);

@@ -92,7 +92,12 @@ export async function recordRegistrationClick(orgSlug: string, eventSlug: string
       )}/registration-link/click`,
       { method: "POST" },
     );
-  } catch {
-    // Display-only stats, and a Customer mid-navigation on the other end.
+  } catch (error) {
+    // Display-only stats, and a Customer mid-navigation on the other end, so
+    // the failure is swallowed rather than raised. It is logged because this is
+    // the only place that hears about it: the API never learns of a request
+    // that never arrived, so a silent catch would make an outage look like an
+    // Event nobody clicked.
+    console.error("failed to record a Registration Link click", error);
   }
 }

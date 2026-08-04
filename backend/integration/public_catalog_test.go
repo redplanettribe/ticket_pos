@@ -62,7 +62,7 @@ type publicEventCard struct {
 	// tell an Event that registers elsewhere from one with a missing price
 	// (issue #211).
 	RegistrationMode string `json:"registration_mode"`
-	Organization   struct {
+	Organization     struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
 	} `json:"organization"`

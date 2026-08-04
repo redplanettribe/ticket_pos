@@ -138,7 +138,7 @@ func (r *Repository) ListEventsByOrganizationID(ctx context.Context, orgID strin
 			&e.ID, &e.OrganizationID, &e.Name, &e.Slug, &status,
 			&e.StartsAt, &e.EndsAt, &e.Timezone, &e.VenueName, &e.VenueAddress,
 			&e.Description, &e.CoverImageKey, &e.CoverVideoKey, &e.Discoverable, &e.FeeHandling,
-		&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.CreatedAt,
+			&e.RegistrationMode, &e.RegistrationURL, &e.RegistrationClickCount, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

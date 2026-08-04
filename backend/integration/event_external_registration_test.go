@@ -571,8 +571,10 @@ func TestRegistrationLinkEditableOnAPublishedEventAndTheClickCountSurvives(t *te
 	sessionID := orgAdminSession(t, env)
 	eventID := publishExternalRegistrationEvent(t, env, sessionID, "https://lu.ma/typo")
 
-	// The click counter belongs to the redirect route, which no staff or public
-	// API exposes yet, so SQL is the only way to put a count on the Event.
+	// The public click endpoint could reach this count, but only one hand-off at
+	// a time and only via the Event's slugs, which this helper does not return.
+	// Seeding it directly keeps the test about what an edit preserves rather
+	// than about how the counter got there — that is registration_link_clicks_test.go's job.
 	if _, err := env.db.ExecContext(t.Context(),
 		`UPDATE events SET registration_click_count = 17 WHERE id = $1`, eventID,
 	); err != nil {
