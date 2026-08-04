@@ -144,6 +144,24 @@ type PublicEventDetail struct {
 	// it says nothing about who may load the page, only about who should index
 	// it, so reachability is unchanged.
 	Discoverable bool `json:"discoverable"`
+	// RegistrationMode is how this Event takes sign-ups: 'tickets' (it sells
+	// Ticket Types here) or 'external' (it hands its audience to the Registration
+	// Link). Never both (ADR 0028). It is what tells the Storefront whether to
+	// render a ticket selector at all, so it is stated on every Event rather than
+	// inferred from an empty ticket_types — an Event whose Ticket Types are all
+	// sold out is not the same page as one that sells nothing here.
+	RegistrationMode string `json:"registration_mode"`
+	// RegistrationURL is the Registration Link, present only on an external
+	// Event. The Storefront needs the URL itself and not merely the fact of it:
+	// the Register panel names the destination's hostname beneath the call to
+	// action, because a Customer being handed to a stranger should learn which
+	// one before they click rather than after.
+	//
+	// It is null for a ticketed Event even if a link is stored — a link a
+	// ticketed Event does not use is nothing a Customer should be offered — and
+	// null for an external Event still missing one, which a published Event
+	// cannot be (the publish gate requires it, #208).
+	RegistrationURL *string `json:"registration_url"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -341,6 +359,7 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 	}
 
 	handling := sales.FeeHandlingOrDefault(row.FeeHandling)
+	mode := catalog.RegistrationModeOrDefault(row.RegistrationMode)
 	detail := &PublicEventDetail{
 		Slug:             row.Slug,
 		Name:             row.Name,
@@ -354,6 +373,12 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		TicketTypes:      make([]PublicTicketType, 0, len(types)),
 		Tags:             toTagViews(tags),
 		Discoverable:     row.Discoverable,
+		RegistrationMode: string(mode),
+	}
+	// The Registration Link travels only on the Event that actually registers
+	// through it.
+	if mode == catalog.RegistrationModeExternal {
+		detail.RegistrationURL = nullStringPtr(row.RegistrationURL)
 	}
 	if row.StartsAt.Valid {
 		t := row.StartsAt.Time

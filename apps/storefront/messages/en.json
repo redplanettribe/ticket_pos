@@ -56,7 +56,12 @@
     "limitReachedNote": "This ticket type is limited to {limit} per person and you have reached yours. Nothing is sold out — this is only your own limit.",
     "remaining": "{count, plural, one {# remaining} other {# remaining}}",
     "promotionSavings": "{percent}% off",
-    "promotionDeadline": "Promotional Price until <when>{deadline}</when>"
+    "promotionDeadline": "Promotional Price until <when>{deadline}</when>",
+    "registrationHeading": "Registration",
+    "registerCta": "Register",
+    "registerContinueOn": "You'll continue on {host}",
+    "registrationClosed": "Registration for this event has closed.",
+    "registrationUnavailable": "Registration is not available right now."
   },
   "checkout": {
     "decreaseQuantity": "Remove one {ticketType} ticket",

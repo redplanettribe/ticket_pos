@@ -639,6 +639,72 @@ func TestRegistrationLinkCannotBeClearedOnAPublishedEvent(t *testing.T) {
 	}
 }
 
+// The Storefront Event page of an externally registered Event (issue #209). The
+// public payload is what tells the page which of two Events it is looking at,
+// and it carries the Registration Link itself because the Register panel names
+// the destination's hostname before a Customer clicks it.
+
+type publicEventRegistrationView struct {
+	Slug             string  `json:"slug"`
+	RegistrationMode string  `json:"registration_mode"`
+	RegistrationURL  *string `json:"registration_url"`
+	TicketTypes      []struct {
+		Name string `json:"name"`
+	} `json:"ticket_types"`
+}
+
+func getPublicEventRegistration(t *testing.T, env *testEnv, slug string) publicEventRegistrationView {
+	t.Helper()
+	resp, body := env.get(t, "/api/v1/public/organizations/test-org/events/"+slug, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public event %q status=%d error=%+v", slug, resp.StatusCode, body.Error)
+	}
+	if body.Error != nil {
+		t.Fatalf("public event %q error=%+v; want none", slug, body.Error)
+	}
+	var view publicEventRegistrationView
+	if err := json.Unmarshal(body.Data, &view); err != nil {
+		t.Fatalf("decode public event: %v", err)
+	}
+	return view
+}
+
+func TestPublicEventDetailCarriesTheRegistrationModeAndLinkForAnExternalEvent(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	publishExternalRegistrationEvent(t, env, sessionID, "https://lu.ma/my-meetup")
+
+	view := getPublicEventRegistration(t, env, "external-event")
+	if view.RegistrationMode != "external" {
+		t.Fatalf("public registration_mode = %q; want external", view.RegistrationMode)
+	}
+	// The URL itself and not merely the fact of it: the Storefront renders the
+	// destination's hostname beneath the Register call to action.
+	if view.RegistrationURL == nil || *view.RegistrationURL != "https://lu.ma/my-meetup" {
+		t.Fatalf("public registration_url = %v; want the Registration Link", view.RegistrationURL)
+	}
+	if len(view.TicketTypes) != 0 {
+		t.Fatalf("public external event has %d ticket types; want none", len(view.TicketTypes))
+	}
+}
+
+func TestPublicEventDetailOfATicketedEventRegistersHereAndHandsNobodyAnywhere(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	publishEvent(t, env, sessionID, "Ticketed Event", "ticketed-event", env.fixedClock.Add(72*time.Hour), true, 4200, 10)
+
+	view := getPublicEventRegistration(t, env, "ticketed-event")
+	if view.RegistrationMode != "tickets" {
+		t.Fatalf("public registration_mode = %q; want tickets", view.RegistrationMode)
+	}
+	if view.RegistrationURL != nil {
+		t.Fatalf("public registration_url = %v; want null on an Event that sells here", *view.RegistrationURL)
+	}
+	if len(view.TicketTypes) != 1 {
+		t.Fatalf("public ticketed event has %d ticket types; want 1", len(view.TicketTypes))
+	}
+}
+
 func TestRegistrationModeFrozenOnAPublishedEventInBothDirections(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
