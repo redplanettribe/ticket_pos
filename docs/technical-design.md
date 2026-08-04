@@ -547,30 +547,63 @@ type EmailSender interface {
   session is refused with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403), because possession of a
   forwarded Sale Confirmation is not ownership of the address. The edit moves the Customer's current
   assertion only; every Ticket Sale keeps the name and Tax ID it was transacted under.
-- A Customer holds **Follows**: standing subscriptions to Organizations (and, later, Tags), whose
-  whole payload is the weekly **Follow Digest** (ADR 0030). They live in `customer_organization_follows`,
-  a composite-primary-key join table owned by the customers module, with `ON DELETE CASCADE` on both
-  ends — a deleted Organization takes its Follows with it rather than orphaning rows that feed a
-  mailing. The surface is three routes: `GET /api/v1/customer/follows` returns **one list of every
-  kind of Follow**, each entry carrying a `type` discriminator with the subject hanging off the
-  field it names (`{"type":"organization","followed_at":…,"organization":{name,slug,logo_url}}`),
-  ordered `followed_at DESC`; `POST` and `DELETE
-  /api/v1/customer/follows/organizations/{slug}` follow and unfollow. Tag Follows extend the same
-  list rather than adding a second endpoint. The Organization is named by **slug**, never by id: the
-  public Organization profile publishes no internal id, every Storefront address already names an
-  Organization that way, and an unknown slug is identity's own `ORGANIZATION_NOT_FOUND` (404), so
-  the Follow routes are not an oracle the public profile is not. The slug is resolved to an id
-  **service-to-service**, through a one-method interface declared on the customers side and
-  implemented by identity — the same shape as the reversal resolver. Following is **idempotent** and
-  answers 200 on every call, never 201 and never 409: the repeat returns the existing Follow with
-  its original `followed_at` rather than moving it, so a retry or double tap is safe. Unfollowing
-  something not followed is likewise not an error. All three routes require a **full** Customer
-  Session and refuse a Confirmation Link session with `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403).
+- A Customer holds **Follows**: standing subscriptions to Organizations and to Tags, whose whole
+  payload is the weekly **Follow Digest** (ADR 0030). They live in `customer_organization_follows`
+  and `customer_tag_follows`, composite-primary-key join tables owned by the customers module, with
+  `ON DELETE CASCADE` on both ends of each — a deleted Organization or Tag takes its Follows with it
+  rather than orphaning rows that feed a mailing. **One table per followed thing, not one
+  polymorphic table**: the cascade is what makes that rule true in the schema rather than in
+  whichever service remembers, and a polymorphic subject column can carry no foreign key at all. The
+  discriminator goes on the wire, where it costs nothing, instead of in storage, where it would cost
+  referential integrity.
+- The Follows surface is **five routes and one listing**. `GET /api/v1/customer/follows` returns
+  **one list of every kind of Follow**, each entry carrying a `type` discriminator with the subject
+  hanging off the field it names —
+  `{"type":"organization","followed_at":…,"organization":{name,slug,logo_url}}` and
+  `{"type":"tag","followed_at":…,"tag":{canonical_key,name,curated}}` — ordered `followed_at DESC`
+  across **both kinds interleaved**, never grouped by kind. `POST`/`DELETE
+  /api/v1/customer/follows/organizations/{slug}` and `POST`/`DELETE
+  /api/v1/customer/follows/tags/{canonicalKey}` follow and unfollow. A further kind extends the same
+  list rather than adding a second endpoint. The order is made **total** by tie-breaking on the
+  identifier each kind is addressed by (slug, canonical key) and finally on `type`, because two
+  Follows sharing an instant are ordinary and a listing that could return two orders for two
+  identical reads would show as a shuffle. The two halves are read by their own queries and merged
+  in the service, not `UNION`ed in SQL: a union would have flattened two differently-shaped subjects
+  into one row of nullable columns and let the convenience of a single query dictate the published
+  shape.
+- Each subject is named by the identifier it is addressed by everywhere else — the Organization by
+  **slug**, the Tag by **canonical key** — never by id. Neither public surface publishes an internal
+  id, every Storefront address and every Tag chip already carries these, and an unknown one is the
+  owning module's own `ORGANIZATION_NOT_FOUND` / `TAG_NOT_FOUND` (404), so the Follow routes are not
+  an oracle the public surfaces are not. Both are resolved to an id **service-to-service**, through
+  one-method interfaces declared on the customers side and implemented by identity and catalog
+  respectively — the same shape as the reversal resolver. Resolving a Tag runs the pool's own
+  canonicalization, so casing and spacing cannot produce two Follows of one Tag, and an unknown key
+  is a 404 rather than a Tag quietly coined: Following never adds to the shared pool.
+- **Every Tag is followable, Preset and Custom alike.** ADR 0030 rejected restricting the pool to
+  `curated` Tags — the Digest's weekly cap bounds per-reader volume structurally, so narrowing what
+  may be Followed buys nothing and costs the narrow interest that is the best reason to Follow a Tag.
+  There is deliberately no such constraint in the schema or the resolver.
+- Following is **idempotent** and answers 200 on every call, never 201 and never 409: the repeat
+  returns the existing Follow with its original `followed_at` rather than moving it, so a retry or
+  double tap is safe. Unfollowing something not followed is likewise not an error. All five routes
+  require a **full** Customer Session and refuse a Confirmation Link session with
+  `CUSTOMER_SESSION_SCOPE_INSUFFICIENT` (403).
   That is a session-scope check and not a second email-verification check, and it is the one place
   the "an active Customer Session implies a verified email" shorthand does not hold: a sale-scoped
   session is minted from a token in an email somebody was *sent*, does not set `verified_at`, and
   proves nothing about who controls the address — so honouring a Follow from a forwarded receipt
   would subscribe a stranger's inbox to mail, which ADR 0010 forbids.
+- On the Storefront the Follow control is **one generic component** taking the BFF path to write to
+  and the name to speak about, in a full form on the Organization page and a compact form beside the
+  Tag chips on the Event page and the explorer. It is drawn only for a signed-in Customer whose
+  Follows read succeeded — never as a prompt to sign in, because following while signed out has to
+  survive a round trip through sign-in and is its own problem. One Follows read answers every control
+  on a page, which is why the API lists Follows rather than offering a per-subject "do I follow this"
+  probe. `/following` in the Customer Area is the **management surface**: both kinds in one list, in
+  the API's own order, with unfollow available there and an empty state that says what a Follow is
+  for. It is deliberately **not a feed** — ADR 0030 builds no Following feed, because the payload of
+  a Follow is the Digest and a second browsable stream would compete with the explorer.
 - Each Ticket Sale keeps its own immutable Tax ID snapshot, and that snapshot — not the Customer's
   current assertion — is what organizers see and search. `GET /api/v1/staff/events/{id}/sales`
   returns it per row as `tax_id_type` / `tax_id_number` (null together on sales recorded without

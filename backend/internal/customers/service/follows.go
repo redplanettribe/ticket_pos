@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/customers"
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 )
@@ -29,6 +31,10 @@ import (
 // would have made every consumer union two calls and reconcile two orderings.
 const FollowSubjectOrganization = "organization"
 
+// FollowSubjectTag is the `type` discriminator a Tag Follow carries on the wire
+// (#218). The second value of the union the constant above opened.
+const FollowSubjectTag = "tag"
+
 // FollowedOrganizationView is the Organization as one of the Customer's Follows
 // shows it: exactly the three facts its public profile publishes.
 //
@@ -42,14 +48,35 @@ type FollowedOrganizationView struct {
 	LogoURL *string `json:"logo_url"`
 }
 
-// FollowView is one entry in the Customer's Follows, and its shape is a
-// contract with the Follows still to come.
+// FollowedTagView is the Tag as one of the Customer's Follows shows it: the same
+// three facts catalog's TagView publishes everywhere else a Tag appears.
+//
+// The canonical key is the Tag's identity here in the way the slug is the
+// Organization's — it is what the Follow and Unfollow routes name a Tag by, and
+// it is what the Storefront keys a Preset Tag's translated copy on, so a copy
+// edit to the display name cannot silently unword a chip (ADR 0027). Name is the
+// English display name and is the fallback for every Tag the catalogue does not
+// know, which is every Custom Tag.
+//
+// `curated` is on the wire because a client cannot otherwise tell which of those
+// two it is holding: a Preset Tag is worded from the catalogue, a Custom Tag is
+// rendered exactly as the Organization coined it. It says nothing about whether
+// the Tag may be Followed — every Tag may (ADR 0030).
+//
+// No id, for the reason FollowedOrganizationView carries none.
+type FollowedTagView struct {
+	CanonicalKey string `json:"canonical_key"`
+	Name         string `json:"name"`
+	Curated      bool   `json:"curated"`
+}
+
+// FollowView is one entry in the Customer's Follows.
 //
 // `type` is the discriminator and is always present; the subject then hangs off
 // the field named by it, so an Organization Follow carries `organization` and a
-// Tag Follow (#218) will carry `tag`, each null on the other. That is why the
-// subject is a pointer to a struct rather than an inlined set of columns: adding
-// a kind adds a nullable field and changes nothing a client already reads.
+// Tag Follow carries `tag`, each absent on the other. That is why each subject is
+// a pointer to its own struct rather than an inlined set of columns: the two
+// kinds cannot collide, and a third would add a field rather than move one.
 //
 // `followed_at` is the instant the Customer subscribed and is stable across
 // repeats — following something already followed does not move it (see
@@ -58,6 +85,7 @@ type FollowView struct {
 	Type         string                    `json:"type"`
 	FollowedAt   time.Time                 `json:"followed_at"`
 	Organization *FollowedOrganizationView `json:"organization,omitempty"`
+	Tag          *FollowedTagView          `json:"tag,omitempty"`
 }
 
 // FollowsView is the whole of what a Customer Follows.
@@ -99,6 +127,32 @@ type OrganizationResolver interface {
 // nothing quietly. See requireOrganizations.
 func (s *Service) WithOrganizations(resolver OrganizationResolver) *Service {
 	s.organizations = resolver
+	return s
+}
+
+// TagResolver turns the canonical key a Customer sees into the Tag id a Follow
+// is stored against (#218).
+//
+// The same shape as OrganizationResolver above and implemented by catalog, which
+// owns the shared Tag pool. Narrow for the same reason: one key in, one id out.
+// Everything the key means on the way in — that it is canonicalized exactly as
+// every other path into the pool canonicalizes, and that an unknown one is
+// TAG_NOT_FOUND rather than a Tag quietly coined — belongs to whoever owns Tags,
+// and stating it here in the customers module would be a second copy of a rule
+// that has to stay one.
+//
+// The Tag is addressed by canonical key rather than by display name for the same
+// reason the Organization is addressed by slug: it is the stable machine
+// identity a Storefront already holds, and it survives a copy edit to the name.
+type TagResolver interface {
+	ResolveTagIDByCanonicalKey(ctx context.Context, canonicalKey string) (string, error)
+}
+
+// WithTags attaches the resolver that turns a Tag's canonical key into an id.
+// Same chaining shape and same effect when absent as WithOrganizations: a
+// service without it cannot follow a Tag, and says so plainly.
+func (s *Service) WithTags(resolver TagResolver) *Service {
+	s.tags = resolver
 	return s
 }
 
@@ -151,28 +205,138 @@ func (s *Service) UnfollowOrganization(ctx context.Context, token, slug string) 
 	return s.repo.UnfollowOrganization(ctx, customer.ID, organizationID)
 }
 
-// ListFollows returns everything the signed-in Customer Follows, most recent
-// first.
+// FollowTag records that the signed-in Customer Follows the Tag named by its
+// canonical key, and returns the Follow as it now stands.
 //
-// Today that is Organizations alone. The return shape is nonetheless the union's
-// — a list of discriminated entries — so that Tag Follows (#218) extend this
-// answer rather than adding a second one.
+// Idempotent exactly as FollowOrganization is, and answering 200 for the same
+// reason. Any Tag may be Followed, Preset or Custom: ADR 0030 settled that the
+// weekly Digest's cap — not a narrower pool — is what bounds how much mail a
+// Follow can produce.
+func (s *Service) FollowTag(ctx context.Context, token, canonicalKey string) (*FollowView, error) {
+	customer, tagID, err := s.tagFollowTarget(ctx, token, canonicalKey)
+	if err != nil {
+		return nil, err
+	}
+
+	followedAt, err := s.repo.FollowTag(ctx, customer.ID, tagID, s.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.GetTagFollow(ctx, customer.ID, tagID)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		// The Tag was deleted between the write and the read back; its Follows
+		// went with it (the FK cascades). Nothing was orphaned, and the key the
+		// caller named no longer belongs to anything.
+		return nil, catalog.ErrTagNotFound()
+	}
+	row.FollowedAt = followedAt
+
+	view := tagFollowView(*row)
+	return &view, nil
+}
+
+// UnfollowTag removes the signed-in Customer's Follow of the Tag named by its
+// canonical key. Unfollowing something not followed is not an error, as with
+// Organizations.
+func (s *Service) UnfollowTag(ctx context.Context, token, canonicalKey string) error {
+	customer, tagID, err := s.tagFollowTarget(ctx, token, canonicalKey)
+	if err != nil {
+		return err
+	}
+	return s.repo.UnfollowTag(ctx, customer.ID, tagID)
+}
+
+// ListFollows returns everything the signed-in Customer Follows, most recent
+// first — Organizations and Tags in ONE list rather than one list per kind.
+//
+// One list because that is what the Customer has: a Following surface reads this
+// once and renders it top to bottom, where two endpoints would have made every
+// consumer issue two calls, union them, and re-derive an order that has to match
+// whatever this one would have been. The kinds are told apart by `type`, and a
+// third kind extends this answer rather than adding another endpoint.
+//
+// The two halves come back already ordered from their own queries and are merged
+// here (see mergeFollows) rather than unioned in SQL. A UNION would have had to
+// flatten two differently-shaped subjects into one row of nullable columns, so
+// the shape the API publishes would have been dictated by the convenience of a
+// single query — and it would still have needed the tie-break spelled out.
 func (s *Service) ListFollows(ctx context.Context, token string) (*FollowsView, error) {
 	customer, err := s.fullSessionCustomer(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := s.repo.ListOrganizationFollowsForCustomer(ctx, customer.ID)
+	organizationRows, err := s.repo.ListOrganizationFollowsForCustomer(ctx, customer.ID)
+	if err != nil {
+		return nil, err
+	}
+	tagRows, err := s.repo.ListTagFollowsForCustomer(ctx, customer.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	views := make([]FollowView, 0, len(rows))
-	for _, row := range rows {
+	views := make([]FollowView, 0, len(organizationRows)+len(tagRows))
+	for _, row := range organizationRows {
 		views = append(views, s.organizationFollowView(row))
 	}
+	for _, row := range tagRows {
+		views = append(views, tagFollowView(row))
+	}
+	mergeFollows(views)
+
 	return &FollowsView{Follows: views}, nil
+}
+
+// mergeFollows puts the two kinds into one order, in place.
+//
+// `followed_at` descending is the rule #217 established and it does not change:
+// the list is a record of decisions in the order they were made, and the newest
+// is what a person who has just made one is looking for.
+//
+// The rest of the comparison exists because that rule alone is not a total
+// order, and two Follows sharing an instant are ordinary rather than exotic —
+// two presses in one request-processing second, a fixed clock in tests. Without
+// a tie-break the same list could come back in two orders for two identical
+// reads, which a Following page re-rendering would show as a shuffle.
+//
+// Ties break on the identifier each kind is addressed by — the Organization's
+// slug, the Tag's canonical key — which is exactly what #217 did within
+// Organizations, so an Organization-only list is ordered today as it was before
+// Tags existed. Where those are equal across kinds the discriminator settles it,
+// and that last step is only reachable when a slug and a canonical key are the
+// same string; it is here so that the order is total rather than nearly so.
+//
+// sort.SliceStable, though the comparison is total: the stability costs nothing
+// and means a future kind added without a thought for the tie-break degrades to
+// "in the order the queries returned it" rather than to an arbitrary shuffle.
+func mergeFollows(views []FollowView) {
+	sort.SliceStable(views, func(i, j int) bool {
+		a, b := views[i], views[j]
+		if !a.FollowedAt.Equal(b.FollowedAt) {
+			return a.FollowedAt.After(b.FollowedAt)
+		}
+		if key := followSortKey(a); key != followSortKey(b) {
+			return key < followSortKey(b)
+		}
+		return a.Type < b.Type
+	})
+}
+
+// followSortKey is the identifier a Follow is addressed by, whichever kind it
+// is: the one string a Customer could point at to unfollow it.
+func followSortKey(view FollowView) string {
+	switch {
+	case view.Organization != nil:
+		return view.Organization.Slug
+	case view.Tag != nil:
+		return view.Tag.CanonicalKey
+	default:
+		return ""
+	}
 }
 
 // followTarget authenticates the caller and resolves the slug they named, which
@@ -230,6 +394,44 @@ func (s *Service) fullSessionCustomer(ctx context.Context, token string) (*repos
 		return nil, customers.ErrFollowRequiresFullSession()
 	}
 	return customer, nil
+}
+
+// tagFollowTarget authenticates the caller and resolves the canonical key they
+// named, which is the preamble both Tag writes share.
+//
+// It does not canonicalize the key itself. Trimming and lowercasing here would
+// be a second copy of a rule the Tag pool already owns, and the two copies would
+// only have to agree; the resolver runs the pool's own function, so a Tag
+// reached as "  MUSIC " and as "music" is one Follow because it is one Tag.
+func (s *Service) tagFollowTarget(ctx context.Context, token, canonicalKey string) (*repository.Customer, string, error) {
+	customer, err := s.fullSessionCustomer(ctx, token)
+	if err != nil {
+		return nil, "", err
+	}
+	if s.tags == nil {
+		return nil, "", customers.ErrFollowsUnavailable()
+	}
+
+	tagID, err := s.tags.ResolveTagIDByCanonicalKey(ctx, canonicalKey)
+	if err != nil {
+		return nil, "", err
+	}
+	return customer, tagID, nil
+}
+
+// tagFollowView is not a method, unlike organizationFollowView beside it: an
+// Organization's logo has to be turned into a URL by the object storage the
+// service holds, and a Tag has nothing that needs the service at all.
+func tagFollowView(row repository.TagFollowRow) FollowView {
+	return FollowView{
+		Type:       FollowSubjectTag,
+		FollowedAt: row.FollowedAt,
+		Tag: &FollowedTagView{
+			CanonicalKey: row.CanonicalKey,
+			Name:         row.DisplayName,
+			Curated:      row.Curated,
+		},
+	}
 }
 
 func (s *Service) organizationFollowView(row repository.OrganizationFollowRow) FollowView {

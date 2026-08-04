@@ -48,7 +48,21 @@
     "followedToast": "Ahora sigue a {name}.",
     "unfollowedToast": "Ya no sigue a {name}.",
     "failed": "No se pudo completar. Inténtelo de nuevo.",
-    "networkFailed": "No se pudo completar. Revise su conexión e inténtelo de nuevo."
+    "networkFailed": "No se pudo completar. Revise su conexión e inténtelo de nuevo.",
+    "followLabel": "Seguir {name}",
+    "followingLabel": "Siguiendo {name}. Pulse para dejar de seguir."
+  },
+  "following": {
+    "metaTitle": "Siguiendo · {brand}",
+    "title": "Siguiendo",
+    "description": "Los organizadores y las etiquetas que sigue. Todo llega en un solo correo semanal.",
+    "organizationKind": "Organizador",
+    "tagKind": "Etiqueta",
+    "customTag": "Palabra propia",
+    "emptyTitle": "Todavía no sigue nada",
+    "emptyDescription": "Siga a un organizador desde su página, o una etiqueta desde un evento, y sus eventos llegarán en un solo correo semanal.",
+    "loadFailedTitle": "No pudimos cargar lo que sigue",
+    "loadNetworkFailed": "No se pudo conectar con el servicio de entradas. Revise su conexión e inténtelo de nuevo."
   },
   "event": {
     "metaTitle": "{event} · {organization}",

@@ -90,3 +90,58 @@ func (h *Handler) UnfollowOrganization(w http.ResponseWriter, r *http.Request) {
 		"message": "Unfollowed",
 	})
 }
+
+// FollowTag records that the signed-in Customer Follows a Tag.
+//
+// The Tag is named by its CANONICAL KEY, symmetrically with the Organization
+// being named by its slug: the stable machine identity the Storefront already
+// holds on every chip and badge, and the one a copy edit to the display name
+// cannot break (ADR 0027). Several keys contain a space or an ampersand, so the
+// path segment is percent-encoded by the caller and decoded by the router.
+//
+// @Summary      Follow a Tag
+// @Description  Records that the signed-in Customer Follows the Tag named by its canonical key, and returns the Follow. Any Tag may be Followed, Preset or Custom — ADR 0030 bounds how much mail a Follow can produce with the weekly Follow Digest's cap rather than by narrowing what is followable. Idempotent: following something already followed returns the existing Follow with its original `followed_at`, so a retried or double-tapped request is safe, and the answer is 200 on the first call and every repeat. The key is canonicalized exactly as the shared Tag pool canonicalizes everywhere else, so casing and spacing cannot produce two Follows of one Tag. A key naming no Tag is TAG_NOT_FOUND: Following never coins a Tag. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
+// @Tags         customer
+// @Produce      json
+// @Security     BearerAuth
+// @Param        canonicalKey  path      string  true  "Tag canonical key"
+// @Success      200   {object}  openapi.EnvelopeCustomerFollow
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Router       /api/v1/customer/follows/tags/{canonicalKey} [post]
+func (h *Handler) FollowTag(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	follow, err := h.svc.FollowTag(r.Context(), customerSessionToken(r), r.PathValue("canonicalKey"))
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, follow)
+}
+
+// UnfollowTag removes the signed-in Customer's Follow of a Tag.
+//
+// @Summary      Unfollow a Tag
+// @Description  Removes the signed-in Customer's Follow of the Tag named by its canonical key. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A key naming no Tag is TAG_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.
+// @Tags         customer
+// @Produce      json
+// @Security     BearerAuth
+// @Param        canonicalKey  path      string  true  "Tag canonical key"
+// @Success      200   {object}  openapi.EnvelopeCustomerLogout
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Router       /api/v1/customer/follows/tags/{canonicalKey} [delete]
+func (h *Handler) UnfollowTag(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	if err := h.svc.UnfollowTag(r.Context(), customerSessionToken(r), r.PathValue("canonicalKey")); err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, map[string]string{
+		"message": "Unfollowed",
+	})
+}

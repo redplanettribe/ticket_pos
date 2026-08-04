@@ -366,25 +366,46 @@ export type FollowedOrganization = {
 };
 
 /**
+ * The Tag as a Follow reports it: the same three facts every other Tag surface
+ * in this app receives (`PublicTag` in lib/api.ts).
+ *
+ * It is structurally that same shape on purpose — `tagName()` takes it as-is, so
+ * a Followed Preset Tag is worded from this app's own message catalogue and a
+ * Custom Tag is rendered exactly as its Organization coined it, by the one
+ * helper that decides that everywhere else (ADR 0027). `curated` is what tells
+ * the two apart; it says nothing about whether a Tag may be Followed, since
+ * every Tag may (ADR 0030).
+ */
+export type FollowedTag = {
+  canonical_key: string;
+  name: string;
+  curated: boolean;
+};
+
+/**
  * One of the Customer's Follows.
  *
- * `type` is the discriminator, and it is a union of one today on purpose: Tag
- * Follows arrive in this same list as `{ type: "tag", tag: … }`, so widening
- * this union is the whole of what a consumer has to do — nothing switches
- * endpoint and nothing already written stops compiling. The subject hangs off
- * the field the discriminator names rather than being inlined, which is why
- * adding a kind cannot collide with the fields of another.
+ * `type` is the discriminator and the subject hangs off the field it names, so
+ * the two kinds cannot collide and a consumer narrows with a plain `switch`.
+ * They arrive interleaved in one list from one endpoint — there is no second
+ * read to union and no second order to reconcile.
  */
-export type Follow = {
-  type: "organization";
-  /**
-   * When the Customer subscribed. Stable across repeats: following something
-   * already followed returns this instant rather than a new one, so the list's
-   * order does not shuffle under a double tap.
-   */
-  followed_at: string;
-  organization: FollowedOrganization;
-};
+export type Follow =
+  | {
+      type: "organization";
+      /**
+       * When the Customer subscribed. Stable across repeats: following something
+       * already followed returns this instant rather than a new one, so the
+       * list's order does not shuffle under a double tap.
+       */
+      followed_at: string;
+      organization: FollowedOrganization;
+    }
+  | {
+      type: "tag";
+      followed_at: string;
+      tag: FollowedTag;
+    };
 
 /** Everything the Customer Follows, most recently followed first. */
 export type Follows = {

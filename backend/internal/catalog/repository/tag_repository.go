@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 )
@@ -193,6 +194,28 @@ func (r *Repository) ListTagsByEventIDs(ctx context.Context, eventIDs []string) 
 // query and in no particular order. A key naming no Tag is simply absent, which
 // is the same degradation the Storefront's catalogue makes when it holds no copy
 // for a key: a name nobody holds is not an error, it is a Tag that is gone.
+// GetTagByCanonicalKey returns the one pool Tag with this (already
+// canonicalized) key, or nil when the pool holds none.
+//
+// Nil rather than an error, because whether a missing Tag is a failure is the
+// caller's question and not this one's: a Follow of an unknown Tag is a 404
+// (#218), while the same absence elsewhere is simply a Tag not yet coined.
+func (r *Repository) GetTagByCanonicalKey(ctx context.Context, canonicalKey string) (*Tag, error) {
+	var t Tag
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT `+tagColumns+`
+		FROM tags
+		WHERE canonical_key = $1
+	`, canonicalKey).Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 func (r *Repository) ListTagsByCanonicalKeys(ctx context.Context, canonicalKeys []string) ([]Tag, error) {
 	if len(canonicalKeys) == 0 {
 		return []Tag{}, nil

@@ -44,10 +44,14 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"/api/v1/customer/profile",
 		"/api/v1/customer/profile/avatar-upload-url",
 		"/api/v1/customer/profile/avatar",
-		// The Follows (#217). One listing endpoint carrying every kind of Follow,
-		// and a follow/unfollow pair naming the Organization by slug.
+		// The Follows (#217, #218). ONE listing endpoint carrying every kind of
+		// Follow, and a follow/unfollow pair per kind, each naming its subject by
+		// the identifier that subject is addressed by everywhere else — the
+		// Organization by slug, the Tag by canonical key. A second listing path
+		// appearing here would be the contract breaking, not growing.
 		"/api/v1/customer/follows",
 		"/api/v1/customer/follows/organizations/{slug}",
+		"/api/v1/customer/follows/tags/{canonicalKey}",
 		// The guest-facing Reversal Window read (#121). Unauthenticated, because
 		// checkout is: the buyer who most wants to undo may have no account yet.
 		"/api/v1/public/checkout/{clientTransactionId}/reversal",

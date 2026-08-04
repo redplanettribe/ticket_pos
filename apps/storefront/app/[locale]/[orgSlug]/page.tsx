@@ -11,6 +11,7 @@ import { StorefrontShell } from "@/components/storefront-shell";
 import { localeAlternates } from "@/lib/alternates";
 import { getOrganizationEvents } from "@/lib/api";
 import { getFollows } from "@/lib/customer-session";
+import { followsOrganization, organizationFollowEndpoint } from "@/lib/follows";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
 
@@ -66,11 +67,10 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
   // Organization's Events; a Follow control that could not be resolved is worth
   // less than the page being served without it.
   const follows = await getFollows();
-  const following =
-    follows.status === "ok" &&
-    follows.data.follows.some(
-      (follow) => follow.type === "organization" && follow.organization.slug === organization.slug,
-    );
+  // Asked through the shared helper rather than narrowed inline, because the
+  // listing now carries two kinds and matching a slug against the wrong one is
+  // the mistake the type system cannot see: both are strings (lib/follows.ts).
+  const following = followsOrganization(follows, organization.slug);
 
   const t = await getTranslations("organization");
   const shell = await getTranslations("shell");
@@ -99,7 +99,7 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
           <PageHeader title={organization.name} description={t("subtitle")} />
           {follows.status === "ok" ? (
             <FollowButton
-              endpoint={`/api/customer/follows/organizations/${encodeURIComponent(organization.slug)}`}
+              endpoint={organizationFollowEndpoint(organization.slug)}
               following={following}
               subjectName={organization.name}
             />

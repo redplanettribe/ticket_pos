@@ -240,6 +240,16 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	catalogHandler := cataloghandler.New(catalogService)
 
+	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
+	// the canonical key the Storefront's chips already carry (#218). Turning the
+	// one into the other is catalog's rule — including canonicalizing the key the
+	// same way every other path into the shared pool does, and answering an
+	// unknown key with TAG_NOT_FOUND rather than coining a Tag — so customers
+	// declares the narrow interface and catalog satisfies it, exactly as identity
+	// does for Organization slugs above. Tied here rather than at construction
+	// because catalog is built after customers.
+	customersService = customersService.WithTags(catalogService)
+
 	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
 	// platform ask the Payment Provider again about their own stuck reversal.
 	// Wired here rather than at construction because sales is built after

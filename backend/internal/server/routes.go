@@ -202,6 +202,11 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("GET /api/v1/customer/follows", signedIn(http.HandlerFunc(h.ListFollows)))
 	mux.Handle("POST /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.FollowOrganization)))
 	mux.Handle("DELETE /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.UnfollowOrganization)))
+	// Tag Follows (#218) join the same listing above rather than adding one of
+	// their own. The Tag is named by its canonical key, as the Organization is
+	// named by its slug.
+	mux.Handle("POST /api/v1/customer/follows/tags/{canonicalKey}", signedIn(http.HandlerFunc(h.FollowTag)))
+	mux.Handle("DELETE /api/v1/customer/follows/tags/{canonicalKey}", signedIn(http.HandlerFunc(h.UnfollowTag)))
 }
 
 func registerPublicRoutes(mux *http.ServeMux, app *App) {

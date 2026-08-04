@@ -827,6 +827,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/follows/tags/{canonicalKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Follow a Tag
+         * @description Records that the signed-in Customer Follows the Tag named by its canonical key, and returns the Follow. Any Tag may be Followed, Preset or Custom — ADR 0030 bounds how much mail a Follow can produce with the weekly Follow Digest's cap rather than by narrowing what is followable. Idempotent: following something already followed returns the existing Follow with its original `followed_at`, so a retried or double-tapped request is safe, and the answer is 200 on the first call and every repeat. The key is canonicalized exactly as the shared Tag pool canonicalizes everywhere else, so casing and spacing cannot produce two Follows of one Tag. A key naming no Tag is TAG_NOT_FOUND: Following never coins a Tag. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tag canonical key */
+                    canonicalKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollow"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        /**
+         * Unfollow a Tag
+         * @description Removes the signed-in Customer's Follow of the Tag named by its canonical key. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A key naming no Tag is TAG_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Tag canonical key */
+                    canonicalKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerLogout"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/profile": {
         parameters: {
             query?: never;
@@ -6608,12 +6730,18 @@ export interface components {
         "service.FollowView": {
             followed_at?: string;
             organization?: components["schemas"]["service.FollowedOrganizationView"];
+            tag?: components["schemas"]["service.FollowedTagView"];
             type?: string;
         };
         "service.FollowedOrganizationView": {
             logo_url?: string;
             name?: string;
             slug?: string;
+        };
+        "service.FollowedTagView": {
+            canonical_key?: string;
+            curated?: boolean;
+            name?: string;
         };
         "service.FollowsView": {
             follows?: components["schemas"]["service.FollowView"][];

@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -28,14 +29,26 @@ type followedOrganization struct {
 	LogoURL *string `json:"logo_url"`
 }
 
+// followedTag is the Tag as a Follow reports it: the same three facts every
+// other Tag surface publishes (catalog's TagView), and no internal id. The Tag
+// is named by its canonical key, symmetrically with the Organization being named
+// by its slug — the stable machine identity a Storefront already holds, and the
+// one a copy edit to the display name cannot break (ADR 0027).
+type followedTag struct {
+	CanonicalKey string `json:"canonical_key"`
+	Name         string `json:"name"`
+	Curated      bool   `json:"curated"`
+}
+
 // followView is one entry in the Customer's Follows. `type` is the
-// discriminator; the subject hangs off the field it names, so a Tag Follow
-// (#218) arrives in this same list as a `tag` entry without moving anything a
-// client already reads.
+// discriminator; the subject hangs off the field it names, so an Organization
+// Follow carries `organization` and a Tag Follow carries `tag`, each absent on
+// the other (#218).
 type followView struct {
 	Type         string                `json:"type"`
 	FollowedAt   time.Time             `json:"followed_at"`
 	Organization *followedOrganization `json:"organization"`
+	Tag          *followedTag          `json:"tag"`
 }
 
 type followsView struct {
@@ -108,7 +121,9 @@ func listFollows(t *testing.T, env *testEnv, token string) followsView {
 }
 
 // followedSlugs flattens a listing to the Organization slugs in it, in the order
-// the API returned them.
+// the API returned them. It is for the Organization-only scenarios and insists
+// on that: a Tag arriving in a list where none was followed would be a leak, not
+// a widening. Mixed listings go through followedKeys below.
 func followedSlugs(t *testing.T, view followsView) []string {
 	t.Helper()
 	slugs := make([]string, 0, len(view.Follows))
@@ -496,5 +511,503 @@ func TestFollowReportsTheOrganizationsLogo(t *testing.T) {
 	if listed.Follows[0].Organization.LogoURL == nil ||
 		*listed.Follows[0].Organization.LogoURL != presign.PublicURL {
 		t.Fatalf("listing logo_url = %v, want %q", listed.Follows[0].Organization.LogoURL, presign.PublicURL)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tag Follows (#218, parent #215).
+//
+// The second kind of Follow, and deliberately not a second feature. It joins the
+// same list under its own `type`, keys on the canonical key exactly as the
+// Organization keys on its slug, and answers with the same statuses — so most of
+// what follows is the Organization's own suite read against a different subject,
+// which is the promise rather than duplication.
+//
+// ANY Tag is followable, Preset and Custom alike. ADR 0030 records why: per
+// reader volume is bounded by the weekly Digest's cap, not by narrowing what may
+// be Followed, so restricting the pool to `curated` Tags would cost the most
+// valuable case — a narrow interest — to solve a problem the Digest has already
+// solved.
+// ---------------------------------------------------------------------------
+
+// followTagPath addresses a Tag by its canonical key, path-escaped. Half the
+// Preset pool contains a space and several an ampersand, so the escaping is part
+// of the address rather than a nicety.
+func followTagPath(canonicalKey string) string {
+	return customerFollowsPath + "/tags/" + url.PathEscape(canonicalKey)
+}
+
+func followTag(t *testing.T, env *testEnv, token, canonicalKey string) (*http.Response, envelope) {
+	t.Helper()
+	return env.post(t, followTagPath(canonicalKey), nil, authHeader(token))
+}
+
+func followTagOK(t *testing.T, env *testEnv, token, canonicalKey string) followView {
+	t.Helper()
+	resp, body := followTag(t, env, token, canonicalKey)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("follow tag %q status=%d error=%+v", canonicalKey, resp.StatusCode, body.Error)
+	}
+	if body.Error != nil {
+		t.Fatalf("follow tag %q error=%+v, want none", canonicalKey, body.Error)
+	}
+	var view followView
+	if err := json.Unmarshal(body.Data, &view); err != nil {
+		t.Fatalf("decode tag follow: %v", err)
+	}
+	return view
+}
+
+func unfollowTag(t *testing.T, env *testEnv, token, canonicalKey string) (*http.Response, envelope) {
+	t.Helper()
+	return env.deleteJSON(t, followTagPath(canonicalKey), nil, authHeader(token))
+}
+
+func unfollowTagOK(t *testing.T, env *testEnv, token, canonicalKey string) {
+	t.Helper()
+	resp, body := unfollowTag(t, env, token, canonicalKey)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unfollow tag %q status=%d error=%+v", canonicalKey, resp.StatusCode, body.Error)
+	}
+	if body.Error != nil {
+		t.Fatalf("unfollow tag %q error=%+v, want none", canonicalKey, body.Error)
+	}
+}
+
+// countTagFollows reads the table directly, for the reason
+// countOrganizationFollows does: idempotency is a claim about ROWS, and the API
+// cannot show a second Follow of one Tag however many exist.
+func countTagFollows(t *testing.T, env *testEnv) int {
+	t.Helper()
+	var n int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM customer_tag_follows`).Scan(&n); err != nil {
+		t.Fatalf("count tag follows: %v", err)
+	}
+	return n
+}
+
+// followedKeys flattens a MIXED listing to one string per entry, prefixed by its
+// kind: "organization:test-org", "tag:music".
+//
+// The prefix is what makes the assertion worth making. The whole promise of the
+// combined list is that a client tells the kinds apart from `type` alone and
+// reaches the subject through the field that names it, so this also insists the
+// other kind's field is absent — an entry carrying both would typecheck on the
+// wire and be meaningless.
+func followedKeys(t *testing.T, view followsView) []string {
+	t.Helper()
+	keys := make([]string, 0, len(view.Follows))
+	for _, follow := range view.Follows {
+		switch follow.Type {
+		case "organization":
+			if follow.Organization == nil {
+				t.Fatalf("follow of type organization carries no organization: %+v", follow)
+			}
+			if follow.Tag != nil {
+				t.Fatalf("organization Follow also carries a tag: %+v", follow)
+			}
+			keys = append(keys, "organization:"+follow.Organization.Slug)
+		case "tag":
+			if follow.Tag == nil {
+				t.Fatalf("follow of type tag carries no tag: %+v", follow)
+			}
+			if follow.Organization != nil {
+				t.Fatalf("tag Follow also carries an organization: %+v", follow)
+			}
+			keys = append(keys, "tag:"+follow.Tag.CanonicalKey)
+		default:
+			t.Fatalf("follow type = %q, want organization or tag", follow.Type)
+		}
+	}
+	return keys
+}
+
+// coinCustomTag creates an Event and tags it, which is the only way a Custom Tag
+// enters the shared pool: they are coined mid-edit by an Organization rather
+// than administered (ADR 0004). Returns the canonical key the pool stored.
+func coinCustomTag(t *testing.T, env *testEnv, sessionID, name string) string {
+	t.Helper()
+	eventID := publishEvent(t, env, sessionID, "Tagged Night", "tagged-night",
+		env.fixedClock.Add(30*24*time.Hour), true, 2500, 100)
+
+	resp, body := setEventTags(t, env, sessionID, eventID, []string{name})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("set event tags status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	for _, tag := range decodeTags(t, body.Data) {
+		if !tag.Curated {
+			return tag.CanonicalKey
+		}
+	}
+	t.Fatalf("no Custom Tag coined by %q", name)
+	return ""
+}
+
+// TestCustomerFollowsAPresetTagAndItAppearsInTheirFollows is the Tag half of the
+// feature in one pass: press Follow on a Tag chip, and the Customer's Follows
+// say so — in the same list the Organization Follows are in.
+func TestCustomerFollowsAPresetTagAndItAppearsInTheirFollows(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	follow := followTagOK(t, env, token, "music")
+	if follow.Type != "tag" {
+		t.Fatalf("type = %q, want tag", follow.Type)
+	}
+	if follow.Tag == nil || follow.Tag.CanonicalKey != "music" || follow.Tag.Name != "Music" {
+		t.Fatalf("tag = %+v, want Music / music", follow.Tag)
+	}
+	// `curated` is on the wire because the Storefront needs it to decide whether
+	// to word the Tag from its own catalogue or render it as coined (ADR 0027).
+	if !follow.Tag.Curated {
+		t.Fatal("music is a Preset Tag and must report curated = true")
+	}
+	if follow.FollowedAt.IsZero() {
+		t.Fatal("followed_at is zero — a Follow must record when it was made")
+	}
+
+	if got := followedKeys(t, listFollows(t, env, token)); len(got) != 1 || got[0] != "tag:music" {
+		t.Fatalf("follows = %v, want [tag:music]", got)
+	}
+}
+
+// TestCustomerFollowsACustomTag is ADR 0030's decision stated as a test.
+//
+// The obvious safety valve for a discovery feature that mails people would have
+// been to allow only `curated` Tags to be Followed; the ADR rejects it, because
+// the weekly Digest already bounds volume and the narrow interest is the case
+// worth having. A future reader who "tightens" this will fail here.
+func TestCustomerFollowsACustomTag(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	key := coinCustomTag(t, env, sessionID, "Warehouse Techno")
+	token := customerSignIn(t, env, "ana@example.com")
+
+	follow := followTagOK(t, env, token, key)
+	if follow.Tag == nil || follow.Tag.CanonicalKey != key {
+		t.Fatalf("tag = %+v, want canonical key %q", follow.Tag, key)
+	}
+	if follow.Tag.Curated {
+		t.Fatalf("tag %q is a Custom Tag and must report curated = false", key)
+	}
+	if follow.Tag.Name != "Warehouse Techno" {
+		t.Fatalf("tag name = %q, want the display casing the Organization coined", follow.Tag.Name)
+	}
+
+	if got := followedKeys(t, listFollows(t, env, token)); len(got) != 1 || got[0] != "tag:"+key {
+		t.Fatalf("follows = %v, want the Custom Tag", got)
+	}
+}
+
+// TestFollowingATagWhoseKeyNeedsEncoding covers the canonical keys that are not
+// URL-safe. "arts & theatre" is a seeded Preset Tag and one of the chips a
+// reader is most likely to press, so a path that survived only the tidy keys
+// would break in the ordinary case rather than an exotic one.
+func TestFollowingATagWhoseKeyNeedsEncoding(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	follow := followTagOK(t, env, token, "arts & theatre")
+	if follow.Tag == nil || follow.Tag.CanonicalKey != "arts & theatre" {
+		t.Fatalf("tag = %+v, want canonical key %q", follow.Tag, "arts & theatre")
+	}
+
+	unfollowTagOK(t, env, token, "arts & theatre")
+	if n := countTagFollows(t, env); n != 0 {
+		t.Fatalf("%d Tag Follow rows after unfollow, want 0", n)
+	}
+}
+
+// TestFollowingATagTwiceLeavesOneFollowAndDoesNotMoveWhenItWasMade is the
+// Organization's idempotency rule again, unchanged, because a Customer cannot be
+// expected to learn that one control is safe to double-tap and the other is not.
+func TestFollowingATagTwiceLeavesOneFollowAndDoesNotMoveWhenItWasMade(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	first := followTagOK(t, env, token, "music")
+
+	setCustomerClock(t, env, env.fixedClock.Add(48*time.Hour))
+	second := followTagOK(t, env, token, "music")
+
+	if !second.FollowedAt.Equal(first.FollowedAt) {
+		t.Fatalf("repeat follow moved followed_at from %v to %v", first.FollowedAt, second.FollowedAt)
+	}
+	if n := countTagFollows(t, env); n != 1 {
+		t.Fatalf("%d Tag Follow rows after following twice, want exactly 1", n)
+	}
+}
+
+// TestUnfollowingATagNotFollowedIsNotAnError mirrors the Organization's rule:
+// the caller asked for a state, and that state already holds.
+func TestUnfollowingATagNotFollowedIsNotAnError(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	unfollowTagOK(t, env, token, "music")
+	unfollowTagOK(t, env, token, "music")
+
+	if n := countTagFollows(t, env); n != 0 {
+		t.Fatalf("%d Tag Follow rows, want 0", n)
+	}
+}
+
+// TestFollowingAnUnknownTagIs404 keeps the endpoint from coining Tags. A Tag is
+// coined by an Organization tagging an Event, never by a Customer following a
+// word — otherwise the shared pool would fill with typos nothing displays, and
+// the Digest would carry Follows of Tags no Event can ever match.
+func TestFollowingAnUnknownTagIs404(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	resp, body := followTag(t, env, token, "not-a-real-tag")
+	assertAPIError(t, resp, body, http.StatusNotFound, "TAG_NOT_FOUND")
+
+	resp, body = unfollowTag(t, env, token, "not-a-real-tag")
+	assertAPIError(t, resp, body, http.StatusNotFound, "TAG_NOT_FOUND")
+
+	if n := countTagFollows(t, env); n != 0 {
+		t.Fatalf("%d Tag Follow rows, want 0 — following must not coin a Tag", n)
+	}
+}
+
+// TestFollowingATagIsCanonicalizedLikeTheRestOfThePool pins that the path
+// segment is a CANONICAL key and is canonicalized on the way in, exactly as
+// every other Tag surface canonicalizes: lowercased, spaces collapsed. The same
+// Tag reached two ways is one Follow rather than two, which only the row count
+// can show.
+func TestFollowingATagIsCanonicalizedLikeTheRestOfThePool(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	followTagOK(t, env, token, "music")
+	follow := followTagOK(t, env, token, "  MUSIC ")
+
+	if follow.Tag == nil || follow.Tag.CanonicalKey != "music" {
+		t.Fatalf("tag = %+v, want the canonical key %q", follow.Tag, "music")
+	}
+	if n := countTagFollows(t, env); n != 1 {
+		t.Fatalf("%d Tag Follow rows, want 1 — the same Tag reached two ways is one Follow", n)
+	}
+}
+
+// TestFollowsListCombinesBothKindsInOneOrderedList is the acceptance criterion
+// that both kinds come back from ONE listing rather than two, and it asserts the
+// harder half of it: the ORDER is one order over the union, not Organizations
+// and then Tags. A client renders this list top to bottom, so the interleaving
+// is the contract.
+func TestFollowsListCombinesBothKindsInOneOrderedList(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	createOrganization(t, env, sessionID, "Other Org", "other-org")
+	token := customerSignIn(t, env, "ana@example.com")
+
+	// Four Follows, alternating kind, each an hour after the last — so a listing
+	// that grouped by kind rather than ordering by instant is visibly wrong.
+	followOrganizationOK(t, env, token, "test-org")
+	setCustomerClock(t, env, env.fixedClock.Add(time.Hour))
+	followTagOK(t, env, token, "music")
+	setCustomerClock(t, env, env.fixedClock.Add(2*time.Hour))
+	followOrganizationOK(t, env, token, "other-org")
+	setCustomerClock(t, env, env.fixedClock.Add(3*time.Hour))
+	followTagOK(t, env, token, "comedy")
+
+	got := followedKeys(t, listFollows(t, env, token))
+	want := []string{"tag:comedy", "organization:other-org", "tag:music", "organization:test-org"}
+	if len(got) != len(want) {
+		t.Fatalf("follows = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("follows = %v, want %v — most recently followed first, across both kinds", got, want)
+		}
+	}
+}
+
+// TestFollowsListOrderIsTotalWhenBothKindsShareAnInstant guards the tie-break.
+//
+// Two Follows made in one instant are ordinary here — the fixed clock makes them
+// the default — and a listing ordered on `followed_at` alone could hand back two
+// different orders for two identical reads, which a client re-rendering the
+// Following list would show as a shuffle.
+func TestFollowsListOrderIsTotalWhenBothKindsShareAnInstant(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	createOrganization(t, env, sessionID, "Other Org", "other-org")
+	token := customerSignIn(t, env, "ana@example.com")
+
+	// No clock movement between any of these: one instant, four Follows.
+	followTagOK(t, env, token, "music")
+	followOrganizationOK(t, env, token, "test-org")
+	followTagOK(t, env, token, "comedy")
+	followOrganizationOK(t, env, token, "other-org")
+
+	first := followedKeys(t, listFollows(t, env, token))
+	if len(first) != 4 {
+		t.Fatalf("follows = %v, want four entries", first)
+	}
+	for i := 0; i < 3; i++ {
+		again := followedKeys(t, listFollows(t, env, token))
+		for j := range first {
+			if again[j] != first[j] {
+				t.Fatalf("listing reordered between reads: %v then %v", first, again)
+			}
+		}
+	}
+}
+
+// TestUnfollowingOneKindLeavesTheOtherStanding is the management surface's rule.
+// The Following list holds both kinds, unfollow is available there, and removing
+// one entry removes exactly that entry — ending, when the last one goes, at the
+// same well-formed empty list a Customer who follows nothing sees.
+func TestUnfollowingOneKindLeavesTheOtherStanding(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+	token := customerSignIn(t, env, "ana@example.com")
+
+	followOrganizationOK(t, env, token, "test-org")
+	followTagOK(t, env, token, "music")
+
+	unfollowTagOK(t, env, token, "music")
+
+	got := followedKeys(t, listFollows(t, env, token))
+	if len(got) != 1 || got[0] != "organization:test-org" {
+		t.Fatalf("follows after unfollowing the Tag = %v, want [organization:test-org]", got)
+	}
+
+	unfollowOrganizationOK(t, env, token, "test-org")
+	if got := followedKeys(t, listFollows(t, env, token)); len(got) != 0 {
+		t.Fatalf("follows = %v, want none", got)
+	}
+}
+
+// TestOneCustomersTagFollowsAreNeverAnothers is the adversarial read again, for
+// the kind just added. The listing takes no identifier, so only a scoping bug
+// could widen it.
+func TestOneCustomersTagFollowsAreNeverAnothers(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+
+	ana := customerSignIn(t, env, "ana@example.com")
+	bruno := customerSignIn(t, env, "bruno@example.com")
+
+	followTagOK(t, env, ana, "music")
+	followTagOK(t, env, bruno, "comedy")
+
+	if got := followedKeys(t, listFollows(t, env, ana)); len(got) != 1 || got[0] != "tag:music" {
+		t.Fatalf("ana's follows = %v, want [tag:music] alone", got)
+	}
+	if got := followedKeys(t, listFollows(t, env, bruno)); len(got) != 1 || got[0] != "tag:comedy" {
+		t.Fatalf("bruno's follows = %v, want [tag:comedy] alone", got)
+	}
+
+	// And one cannot unfollow on the other's behalf: the delete is scoped by
+	// session too, so this removes nothing.
+	unfollowTagOK(t, env, bruno, "music")
+	if got := followedKeys(t, listFollows(t, env, ana)); len(got) != 1 || got[0] != "tag:music" {
+		t.Fatalf("ana's follows after bruno unfollowed music = %v, want [tag:music] untouched", got)
+	}
+}
+
+// TestTagFollowRoutesRefuseAnUnauthenticatedRequest covers the new pair with the
+// two ways a browser actually arrives without a session.
+func TestTagFollowRoutesRefuseAnUnauthenticatedRequest(t *testing.T) {
+	env := setupTest(t)
+	_ = orgAdminSession(t, env)
+
+	for _, credential := range []struct {
+		what  string
+		token string
+		code  string
+	}{
+		{"no token at all", "", "UNAUTHORIZED"},
+		{"a token that authenticates nothing", "not-a-session", "CUSTOMER_SESSION_NOT_FOUND"},
+	} {
+		var headers map[string]string
+		if credential.token != "" {
+			headers = authHeader(credential.token)
+		}
+
+		resp, body := env.post(t, followTagPath("music"), nil, headers)
+		assertAPIError(t, resp, body, http.StatusUnauthorized, credential.code)
+
+		resp, body = env.deleteJSON(t, followTagPath("music"), nil, headers)
+		assertAPIError(t, resp, body, http.StatusUnauthorized, credential.code)
+
+		if n := countTagFollows(t, env); n != 0 {
+			t.Fatalf("%d Tag Follow rows after unauthenticated calls with %s, want 0", n, credential.what)
+		}
+	}
+}
+
+// TestAConfirmationLinkSessionCannotFollowATag applies #217's settled session
+// rule to the new routes without restating its reasoning: a sale-scoped session
+// is minted from a forwarded receipt and proves nothing about who owns the
+// address, so it may not subscribe that address to mail.
+func TestAConfirmationLinkSessionCannotFollowATag(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	seedSaleForCustomer(t, env, sessionID, "Link Fest", "link-fest",
+		env.fixedClock.Add(60*24*time.Hour), "follow-tag-link-1", "ana@example.com", "Ana", "Lopez")
+
+	_, saleScoped := redeemConfirmationLinkOK(t, env, lastConfirmationLinkToken(t, env), "")
+
+	resp, body := followTag(t, env, saleScoped, "music")
+	assertAPIError(t, resp, body, http.StatusForbidden, "CUSTOMER_SESSION_SCOPE_INSUFFICIENT")
+
+	resp, body = unfollowTag(t, env, saleScoped, "music")
+	assertAPIError(t, resp, body, http.StatusForbidden, "CUSTOMER_SESSION_SCOPE_INSUFFICIENT")
+
+	if n := countTagFollows(t, env); n != 0 {
+		t.Fatalf("%d Tag Follow rows after a sale-scoped session tried, want 0", n)
+	}
+
+	// The same person, having proved they own the address, may follow freely.
+	full := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, full, "music")
+}
+
+// TestAStaffSessionCannotFollowATag keeps the two identities apart (ADR 0010).
+func TestAStaffSessionCannotFollowATag(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+
+	resp, body := followTag(t, env, sessionID, "music")
+	assertAPIError(t, resp, body, http.StatusUnauthorized, "CUSTOMER_SESSION_NOT_FOUND")
+}
+
+// TestDeletingATagRemovesItsFollows is the cascade, and it is why the Follow is
+// stored against the Tag's id rather than against its canonical key. A Follow of
+// a Tag that no longer exists is an input to a mailing that can match nothing,
+// and it would survive forever because nothing else would ever look at it.
+//
+// SQL for the delete: there is no API that removes a Tag — the pool is shared
+// and nothing administers it (ADR 0004) — so the schema is the only place this
+// rule can be stated, and the only place it can be read.
+func TestDeletingATagRemovesItsFollows(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	key := coinCustomTag(t, env, sessionID, "Warehouse Techno")
+	token := customerSignIn(t, env, "ana@example.com")
+
+	followTagOK(t, env, token, key)
+	followTagOK(t, env, token, "music")
+
+	if _, err := env.db.Exec(`DELETE FROM tags WHERE canonical_key = $1`, key); err != nil {
+		t.Fatalf("delete tag: %v", err)
+	}
+
+	got := followedKeys(t, listFollows(t, env, token))
+	if len(got) != 1 || got[0] != "tag:music" {
+		t.Fatalf("follows after deleting the Custom Tag = %v, want [tag:music]", got)
+	}
+	if n := countTagFollows(t, env); n != 1 {
+		t.Fatalf("%d Tag Follow rows survive, want 1 — the deleted Tag's Follow must go with it", n)
 	}
 }

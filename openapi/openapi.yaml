@@ -1267,6 +1267,8 @@ components:
           type: string
         organization:
           $ref: '#/components/schemas/service.FollowedOrganizationView'
+        tag:
+          $ref: '#/components/schemas/service.FollowedTagView'
         type:
           type: string
       type: object
@@ -1277,6 +1279,15 @@ components:
         name:
           type: string
         slug:
+          type: string
+      type: object
+    service.FollowedTagView:
+      properties:
+        canonical_key:
+          type: string
+        curated:
+          type: boolean
+        name:
           type: string
       type: object
     service.FollowsView:
@@ -3115,6 +3126,101 @@ paths:
       security:
       - BearerAuth: []
       summary: Follow an Organization
+      tags:
+      - customer
+  /api/v1/customer/follows/tags/{canonicalKey}:
+    delete:
+      description: 'Removes the signed-in Customer''s Follow of the Tag named by its
+        canonical key. Unfollowing something not followed is not an error — the caller
+        asked for a state that already holds. A key naming no Tag is TAG_NOT_FOUND.
+        Requires a full Customer Session: a Confirmation Link session is refused with
+        CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe:
+        it removes one Follow, where Unsubscribing would leave every Follow standing
+        and silence the Follow Digest.'
+      parameters:
+      - description: Tag canonical key
+        in: path
+        name: canonicalKey
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerLogout'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Unfollow a Tag
+      tags:
+      - customer
+    post:
+      description: 'Records that the signed-in Customer Follows the Tag named by its
+        canonical key, and returns the Follow. Any Tag may be Followed, Preset or
+        Custom — ADR 0030 bounds how much mail a Follow can produce with the weekly
+        Follow Digest''s cap rather than by narrowing what is followable. Idempotent:
+        following something already followed returns the existing Follow with its
+        original `followed_at`, so a retried or double-tapped request is safe, and
+        the answer is 200 on the first call and every repeat. The key is canonicalized
+        exactly as the shared Tag pool canonicalizes everywhere else, so casing and
+        spacing cannot produce two Follows of one Tag. A key naming no Tag is TAG_NOT_FOUND:
+        Following never coins a Tag. Requires a full Customer Session: a Confirmation
+        Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.'
+      parameters:
+      - description: Tag canonical key
+        in: path
+        name: canonicalKey
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerFollow'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Follow a Tag
       tags:
       - customer
   /api/v1/customer/profile:

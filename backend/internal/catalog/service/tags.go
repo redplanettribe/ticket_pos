@@ -75,6 +75,43 @@ func (s *Service) ListAvailablePresetTags(ctx context.Context) ([]TagView, error
 	return toTagViews(tags), nil
 }
 
+// ResolveTagIDByCanonicalKey turns the canonical key a Customer's Follow names
+// into the Tag's id, and is this module's implementation of the customers
+// module's TagResolver (#218).
+//
+// It is a seam rather than an exported repository call for the reason identity's
+// ResolveOrganizationIDBySlug is one: the rules are whoever owns Tags'.
+// Canonicalization is the first of them — every other path into the pool
+// lowercases and collapses spaces, so "  MUSIC " and "music" must be one Follow
+// rather than two, and running the same function is the only way to guarantee
+// that as the rule changes. The second is that an unknown key is TAG_NOT_FOUND
+// rather than an empty answer, because a Follow must not coin a Tag.
+//
+// EVERY Tag resolves, Preset and Custom alike. There is no `curated` filter and
+// adding one would undo ADR 0030: the Digest's weekly cap bounds a Follow's
+// volume, so narrowing the followable pool buys nothing and costs the narrow
+// interest that is the best reason to Follow a Tag at all.
+//
+// It returns the id and nothing else, exactly as the Organization resolver does.
+// The caller stores a foreign key and renders the Tag by joining to it, which
+// keeps this the smallest thing that could serve the need — and keeps the id out
+// of any struct that a response is built from.
+func (s *Service) ResolveTagIDByCanonicalKey(ctx context.Context, rawKey string) (string, error) {
+	key := canonicalTagKey(rawKey)
+	if key == "" {
+		return "", catalog.ErrTagNotFound()
+	}
+
+	tag, err := s.repo.GetTagByCanonicalKey(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	if tag == nil {
+		return "", catalog.ErrTagNotFound()
+	}
+	return tag.ID, nil
+}
+
 // LocalizedTagNames resolves Tag names in one Locale, keyed by canonical key.
 //
 // It exists for what a Storefront page cannot do for itself: mail carries no

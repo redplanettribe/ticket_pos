@@ -58,6 +58,11 @@ type Service struct {
 	// Follow is stored against (#217). Declared as an interface on this side and
 	// implemented by identity, exactly as reversals is by sales; see follows.go.
 	organizations OrganizationResolver
+	// tags turns the canonical key of a Tag into the id a Follow is stored
+	// against (#218), and is catalog's to answer for the same reason
+	// organizations is identity's: this module owns who Follows what, not what a
+	// Tag is.
+	tags TagResolver
 }
 
 // ReversalRequestResolver asks the Payment Provider again about the Reversal

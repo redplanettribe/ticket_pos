@@ -48,7 +48,21 @@
     "followedToast": "You now follow {name}.",
     "unfollowedToast": "You no longer follow {name}.",
     "failed": "That didn't work. Try again.",
-    "networkFailed": "That didn't work. Check your connection and try again."
+    "networkFailed": "That didn't work. Check your connection and try again.",
+    "followLabel": "Follow {name}",
+    "followingLabel": "Following {name}. Press to unfollow."
+  },
+  "following": {
+    "metaTitle": "Following · {brand}",
+    "title": "Following",
+    "description": "The organizers and tags you follow. They all arrive in one weekly email.",
+    "organizationKind": "Organizer",
+    "tagKind": "Tag",
+    "customTag": "Their own word",
+    "emptyTitle": "You aren't following anything yet",
+    "emptyDescription": "Follow an organizer from their page, or a tag from an event, and their events arrive in one weekly email.",
+    "loadFailedTitle": "We couldn't load what you follow",
+    "loadNetworkFailed": "We couldn't reach the ticket service. Please check your connection and try again."
   },
   "event": {
     "metaTitle": "{event} · {organization}",
