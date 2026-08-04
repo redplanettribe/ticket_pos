@@ -8,6 +8,7 @@ import { Button, Input, cn } from "@ticket-pos/ui";
 
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
+import { followIntent } from "@/lib/follow-intent";
 import { tagFollowEndpoint } from "@/lib/follows";
 import { tagName, toTagTranslator } from "@/lib/tag-name";
 import { WHEN_PRESETS, isWhenPreset, type WhenPreset } from "@/lib/when";
@@ -48,7 +49,11 @@ export function ExplorerFilters({
   presetTags = [],
   followedTagKeys = null,
 }: ExplorerFiltersProps) {
-  const followable = followedTagKeys !== null;
+  // Every visitor gets the Follow control (#219): a null read means signed out
+  // or unresolvable, and either way pressing it is a way into sign-in rather
+  // than a reason to hide the control from the anonymous majority this bar is
+  // mostly seen by.
+  const signedIn = followedTagKeys !== null;
   const t = useTranslations("explorer");
   // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
   const tTags = toTagTranslator(useTranslations("tags"));
@@ -175,27 +180,24 @@ export function ExplorerFilters({
                   active
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-input bg-background text-foreground hover:bg-muted",
-                  followable ? "rounded-r-none border-r-0" : null,
+                  "rounded-r-none border-r-0",
                 )}
               >
                 {label}
               </button>
             );
 
-            if (!followable) {
-              return <span key={tag.canonical_key}>{chip}</span>;
-            }
-
             return (
               <span key={tag.canonical_key} className="flex items-stretch">
                 {chip}
-                {/* Drawn only for a signed-in Customer: the whole control
-                    disappears for everybody else rather than becoming a prompt
-                    to sign in, because following through sign-in is #219. */}
+                {/* Drawn for anybody. A signed-out press carries the Tag
+                    through sign-in and comes back made (#219). */}
                 <FollowButton
                   endpoint={tagFollowEndpoint(tag.canonical_key)}
                   following={followedTagKeys?.includes(tag.canonical_key) ?? false}
                   subjectName={label}
+                  intent={followIntent("tag", tag.canonical_key)}
+                  signedIn={signedIn}
                   compact
                 />
               </span>

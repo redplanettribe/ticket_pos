@@ -2,6 +2,7 @@ import { Badge, cn } from "@ticket-pos/ui";
 
 import type { PublicTag } from "@/lib/api";
 import type { Follows, SessionOutcome } from "@/lib/customer-session";
+import { followIntent } from "@/lib/follow-intent";
 import { followsTag, tagFollowEndpoint } from "@/lib/follows";
 import { tagName, type TagTranslator } from "@/lib/tag-name";
 
@@ -25,11 +26,17 @@ type FollowableTagsProps = {
  * they might find the next one. So the Tags stop being a label and become the
  * control.
  *
- * IT DEGRADES TO TagBadges. A visitor who is not signed in — or whose Follows
- * read failed — sees exactly the Tags they saw before, from the same component
- * that renders them everywhere else, with no control, no placeholder and no
- * invitation to sign in. Following while signed out is its own problem, because
- * the press has to survive a round trip through sign-in, and it is #219.
+ * THE CONTROL IS OFFERED TO ANYBODY (#219). It first degraded to plain
+ * TagBadges for a visitor who was not signed in, on the reasoning that following
+ * while signed out was a separate problem — and then that problem was solved: a
+ * press now carries its intent through sign-in and comes back made. Hiding the
+ * control from anonymous visitors would hide it from almost everyone the Event
+ * page is for, which is the opposite of what the Tag row is doing here.
+ *
+ * A Follows read that FAILED is treated as signed-out rather than as an error.
+ * The row's job is to name the Event's Tags; an unresolvable control is worth
+ * less than the page, and the API refuses an unauthenticated write regardless,
+ * so the worst case is a visitor sent to sign in who was already signed in.
  *
  * One Follows read answers every control in the row. That is the reason the API
  * lists Follows rather than offering a "do I follow this" probe per subject: an
@@ -38,9 +45,7 @@ type FollowableTagsProps = {
 export function FollowableTags({ tags, t, follows, className }: FollowableTagsProps) {
   if (tags.length === 0) return null;
 
-  if (follows.status !== "ok") {
-    return <TagBadges tags={tags} t={t} className={className} />;
-  }
+  const signedIn = follows.status === "ok";
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
@@ -54,11 +59,16 @@ export function FollowableTags({ tags, t, follows, className }: FollowableTagsPr
           </Badge>
           <FollowButton
             endpoint={tagFollowEndpoint(tag.canonical_key)}
-            following={followsTag(follows, tag.canonical_key)}
+            following={signedIn ? followsTag(follows, tag.canonical_key) : false}
             // The name as this page words it, so the toast and the screen reader
             // say what the chip says — a Preset Tag in the reader's language, a
             // Custom Tag as its Organization coined it.
             subjectName={tagName(tag, t)}
+            // The canonical key, never the rendered name: the intent has to
+            // survive a round trip through sign-in and name the same pool row on
+            // the far side, whatever language the reader came back in.
+            intent={followIntent("tag", tag.canonical_key)}
+            signedIn={signedIn}
             compact
           />
         </span>

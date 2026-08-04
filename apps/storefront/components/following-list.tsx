@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 
 import { Link } from "@/i18n/navigation";
 import type { Follow } from "@/lib/customer-session";
+import { followIntent } from "@/lib/follow-intent";
 import { organizationFollowEndpoint, tagFollowEndpoint } from "@/lib/follows";
 import { tagName, toTagTranslator } from "@/lib/tag-name";
 
@@ -76,6 +77,11 @@ export async function FollowingList({ follows }: FollowingListProps) {
                 endpoint={organizationFollowEndpoint(organization.slug)}
                 following
                 subjectName={organization.name}
+                intent={followIntent("organization", organization.slug)}
+                // The Customer Area is behind the session, so this control is
+                // never the signed-out kind. The intent is passed anyway rather
+                // than faked, so the prop means one thing everywhere.
+                signedIn
                 compact
               />
             </li>
@@ -132,6 +138,8 @@ export async function FollowingList({ follows }: FollowingListProps) {
               endpoint={tagFollowEndpoint(tag.canonical_key)}
               following
               subjectName={name}
+              intent={followIntent("tag", tag.canonical_key)}
+              signedIn
               compact
             />
           </li>

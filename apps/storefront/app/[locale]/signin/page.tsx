@@ -7,6 +7,7 @@ import { localeAlternates } from "@/lib/alternates";
 import { BRAND_NAME } from "@/lib/brand";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
+import { safeFollowIntent } from "@/lib/follow-intent";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
 import { toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
@@ -67,6 +68,19 @@ type SignInPageProps = {
      * passcode still has to be proved, so a prefilled field grants nothing.
      */
     email?: string;
+    /**
+     * The Follow somebody pressed before they could be asked who they are
+     * (#219): "organization:<slug>". It travels here in the open, as an explicit
+     * parameter rather than in browser storage, so that it is server-visible and
+     * can be validated — by this page before it is shown to anybody, and again
+     * by the API before it is acted on.
+     *
+     * It is not a destination and cannot become one: where the visitor lands is
+     * `next` above and nothing else. And it names a subject, never a subscriber
+     * — the `email` beside it prefills a field and proves nothing, while whose
+     * Follow this becomes is decided by the session verification mints.
+     */
+    follow?: string;
   }>;
 };
 
@@ -78,8 +92,13 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
   const { locale } = await params;
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
-  const { next, expired, link, google, email } = await searchParams;
+  const { next, expired, link, google, email, follow } = await searchParams;
   const destination = safeNext(next);
+  // Guarded before it reaches the form or the Google button, and dropped rather
+  // than refused when it is not an intent: a junk `follow` on an address anybody
+  // can craft must never be the reason somebody cannot sign in. They get the
+  // ordinary form and land where `next` says, having followed nothing.
+  const intent = safeFollowIntent(follow);
 
   // Already signed in: there is nothing to prove, so go where they were headed.
   //
@@ -87,6 +106,15 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
   // of an email, not ownership of the address, and it reaches one Ticket Sale —
   // so someone holding one who comes here is asking to widen, and bouncing them
   // back would make that impossible.
+  //
+  // A visitor who arrives already signed in carrying an intent is sent on
+  // without it being acted on, and that is the honest behaviour rather than a
+  // gap worth code: the control they pressed is only a link to here when the
+  // server rendered it signed out, so reaching this branch means a session
+  // appeared in another tab in between. They land on the page they came from
+  // with the control drawn as the write it is for a signed-in Customer, one
+  // press away — and nothing here quietly writes a Follow on the strength of a
+  // URL parameter and a session it did not just mint.
   const session = await getCustomerSession();
   if (session.status === "ok" && session.data.ticket_sale_id === null) {
     // The locale-aware redirect: `destination` is a locale-free path — it comes
@@ -111,7 +139,14 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
           // Absent credentials the button is not rendered at all, so a developer
           // running `make dev` without a Google client sees the passcode form
           // and nothing broken (PRD "Local development").
-          googleSignInHref={isGoogleSignInConfigured() ? googleSignInStartPath(destination) : null}
+          // The intent rides both doors. They are equal Proof of Email Ownership
+          // (ADR 0011), so a visitor who pressed Follow and then chose Google
+          // must not silently lose it — it goes into the state cookie the start
+          // route mints and comes back out at the callback.
+          followIntent={intent}
+          googleSignInHref={
+            isGoogleSignInConfigured() ? googleSignInStartPath(destination, intent) : null
+          }
         />
       </div>
     </StorefrontShell>

@@ -1,11 +1,13 @@
 "use client";
 
 import { Button, toast } from "@ticket-pos/ui";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMessages, useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
 
+import { Link, usePathname } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { followSignInHref } from "@/lib/follow-intent";
 
 /**
  * The Follow control (#217, parent #215).
@@ -41,9 +43,22 @@ import { apiErrorMessage } from "@/lib/api-errors";
  * screen reader gets no help from the chip sitting next to it and "Follow" alone
  * would be the ambiguity a sighted reader does not have.
  *
- * It is drawn only for a signed-in Customer. Following while signed out is its
- * own problem — the press has to survive a round trip through sign-in — and is
- * #219, not this.
+ * It is drawn for ANYBODY, signed in or not (#219). The surfaces it lives on are
+ * overwhelmingly anonymous, so a control only signed-in visitors could see would
+ * be invisible to almost everyone it is for. Pressing it while signed out is a
+ * navigation rather than a write: it carries the intended Follow and the page it
+ * was pressed on into the existing sign-in flow, which does the writing on the
+ * far side against the session it mints. See lib/follow-intent.ts.
+ *
+ * The two axes are independent: a compact control on a tag chip is pressed by
+ * anonymous visitors just as a full one on an Organization page is, so size and
+ * signed-in-ness compose rather than one implying the other.
+ *
+ * Which of the two it is, is decided by the server that rendered it — this
+ * component is told, and never reads a cookie or a session to find out. The
+ * Customer Session lives in an httpOnly cookie that page scripts cannot see, and
+ * that is the property being preserved: nothing here can name whose Follow this
+ * would be even by mistake.
  */
 type FollowButtonProps = {
   /**
@@ -62,6 +77,19 @@ type FollowButtonProps = {
    * else — the request, the optimistic state, the error copy — is unchanged.
    */
   compact?: boolean;
+  /**
+   * The intended Follow as it travels through sign-in: "organization:<slug>" or
+   * "tag:<key>". Built by the page from the same identifier the endpoint above
+   * is built from, so the two cannot name different things.
+   */
+  intent: string;
+  /**
+   * Whether the visitor holds a full Customer Session, as the server rendering
+   * this knew it. False makes the control a way into sign-in rather than a
+   * write — and it is a rendering decision only: the API refuses an
+   * unauthenticated Follow regardless, so nothing here is an access control.
+   */
+  signedIn: boolean;
 };
 
 type Envelope = {
@@ -73,9 +101,16 @@ export function FollowButton({
   following,
   subjectName,
   compact = false,
+  intent,
+  signedIn,
 }: FollowButtonProps) {
   const router = useRouter();
   const t = useTranslations("follow");
+  // Where the visitor is, for the `next` that brings them back here. Only the
+  // browser's router knows which page this is, which is why the address is read
+  // here and the rules about what may be in it live in lib/follow-intent.ts.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   // Keys of API codes rather than message keys, so the catalog is read as plain
   // data rather than through `t`.
   const errorCopy = useMessages().errors;
@@ -141,6 +176,42 @@ export function FollowButton({
       {isFollowing ? t("following") : t("follow")}
     </Button>
   );
+
+  // Signed out: the same control, saying the same word, but a way into sign-in
+  // rather than a write. A plain Link and not a fetch — the visitor is leaving
+  // this page, and the whole point is that they come back to it with the Follow
+  // already made.
+  //
+  // The hint is the one thing said differently, and it is worth saying: somebody
+  // about to be sent to a passcode form should be told that is what pressing
+  // this does, rather than discovering it. Beside a chip there is no room to say
+  // it, so compact drops the sentence here exactly as it does when signed in —
+  // the page that has room says it once.
+  if (!signedIn) {
+    const link = (
+      <Button
+        asChild
+        variant="default"
+        size="sm"
+        aria-label={compact ? t("followLabel", { name: subjectName }) : undefined}
+      >
+        <Link href={followSignInHref(intent, pathname, searchParams.toString())}>
+          {t("follow")}
+        </Link>
+      </Button>
+    );
+
+    if (compact) {
+      return link;
+    }
+
+    return (
+      <div className="space-y-1">
+        {link}
+        <p className="text-muted-foreground text-xs">{t("signInHint")}</p>
+      </div>
+    );
+  }
 
   // Compact: the button alone. The hint belongs to a page that has room to
   // explain what a Follow is, and is said once there rather than once per chip.
