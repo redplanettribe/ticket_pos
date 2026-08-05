@@ -7,7 +7,6 @@ import { followsTag, tagFollowEndpoint } from "@/lib/follows";
 import { tagName, type TagTranslator } from "@/lib/tag-name";
 
 import { FollowButton } from "./follow-button";
-import { TagBadges } from "./tag-badges";
 
 type FollowableTagsProps = {
   tags: PublicTag[];
