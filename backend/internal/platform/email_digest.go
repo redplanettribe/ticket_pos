@@ -87,10 +87,14 @@ func NewUnconfiguredDigestSender(logger Logger, reason string) *UnconfiguredDige
 // write a ledger row saying a Customer had seen Events they were never shown —
 // and those Events would then never appear in a later Digest.
 func (s *UnconfiguredDigestSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
+	// Both sections are counted, and separately: an operator reading this line
+	// wants to know what the refusal cost, and "nothing new but six on the
+	// agenda" is a different loss from the reverse.
 	s.logger.Error(
 		"follow digest not sent: no digest sending identity is configured",
 		"email", d.To,
-		"events", len(d.Events),
+		"new", len(d.New),
+		"happening", len(d.Happening),
 		"reason", s.reason,
 	)
 	return fmt.Errorf("%w: %s", ErrDigestSenderUnconfigured, s.reason)

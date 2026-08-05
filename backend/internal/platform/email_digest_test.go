@@ -19,7 +19,7 @@ func TestUnconfiguredDigestSenderSendsNothingAndSaysWhy(t *testing.T) {
 		To:           "ana@example.com",
 		CustomerName: "Ana",
 		Locale:       DefaultLocale,
-		Events:       []FollowDigestEvent{{Name: "Followed Fest"}},
+		New:          []FollowDigestEvent{{Name: "Followed Fest"}},
 	})
 	if err == nil {
 		t.Fatal("SendFollowDigest succeeded with no Digest identity configured; a caller would record a Digest that was never sent")

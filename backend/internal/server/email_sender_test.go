@@ -47,7 +47,7 @@ func aFollowDigest() platform.FollowDigest {
 		To:           "ana@example.com",
 		CustomerName: "Ana",
 		Locale:       platform.DefaultLocale,
-		Events:       []platform.FollowDigestEvent{{Name: "Followed Fest"}},
+		New:          []platform.FollowDigestEvent{{Name: "Followed Fest"}},
 	}
 }
 
