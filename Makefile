@@ -1,4 +1,4 @@
-.PHONY: dev down prod prod-down prod-to-local seed-dev test test-integration test-parity ci migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
+.PHONY: dev down prod prod-down prod-to-local seed-dev test test-integration test-parity ci ci-go migrate swagger api-client openapi openapi-sync-check infra-graph infra-graph-zip infra-plan-json
 
 export GOTOOLCHAIN := local
 
@@ -73,10 +73,17 @@ test-parity:
 # with "connection reset by peer" — a failure about the runner, not the code.
 # Splitting them along the layer boundary the testing guide already draws keeps
 # every package covered and never has two container owners in flight at once.
-ci:
+#
+# It lives in its own target because CI runs the Go suite as a separate job and
+# must not restate how to invoke it: stated twice, the split was fixed here and
+# missed there, and the branch that introduced the second container owner went
+# green locally and red on the runner.
+ci-go:
 	cd backend && go test $$(go list ./... | grep -v '/integration$$')
 	cd backend && go test ./integration/...
 	cd backend && go vet ./...
+
+ci: ci-go
 	pnpm turbo lint typecheck build
 	$(MAKE) openapi-sync-check
 
