@@ -147,3 +147,44 @@ variable "reversal_reconciler_attempt_deadline_seconds" {
   type        = number
   default     = 90
 }
+
+# The Follow Digest jobs (#226, ADR 0030). Operational levers, like the
+# reconciler's above, and declared here for the same reason: pausing has to be an
+# apply from this directory rather than a module edit or a console click the next
+# apply silently undoes.
+
+variable "follow_digest_enqueue_enabled" {
+  description = "Whether the weekly Follow Digest enqueue fires in production. STARTS FALSE, and there is a prerequisite beyond confidence in the code: the Digest sends from its own domain (ADR 0030) which must exist at the mail provider with its DNS records published before this is turned on. A deployment without it composes every Digest, refuses every send, and retries until each one is abandoned."
+  type        = bool
+  default     = false
+}
+
+variable "follow_digest_enqueue_schedule" {
+  description = "Unix cron for the production weekly enqueue, read in America/Guayaquil. Thursday 09:00; the module variable of the same name carries why."
+  type        = string
+  default     = "0 9 * * 4"
+}
+
+variable "follow_digest_enqueue_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for the production weekly enqueue. The module variable of the same name says what it is bounded by."
+  type        = number
+  default     = 120
+}
+
+variable "follow_digest_drain_enabled" {
+  description = "Whether the per-minute Follow Digest drain fires in production. Starts false, and is the switch to reach for during a mail-provider incident: paused, the week's Digests wait in the queue instead of spending their attempts against a provider that is refusing them."
+  type        = bool
+  default     = false
+}
+
+variable "follow_digest_drain_schedule" {
+  description = "Unix cron for the production drain tick. Every minute; the module variable of the same name carries why."
+  type        = string
+  default     = "* * * * *"
+}
+
+variable "follow_digest_drain_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production Digest drain. It is one term of a chain that must be read before it is moved; the module variable of the same name says where the chain is written down."
+  type        = number
+  default     = 90
+}

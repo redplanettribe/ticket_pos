@@ -201,6 +201,15 @@ type DrainResult struct {
 	// attempts. Each one is a Customer who gets no Digest this week, and it is
 	// the number worth alerting on.
 	GaveUp int `json:"gave_up"`
+	// Pruned is sent-ledger rows this run dropped because their Event has ended
+	// (#226). It is housekeeping rather than delivery and it is reported anyway,
+	// because the alternative is a table whose growth nobody can see until it is
+	// the reason a Digest is slow to compose.
+	//
+	// A number that stays high tick after tick means the prune is not keeping up
+	// with what is ending; a number that is zero forever on a live platform means
+	// it has stopped running at all.
+	Pruned int `json:"pruned"`
 	// PendingTotal is how many Digests are still waiting once this run finished,
 	// and OldestPendingWeek is the week the oldest of them belongs to (a date,
 	// absent when the queue is empty).
@@ -244,6 +253,21 @@ const (
 	digestDrainBatch  = 50
 	digestDrainBudget = 45 * time.Second
 )
+
+// digestPruneBatch is how many dead sent-ledger rows one drain tick clears at
+// its tail (#226, ADR 0030).
+//
+// It is a bound rather than a target, and the number is chosen against the
+// arrival rate rather than against the backlog: rows die when Events END, which
+// on this platform is a handful a day, and five hundred a minute clears that by
+// several orders of magnitude. What the bound actually protects is the one case
+// where the two diverge — a first run against a table nobody has ever pruned —
+// where an unbounded DELETE would be a long transaction on the table every send
+// reads, taken by a tick that is meant to be sending mail.
+//
+// Nothing is lost by the bound. What one tick leaves the next tick finds, and an
+// ended Event does not become un-ended in the meantime.
+const digestPruneBatch = 500
 
 // digestClaimLease is how long a claimed Digest is hidden from other claimants.
 //
@@ -373,6 +397,39 @@ func (s *Service) DrainDigests(ctx context.Context) (*DrainResult, error) {
 		default:
 			out.Sent++
 		}
+	}
+
+	// THE PRUNE, on the tail of the tick that has just finished sending (#226).
+	//
+	// WHY HERE AND NOT ON A SCHEDULE OF ITS OWN. A third Cloud Scheduler job, a
+	// third service account and a third internal endpoint would be a deployment's
+	// worth of machinery for one bounded DELETE, and it would be one more thing
+	// that can be paused, forgotten and discovered a year later as a table nobody
+	// pruned. Hanging it on the drain costs nothing and inherits everything: the
+	// drain already ticks every minute, already holds the only claim on this
+	// pipeline's tables, and is already the endpoint an operator curls. The work
+	// is also the same shape as the run it follows — the drain writes ledger rows,
+	// and this is the other end of their lives.
+	//
+	// AFTER the sending and never before it. A tick's reason for existing is the
+	// mail; housekeeping must not spend a budget that Customers are waiting on,
+	// and a run that reached its budget skips the prune entirely rather than
+	// borrowing from the deadline outside it. Nothing is lost by skipping: the
+	// next tick is a minute away, and an ended Event stays ended.
+	//
+	// A FAILED PRUNE IS LOGGED AND SWALLOWED, exactly as the backlog count below
+	// is. Everything this run actually did — the messages people have received —
+	// is already true and already recorded, and failing the response because
+	// housekeeping failed would turn a growing table into a red job and lose the
+	// tally with it.
+	if ctx.Err() == nil && s.now().Before(deadline) {
+		pruned, err := s.repo.PruneSentLedger(ctx, s.now().UTC(), digestPruneBatch)
+		if err != nil {
+			s.logger.Warn("could not prune the Follow Digest sent-ledger; the rows for ended Events stay until the next tick",
+				"error", err,
+			)
+		}
+		out.Pruned = pruned
 	}
 
 	// Read once, at the end, so it reflects what this run left behind rather than

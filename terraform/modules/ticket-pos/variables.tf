@@ -440,3 +440,73 @@ variable "reversal_reconciler_attempt_deadline_seconds" {
     error_message = "reversal_reconciler_attempt_deadline_seconds must be between 60 and 1800: at least 60 so it outlives the backend's drain budget plus a probe in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
   }
 }
+
+# --- Follow Digest ------------------------------------------------------------
+#
+# Two jobs, two switches, two schedules and two deadlines (#226, ADR 0030). They
+# are separate variables rather than one "follow_digest_enabled" because the two
+# halves are paused independently: stopping the weekly enqueue leaves the drain
+# to finish what is already queued, and stopping the drain during a mail-provider
+# incident leaves the week's rows waiting rather than lost.
+
+variable "follow_digest_enqueue_enabled" {
+  description = "Whether the weekly Cloud Scheduler job actually fires. False leaves the job, its identity and its run.invoker grant in place but paused — which is how this is applied first (the endpoint is curled by hand before a cron drives it), and how a send is stopped without deleting anything. It is also the switch that matters most: this is the job that addresses every following Customer on the platform."
+  type        = bool
+  default     = false
+}
+
+variable "follow_digest_enqueue_schedule" {
+  description = "Unix cron for the weekly enqueue, read in America/Guayaquil. Thursday 09:00: Thursday because a Digest lands before the weekend while the tickets it advertises are still buyable, and 09:00 because that is a morning rather than a notification in the night. Moving it moves when Customers are written to and nothing else — the drain sends whatever is queued, whenever it was queued."
+  type        = string
+  default     = "0 9 * * 4"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.follow_digest_enqueue_schedule))
+    error_message = "follow_digest_enqueue_schedule must be five space-separated cron fields, e.g. \"0 9 * * 4\"."
+  }
+}
+
+variable "follow_digest_enqueue_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for the weekly enqueue before abandoning it. The enqueue is one statement and has no budget of its own, so this is the innermost term there is; it must stay below api_request_timeout_seconds, which a backend test asserts (digest/service.TestTheDigestEnqueueDeadlineIsInsideTheRequestTimeout). Generous rather than tight: an abandoned run costs a week that was not declared, and one curl of the same URL completes it."
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.follow_digest_enqueue_attempt_deadline_seconds >= 30 && var.follow_digest_enqueue_attempt_deadline_seconds <= 1800
+    error_message = "follow_digest_enqueue_attempt_deadline_seconds must be between 30 and 1800: at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
+variable "follow_digest_drain_enabled" {
+  description = "Whether the per-minute drain tick fires. False leaves the job paused with its identity and grant intact. Pausing this is the move during a mail-provider incident: the week's Digests stay queued and go out when it is resumed, since nothing about a pending row expires except the week it is about."
+  type        = bool
+  default     = false
+}
+
+variable "follow_digest_drain_schedule" {
+  description = "Unix cron for the drain tick. A minute, because the send is paced by the provider's rate limit rather than by this number: one run sends at most a batch, so the cadence is what decides how long a week's backlog takes to clear. Overlapping and skipped runs are both harmless for the reason follow_digest.tf gives beside attempt_deadline."
+  type        = string
+  default     = "* * * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.follow_digest_drain_schedule))
+    error_message = "follow_digest_drain_schedule must be five space-separated cron fields, e.g. \"* * * * *\"."
+  }
+}
+
+variable "follow_digest_drain_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one drain before abandoning it. It is the middle term of a chain — the backend's own drain budget must expire first, this second, api_request_timeout_seconds last — written down once, with what breaks when a term moves alone, in backend/internal/digest/service/service.go beside digestDrainBudget. Read that before moving this. A backend test reads this default and fails if the chain stops holding, which is the only place the three numbers are ever compared."
+  type        = number
+  default     = 90
+
+  validation {
+    # The floor is not Cloud Scheduler's own 15: it is the backend's drain budget
+    # plus the mail provider timeout a send already in flight can still be paying.
+    # Sixty leaves room for both at their current values, and the backend test
+    # named above is what actually holds the relationship — Terraform cannot read
+    # a Go constant, so this bound stays deliberately loose rather than restating
+    # a number that would go stale here.
+    condition     = var.follow_digest_drain_attempt_deadline_seconds >= 60 && var.follow_digest_drain_attempt_deadline_seconds <= 1800
+    error_message = "follow_digest_drain_attempt_deadline_seconds must be between 60 and 1800: at least 60 so it outlives the backend's drain budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}

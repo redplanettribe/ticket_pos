@@ -180,6 +180,26 @@ output "reversal_reconciler_job_name" {
 }
 
 output "reversal_reconciler_service_account_email" {
-  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else; it is the third and last principal with that role."
+  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else."
   value       = google_service_account.reversal_reconciler.email
+}
+
+# --- Follow Digest ------------------------------------------------------------
+
+output "follow_digest_enqueue_job_name" {
+  description = "Cloud Scheduler job declaring the Follow Digest week. The name `gcloud scheduler jobs pause|resume|run <name> --location <region>` takes — the fastest way to stop the weekly send mid-incident, ahead of an apply, and the way to send this week's Digests a day late once one is fixed."
+  value       = google_cloud_scheduler_job.follow_digest_enqueue.name
+}
+
+output "follow_digest_drain_job_name" {
+  description = "Cloud Scheduler job pacing the Follow Digest send. Pausing it holds the week's Digests in the queue rather than losing them; resuming it sends whatever is still owed."
+  value       = google_cloud_scheduler_job.follow_digest_drain.name
+}
+
+output "follow_digest_service_account_emails" {
+  description = "The two identities Cloud Scheduler presents to the API for the Digest, one per job. Each holds run.invoker on the API service and nothing else, so either can be revoked without touching the other."
+  value = {
+    enqueue = google_service_account.follow_digest_enqueue.email
+    drain   = google_service_account.follow_digest_drain.email
+  }
 }

@@ -384,6 +384,78 @@ chain — the numbers included — is written down once in
 `backend/internal/sales/service/reconciler.go` beside `reversalDrainBudget`, where a backend test reads
 both Terraform defaults and fails if the three stop agreeing. Read it before changing any of them.
 
+## The Follow Digest schedule
+
+`follow_digest.tf` creates the platform's **second** scheduled execution (ADR 0030), following the
+reconciler above line for line: two Cloud Scheduler jobs, a dedicated service account per job, an
+OIDC token, and a `run.invoker` grant per account on the API and nothing else.
+
+| Job | Schedule | Endpoint |
+| --- | --- | --- |
+| `prod-ticket-pos-follow-digest-enqueue` | Thursday 09:00 `America/Guayaquil` | `POST /api/v1/internal/follow-digests/enqueue` |
+| `prod-ticket-pos-follow-digest-drain` | every minute | `POST /api/v1/internal/follow-digests/drain` |
+
+The weekly job declares the week and creates one pending Digest per eligible Customer; the drain
+paces the actual sending inside the mail provider's rate limit, and prunes the sent-ledger's dead
+rows at its tail. Neither decides anything the other does — what is owed to whom lives in
+`follow_digests` and can be read in SQL.
+
+**Two service accounts, not one.** `prod-ticket-pos-digest-enq` and `prod-ticket-pos-digest-drain`.
+The audit log has to be able to say which of the two called, and revoking the weekly job in an
+incident must not also stop the drain from finishing what is already queued.
+
+**It needs `cloudscheduler.googleapis.com`**, as the reconciler does, and the same note about the
+Cloud Scheduler service agent applies to an OIDC failure here.
+
+**Both ship paused**, and this one has a prerequisite beyond confidence in the code: **the Digest
+sends from its own domain** (ADR 0030, #225), which must exist at the mail provider with its DNS
+records published before `follow_digest_enqueue_enabled` is set to `true`. A deployment without it
+composes every Digest and refuses every send —
+`platform.UnconfiguredDigestSender` logs each refusal at error level — so the whole week's queue
+retries and is then abandoned. **Provision the domain first; turning these jobs on does not by
+itself put a Digest in anybody's inbox.**
+
+Proving it by hand, before any cron drives it:
+
+```bash
+API_URL=$(gcloud run services describe prod-ticket-pos-api \
+  --region us-east1 --format='value(status.url)')
+
+# safe on an empty queue, and the ordinary answer is zeros
+curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$API_URL/api/v1/internal/follow-digests/drain"
+
+# declares THIS week; idempotent, so a second call reports already_enqueued
+curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$API_URL/api/v1/internal/follow-digests/enqueue"
+```
+
+**Pausing.** The Terraform-owned switches, which are the ones to use:
+
+```bash
+terraform -chdir=envs/prod apply -var follow_digest_enqueue_enabled=false
+terraform -chdir=envs/prod apply -var follow_digest_drain_enabled=false
+```
+
+Faster, for the first minute of an incident, and subject to the same caveat as above — a gcloud
+pause is real but unrecorded, and the next apply resumes it:
+
+```bash
+gcloud scheduler jobs pause prod-ticket-pos-follow-digest-drain --location us-east1
+```
+
+Which one to pause depends on what is wrong. Pausing the **drain** during a mail-provider incident
+holds the week's Digests in the queue rather than spending their five attempts against a provider
+that is refusing them; nothing expires because the tick stopped. Pausing the **enqueue** stops next
+week's send without touching this week's.
+
+**The drain's attempt deadline is not a tuning knob on its own.**
+`follow_digest_drain_attempt_deadline_seconds` is the middle term of the same three-term chain the
+reconciler has — the backend's drain budget expires first, Scheduler's deadline second,
+`api_request_timeout_seconds` last — written down once in
+`backend/internal/digest/service/service.go` beside `digestDrainBudget`, where a backend test reads
+the Terraform defaults and fails if the three stop agreeing.
+
 ## What is not here yet
 
 The frontend `run.invoker` grants (#48) and the keyless deploy pipeline (#49) have landed — see

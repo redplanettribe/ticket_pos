@@ -74,4 +74,15 @@ module "ticket_pos" {
   reversal_reconciler_enabled                  = var.reversal_reconciler_enabled
   reversal_reconciler_schedule                 = var.reversal_reconciler_schedule
   reversal_reconciler_attempt_deadline_seconds = var.reversal_reconciler_attempt_deadline_seconds
+
+  # The Follow Digest jobs (#226, ADR 0030), threaded through for the same reason
+  # the reconciler's are: turning the weekly send off is an incident move, and
+  # `terraform apply -var follow_digest_enqueue_enabled=false` from this directory
+  # leaves the state agreeing with reality.
+  follow_digest_enqueue_enabled                  = var.follow_digest_enqueue_enabled
+  follow_digest_enqueue_schedule                 = var.follow_digest_enqueue_schedule
+  follow_digest_enqueue_attempt_deadline_seconds = var.follow_digest_enqueue_attempt_deadline_seconds
+  follow_digest_drain_enabled                    = var.follow_digest_drain_enabled
+  follow_digest_drain_schedule                   = var.follow_digest_drain_schedule
+  follow_digest_drain_attempt_deadline_seconds   = var.follow_digest_drain_attempt_deadline_seconds
 }

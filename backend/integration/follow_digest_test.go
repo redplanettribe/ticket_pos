@@ -51,9 +51,12 @@ type followDigestDrainResult struct {
 	Empty   int `json:"empty"`
 	// Skipped is Digests whose Customer had unsubscribed by the time the drain
 	// reached them (#224). Distinct from Empty: nothing was composed at all.
-	Skipped          int    `json:"skipped"`
-	Retrying         int    `json:"retrying"`
-	GaveUp           int    `json:"gave_up"`
+	Skipped  int `json:"skipped"`
+	Retrying int `json:"retrying"`
+	GaveUp   int `json:"gave_up"`
+	// Pruned is sent-ledger rows dropped at the tail of the run because their
+	// Event has ended (#226).
+	Pruned           int    `json:"pruned"`
 	PendingTotal     int    `json:"pending_total"`
 	OldestPendingFor string `json:"oldest_pending_week,omitempty"`
 }

@@ -698,6 +698,62 @@ func (r *Repository) AbandonDigest(ctx context.Context, digestID, lastError stri
 	return err
 }
 
+// PruneSentLedger drops sent-ledger rows whose Event has ended, at most limit of
+// them, and reports how many it dropped (#226, ADR 0030).
+//
+// WHY THIS TABLE AND NO OTHER. `follow_digest_sent_events` is the only table in
+// the system whose size is driven by READING rather than by selling: it gains a
+// row per follower per Event mailed, forever, whether or not anybody buys
+// anything. Everything else that grows here is a record of money and has to be
+// kept.
+//
+// WHAT MAKES A ROW DEAD is exactly what makes its Event unmailable. The
+// composition query admits an Event only while `COALESCE(ends_at, starts_at) >=
+// now()` — the public explorer's own filter, and the one predicate this DELETE
+// mirrors — so once an Event has ended, no Digest can ever carry it again and no
+// reading of the ledger can ever consult its rows. Novelty, dedupe,
+// anti-repetition and send idempotency are all questions about Events that could
+// still be mailed.
+//
+// THE PREDICATE IS THE STRICT COMPLEMENT of that filter and must stay so. `<`
+// rather than `<=`, matching the `>=` there, so no instant belongs to both. And
+// a NULL date is not "ended": COALESCE of two NULLs is NULL, NULL < now is NULL,
+// and the row survives — which is right, because a dateless Event may still be
+// given a date, and it is the same reading that keeps such an Event out of every
+// Digest in the first place.
+//
+// BOUNDED, because this runs on the tail of a drain that has a time budget and
+// the whole point of a budget is that nothing inside it is unbounded. What one
+// tick does not reach the next tick finds, exactly as due as it was left; there
+// is no deadline on this work beyond "faster than Events end", which one bounded
+// delete a minute clears by orders of magnitude.
+//
+// The subquery deletes by primary key rather than joining `events` in the DELETE
+// itself, so the LIMIT applies to the rows removed rather than to the rows
+// examined.
+func (r *Repository) PruneSentLedger(ctx context.Context, now time.Time, limit int) (int, error) {
+	result, err := r.db.Pool.ExecContext(ctx, `
+		DELETE FROM follow_digest_sent_events l
+		USING (
+			SELECT s.customer_id, s.event_id
+			FROM follow_digest_sent_events s
+			JOIN events e ON e.id = s.event_id
+			WHERE COALESCE(e.ends_at, e.starts_at) < $1
+			LIMIT $2
+		) ended
+		WHERE l.customer_id = ended.customer_id
+		  AND l.event_id = ended.event_id
+	`, now, limit)
+	if err != nil {
+		return 0, err
+	}
+	pruned, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(pruned), nil
+}
+
 // CountPendingDigests reports how many Digests are still waiting once a run has
 // finished, and the week the oldest of them belongs to.
 //

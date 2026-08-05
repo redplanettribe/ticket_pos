@@ -6974,6 +6974,17 @@ export interface components {
              */
             pending_total?: number;
             /**
+             * @description Pruned is sent-ledger rows this run dropped because their Event has ended
+             *     (#226). It is housekeeping rather than delivery and it is reported anyway,
+             *     because the alternative is a table whose growth nobody can see until it is
+             *     the reason a Digest is slow to compose.
+             *
+             *     A number that stays high tick after tick means the prune is not keeping up
+             *     with what is ending; a number that is zero forever on a live platform means
+             *     it has stopped running at all.
+             */
+            pruned?: number;
+            /**
              * @description Retrying is Digests whose delivery failed and which are back in the queue
              *     on a backoff. It is the number that says a provider is unwell.
              */

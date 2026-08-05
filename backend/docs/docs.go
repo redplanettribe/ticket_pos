@@ -1705,6 +1705,10 @@ const docTemplate = `{
                         "description": "PendingTotal is how many Digests are still waiting once this run finished,\nand OldestPendingWeek is the week the oldest of them belongs to (a date,\nabsent when the queue is empty).\n\nThey are the answer to \"is this getting better or worse\", and two curls a\nminute apart answer it without a database session. The oldest week is the\none that matters most: a pending Digest from LAST week is a backlog that\nhas outlived the thing it was about.",
                         "type": "integer"
                     },
+                    "pruned": {
+                        "description": "Pruned is sent-ledger rows this run dropped because their Event has ended\n(#226). It is housekeeping rather than delivery and it is reported anyway,\nbecause the alternative is a table whose growth nobody can see until it is\nthe reason a Digest is slow to compose.\n\nA number that stays high tick after tick means the prune is not keeping up\nwith what is ending; a number that is zero forever on a live platform means\nit has stopped running at all.",
+                        "type": "integer"
+                    },
                     "retrying": {
                         "description": "Retrying is Digests whose delivery failed and which are back in the queue\non a backoff. It is the number that says a provider is unwell.",
                         "type": "integer"
