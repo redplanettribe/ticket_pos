@@ -561,6 +561,19 @@ func (s *Service) composeEvents(
 			OrganizationName:    candidate.OrganizationName,
 			URL:                 s.storefrontEventURL(candidate.OrganizationSlug, candidate.Slug),
 			MatchedOrganization: candidate.MatchedOrganization,
+			// The two facts #223 renders on, carried straight through: whether
+			// this reader already holds a live Ticket Sale, and whether the Event
+			// registers its audience elsewhere. Neither is decided here — both are
+			// properties of the reader and the Event that the one query already
+			// knows — and the message chooses its own sentences from them.
+			Attending:            candidate.Attending,
+			ExternallyRegistered: candidate.ExternallyRegistered,
+		}
+		// Read only when the reader is attending, and minted rather than stored:
+		// it is one fixed address per deployment, not a per-sale one. See
+		// storefrontTicketSalesURL.
+		if candidate.Attending {
+			event.TicketSaleURL = s.storefrontTicketSalesURL()
 		}
 		if candidate.StartsAt.Valid {
 			event.StartsAt = candidate.StartsAt.Time
@@ -663,6 +676,25 @@ func (s *Service) storefrontEventURL(organizationSlug, eventSlug string) string 
 		return ""
 	}
 	return s.storefrontBaseURL + "/" + organizationSlug + "/events/" + eventSlug
+}
+
+// storefrontTicketSalesURL is the Customer Area — every Ticket Sale the reader
+// owns — and it is where an attending entry sends them (#223).
+//
+// IT NAMES NO SALE, because the Storefront has no per-sale page: a Ticket Sale
+// is opened from the Area behind a Customer Session, or through the Confirmation
+// Link carried in its own Sale Confirmation. The second is a bearer credential
+// that opens one sale without signing in, and minting one into a weekly
+// marketing email — forwarded, prefetched by scanners, and living for months —
+// would put a credential somewhere nobody asked for it. The Area costs the
+// reader a sign-in and reaches the same ticket.
+//
+// It carries no Locale segment, for the reason storefrontEventURL carries none.
+func (s *Service) storefrontTicketSalesURL() string {
+	if s.storefrontBaseURL == "" {
+		return ""
+	}
+	return s.storefrontBaseURL + "/tickets"
 }
 
 // recordFailure puts a failed Digest back on its backoff, or gives up on it once

@@ -100,6 +100,26 @@ type DigestCandidate struct {
 	// name a reader sees depends on their Digest Locale and resolving that is
 	// catalog's rule, not this query's (catalog/service.LocalizedTagNames).
 	MatchedTagKeys []string
+	// Attending is whether THIS Customer already holds a live Ticket Sale for
+	// this Event (#223) — the fact that turns "get tickets" into "you're going".
+	//
+	// LIVE means `status = 'active'` and nothing else. A reversed Ticket Sale
+	// leaves its row exactly where the live one was, so a test for the row's
+	// existence rather than its status would tell somebody who got their money
+	// back that they still have a seat.
+	//
+	// It is FALSE ON AN EXTERNALLY REGISTERED EVENT by construction, not by
+	// coincidence. ADR 0028 says such an Event sells no Tickets, so no
+	// `ticket_sales` row could exist for it — but the query states the rule
+	// anyway, because "we would never know whether they registered" is a fact
+	// about the feature rather than an accident of which rows happen to exist.
+	Attending bool
+	// ExternallyRegistered is whether this Event sends its audience to a
+	// third-party site to sign up rather than selling Tickets here (ADR 0028).
+	//
+	// It decides which call to action the entry carries — Register rather than a
+	// purchase — and it is the reason Attending can never be true.
+	ExternallyRegistered bool
 }
 
 // EnqueueWeek creates one pending Digest for every eligible Customer for the
@@ -253,7 +273,15 @@ const digestHappeningWindow = 7 * 24 * time.Hour
 // never been shown and what they were shown and which now starts within seven
 // days, each soonest first.
 //
-// This is the composition, and there are five rules in it.
+// This is the composition, and there are six rules in it.
+//
+// WHAT THIS READER ALREADY BOUGHT IS NOT NEWS (#223). An Event they hold a live
+// Ticket Sale for is on the agenda and never in New, whether or not the ledger
+// has ever carried it — the ledger answers "have we told them", and a ticket
+// answers the stronger "do they already know", which is the question New is
+// really asking. It is also what restores the week-before reminder: a purchase
+// months ahead stays out of the Digest until its Event enters the seven-day
+// window, then arrives once, marked as one they are going to.
 //
 // ELIGIBILITY MIRRORS THE PUBLIC EXPLORER EXACTLY — published, discoverable, and
 // not yet ended (`COALESCE(ends_at, starts_at) >= now()`, which also excludes an
@@ -326,7 +354,24 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		       EXISTS (
 		         SELECT 1 FROM follow_digest_sent_events l
 		         WHERE l.customer_id = $1 AND l.event_id = e.id
-		       ) AS already_shown
+		       ) AS already_shown,
+		       -- Whether this reader is going (#223). status = 'active' and not
+		       -- merely a row: ticket_sales keeps a reversed sale in place, and
+		       -- somebody who undid their purchase must not be told they have a
+		       -- seat. The registration-mode guard restates ADR 0028 rather than
+		       -- trusting that no ticket_sales row could exist for an external
+		       -- Event: registration happens off-platform and this system would
+		       -- never learn it happened, whatever rows appear here later.
+		       (
+		         e.registration_mode <> 'external'
+		         AND EXISTS (
+		           SELECT 1 FROM ticket_sales ts
+		           WHERE ts.event_id = e.id
+		             AND ts.customer_id = $1
+		             AND ts.status = 'active'
+		         )
+		       ) AS attending,
+		       (e.registration_mode = 'external') AS externally_registered
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		JOIN (
@@ -349,14 +394,33 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		WHERE e.status = 'published'
 		  AND e.discoverable = TRUE
 		  AND COALESCE(e.ends_at, e.starts_at) >= $2
-		  -- The section cut. An Event never shown to this Customer is news
-		  -- whenever it starts; one already shown earns a place only while it is
-		  -- inside the agenda's window, and otherwise falls out of the Digest
-		  -- entirely rather than being repeated week after week.
+		  -- The section cut. An Event never shown to this Customer AND not
+		  -- already bought by them is news whenever it starts; anything else
+		  -- earns a place only while it is inside the agenda's window, and
+		  -- otherwise falls out of the Digest entirely rather than being repeated
+		  -- week after week.
+		  --
+		  -- THE TICKET CLAUSE IS #223's SUPPRESSION, and it is here rather than in
+		  -- Go because it is a rule about which set an Event belongs to. Something
+		  -- this reader already bought is not news to them however new it is to
+		  -- everybody else, so a held Event skips the novelty half entirely — and
+		  -- with the window still applied, one bought months ahead is silent until
+		  -- the week its doors open, when it arrives as the reminder the whole
+		  -- feature was asked for. Listing it every week from purchase to doors
+		  -- would be the repetition the ledger exists to prevent, wearing a
+		  -- different hat.
 		  AND (
-		    NOT EXISTS (
-		      SELECT 1 FROM follow_digest_sent_events l
-		      WHERE l.customer_id = $1 AND l.event_id = e.id
+		    (
+		      NOT EXISTS (
+		        SELECT 1 FROM follow_digest_sent_events l
+		        WHERE l.customer_id = $1 AND l.event_id = e.id
+		      )
+		      AND NOT EXISTS (
+		        SELECT 1 FROM ticket_sales ts
+		        WHERE ts.event_id = e.id
+		          AND ts.customer_id = $1
+		          AND ts.status = 'active'
+		      )
 		    )
 		    OR e.starts_at < $3
 		  )
@@ -384,7 +448,7 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		if err := rows.Scan(
 			&row.EventID, &row.Name, &row.Slug, &row.StartsAt, &row.Timezone, &row.VenueName,
 			&row.OrganizationName, &row.OrganizationSlug,
-			&byOrg, &matchedTag, &alreadyShown,
+			&byOrg, &matchedTag, &alreadyShown, &row.Attending, &row.ExternallyRegistered,
 		); err != nil {
 			return DigestSections{}, err
 		}
@@ -406,9 +470,19 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		return DigestSections{}, err
 	}
 
+	// The partition, and it reads the same two facts the WHERE clause above cut
+	// on. An Event is on the agenda when it was already shown OR when this reader
+	// already holds a ticket for it (#223); the window that makes "this week"
+	// true of both was applied in SQL, so anything that reached here and is not
+	// news is this week's.
+	//
+	// Attending is checked here as well as there because the two questions are
+	// different: the WHERE decides whether the Event is in the Digest at all, and
+	// this decides which heading it is printed under. Dropping either leaves a
+	// bought Event advertised as news.
 	var out DigestSections
 	for i, candidate := range ordered {
-		if shown[i] {
+		if shown[i] || candidate.Attending {
 			out.Happening = append(out.Happening, candidate)
 			continue
 		}

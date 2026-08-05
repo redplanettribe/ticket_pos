@@ -24,10 +24,12 @@ import (
 //
 // The Unsubscribe link (#224) has its own file, follow_digest_unsubscribe_test.go.
 //
+// The "you're going" marking and the Register call to action are #223 and have
+// their own file, follow_digest_attending_test.go.
+//
 // What is deliberately NOT here, because it is not built: the cap and its
-// carried overflow (#222) and the "you're going" marking and the Register call
-// to action (#223). Each arrives with its own tests, and a test here asserting
-// more than what is built would be asserting a feature nobody wrote.
+// carried overflow (#222). It arrives with its own tests, and a test here
+// asserting more than what is built would be asserting a feature nobody wrote.
 
 const (
 	followDigestEnqueuePath = "/api/v1/internal/follow-digests/enqueue"
