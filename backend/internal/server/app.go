@@ -352,12 +352,40 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 	// The presence of a Resend key is the switch: prod injects it from Secret
 	// Manager, local dev and tests set none and keep logging OTP codes to the
 	// console. Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR 0009.
-	if cfg.ResendAPIKey != "" {
-		logger.Info("email sender: resend", "from", cfg.EmailFrom)
-		return platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+	//
+	// A deployment with NO transactional key sends no real mail at all, so there
+	// is no domain to protect and nothing to split: the logging sender handles
+	// Digests too, which is what local development and the manual verification
+	// docs read. The split below is for deployments that actually send.
+	if cfg.ResendAPIKey == "" {
+		logger.Info("email sender: logging (no RESEND_API_KEY set)")
+		return &platform.LoggingEmailSender{Logger: logger}
 	}
-	logger.Info("email sender: logging (no RESEND_API_KEY set)")
-	return &platform.LoggingEmailSender{Logger: logger}
+
+	logger.Info("email sender: resend", "from", cfg.EmailFrom)
+	transactional := platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger))
+}
+
+// newDigestEmailSender selects the sender for the one non-transactional message
+// this platform sends (#225, ADR 0030).
+//
+// It reads cfg.DigestEmail and NOTHING ELSE about the transactional identity
+// except to check the two are not on the same domain. There is deliberately no
+// branch anywhere in this function that can end with the Digest holding
+// cfg.ResendAPIKey or cfg.EmailFrom: marketing mail attracts spam complaints,
+// complaint rates degrade domain reputation, and the reputation at stake on the
+// transactional domain is the one delivering the One-time Passcodes people sign
+// in with. An unconfigured Digest sends nothing, loudly.
+func newDigestEmailSender(cfg platform.Config, logger platform.Logger) platform.DigestEmailSender {
+	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
+		// Error level, at startup, and again on every refused send. This is a
+		// deployment that believes it has a discovery feature and does not.
+		logger.Error("digest email sender: not configured; follow digests will not be sent", "reason", reason)
+		return platform.NewUnconfiguredDigestSender(logger, reason)
+	}
+	logger.Info("digest email sender: resend", "from", cfg.DigestEmail.From)
+	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger)
 }
 
 // newPaymentProvider selects the Payment Provider by credential presence,

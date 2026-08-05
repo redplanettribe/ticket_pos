@@ -49,6 +49,32 @@ variable "email_from" {
   default     = "Multiticketing <noreply@send.multiticketing.com>"
 }
 
+# The Follow Digest's sending identity (#225, ADR 0030). Declared beside the
+# transactional pair above and never derived from it: the Digest is marketing
+# mail, its spam complaints would degrade whatever domain it sends from, and the
+# transactional domain is the one delivering the One-time Passcodes people sign
+# in with. Empty means no Digests are sent at all, which is the intended safe
+# state until the domain below is verified in Resend by hand.
+
+variable "digest_email_domain" {
+  description = "Sending subdomain for the Follow Digest. Must differ from the transactional sender's domain. Registered in Resend and DNS-verified at Namecheap by hand; Terraform does not create it."
+  type        = string
+  default     = "digest.multiticketing.com"
+}
+
+variable "digest_resend_api_key" {
+  description = "Resend API key scoped to the Digest sending domain. Set via TF_VAR_digest_resend_api_key from a sourced .env; empty means no Follow Digests are sent. Must not be the transactional key."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "digest_email_from" {
+  description = "RFC 5322 From header for the Follow Digest. Empty derives it from digest_email_domain. Never falls back to email_from."
+  type        = string
+  default     = ""
+}
+
 # The four Google Sign-In credentials, from the `staff` and `storefront` OAuth
 # clients registered by hand in the Console (#75). Set via TF_VAR_ from a sourced
 # .env; empty leaves the feature off with the Google button hidden on both
