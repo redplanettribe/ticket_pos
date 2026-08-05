@@ -332,6 +332,46 @@ type FollowDigestEvent struct {
 	// legislated against it.
 	MatchedOrganization bool
 	MatchedTagNames     []string
+	// Attending is whether the reader already holds a live Ticket Sale for this
+	// Event (#223), which changes what the entry says about itself in two ways:
+	// it is marked as one they are going to, and it carries no purchase call to
+	// action at all.
+	//
+	// It is the difference between a Digest that is useful and one that is
+	// embarrassing. Telling somebody who bought tickets three weeks ago to "get
+	// tickets" for the show they are going to on Saturday is the single most
+	// visible way this mail could be wrong, because the reader knows the answer
+	// better than the sender does.
+	//
+	// NEVER TRUE ALONGSIDE ExternallyRegistered. Registration for such an Event
+	// happens on somebody else's site and this platform never learns whether it
+	// happened — the Registration Link shows its clicks and nothing more — so
+	// there is no honest way to mark one as attended. The rule is held where the
+	// flag is computed (digest/repository.DigestCandidates); this comment is what
+	// stops a future renderer inventing a case for it.
+	Attending bool
+	// ExternallyRegistered is whether this Event sends its audience elsewhere to
+	// sign up rather than selling Tickets here (ADR 0028).
+	//
+	// It chooses the call to action, and the choice is exclusive because the
+	// modes are: such an Event has NO Ticket Types, so a purchase line would
+	// point at a page with no checkout on it. Register is not a softer way of
+	// saying buy — it is the only way in.
+	ExternallyRegistered bool
+	// TicketSaleURL is where an attending reader finds the Ticket Sale they
+	// already hold, and it is read only when Attending is true.
+	//
+	// It is the CUSTOMER AREA and not a per-sale address, because the Storefront
+	// has no per-sale page: a Ticket Sale is opened either from the Area behind a
+	// Customer Session or through the Confirmation Link carried in its own Sale
+	// Confirmation. The Confirmation Link is deliberately NOT used here — it is a
+	// bearer credential that opens one sale without signing in, and minting one
+	// into a weekly marketing message would put a credential in an email nobody
+	// asked for, forwarded and scanned like any other.
+	//
+	// Empty when the platform knows no Storefront origin, in which case the entry
+	// still says the reader is going and simply offers nowhere to press.
+	TicketSaleURL string
 }
 
 // EmailSender delivers transactional email: staff one-time passcodes,

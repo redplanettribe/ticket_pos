@@ -299,6 +299,46 @@ var (
 		en: "Happening this week",
 		es: "Esta semana",
 	}
+	// The three CALLS TO ACTION (#223), of which every entry carries exactly one.
+	//
+	// Before #223 an entry printed a bare URL and left the reader to work out
+	// what pressing it would do. It could afford to, because there was only ever
+	// one answer. There are now three, and which one an entry carries is a fact
+	// about the Event and about this reader — so the line has to say what it is
+	// for, or a reader who already holds a ticket cannot tell their entry from
+	// anybody else's.
+	//
+	// digestGetTicketsCopy is the ordinary one: a ticketed Event this reader does
+	// not hold a ticket for.
+	digestGetTicketsCopy = digestCopy{
+		en: "Get tickets: %s",
+		es: "Consigue entradas: %s",
+	}
+	// digestRegisterCopy is an externally registered Event (ADR 0028), which has
+	// no Ticket Types to sell and whose only way in is to sign up. It still
+	// points at the Storefront Event page rather than at the Registration Link
+	// itself: that page is where the Registration Link's clicks are counted, and
+	// a Digest that jumped straight to the third-party site would spend the
+	// Organization's traffic without ever recording it.
+	digestRegisterCopy = digestCopy{
+		en: "Register: %s",
+		es: "Regístrate: %s",
+	}
+	// digestYourTicketsCopy replaces the purchase line for a reader who already
+	// holds one, sending them to what they own instead of to a checkout they have
+	// already been through.
+	digestYourTicketsCopy = digestCopy{
+		en: "Your tickets: %s",
+		es: "Tus entradas: %s",
+	}
+	// digestAttendingCopy is the mark itself, printed directly under the Event's
+	// name so it is read before the date rather than after the address. It is the
+	// answer to the question the reader would otherwise ask of every line below
+	// it: "is this the one I already booked?"
+	digestAttendingCopy = digestCopy{
+		en: "You're going",
+		es: "Vas a ir",
+	}
 	// The attribution line, which is the Digest answering "why am I being told
 	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
 	// recorded; this is the half of that the reader sees.
@@ -370,8 +410,10 @@ func (d FollowDigest) Subject() string {
 // the truncated one quietly teaches them that Following something busy is worth
 // less than it is.
 //
-// What is still deliberately absent: the marking of Events the reader already
-// holds Tickets to (#223). It arrives with its own decisions.
+// EVERY ENTRY CARRIES EXACTLY ONE CALL TO ACTION (#223), and which one is a
+// fact about the Event and about this reader: their own Ticket Sale when they
+// already hold one, Register when the Event signs its audience up elsewhere, and
+// otherwise the purchase. See FollowDigestEvent.callToAction.
 //
 // THE FOOTER CARRIES THE UNSUBSCRIBE LINK (#224), and it is the one part of
 // this message that is not about Events. ADR 0030 makes the Digest the only mail
@@ -441,6 +483,13 @@ func digestSection(heading string, events []FollowDigestEvent, overflow FollowDi
 // actually open.
 func (e FollowDigestEvent) render(locale Locale) string {
 	block := e.Name
+	// The attending mark goes directly under the name (#223), above everything
+	// else the entry says. A reader scanning an agenda is looking for exactly one
+	// thing — which of these have I already booked — and an answer printed below
+	// the venue is an answer they have to read four lines to find.
+	if e.Attending {
+		block += "\n" + digestAttendingCopy.in(locale)
+	}
 	if when := formatEventDate(e.StartsAt, e.Timezone, locale); when != "" {
 		block += "\n" + when
 	}
@@ -450,13 +499,44 @@ func (e FollowDigestEvent) render(locale Locale) string {
 	if e.OrganizationName != "" {
 		block += "\n" + e.OrganizationName
 	}
-	if e.URL != "" {
-		block += "\n" + e.URL
+	if cta := e.callToAction(locale); cta != "" {
+		block += "\n" + cta
 	}
 	if reasons := e.reasons(); len(reasons) > 0 {
 		block += "\n" + fmt.Sprintf(digestBecauseCopy.in(locale), strings.Join(reasons, ", "))
 	}
 	return block
+}
+
+// callToAction is the one thing this entry asks the reader to do, and there is
+// never more than one of them (#223).
+//
+// The order of the branches is the order of the rules, and it is not
+// interchangeable. ATTENDING WINS OUTRIGHT: a reader holding a live Ticket Sale
+// is sent to what they already own, and the purchase line is not softened or
+// moved but removed. EXTERNAL REGISTRATION comes next, because ADR 0028 makes
+// the two registration modes exclusive — such an Event has no Ticket Types, so
+// there is nothing a purchase line could point at. Everything else is an
+// ordinary ticketed Event nobody here has bought yet.
+//
+// An attending reader with no Storefront origin configured gets NO line at all
+// rather than the purchase one. That is the deliberate degradation: an entry
+// with nowhere to press is a small loss, and telling somebody to buy the ticket
+// they are holding is the exact failure this whole function exists to prevent.
+func (e FollowDigestEvent) callToAction(locale Locale) string {
+	switch {
+	case e.Attending:
+		if e.TicketSaleURL == "" {
+			return ""
+		}
+		return fmt.Sprintf(digestYourTicketsCopy.in(locale), e.TicketSaleURL)
+	case e.URL == "":
+		return ""
+	case e.ExternallyRegistered:
+		return fmt.Sprintf(digestRegisterCopy.in(locale), e.URL)
+	default:
+		return fmt.Sprintf(digestGetTicketsCopy.in(locale), e.URL)
+	}
 }
 
 // reasons is the Follows this Event matched, as the reader would name them: the
