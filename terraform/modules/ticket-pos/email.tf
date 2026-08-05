@@ -131,35 +131,3 @@ resource "google_secret_manager_secret_iam_member" "api_digest_resend_api_key" {
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.api.email}"
 }
-
-# The DNS work Terraform cannot do. Printed rather than applied because the zone
-# is not ours to write to from here (ADR 0009); a human adds these at Namecheap
-# and then presses Verify in Resend. The exact DKIM selector and value are
-# issued by Resend when the domain is added and are not knowable here.
-output "digest_email_dns_setup" {
-  description = "Operator checklist for the Follow Digest's sending domain. Terraform does NOT create any of this."
-  value       = <<-EOT
-    Follow Digest sending domain: ${var.digest_email_domain}
-
-    None of the following is provisioned by Terraform. Until it is done by hand,
-    the Digest sending identity does not exist and Resend rejects Digest sends.
-
-    1. Add ${var.digest_email_domain} as a domain in Resend. This is a SECOND
-       domain, alongside the transactional one; do not reuse it.
-    2. At Namecheap, on the ${var.digest_email_domain} subdomain, add the records
-       Resend issues for it:
-         - the DKIM TXT record (selector and value are given by Resend)
-         - the SPF TXT record Resend states for the domain
-         - an MX record for the return path, if Resend asks for one
-         - _dmarc.${var.digest_email_domain} TXT "v=DMARC1; p=none;"
-       These are SEPARATE records from the transactional domain's. Separating
-       the reputations is the entire point (ADR 0030) — do not CNAME one to the
-       other.
-    3. Press Verify in Resend and wait for the domain to read verified.
-    4. Create an API key in Resend scoped to this domain and supply it as
-       TF_VAR_digest_resend_api_key. It must NOT be the transactional key.
-    5. Apply. The API logs "digest email sender: resend" at startup when it is
-       satisfied, and "digest email sender: not configured" with a reason when
-       it is not.
-  EOT
-}

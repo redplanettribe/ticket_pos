@@ -48,10 +48,18 @@ export async function PUT(request: Request) {
     // Refused here rather than forwarded, because an absent field would reach
     // the API as nothing and the destructive half of this switch is a bool's
     // zero value. The API refuses it too; this saves a hop and says the same.
+    // Shaped as the API shapes it: VALIDATION_FAILED carries details.fields[],
+    // and the Storefront resolves the words from the code (ADR 0023). A hop
+    // saved must still answer in the envelope the reader's error handling
+    // expects, or the saving costs a rendered message.
     return NextResponse.json(
       {
         data: null,
-        error: { code: "VALIDATION_FAILED", message: "enabled is required" },
+        error: {
+          code: "VALIDATION_FAILED",
+          message: "Request validation failed",
+          details: { fields: [{ field: "enabled", message: "must be true or false" }] },
+        },
         request_id: crypto.randomUUID(),
       },
       { status: 400 },

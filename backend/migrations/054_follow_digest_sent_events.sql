@@ -67,5 +67,8 @@ CREATE TABLE follow_digest_sent_events (
 -- Event is deleted, and the prune that clears a whole Event's rows once it has
 -- ended. Both are "given an Event, find its ledger rows", which is the one
 -- question the primary key answers worst.
+--
+-- It answers only the second half of the prune. Finding WHICH Events have ended
+-- needs an index on `events` itself, which migration 057 adds.
 CREATE INDEX follow_digest_sent_events_by_event_idx
     ON follow_digest_sent_events (event_id);

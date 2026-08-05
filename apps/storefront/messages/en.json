@@ -334,8 +334,9 @@
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to change your details."
     },
     "follow": {
-      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to follow organizers.",
-      "ORGANIZATION_NOT_FOUND": "This organizer is no longer available."
+      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Sign in with a passcode to follow.",
+      "ORGANIZATION_NOT_FOUND": "This organizer is no longer available.",
+      "TAG_NOT_FOUND": "This tag is no longer available."
     }
   },
   "tags": {

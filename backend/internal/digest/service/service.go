@@ -75,6 +75,9 @@ type Service struct {
 	// drainBatch narrows how many Digests one run delivers, for tests only. See
 	// WithDrainBatch.
 	drainBatch int
+	// sendInterval overrides the gap held between sends, for tests only. A
+	// negative value means "no gap". See WithSendInterval.
+	sendInterval time.Duration
 }
 
 // New builds the Digest service.
@@ -138,6 +141,27 @@ func (s *Service) WithUnsubscribe(minter UnsubscribeLinkMinter) *Service {
 func (s *Service) WithDrainBatch(batch int) *Service {
 	s.drainBatch = batch
 	return s
+}
+
+// WithSendInterval overrides the gap held between sends within one run.
+//
+// It exists for the integration suite, which drives whole weeks through the
+// drain and would otherwise pay the real provider spacing per message to prove
+// things that have nothing to do with rate. Pass a negative duration for no gap
+// at all; the pacing itself is proved by its own test rather than by every test
+// that happens to send. Nothing in production calls it.
+func (s *Service) WithSendInterval(d time.Duration) *Service {
+	s.sendInterval = d
+	return s
+}
+
+// interval is the gap to hold between sends: the override when a test set one,
+// and the provider's spacing otherwise.
+func (s *Service) interval() time.Duration {
+	if s.sendInterval != 0 {
+		return s.sendInterval
+	}
+	return digestSendInterval
 }
 
 // EnqueueResult is what one enqueue run did.
@@ -253,6 +277,43 @@ const (
 	digestDrainBatch  = 50
 	digestDrainBudget = 45 * time.Second
 )
+
+// digestSendInterval is the smallest gap between two sends in one run.
+//
+// ADR 0009 records the provider's limit as roughly two requests a second, and
+// this is what actually holds the pipeline to it. Fifty sends at this spacing is
+// about twenty-five seconds, which is where the batch size came from — the
+// difference is that the batch ASSUMED the spacing and this ENFORCES it.
+//
+// It bounds only the gap between sends within one run. Two runs cannot overlap
+// on the same Digest (the claim takes a row lock), but nothing stops two ticks
+// overlapping in time, so this is a ceiling on one instance's rate rather than
+// on the platform's. That is the right bound for the scheduler this feature has:
+// one job, one tick a minute, `retry_count = 0`.
+var digestSendInterval = 500 * time.Millisecond
+
+// waitForSendSlot holds the interval between one send and the next.
+//
+// The first send of a run never waits: a tick that has one Digest to deliver
+// should answer as fast as it can, and pacing exists to space sends from each
+// other, not to slow a run that has nothing to space.
+//
+// It returns an error only when the wait was cut short by the caller going away,
+// which the drain reads as "stop, do not send" rather than "send now".
+func (s *Service) waitForSendSlot(ctx context.Context, claimed int) error {
+	interval := s.interval()
+	if claimed <= 1 || interval <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 // digestPruneBatch is how many dead sent-ledger rows one drain tick clears at
 // its tail (#226, ADR 0030).
@@ -386,6 +447,27 @@ func (s *Service) DrainDigests(ctx context.Context) (*DrainResult, error) {
 			break
 		}
 		out.Claimed++
+
+		// PACE THE SENDS. The batch size bounds how many messages a run may send;
+		// it does not bound how FAST it sends them, and those are different
+		// promises. Fifty sends is about twenty-five seconds only if the provider
+		// takes about half a second to answer — a guess about somebody else's
+		// latency, not a limit. Answered quickly enough, the same batch leaves at
+		// twenty a second against a limit ADR 0009 records as roughly two, and the
+		// provider starts refusing mail that a Customer will never learn was meant
+		// for them.
+		//
+		// So the gap is held here rather than inferred. Waiting BEFORE the send and
+		// only after the first one means a tick with a single Digest still answers
+		// immediately, and the budget is checked at the top of every iteration, so
+		// a run that spends its budget waiting stops cleanly rather than overrunning.
+		if err := s.waitForSendSlot(ctx, out.Claimed); err != nil {
+			// The wait was cut short. The Digest is claimed but unsent; its lease
+			// expires and the next tick takes it, which is the same shape as an
+			// instance dying mid-run.
+			out.Claimed--
+			break
+		}
 
 		switch outcome, err := s.deliverDigest(ctx, *pending); {
 		case err != nil:

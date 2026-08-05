@@ -334,8 +334,9 @@
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para cambiar sus datos."
     },
     "follow": {
-      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para seguir organizadores.",
-      "ORGANIZATION_NOT_FOUND": "Este organizador ya no está disponible."
+      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para seguir.",
+      "ORGANIZATION_NOT_FOUND": "Este organizador ya no está disponible.",
+      "TAG_NOT_FOUND": "Esta etiqueta ya no está disponible."
     }
   },
   "tags": {

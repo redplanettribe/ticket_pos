@@ -174,6 +174,12 @@ func setupTest(t *testing.T) *testEnv {
 	// which week a Customer is owed a Digest for, and when a failed one comes due
 	// again (#220, ADR 0030). Its tests move time further than any other.
 	sharedApp.DigestService.WithClock(func() time.Time { return fixedClock })
+	// No provider spacing between sends. The drain paces itself to the email
+	// provider's rate limit in production, which is real time and not the fixed
+	// clock, so a suite that drives whole weeks through it would spend that
+	// spacing per message to prove things that are not about rate. The pacing has
+	// its own test; every other test opts out of it here.
+	sharedApp.DigestService.WithSendInterval(-1)
 	googleStub.reset()
 	payphoneStub.reset()
 	return sharedEnv
