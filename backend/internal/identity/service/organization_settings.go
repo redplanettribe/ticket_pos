@@ -271,36 +271,6 @@ func (s *Service) GetPublicOrganization(ctx context.Context, slug string) (*Publ
 	}, nil
 }
 
-// ResolveOrganizationIDBySlug turns the public slug of an Organization into its
-// id, and is this module's implementation of the customers module's
-// OrganizationResolver (#217).
-//
-// It is a seam rather than an exported repository call because the slug rule —
-// lowercased, trimmed, and an unknown one being ORGANIZATION_NOT_FOUND rather
-// than an empty answer — belongs to whoever owns Organizations. A Follow of an
-// unknown slug therefore fails exactly as GetPublicOrganization above does, with
-// the same code and the same 404: the two must agree, or the Follow endpoint
-// becomes a way to discover Organizations the public profile will not confirm.
-//
-// It returns the id and nothing else deliberately. The caller stores a foreign
-// key; it has no business with the Organization's name, logo, or settings, and
-// this signature is the smallest thing that could serve it.
-func (s *Service) ResolveOrganizationIDBySlug(ctx context.Context, slug string) (string, error) {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	if slug == "" {
-		return "", identity.ErrOrganizationNotFound()
-	}
-
-	org, err := s.repo.GetOrganizationBySlug(ctx, slug)
-	if err != nil {
-		return "", err
-	}
-	if org == nil {
-		return "", identity.ErrOrganizationNotFound()
-	}
-	return org.ID, nil
-}
-
 // UpdateOrganizationName updates the organization display name.
 func (s *Service) UpdateOrganizationName(ctx context.Context, actor ActiveMemberContext, name string) (*OrganizationView, error) {
 	return s.UpdateOrganization(ctx, actor, UpdateOrganizationInput{Name: name})

@@ -208,7 +208,6 @@ _Avoid_: Shop, web store, e-commerce site
 The language-and-region identity a Storefront page is rendered under, carried explicitly in the URL (`/{locale}/...`) so that an address always says which language it serves.
 Decides words and the marks around numbers and dates. Decides nothing about time or money: an Event's times are drawn in the Event's own timezone and the Reversal Window's cutoff in Ecuador's, and a Ticket Type's currency is the Organization's — none of them follows the reader's language.
 A page's Locale comes from its address alone, never from the reader's browser or cookies; those only choose which Locale an address naming none redirects to.
-A property of a page, so it cannot reach anything written outside one: mail has no address to carry a Locale, and reads in the recipient's Digest Locale instead.
 _Avoid_: Language (as the whole concept), region, translation, i18n, culture
 
 **Online Sale**:
@@ -387,7 +386,7 @@ Distinct from a Customer Session, which spans every Ticket Sale the Customer own
 _Avoid_: Magic link, access token, deep link
 
 **Customer Area**:
-The signed-in Storefront surface where a Customer sees their upcoming events, past Ticket Sales, what they Follow, and preferences.
+The signed-in Storefront surface where a Customer sees their upcoming events, past Ticket Sales, and preferences.
 Distinct from a Storefront listing, which shows Events to the anonymous public.
 _Avoid_: Wallet, my tickets, account page, dashboard
 
@@ -412,41 +411,6 @@ _Avoid_: Mobile, cell, contact number, telephone, celular — as names for the c
 **Tax ID Type**:
 Which kind of identification a Tax ID is: `cedula` (Ecuadorian national identity card), `ruc` (Ecuadorian taxpayer registration, held by persons or companies), or `passport` (buyers without either). Determines how strictly the number is validated.
 _Avoid_: Document type, ID class, tipo de identificación
-
-## Following
-
-**Follow**:
-A Customer's standing subscription to a Tag or an Organization, entitling them to hear about the Events that fall under it.
-An act of subscription, not of shortlisting: its whole payload is the Follow Digest, and pressing it is a request to be written to. Any Tag may be Followed, Preset or Custom, and any Organization; a Follow belongs to the Customer rather than to a browser.
-Held only by a Customer whose session carries Proof of Email Ownership — never by the sale-scoped session a Confirmation Link mints, which says only that somebody opened a receipt, and may be somebody it was forwarded to. Subscribing an address is a claim on it, so it takes the same proof signing in does.
-Distinct from Discoverable, which is an Organization deciding whether an Event advertises itself; a Follow is a Customer deciding what they want brought to them.
-_Avoid_: Favorite, bookmark, save, star, watch, subscribe (as the name of the act)
-
-**Follow Digest**:
-The one weekly email carrying everything a Customer Follows — never one email per Follow, and never one per Event.
-Holds Events under two headings: those New to You, and those already shown that begin within the week, the latter marking any the Customer already holds Tickets to. Capped, so that Following busily yields a readable email rather than a catalogue; what does not fit is carried into a later Digest rather than dropped, and each heading points at the Storefront listing that holds the rest.
-The only mail a Customer can turn off. Distinct from a Sale Confirmation or a One-time Passcode, which answer something the Customer just did and are never silenced.
-_Avoid_: Newsletter, weekly email, notification, alert, roundup, campaign
-
-**New to You**:
-The test deciding whether an Event is news to a particular Customer: it has never appeared in a Follow Digest sent to them.
-A fact about the reader, not about the Event. An Event published months ago is New to You the first time it reaches you — so Following something busy is answered at once rather than with silence until the next Event is announced — and an Event already shown to you never becomes new again.
-_Avoid_: New, newly published, unseen, latest, recent, announced
-
-**Unfollow**:
-Removing one Follow, changing what the Follow Digest is about.
-Distinct from Unsubscribing, which leaves every Follow standing and changes only whether the Digest is sent.
-_Avoid_: Unsave, remove favorite, mute
-
-**Unsubscribe**:
-Turning a Customer's Follow Digest off while leaving every Follow intact.
-Reversible from the Customer Area, reachable from any Digest without signing in, and never a way to lose a list: a Customer who wants quiet keeps what they Followed. Touches no transactional mail — Sale Confirmations and One-time Passcodes arrive either way.
-_Avoid_: Opt out, mute, disable notifications, delete follows
-
-**Digest Locale**:
-The language a Customer's Follow Digest is written in, remembered from the Storefront they last signed in on.
-Exists because a Locale is a property of a page's address and mail has no address to carry one. Names Preset Tags in the Customer's language as a Storefront page would, and leaves Custom Tags as coined.
-_Avoid_: Email language, preferred language, user locale
 
 ## Signing in
 

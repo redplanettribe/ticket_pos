@@ -180,58 +180,6 @@ output "reversal_reconciler_job_name" {
 }
 
 output "reversal_reconciler_service_account_email" {
-  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else."
+  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else; it is the third and last principal with that role."
   value       = google_service_account.reversal_reconciler.email
-}
-
-# --- Follow Digest ------------------------------------------------------------
-
-output "follow_digest_enqueue_job_name" {
-  description = "Cloud Scheduler job declaring the Follow Digest week. The name `gcloud scheduler jobs pause|resume|run <name> --location <region>` takes — the fastest way to stop the weekly send mid-incident, ahead of an apply, and the way to send this week's Digests a day late once one is fixed."
-  value       = google_cloud_scheduler_job.follow_digest_enqueue.name
-}
-
-output "follow_digest_drain_job_name" {
-  description = "Cloud Scheduler job pacing the Follow Digest send. Pausing it holds the week's Digests in the queue rather than losing them; resuming it sends whatever is still owed."
-  value       = google_cloud_scheduler_job.follow_digest_drain.name
-}
-
-output "follow_digest_service_account_emails" {
-  description = "The two identities Cloud Scheduler presents to the API for the Digest, one per job. Each holds run.invoker on the API service and nothing else, so either can be revoked without touching the other."
-  value = {
-    enqueue = google_service_account.follow_digest_enqueue.email
-    drain   = google_service_account.follow_digest_drain.email
-  }
-}
-
-# The DNS work Terraform cannot do. Printed rather than applied because the zone
-# is not ours to write to from here (ADR 0009); a human adds these at Namecheap
-# and then presses Verify in Resend. The exact DKIM selector and value are
-# issued by Resend when the domain is added and are not knowable here.
-output "digest_email_dns_setup" {
-  description = "Operator checklist for the Follow Digest's sending domain. Terraform does NOT create any of this."
-  value       = <<-EOT
-    Follow Digest sending domain: ${var.digest_email_domain}
-
-    None of the following is provisioned by Terraform. Until it is done by hand,
-    the Digest sending identity does not exist and Resend rejects Digest sends.
-
-    1. Add ${var.digest_email_domain} as a domain in Resend. This is a SECOND
-       domain, alongside the transactional one; do not reuse it.
-    2. At Namecheap, on the ${var.digest_email_domain} subdomain, add the records
-       Resend issues for it:
-         - the DKIM TXT record (selector and value are given by Resend)
-         - the SPF TXT record Resend states for the domain
-         - an MX record for the return path, if Resend asks for one
-         - _dmarc.${var.digest_email_domain} TXT "v=DMARC1; p=none;"
-       These are SEPARATE records from the transactional domain's. Separating
-       the reputations is the entire point (ADR 0030) — do not CNAME one to the
-       other.
-    3. Press Verify in Resend and wait for the domain to read verified.
-    4. Create an API key in Resend scoped to this domain and supply it as
-       TF_VAR_digest_resend_api_key. It must NOT be the transactional key.
-    5. Apply. The API logs "digest email sender: resend" at startup when it is
-       satisfied, and "digest email sender: not configured" with a reason when
-       it is not.
-  EOT
 }

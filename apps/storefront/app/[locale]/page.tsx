@@ -8,8 +8,6 @@ import { ExplorerResults } from "@/components/explorer-results";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { localeAlternates } from "@/lib/alternates";
 import { EXPLORER_PAGE_SIZE, listPublicEvents, listPublicTags } from "@/lib/api";
-import { getFollows } from "@/lib/customer-session";
-import { followList } from "@/lib/follows";
 import { toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
 import { isWhenPreset, whenToRange } from "@/lib/when";
@@ -51,7 +49,7 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
     .map((t) => t.trim())
     .filter(Boolean);
 
-  const [page, presetTags, follows] = await Promise.all([
+  const [page, presetTags] = await Promise.all([
     listPublicEvents({
       q,
       from: range.from,
@@ -60,20 +58,7 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
       limit: EXPLORER_PAGE_SIZE,
     }),
     listPublicTags(),
-    // What this Customer already Follows, read once for the whole chip bar
-    // (#218). An anonymous visitor holds no cookie, so this costs them no API
-    // call and comes back "signed-out" — which is what leaves the chips exactly
-    // the filter bar they were, with no Follow control on them at all.
-    getFollows(),
   ]);
-
-  // Null when nobody is signed in or the read failed: "cannot say" rather than
-  // "follows nothing", which is the difference between drawing no control and
-  // drawing every control unpressed.
-  const followedTagKeys =
-    follows.status === "ok"
-      ? followList(follows).flatMap((follow) => (follow.type === "tag" ? [follow.tag.canonical_key] : []))
-      : null;
 
   const t = await getTranslations("explorer");
 
@@ -81,7 +66,7 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
       <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 sm:py-12">
         <PageHeader title={t("title")} description={t("subtitle")} />
-        <ExplorerFilters presetTags={presetTags ?? []} followedTagKeys={followedTagKeys} />
+        <ExplorerFilters presetTags={presetTags ?? []} />
         <ExplorerResults
           initialEvents={page?.events ?? []}
           initialCursor={page?.next_cursor ?? null}

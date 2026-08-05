@@ -8,7 +8,6 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
-	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 const (
@@ -73,81 +72,6 @@ func (s *Service) ListAvailablePresetTags(ctx context.Context) ([]TagView, error
 		return nil, err
 	}
 	return toTagViews(tags), nil
-}
-
-// ResolveTagIDByCanonicalKey turns the canonical key a Customer's Follow names
-// into the Tag's id, and is this module's implementation of the customers
-// module's TagResolver (#218).
-//
-// It is a seam rather than an exported repository call for the reason identity's
-// ResolveOrganizationIDBySlug is one: the rules are whoever owns Tags'.
-// Canonicalization is the first of them — every other path into the pool
-// lowercases and collapses spaces, so "  MUSIC " and "music" must be one Follow
-// rather than two, and running the same function is the only way to guarantee
-// that as the rule changes. The second is that an unknown key is TAG_NOT_FOUND
-// rather than an empty answer, because a Follow must not coin a Tag.
-//
-// EVERY Tag resolves, Preset and Custom alike. There is no `curated` filter and
-// adding one would undo ADR 0030: the Digest's weekly cap bounds a Follow's
-// volume, so narrowing the followable pool buys nothing and costs the narrow
-// interest that is the best reason to Follow a Tag at all.
-//
-// It returns the id and nothing else, exactly as the Organization resolver does.
-// The caller stores a foreign key and renders the Tag by joining to it, which
-// keeps this the smallest thing that could serve the need — and keeps the id out
-// of any struct that a response is built from.
-func (s *Service) ResolveTagIDByCanonicalKey(ctx context.Context, rawKey string) (string, error) {
-	key := canonicalTagKey(rawKey)
-	if key == "" {
-		return "", catalog.ErrTagNotFound()
-	}
-
-	tag, err := s.repo.GetTagByCanonicalKey(ctx, key)
-	if err != nil {
-		return "", err
-	}
-	if tag == nil {
-		return "", catalog.ErrTagNotFound()
-	}
-	return tag.ID, nil
-}
-
-// LocalizedTagNames resolves Tag names in one Locale, keyed by canonical key.
-//
-// It exists for what a Storefront page cannot do for itself: mail carries no
-// address, so the Follow Digest is composed here and has to name a Tag in the
-// recipient's Digest Locale (ADR 0030). Every page keeps wording its own chips
-// and badges from its message catalogue, and nothing on the API's wire gains a
-// language — this is called service-to-service and never rendered into a
-// response.
-//
-// A key naming no Tag is absent from the result rather than an error, and the
-// caller renders what it can.
-func (s *Service) LocalizedTagNames(ctx context.Context, canonicalKeys []string, locale platform.Locale) (map[string]string, error) {
-	tags, err := s.repo.ListTagsByCanonicalKeys(ctx, canonicalTagKeys(canonicalKeys))
-	if err != nil {
-		return nil, err
-	}
-	names := make(map[string]string, len(tags))
-	for _, t := range tags {
-		names[t.CanonicalKey] = localizedTagName(t, locale)
-	}
-	return names, nil
-}
-
-// localizedTagName is the whole resolution rule, in one place.
-//
-// Spanish is read only from a Preset Tag that has it. Everything else — every
-// Custom Tag, a Preset Tag promoted by flipping curated with no commit to carry
-// its words, and English itself — reads display_name, which is the Tag's one
-// name for every other reader in the system. That fallback is the same one ADR
-// 0027 put in the Storefront and it is not a theoretical branch: ADR 0004 grows
-// the Preset tier with an UPDATE no migration accompanies.
-func localizedTagName(t repository.Tag, locale platform.Locale) string {
-	if locale == platform.LocaleES && t.DisplayNameES.Valid && t.DisplayNameES.String != "" {
-		return t.DisplayNameES.String
-	}
-	return t.DisplayName
 }
 
 // canonicalTagKeys canonicalizes raw tag names into deduped canonical keys for

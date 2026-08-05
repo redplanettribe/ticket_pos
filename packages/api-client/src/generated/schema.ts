@@ -306,7 +306,7 @@ export interface paths {
         put?: never;
         /**
          * Redeem a Confirmation Link
-         * @description Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed. A `follow` intent is refused outright with CUSTOMER_SESSION_SCOPE_INSUFFICIENT: this door mints a sale-scoped session, and subscribing an address to mail takes the same proof signing in does.
+         * @description Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed.
          */
         post: {
             parameters: {
@@ -349,15 +349,6 @@ export interface paths {
                         "application/json": components["schemas"]["platform.Envelope"];
                     };
                 };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
             };
         };
         delete?: never;
@@ -377,7 +368,7 @@ export interface paths {
         put?: never;
         /**
          * Verify a Google Sign-In
-         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. An optional `follow` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
          */
         post: {
             parameters: {
@@ -549,7 +540,7 @@ export interface paths {
         put?: never;
         /**
          * Verify Customer passcode
-         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused. An optional `follow` carries a Follow the visitor pressed before signing in, as `organization:<slug>`. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in `follow`, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and `follow` is null.
+         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.
          */
         post: {
             parameters: {
@@ -652,378 +643,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/customer/digest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Turn the Follow Digest on or off
-         * @description Sets whether the signed-in Customer receives the weekly Follow Digest, and returns the switch as it now stands. This is the Customer Area's toggle beside the Following list, and it is the only way to turn the Digest back ON — the unsubscribe link is unauthenticated because somebody who wants quiet must be able to have it without signing in, and none of that argument applies to switching somebody's mail back on. Changes no Follow either way: the list is exactly as it was, and a Customer who turns the Digest off keeps everything they Followed. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to subscribe that inbox to weekly mail. Takes the state asked for rather than flipping, so a retried or double-tapped request means the same thing once.
-         */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            /** @description Whether the Digest is on */
-            requestBody: {
-                content: {
-                    "application/json": Record<string, never> | components["schemas"]["handler.digestSubscriptionBody"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDigestSubscription"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/customer/follows": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the Customer's Follows
-         * @description Returns everything the signed-in Customer Follows, most recently followed first. One list rather than one per kind: each entry carries a `type` discriminator and the subject hangs off the field named by it, so a client switches on `type` and keeps working as further kinds of Follow are added. Always scoped by the Customer Session, never by any identifier in the request. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
-         */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollows"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/customer/follows/organizations/{slug}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Follow an Organization
-         * @description Records that the signed-in Customer Follows the Organization named by slug, and returns the Follow. Idempotent: following something already followed returns the existing Follow with its original `followed_at` rather than a conflict, so a retried or double-tapped request is safe. Answers 200 on both the first call and every repeat. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded Sale Confirmation is not authority to subscribe somebody's inbox to mail.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description Organization slug */
-                    slug: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollow"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        /**
-         * Unfollow an Organization
-         * @description Removes the signed-in Customer's Follow of the Organization named by slug. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.
-         */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description Organization slug */
-                    slug: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerLogout"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/customer/follows/tags/{canonicalKey}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Follow a Tag
-         * @description Records that the signed-in Customer Follows the Tag named by its canonical key, and returns the Follow. Any Tag may be Followed, Preset or Custom — ADR 0030 bounds how much mail a Follow can produce with the weekly Follow Digest's cap rather than by narrowing what is followable. Idempotent: following something already followed returns the existing Follow with its original `followed_at`, so a retried or double-tapped request is safe, and the answer is 200 on the first call and every repeat. The key is canonicalized exactly as the shared Tag pool canonicalizes everywhere else, so casing and spacing cannot produce two Follows of one Tag. A key naming no Tag is TAG_NOT_FOUND: Following never coins a Tag. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description Tag canonical key */
-                    canonicalKey: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollow"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        /**
-         * Unfollow a Tag
-         * @description Removes the signed-in Customer's Follow of the Tag named by its canonical key. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A key naming no Tag is TAG_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.
-         */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description Tag canonical key */
-                    canonicalKey: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerLogout"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
         options?: never;
         head?: never;
         patch?: never;
@@ -1412,155 +1031,6 @@ export interface paths {
                 };
                 /** @description Bad Gateway */
                 502: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/customer/unsubscribe": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Unsubscribe from the Follow Digest
-         * @description Turns the Follow Digest off for the Customer named by a signed unsubscribe token, which is carried in the footer of every Digest. Requires no sign-in and accepts no credential: a Digest is read months after anybody last signed in, and an opt-out gated behind a passcode would not be an opt-out. Unsubscribing is a switch and not a purge — every Follow stands, stays visible in the Customer Area, and the Customer can turn the Digest back on from there. This is deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link in a message cannot unsubscribe anybody; a GET is answered 405. Idempotent: the same link appears in every Digest a person ever received, and pressing it twice means the same thing once. A malformed, forged or spent token is UNSUBSCRIBE_LINK_INVALID. Touches no transactional mail: One-time Passcodes and Sale Confirmations arrive either way.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            /** @description Signed unsubscribe token */
-            requestBody: {
-                content: {
-                    "application/json": Record<string, never> | components["schemas"]["handler.unsubscribeBody"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDigestSubscription"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/internal/follow-digests/drain": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Send due Follow Digests
-         * @description Claims a batch of pending Follow Digests, composes each one at send time, sends it, records everything it carried in the sent-ledger, and marks the row done (ADR 0030). Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Composition happens here rather than at enqueue, so a Digest delayed by a backlog or a retry still reflects the catalogue as it stands when it is sent. A Digest lists the Events matched by that Customer's Follows that they have not already been shown, filtered exactly as the public explorer filters — published, discoverable and not yet ended — so an Event an Organization chose not to list is never mailed out. It is written in the Customer's remembered Digest Locale, naming Preset Tags in that language and Custom Tags exactly as their Organization coined them. A Customer whose Follows matched nothing receives no email at all rather than an empty one, and that Digest is recorded as having had nothing to say. Every Event included is written to the sent-ledger and only those Events are, which is what stops a later Digest repeating them. Re-running after a completed send produces no second email for that Customer and week. A delivery failure leaves the Digest in the queue on a backoff and a later run sends exactly one email; after its attempts are spent the Digest is abandoned, because a Digest is about the week it names and one delivered days late is worse than none. Each run claims one Digest at a time and stops at a time budget of its own that expires before any deadline outside it, so a backlog can never wedge it; whatever it did not reach stays exactly as due as it was found. Safe to call by hand at any time and a no-op on an empty queue. The response tallies what the run did and reports the standing backlog, so two calls a minute apart say whether an incident is getting better or worse.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeFollowDigestDrain"];
-                    };
-                };
-                /** @description Internal Server Error */
-                500: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/internal/follow-digests/enqueue": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Enqueue this week's Follow Digests
-         * @description Creates one pending Follow Digest per eligible Customer for the current week (ADR 0030). A Customer is eligible when they hold at least one Follow — of an Organization or of a Tag — and their email has been verified: a Follow is a request to be written to, and somebody who never pressed one is never enqueued. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Which week is enqueued is taken from the clock and cannot be named by the caller — it is the Monday that begins the current week in Ecuador's timezone, echoed back in the response. Nothing is composed here and no email is sent: the row records only that this Customer is owed a Digest for this week, and what it will say is decided when the drain sends it. Safe to call by hand at any time and idempotent within a week — a second call creates no rows, because the database refuses more than one Digest per Customer per week, and the response reports those Customers as already enqueued.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeFollowDigestEnqueue"];
-                    };
-                };
-                /** @description Internal Server Error */
-                500: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6243,21 +5713,6 @@ export interface components {
             };
         };
         "handler.confirmationLinkBody": {
-            /**
-             * @description Follow exists on this body only so that it can be refused, and refused
-             *     loudly (#219).
-             *
-             *     A Confirmation Link mints a sale-scoped session, which is possession of an
-             *     email somebody was SENT and may well have been forwarded. #217 already
-             *     refuses that session the three Follow routes; an intent riding the
-             *     redemption would be the same subscription by another road — whoever a Sale
-             *     Confirmation reached could sign the ticket-holder's address up for a
-             *     weekly email without ever proving they own it (ADR 0010, CONTEXT.md
-             *     "Follow"). Leaving the field off the struct would have refused it too, by
-             *     silently dropping it, and silence is the wrong answer to a request that
-             *     must never work.
-             */
-            follow?: string;
             token?: string;
         };
         "handler.coverUploadURLBody": {
@@ -6295,9 +5750,6 @@ export interface components {
         };
         "handler.declinePayoutRequestBody": {
             reason?: string;
-        };
-        "handler.digestSubscriptionBody": {
-            enabled?: boolean;
         };
         "handler.fulfilPayoutRequestBody": {
             amount_cents?: number;
@@ -6363,9 +5815,6 @@ export interface components {
         };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
-        };
-        "handler.unsubscribeBody": {
-            token?: string;
         };
         "handler.updateAffiliateLinkBody": {
             active?: boolean;
@@ -6443,16 +5892,6 @@ export interface components {
         "internal_customers_handler.googleVerifyBody": {
             code?: string;
             code_verifier?: string;
-            /**
-             * @description Follow is read exactly as it is on the passcode door too, and deliberately
-             *     so: both doors are Proof of Email Ownership and neither is worth more than
-             *     the other (ADR 0011), so a visitor who pressed Follow and then chose Google
-             *     must not silently lose it. This body cannot name an email at all, which
-             *     makes the rule that the intent never chooses a subscriber structural here.
-             */
-            follow?: string;
-            /** @description Locale is read exactly as it is on the passcode door; see otpVerifyBody. */
-            locale?: string;
             redirect_uri?: string;
         };
         "internal_customers_handler.otpRequestBody": {
@@ -6461,29 +5900,6 @@ export interface components {
         "internal_customers_handler.otpVerifyBody": {
             code?: string;
             email?: string;
-            /**
-             * @description Follow is the Follow somebody asked for before they could be asked who
-             *     they are (#219): one string, "organization:<slug>", carried explicitly
-             *     from the sign-in address rather than stashed in browser storage so that it
-             *     is server-visible and can be validated at all.
-             *
-             *     It names a subject and never a subscriber. Whose Follow it becomes is
-             *     decided by the session this verification mints and by nothing in this
-             *     body — the Email field above proves who is signing in, and is never read
-             *     as who is being subscribed. Optional; see service.ParseFollowIntent.
-             */
-            follow?: string;
-            /**
-             * @description Locale is the language of the Storefront page this sign-in happened on,
-             *     and it is the one field here that is not part of proving anything. It is
-             *     remembered as the Customer's Digest Locale (ADR 0030), because a Locale is
-             *     a property of a page's address and the Follow Digest is mail. Optional and
-             *     never validated into a refusal: a caller with no page to name — anything
-             *     but the Storefront — omits it and leaves what was remembered standing, and
-             *     a language this platform does not serve is dropped rather than made a
-             *     reason a person cannot sign in.
-             */
-            locale?: string;
         };
         "internal_customers_openapi.MessageData": {
             message?: string;
@@ -6566,21 +5982,6 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
-        "openapi.EnvelopeCustomerDigestSubscription": {
-            data?: components["schemas"]["service.DigestSubscriptionView"];
-            error?: components["schemas"]["platform.APIError"];
-            request_id?: string;
-        };
-        "openapi.EnvelopeCustomerFollow": {
-            data?: components["schemas"]["service.FollowView"];
-            error?: components["schemas"]["platform.APIError"];
-            request_id?: string;
-        };
-        "openapi.EnvelopeCustomerFollows": {
-            data?: components["schemas"]["service.FollowsView"];
-            error?: components["schemas"]["platform.APIError"];
-            request_id?: string;
-        };
         "openapi.EnvelopeCustomerLogout": {
             data?: components["schemas"]["internal_customers_openapi.MessageData"];
             error?: components["schemas"]["platform.APIError"];
@@ -6618,16 +6019,6 @@ export interface components {
         };
         "openapi.EnvelopeEventList": {
             data?: components["schemas"]["service.EventListItem"][];
-            error?: components["schemas"]["platform.APIError"];
-            request_id?: string;
-        };
-        "openapi.EnvelopeFollowDigestDrain": {
-            data?: components["schemas"]["service.DrainResult"];
-            error?: components["schemas"]["platform.APIError"];
-            request_id?: string;
-        };
-        "openapi.EnvelopeFollowDigestEnqueue": {
-            data?: components["schemas"]["service.EnqueueResult"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -6940,92 +6331,6 @@ export interface components {
             ticket_sale_id?: string;
             verified_at?: string;
         };
-        "service.DigestSubscriptionView": {
-            digest_enabled?: boolean;
-        };
-        "service.DrainResult": {
-            /**
-             * @description Claimed is how many pending Digests this run took out of the queue. Zero is
-             *     the ordinary answer on all but one hour of the week.
-             */
-            claimed?: number;
-            /**
-             * @description Empty is Digests whose Customer's Follows matched nothing they had not
-             *     already been shown. NO EMAIL WAS SENT for these, which is the rule and not
-             *     a failure: an empty Digest teaches its reader to ignore the next one.
-             */
-            empty?: number;
-            /**
-             * @description GaveUp counts the Digests THIS RUN abandoned after exhausting their
-             *     attempts. Each one is a Customer who gets no Digest this week, and it is
-             *     the number worth alerting on.
-             */
-            gave_up?: number;
-            oldest_pending_week?: string;
-            /**
-             * @description PendingTotal is how many Digests are still waiting once this run finished,
-             *     and OldestPendingWeek is the week the oldest of them belongs to (a date,
-             *     absent when the queue is empty).
-             *
-             *     They are the answer to "is this getting better or worse", and two curls a
-             *     minute apart answer it without a database session. The oldest week is the
-             *     one that matters most: a pending Digest from LAST week is a backlog that
-             *     has outlived the thing it was about.
-             */
-            pending_total?: number;
-            /**
-             * @description Pruned is sent-ledger rows this run dropped because their Event has ended
-             *     (#226). It is housekeeping rather than delivery and it is reported anyway,
-             *     because the alternative is a table whose growth nobody can see until it is
-             *     the reason a Digest is slow to compose.
-             *
-             *     A number that stays high tick after tick means the prune is not keeping up
-             *     with what is ending; a number that is zero forever on a live platform means
-             *     it has stopped running at all.
-             */
-            pruned?: number;
-            /**
-             * @description Retrying is Digests whose delivery failed and which are back in the queue
-             *     on a backoff. It is the number that says a provider is unwell.
-             */
-            retrying?: number;
-            /** @description Sent is Digests delivered and recorded in the sent-ledger. */
-            sent?: number;
-            /**
-             * @description Skipped is Digests whose Customer had unsubscribed by the time the drain
-             *     reached them (#224). NOTHING WAS COMPOSED for these, which is what
-             *     separates them from Empty: an empty Digest was worked out and found to say
-             *     nothing, a skipped one was never worked out at all.
-             *
-             *     It is its own number for the reason `skipped` is its own status: "their
-             *     Follows matched nothing" is a reason to look at the composition, and "we
-             *     deliberately did not write to this person" is the feature working. An
-             *     operator who could not tell the two apart would read a week of unsubscribes
-             *     as the matching having broken.
-             *
-             *     It counts only the narrow window the enqueue filter cannot cover — somebody
-             *     who unsubscribed after their Digest was already queued — so it is
-             *     ordinarily zero even in a week with many unsubscribes.
-             */
-            skipped?: number;
-        };
-        "service.EnqueueResult": {
-            /**
-             * @description AlreadyEnqueued is the Customers who already had a Digest for this week. It
-             *     is reported rather than swallowed so that a repeated run reads as
-             *     idempotent rather than as a failure that enqueued nothing.
-             */
-            already_enqueued?: number;
-            eligible?: number;
-            enqueued?: number;
-            /**
-             * @description WeekStart is the week this run declared, as a date — the Monday that begins
-             *     it in Ecuador's zone (platform.DigestWeekStart). It is echoed back because
-             *     the endpoint takes no arguments, so this is the only way a caller learns
-             *     which week they just enqueued.
-             */
-            week_start?: string;
-        };
         "service.Event": {
             discoverable?: boolean;
             id?: string;
@@ -7097,42 +6402,6 @@ export interface components {
             starts_at?: string;
             timezone?: string;
             venue_name?: string;
-        };
-        "service.FollowView": {
-            followed_at?: string;
-            organization?: components["schemas"]["service.FollowedOrganizationView"];
-            tag?: components["schemas"]["service.FollowedTagView"];
-            type?: string;
-        };
-        "service.FollowedOrganizationView": {
-            logo_url?: string;
-            name?: string;
-            slug?: string;
-        };
-        "service.FollowedTagView": {
-            canonical_key?: string;
-            curated?: boolean;
-            name?: string;
-        };
-        "service.FollowsView": {
-            /**
-             * @description DigestEnabled is whether the Follow Digest is switched on for this
-             *     Customer (#224, ADR 0030).
-             *
-             *     IT RIDES BESIDE THE FOLLOWS RATHER THAN ON AN ENDPOINT OF ITS OWN, and that
-             *     is the point of putting it here. The Customer Area has one sentence to say
-             *     — "the Digest is off, and everything you Follow still stands" — and it is
-             *     one screen; two reads that could disagree is how a Following page comes to
-             *     show an empty list beside a switch that says the mail is on, or a full list
-             *     beside a switch that has not caught up. One read answers both halves, so
-             *     they cannot skew.
-             *
-             *     It is also the surface the criterion is written against: unsubscribing must
-             *     leave every Follow "intact and visible in the Customer Area", and this is
-             *     the response that proves both at once.
-             */
-            digest_enabled?: boolean;
-            follows?: components["schemas"]["service.FollowView"][];
         };
         "service.MembershipView": {
             member_id?: string;

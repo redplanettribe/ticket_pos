@@ -2,8 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"strings"
 	"time"
 )
@@ -14,12 +12,6 @@ type Tag struct {
 	CanonicalKey string
 	DisplayName  string
 	Curated      bool
-	// DisplayNameES is the Tag's name in Spanish, set for Preset Tags alone and
-	// null for every Custom Tag — a column constraint holds that, and ADR 0027
-	// holds why (an Organization's own word is read as coined in every Locale).
-	// Null on a Preset Tag too, for one promoted by flipping curated rather than
-	// by a migration; resolution falls back to DisplayName there.
-	DisplayNameES sql.NullString
 }
 
 // NormalizedTag is a resolved tag name ready to upsert into the pool: its
@@ -29,7 +21,7 @@ type NormalizedTag struct {
 	DisplayName  string
 }
 
-const tagColumns = `id, canonical_key, display_name, curated, display_name_es`
+const tagColumns = `id, canonical_key, display_name, curated`
 
 // SearchTags returns pool Tags whose canonical key contains the (already
 // canonicalized) query. Preset Tags come first, then the most-used Tags (by
@@ -55,7 +47,7 @@ func (r *Repository) SearchTags(ctx context.Context, canonicalQuery string, limi
 	tags := make([]Tag, 0)
 	for rows.Next() {
 		var t Tag
-		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES); err != nil {
+		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
 			return nil, err
 		}
 		tags = append(tags, t)
@@ -87,7 +79,7 @@ func (r *Repository) ListPopularCustomTags(ctx context.Context, limit int) ([]Ta
 	tags := make([]Tag, 0)
 	for rows.Next() {
 		var t Tag
-		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES); err != nil {
+		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
 			return nil, err
 		}
 		tags = append(tags, t)
@@ -124,7 +116,7 @@ func (r *Repository) ListAvailablePresetTags(ctx context.Context, now time.Time)
 	tags := make([]Tag, 0)
 	for rows.Next() {
 		var t Tag
-		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES); err != nil {
+		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
 			return nil, err
 		}
 		tags = append(tags, t)
@@ -149,7 +141,7 @@ func (r *Repository) ListEventTags(ctx context.Context, eventID string) ([]Tag, 
 	tags := make([]Tag, 0)
 	for rows.Next() {
 		var t Tag
-		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES); err != nil {
+		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
 			return nil, err
 		}
 		tags = append(tags, t)
@@ -182,63 +174,12 @@ func (r *Repository) ListTagsByEventIDs(ctx context.Context, eventIDs []string) 
 	for rows.Next() {
 		var eventID string
 		var t Tag
-		if err := rows.Scan(&eventID, &t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES); err != nil {
+		if err := rows.Scan(&eventID, &t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated); err != nil {
 			return nil, err
 		}
 		result[eventID] = append(result[eventID], t)
 	}
 	return result, rows.Err()
-}
-
-// ListTagsByCanonicalKeys loads pool Tags for a set of canonical keys, in one
-// query and in no particular order. A key naming no Tag is simply absent, which
-// is the same degradation the Storefront's catalogue makes when it holds no copy
-// for a key: a name nobody holds is not an error, it is a Tag that is gone.
-// GetTagByCanonicalKey returns the one pool Tag with this (already
-// canonicalized) key, or nil when the pool holds none.
-//
-// Nil rather than an error, because whether a missing Tag is a failure is the
-// caller's question and not this one's: a Follow of an unknown Tag is a 404
-// (#218), while the same absence elsewhere is simply a Tag not yet coined.
-func (r *Repository) GetTagByCanonicalKey(ctx context.Context, canonicalKey string) (*Tag, error) {
-	var t Tag
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT `+tagColumns+`
-		FROM tags
-		WHERE canonical_key = $1
-	`, canonicalKey).Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &t, nil
-}
-
-func (r *Repository) ListTagsByCanonicalKeys(ctx context.Context, canonicalKeys []string) ([]Tag, error) {
-	if len(canonicalKeys) == 0 {
-		return []Tag{}, nil
-	}
-	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT `+tagColumns+`
-		FROM tags
-		WHERE canonical_key = ANY($1)
-	`, canonicalKeys)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	tags := make([]Tag, 0, len(canonicalKeys))
-	for rows.Next() {
-		var t Tag
-		if err := rows.Scan(&t.ID, &t.CanonicalKey, &t.DisplayName, &t.Curated, &t.DisplayNameES); err != nil {
-			return nil, err
-		}
-		tags = append(tags, t)
-	}
-	return tags, rows.Err()
 }
 
 // SetEventTags replaces an Event's tag set with the given normalized Tags,
@@ -284,7 +225,7 @@ func (r *Repository) SetEventTags(ctx context.Context, eventID string, tags []No
 }
 
 func tagColumnsPrefixed(alias string) string {
-	return alias + ".id, " + alias + ".canonical_key, " + alias + ".display_name, " + alias + ".curated, " + alias + ".display_name_es"
+	return alias + ".id, " + alias + ".canonical_key, " + alias + ".display_name, " + alias + ".curated"
 }
 
 // escapeLike escapes LIKE wildcards so a query is matched literally.

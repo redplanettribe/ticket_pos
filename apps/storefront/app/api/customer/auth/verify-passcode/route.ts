@@ -17,12 +17,6 @@ import {
  * being handed to page scripts. The response body deliberately drops
  * `session_id` and returns only the session view, so nothing a browser can read
  * carries the token.
- *
- * The request body is relayed as it arrives, which is how the form's `locale`
- * reaches the API to be remembered as the Customer's Digest Locale (ADR 0030).
- * This route has no address of its own to read one from — every route under
- * /api is unprefixed — so the page that names its language is the one that
- * sends it.
  */
 export async function POST(request: Request) {
   try {

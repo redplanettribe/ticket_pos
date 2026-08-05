@@ -40,54 +40,6 @@
     "emptyTitle": "No hay próximos eventos",
     "emptyDescription": "Este organizador no tiene eventos a la venta en este momento. Vuelva pronto."
   },
-  "follow": {
-    "follow": "Seguir",
-    "following": "Siguiendo",
-    "followHint": "Reciba un correo semanal sobre sus eventos.",
-    "followingHint": "Sus eventos están en su correo semanal. Pulse para dejar de seguir.",
-    "signInHint": "Inicie sesión para seguir. Lo traeremos de vuelta aquí.",
-    "followedToast": "Ahora sigue a {name}.",
-    "unfollowedToast": "Ya no sigue a {name}.",
-    "failed": "No se pudo completar. Inténtelo de nuevo.",
-    "networkFailed": "No se pudo completar. Revise su conexión e inténtelo de nuevo.",
-    "followLabel": "Seguir {name}",
-    "followingLabel": "Siguiendo {name}. Pulse para dejar de seguir."
-  },
-  "following": {
-    "metaTitle": "Siguiendo · {brand}",
-    "title": "Siguiendo",
-    "description": "Los organizadores y las etiquetas que sigue. Todo llega en un solo correo semanal.",
-    "organizationKind": "Organizador",
-    "tagKind": "Etiqueta",
-    "customTag": "Palabra propia",
-    "emptyTitle": "Todavía no sigue nada",
-    "emptyDescription": "Siga a un organizador desde su página, o una etiqueta desde un evento, y sus eventos llegarán en un solo correo semanal.",
-    "loadFailedTitle": "No pudimos cargar lo que sigue",
-    "loadNetworkFailed": "No se pudo conectar con el servicio de entradas. Revise su conexión e inténtelo de nuevo.",
-    "digestTitle": "Resumen semanal",
-    "digestOnDescription": "Un correo por semana sobre todo lo que aparece abajo. Si lo desactiva, conserva todo lo que sigue: aquí no cambia nada.",
-    "digestOffDescription": "El correo semanal está desactivado. Todo lo que sigue continúa abajo y sigue siendo suyo; simplemente no le escribimos.",
-    "digestTurnOff": "Desactivar",
-    "digestTurnOn": "Activar",
-    "digestOnToast": "El resumen semanal está activado de nuevo.",
-    "digestOffToast": "El resumen semanal está desactivado. Sigue siguiendo todo lo de abajo.",
-    "digestFailed": "No funcionó. Inténtelo de nuevo.",
-    "digestNetworkFailed": "No funcionó. Revise su conexión e inténtelo de nuevo."
-  },
-  "unsubscribe": {
-    "metaTitle": "Cancelar el resumen · {brand}",
-    "title": "Desactivar el resumen semanal",
-    "description": "Dejará de recibir el correo semanal. Todo lo que sigue queda exactamente igual: esto solo detiene el correo.",
-    "confirm": "Desactivar el resumen semanal",
-    "doneTitle": "El resumen semanal está desactivado",
-    "doneDescription": "No se lo enviaremos de nuevo. Todo lo que sigue continúa siendo suyo y puede volver a activar el resumen cuando quiera.",
-    "manageLink": "Gestionar lo que sigue",
-    "failedTitle": "No pudimos desactivarlo",
-    "failed": "No funcionó. Inténtelo de nuevo.",
-    "networkFailed": "No funcionó. Revise su conexión e inténtelo de nuevo.",
-    "missingTokenTitle": "Este enlace está incompleto",
-    "missingTokenDescription": "Abra de nuevo el enlace de su correo, o desactive el resumen desde su cuenta."
-  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Obtenga entradas para {event}.",
@@ -313,8 +265,7 @@
       "SALE_NOT_REVERSIBLE": "Esta compra no se puede deshacer desde aquí. Contacte al organizador para que lo ayude.",
       "REVERSAL_WINDOW_CLOSED": "El plazo para deshacer esta compra ya terminó. Contacte al organizador para que lo ayude.",
       "SALE_REVERSAL_FAILED": "No pudimos deshacer esta compra. No cambió nada; contacte al organizador con su referencia de confirmación.",
-      "REVERSAL_UNRESOLVED": "Estamos revisando con el proveedor de pagos qué pasó con este reembolso. Aquí no cambió nada; contacte al organizador con su referencia de confirmación.",
-      "UNSUBSCRIBE_LINK_INVALID": "Este enlace para cancelar no es válido. Puede desactivar el resumen semanal desde su cuenta."
+      "REVERSAL_UNRESOLVED": "Estamos revisando con el proveedor de pagos qué pasó con este reembolso. Aquí no cambió nada; contacte al organizador con su referencia de confirmación."
     },
     "field": {
       "REQUIRED": "Campo obligatorio",
@@ -332,11 +283,6 @@
     },
     "myInfo": {
       "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para cambiar sus datos."
-    },
-    "follow": {
-      "CUSTOMER_SESSION_SCOPE_INSUFFICIENT": "Inicie sesión con un código para seguir.",
-      "ORGANIZATION_NOT_FOUND": "Este organizador ya no está disponible.",
-      "TAG_NOT_FOUND": "Esta etiqueta ya no está disponible."
     }
   },
   "tags": {

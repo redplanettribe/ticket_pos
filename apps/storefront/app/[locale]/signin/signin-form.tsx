@@ -14,7 +14,7 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
-import { useLocale, useMessages, useTranslations } from "next-intl";
+import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useRouter } from "@/i18n/navigation";
@@ -82,18 +82,6 @@ type SignInFormProps = {
    */
   googleFailed: boolean;
   /**
-   * The Follow the visitor pressed before signing in, or null when they came
-   * here for the ordinary reason (#219).
-   *
-   * Already guarded server-side, and relayed verbatim on the verify below — not
-   * acted on here. This app cannot make a Follow: it has no session token to
-   * make one against, by design (ADR 0008), and the API writes it against the
-   * session that verification produces and against nothing this form could say.
-   * In particular the `email` beside it is what the passcode is proving, never
-   * who is being subscribed.
-   */
-  followIntent: string | null;
-  /**
    * Where the Google button points, or null when this deployment has no Google
    * credentials and the button must not be offered at all.
    */
@@ -139,14 +127,10 @@ export function SignInForm({
   expired,
   linkFailure,
   googleFailed,
-  followIntent,
   googleSignInHref,
 }: SignInFormProps) {
   const router = useRouter();
   const t = useTranslations("signin");
-  // The language of the address this form is rendered under, sent with the
-  // verify so it can be remembered as the Customer's Digest Locale (ADR 0030).
-  const locale = useLocale();
   // Keyed by API codes rather than by message keys, so it is read as plain data
   // rather than through `t`.
   const errorCopy = useMessages().errors;
@@ -219,16 +203,7 @@ export function SignInForm({
       const response = await fetch("/api/customer/auth/verify-passcode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // The Locale rides along on the verify and on nothing else: it is
-        // remembered as this Customer's Digest Locale, so the Follow Digest —
-        // mail, with no address of its own to carry a language — is written in
-        // the language this page is in. It reads the address, like every other
-        // reading of a Locale in this app, never the browser or a cookie.
-        // The Follow intent rides the verify too, and only the verify: it is the
-        // one request that produces a session, and the API writes the Follow
-        // against that session. Sending it with the passcode REQUEST would have
-        // been sending it with an unproven address.
-        body: JSON.stringify({ email, code, locale, ...(followIntent ? { follow: followIntent } : {}) }),
+        body: JSON.stringify({ email, code }),
       });
       const envelope = (await response.json()) as Envelope<unknown>;
       if (!response.ok || envelope.error) {

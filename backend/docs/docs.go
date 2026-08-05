@@ -102,10 +102,6 @@ const docTemplate = `{
             },
             "handler.confirmationLinkBody": {
                 "properties": {
-                    "follow": {
-                        "description": "Follow exists on this body only so that it can be refused, and refused\nloudly (#219).\n\nA Confirmation Link mints a sale-scoped session, which is possession of an\nemail somebody was SENT and may well have been forwarded. #217 already\nrefuses that session the three Follow routes; an intent riding the\nredemption would be the same subscription by another road — whoever a Sale\nConfirmation reached could sign the ticket-holder's address up for a\nweekly email without ever proving they own it (ADR 0010, CONTEXT.md\n\"Follow\"). Leaving the field off the struct would have refused it too, by\nsilently dropping it, and silence is the wrong answer to a request that\nmust never work.",
-                        "type": "string"
-                    },
                     "token": {
                         "type": "string"
                     }
@@ -185,14 +181,6 @@ const docTemplate = `{
                 "properties": {
                     "reason": {
                         "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "handler.digestSubscriptionBody": {
-                "properties": {
-                    "enabled": {
-                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -380,14 +368,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "handler.unsubscribeBody": {
-                "properties": {
-                    "token": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "handler.updateAffiliateLinkBody": {
                 "properties": {
                     "active": {
@@ -527,14 +507,6 @@ const docTemplate = `{
                     "code_verifier": {
                         "type": "string"
                     },
-                    "follow": {
-                        "description": "Follow is read exactly as it is on the passcode door too, and deliberately\nso: both doors are Proof of Email Ownership and neither is worth more than\nthe other (ADR 0011), so a visitor who pressed Follow and then chose Google\nmust not silently lose it. This body cannot name an email at all, which\nmakes the rule that the intent never chooses a subscriber structural here.",
-                        "type": "string"
-                    },
-                    "locale": {
-                        "description": "Locale is read exactly as it is on the passcode door; see otpVerifyBody.",
-                        "type": "string"
-                    },
                     "redirect_uri": {
                         "type": "string"
                     }
@@ -555,14 +527,6 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "email": {
-                        "type": "string"
-                    },
-                    "follow": {
-                        "description": "Follow is the Follow somebody asked for before they could be asked who\nthey are (#219): one string, \"organization:\u003cslug\u003e\", carried explicitly\nfrom the sign-in address rather than stashed in browser storage so that it\nis server-visible and can be validated at all.\n\nIt names a subject and never a subscriber. Whose Follow it becomes is\ndecided by the session this verification mints and by nothing in this\nbody — the Email field above proves who is signing in, and is never read\nas who is being subscribed. Optional; see service.ParseFollowIntent.",
-                        "type": "string"
-                    },
-                    "locale": {
-                        "description": "Locale is the language of the Storefront page this sign-in happened on,\nand it is the one field here that is not part of proving anything. It is\nremembered as the Customer's Digest Locale (ADR 0030), because a Locale is\na property of a page's address and the Follow Digest is mail. Optional and\nnever validated into a refusal: a caller with no page to name — anything\nbut the Storefront — omits it and leaves what was remembered standing, and\na language this platform does not serve is dropped rather than made a\nreason a person cannot sign in.",
                         "type": "string"
                     }
                 },
@@ -798,48 +762,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "openapi.EnvelopeCustomerDigestSubscription": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.DigestSubscriptionView"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "openapi.EnvelopeCustomerFollow": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.FollowView"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "openapi.EnvelopeCustomerFollows": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.FollowsView"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "openapi.EnvelopeCustomerLogout": {
                 "properties": {
                     "data": {
@@ -946,34 +868,6 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "openapi.EnvelopeFollowDigestDrain": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.DrainResult"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "openapi.EnvelopeFollowDigestEnqueue": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.EnqueueResult"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1676,73 +1570,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "service.DigestSubscriptionView": {
-                "properties": {
-                    "digest_enabled": {
-                        "type": "boolean"
-                    }
-                },
-                "type": "object"
-            },
-            "service.DrainResult": {
-                "properties": {
-                    "claimed": {
-                        "description": "Claimed is how many pending Digests this run took out of the queue. Zero is\nthe ordinary answer on all but one hour of the week.",
-                        "type": "integer"
-                    },
-                    "empty": {
-                        "description": "Empty is Digests whose Customer's Follows matched nothing they had not\nalready been shown. NO EMAIL WAS SENT for these, which is the rule and not\na failure: an empty Digest teaches its reader to ignore the next one.",
-                        "type": "integer"
-                    },
-                    "gave_up": {
-                        "description": "GaveUp counts the Digests THIS RUN abandoned after exhausting their\nattempts. Each one is a Customer who gets no Digest this week, and it is\nthe number worth alerting on.",
-                        "type": "integer"
-                    },
-                    "oldest_pending_week": {
-                        "type": "string"
-                    },
-                    "pending_total": {
-                        "description": "PendingTotal is how many Digests are still waiting once this run finished,\nand OldestPendingWeek is the week the oldest of them belongs to (a date,\nabsent when the queue is empty).\n\nThey are the answer to \"is this getting better or worse\", and two curls a\nminute apart answer it without a database session. The oldest week is the\none that matters most: a pending Digest from LAST week is a backlog that\nhas outlived the thing it was about.",
-                        "type": "integer"
-                    },
-                    "pruned": {
-                        "description": "Pruned is sent-ledger rows this run dropped because their Event has ended\n(#226). It is housekeeping rather than delivery and it is reported anyway,\nbecause the alternative is a table whose growth nobody can see until it is\nthe reason a Digest is slow to compose.\n\nA number that stays high tick after tick means the prune is not keeping up\nwith what is ending; a number that is zero forever on a live platform means\nit has stopped running at all.",
-                        "type": "integer"
-                    },
-                    "retrying": {
-                        "description": "Retrying is Digests whose delivery failed and which are back in the queue\non a backoff. It is the number that says a provider is unwell.",
-                        "type": "integer"
-                    },
-                    "sent": {
-                        "description": "Sent is Digests delivered and recorded in the sent-ledger.",
-                        "type": "integer"
-                    },
-                    "skipped": {
-                        "description": "Skipped is Digests whose Customer had unsubscribed by the time the drain\nreached them (#224). NOTHING WAS COMPOSED for these, which is what\nseparates them from Empty: an empty Digest was worked out and found to say\nnothing, a skipped one was never worked out at all.\n\nIt is its own number for the reason ` + "`" + `skipped` + "`" + ` is its own status: \"their\nFollows matched nothing\" is a reason to look at the composition, and \"we\ndeliberately did not write to this person\" is the feature working. An\noperator who could not tell the two apart would read a week of unsubscribes\nas the matching having broken.\n\nIt counts only the narrow window the enqueue filter cannot cover — somebody\nwho unsubscribed after their Digest was already queued — so it is\nordinarily zero even in a week with many unsubscribes.",
-                        "type": "integer"
-                    }
-                },
-                "type": "object"
-            },
-            "service.EnqueueResult": {
-                "properties": {
-                    "already_enqueued": {
-                        "description": "AlreadyEnqueued is the Customers who already had a Digest for this week. It\nis reported rather than swallowed so that a repeated run reads as\nidempotent rather than as a failure that enqueued nothing.",
-                        "type": "integer"
-                    },
-                    "eligible": {
-                        "type": "integer"
-                    },
-                    "enqueued": {
-                        "type": "integer"
-                    },
-                    "week_start": {
-                        "description": "WeekStart is the week this run declared, as a date — the Monday that begins\nit in Ecuador's zone (platform.DigestWeekStart). It is echoed back because\nthe endpoint takes no arguments, so this is the only way a caller learns\nwhich week they just enqueued.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "service.Event": {
                 "properties": {
                     "discoverable": {
@@ -1889,67 +1716,6 @@ const docTemplate = `{
                     },
                     "venue_name": {
                         "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "service.FollowView": {
-                "properties": {
-                    "followed_at": {
-                        "type": "string"
-                    },
-                    "organization": {
-                        "$ref": "#/components/schemas/service.FollowedOrganizationView"
-                    },
-                    "tag": {
-                        "$ref": "#/components/schemas/service.FollowedTagView"
-                    },
-                    "type": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "service.FollowedOrganizationView": {
-                "properties": {
-                    "logo_url": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "slug": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "service.FollowedTagView": {
-                "properties": {
-                    "canonical_key": {
-                        "type": "string"
-                    },
-                    "curated": {
-                        "type": "boolean"
-                    },
-                    "name": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "service.FollowsView": {
-                "properties": {
-                    "digest_enabled": {
-                        "description": "DigestEnabled is whether the Follow Digest is switched on for this\nCustomer (#224, ADR 0030).\n\nIT RIDES BESIDE THE FOLLOWS RATHER THAN ON AN ENDPOINT OF ITS OWN, and that\nis the point of putting it here. The Customer Area has one sentence to say\n— \"the Digest is off, and everything you Follow still stands\" — and it is\none screen; two reads that could disagree is how a Following page comes to\nshow an empty list beside a switch that says the mail is on, or a full list\nbeside a switch that has not caught up. One read answers both halves, so\nthey cannot skew.\n\nIt is also the surface the criterion is written against: unsubscribing must\nleave every Follow \"intact and visible in the Customer Area\", and this is\nthe response that proves both at once.",
-                        "type": "boolean"
-                    },
-                    "follows": {
-                        "items": {
-                            "$ref": "#/components/schemas/service.FollowView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -3553,7 +3319,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/confirmation-link": {
             "post": {
-                "description": "Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed. A ` + "`" + `follow` + "`" + ` intent is refused outright with CUSTOMER_SESSION_SCOPE_INSUFFICIENT: this door mints a sale-scoped session, and subscribing an address to mail takes the same proof signing in does.",
+                "description": "Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3604,16 +3370,6 @@ const docTemplate = `{
                             }
                         },
                         "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
                     }
                 },
                 "summary": "Redeem a Confirmation Link",
@@ -3624,7 +3380,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/google/verify": {
             "post": {
-                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional ` + "`" + `locale` + "`" + ` is remembered as the Customer's Digest Locale, exactly as on the passcode route. An optional ` + "`" + `follow` + "`" + ` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
+                "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3782,7 +3538,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/otp/verify": {
             "post": {
-                "description": "Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional ` + "`" + `locale` + "`" + ` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused. An optional ` + "`" + `follow` + "`" + ` carries a Follow the visitor pressed before signing in, as ` + "`" + `organization:\u003cslug\u003e` + "`" + `. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in ` + "`" + `follow` + "`" + `, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and ` + "`" + `follow` + "`" + ` is null.",
+                "description": "Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3882,392 +3638,6 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get Customer Session",
-                "tags": [
-                    "customer"
-                ]
-            }
-        },
-        "/api/v1/customer/digest": {
-            "put": {
-                "description": "Sets whether the signed-in Customer receives the weekly Follow Digest, and returns the switch as it now stands. This is the Customer Area's toggle beside the Following list, and it is the only way to turn the Digest back ON — the unsubscribe link is unauthenticated because somebody who wants quiet must be able to have it without signing in, and none of that argument applies to switching somebody's mail back on. Changes no Follow either way: the list is exactly as it was, and a Customer who turns the Digest off keeps everything they Followed. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to subscribe that inbox to weekly mail. Takes the state asked for rather than flipping, so a retried or double-tapped request means the same thing once.",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.digestSubscriptionBody",
-                                        "summary": "body",
-                                        "description": "Whether the Digest is on"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Whether the Digest is on",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDigestSubscription"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Turn the Follow Digest on or off",
-                "tags": [
-                    "customer"
-                ]
-            }
-        },
-        "/api/v1/customer/follows": {
-            "get": {
-                "description": "Returns everything the signed-in Customer Follows, most recently followed first. One list rather than one per kind: each entry carries a ` + "`" + `type` + "`" + ` discriminator and the subject hangs off the field named by it, so a client switches on ` + "`" + `type` + "`" + ` and keeps working as further kinds of Follow are added. Always scoped by the Customer Session, never by any identifier in the request. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.",
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerFollows"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "List the Customer's Follows",
-                "tags": [
-                    "customer"
-                ]
-            }
-        },
-        "/api/v1/customer/follows/organizations/{slug}": {
-            "delete": {
-                "description": "Removes the signed-in Customer's Follow of the Organization named by slug. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.",
-                "parameters": [
-                    {
-                        "description": "Organization slug",
-                        "in": "path",
-                        "name": "slug",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerLogout"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Unfollow an Organization",
-                "tags": [
-                    "customer"
-                ]
-            },
-            "post": {
-                "description": "Records that the signed-in Customer Follows the Organization named by slug, and returns the Follow. Idempotent: following something already followed returns the existing Follow with its original ` + "`" + `followed_at` + "`" + ` rather than a conflict, so a retried or double-tapped request is safe. Answers 200 on both the first call and every repeat. A slug no Organization owns is ORGANIZATION_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded Sale Confirmation is not authority to subscribe somebody's inbox to mail.",
-                "parameters": [
-                    {
-                        "description": "Organization slug",
-                        "in": "path",
-                        "name": "slug",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerFollow"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Follow an Organization",
-                "tags": [
-                    "customer"
-                ]
-            }
-        },
-        "/api/v1/customer/follows/tags/{canonicalKey}": {
-            "delete": {
-                "description": "Removes the signed-in Customer's Follow of the Tag named by its canonical key. Unfollowing something not followed is not an error — the caller asked for a state that already holds. A key naming no Tag is TAG_NOT_FOUND. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. This is an Unfollow and not an Unsubscribe: it removes one Follow, where Unsubscribing would leave every Follow standing and silence the Follow Digest.",
-                "parameters": [
-                    {
-                        "description": "Tag canonical key",
-                        "in": "path",
-                        "name": "canonicalKey",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerLogout"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Unfollow a Tag",
-                "tags": [
-                    "customer"
-                ]
-            },
-            "post": {
-                "description": "Records that the signed-in Customer Follows the Tag named by its canonical key, and returns the Follow. Any Tag may be Followed, Preset or Custom — ADR 0030 bounds how much mail a Follow can produce with the weekly Follow Digest's cap rather than by narrowing what is followable. Idempotent: following something already followed returns the existing Follow with its original ` + "`" + `followed_at` + "`" + `, so a retried or double-tapped request is safe, and the answer is 200 on the first call and every repeat. The key is canonicalized exactly as the shared Tag pool canonicalizes everywhere else, so casing and spacing cannot produce two Follows of one Tag. A key naming no Tag is TAG_NOT_FOUND: Following never coins a Tag. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.",
-                "parameters": [
-                    {
-                        "description": "Tag canonical key",
-                        "in": "path",
-                        "name": "canonicalKey",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerFollow"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Forbidden"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Follow a Tag",
                 "tags": [
                     "customer"
                 ]
@@ -4675,119 +4045,6 @@ const docTemplate = `{
                 "summary": "Undo a Ticket Sale",
                 "tags": [
                     "customer"
-                ]
-            }
-        },
-        "/api/v1/customer/unsubscribe": {
-            "post": {
-                "description": "Turns the Follow Digest off for the Customer named by a signed unsubscribe token, which is carried in the footer of every Digest. Requires no sign-in and accepts no credential: a Digest is read months after anybody last signed in, and an opt-out gated behind a passcode would not be an opt-out. Unsubscribing is a switch and not a purge — every Follow stands, stays visible in the Customer Area, and the Customer can turn the Digest back on from there. This is deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link in a message cannot unsubscribe anybody; a GET is answered 405. Idempotent: the same link appears in every Digest a person ever received, and pressing it twice means the same thing once. A malformed, forged or spent token is UNSUBSCRIBE_LINK_INVALID. Touches no transactional mail: One-time Passcodes and Sale Confirmations arrive either way.",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.unsubscribeBody",
-                                        "summary": "body",
-                                        "description": "Signed unsubscribe token"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Signed unsubscribe token",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDigestSubscription"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    }
-                },
-                "summary": "Unsubscribe from the Follow Digest",
-                "tags": [
-                    "customer"
-                ]
-            }
-        },
-        "/api/v1/internal/follow-digests/drain": {
-            "post": {
-                "description": "Claims a batch of pending Follow Digests, composes each one at send time, sends it, records everything it carried in the sent-ledger, and marks the row done (ADR 0030). Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Composition happens here rather than at enqueue, so a Digest delayed by a backlog or a retry still reflects the catalogue as it stands when it is sent. A Digest lists the Events matched by that Customer's Follows that they have not already been shown, filtered exactly as the public explorer filters — published, discoverable and not yet ended — so an Event an Organization chose not to list is never mailed out. It is written in the Customer's remembered Digest Locale, naming Preset Tags in that language and Custom Tags exactly as their Organization coined them. A Customer whose Follows matched nothing receives no email at all rather than an empty one, and that Digest is recorded as having had nothing to say. Every Event included is written to the sent-ledger and only those Events are, which is what stops a later Digest repeating them. Re-running after a completed send produces no second email for that Customer and week. A delivery failure leaves the Digest in the queue on a backoff and a later run sends exactly one email; after its attempts are spent the Digest is abandoned, because a Digest is about the week it names and one delivered days late is worse than none. Each run claims one Digest at a time and stops at a time budget of its own that expires before any deadline outside it, so a backlog can never wedge it; whatever it did not reach stays exactly as due as it was found. Safe to call by hand at any time and a no-op on an empty queue. The response tallies what the run did and reports the standing backlog, so two calls a minute apart say whether an incident is getting better or worse.",
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeFollowDigestDrain"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Send due Follow Digests",
-                "tags": [
-                    "internal"
-                ]
-            }
-        },
-        "/api/v1/internal/follow-digests/enqueue": {
-            "post": {
-                "description": "Creates one pending Follow Digest per eligible Customer for the current week (ADR 0030). A Customer is eligible when they hold at least one Follow — of an Organization or of a Tag — and their email has been verified: a Follow is a request to be written to, and somebody who never pressed one is never enqueued. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Which week is enqueued is taken from the clock and cannot be named by the caller — it is the Monday that begins the current week in Ecuador's timezone, echoed back in the response. Nothing is composed here and no email is sent: the row records only that this Customer is owed a Digest for this week, and what it will say is decided when the drain sends it. Safe to call by hand at any time and idempotent within a week — a second call creates no rows, because the database refuses more than one Digest per Customer per week, and the response reports those Customers as already enqueued.",
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeFollowDigestEnqueue"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Enqueue this week's Follow Digests",
-                "tags": [
-                    "internal"
                 ]
             }
         },

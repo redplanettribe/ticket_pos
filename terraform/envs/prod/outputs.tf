@@ -90,20 +90,7 @@ output "workload_identity_provider" {
   value       = module.ticket_pos.workload_identity_provider
 }
 
-output "digest_email_dns_setup" {
-  description = "Operator checklist for the Follow Digest's separate sending domain (#225, ADR 0030). Terraform creates none of it: the Resend domain and its DKIM/SPF/DMARC records are added by hand, as the transactional domain's were."
-  value       = module.ticket_pos.digest_email_dns_setup
-}
-
 output "reversal_reconciler_job_name" {
   description = "Cloud Scheduler job driving the reversal drain. `gcloud scheduler jobs pause <name> --location us-east1` stops the tick immediately; follow it with the matching Terraform change so the next apply does not resume it."
   value       = module.ticket_pos.reversal_reconciler_job_name
-}
-
-output "follow_digest_job_names" {
-  description = "The two Cloud Scheduler jobs driving the Follow Digest. `gcloud scheduler jobs pause <name> --location us-east1` stops either immediately; follow it with the matching Terraform change so the next apply does not resume it. Pausing the enqueue stops next week's send; pausing the drain holds this week's Digests in the queue."
-  value = {
-    enqueue = module.ticket_pos.follow_digest_enqueue_job_name
-    drain   = module.ticket_pos.follow_digest_drain_job_name
-  }
 }

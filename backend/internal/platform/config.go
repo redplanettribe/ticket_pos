@@ -47,9 +47,6 @@ type Config struct {
 	S3Region      string
 	ResendAPIKey  string
 	EmailFrom     string
-	// DigestEmail is the Follow Digest's OWN sending identity, configured
-	// independently of the transactional one above. See DigestEmailConfig.
-	DigestEmail DigestEmailConfig
 	// StorefrontBaseURL is the Storefront's own public origin. The API needs it
 	// to build the Confirmation Link carried in every Sale Confirmation: the link
 	// points at the Storefront, not at this API, because a Customer must land on a
@@ -105,103 +102,6 @@ type PayPhoneConfig struct {
 // selects the real Payment Provider over the stub.
 func (c PayPhoneConfig) Configured() bool {
 	return c.APIToken != "" && c.StoreID != ""
-}
-
-// DigestEmailConfig is the Follow Digest's sending identity: its own Resend API
-// key and its own From address, on its own subdomain (#225, ADR 0030).
-//
-// It exists because the Digest is the platform's first NON-TRANSACTIONAL mail.
-// Marketing mail attracts spam complaints in a way transactional mail never
-// does, and complaint rates degrade domain reputation — so a Digest sharing
-// `send.multiticketing.com` could impair delivery of the One-time Passcodes
-// people need in order to sign in. A discovery feature would be taking down
-// authentication.
-//
-// It is a SIBLING of ResendAPIKey/EmailFrom and never a derivative of them.
-// Neither field has a default, deliberately: a default here would be the silent
-// fallback this whole feature exists to remove, and "unset" has to read as
-// unset rather than as "use the one next to it". A deployment that has not
-// configured this sends no Digests at all — see NewUnconfiguredDigestSender.
-type DigestEmailConfig struct {
-	ResendAPIKey string
-	From         string
-}
-
-// Configured reports whether a usable Digest identity is present — the switch
-// that selects a real Digest sender over the refusing one. BOTH halves are
-// required: a key with no From has nothing to send as, and a From with no key
-// cannot authenticate.
-func (c DigestEmailConfig) Configured() bool {
-	return c.ResendAPIKey != "" && c.From != ""
-}
-
-// PartiallyConfigured reports whether exactly one half was supplied. It is not
-// the negation of Configured: it distinguishes "this deployment never switched
-// Digest mail on" from "somebody tried and stopped halfway", which are the same
-// outcome and very different bugs. An operator in the second case is told which
-// half is missing at startup rather than watching Digests silently not arrive.
-func (c DigestEmailConfig) PartiallyConfigured() bool {
-	return (c.ResendAPIKey == "") != (c.From == "")
-}
-
-// SharesSendingDomainWith reports whether this Digest identity sends from the
-// same domain as the given transactional From header.
-//
-// The whole point of the second identity is that it is on a DIFFERENT sending
-// domain. A Digest From pointing back at the transactional domain is exactly
-// the coupling ADR 0030 removes, wearing a different variable name, so it is
-// detected rather than trusted — and newDigestEmailSender refuses to send on
-// it. Comparison is case-insensitive because DNS is; an empty From on either
-// side shares nothing, having no domain to share.
-func (c DigestEmailConfig) SharesSendingDomainWith(transactionalFrom string) bool {
-	digest := sendingDomain(c.From)
-	transactional := sendingDomain(transactionalFrom)
-	if digest == "" || transactional == "" {
-		return false
-	}
-	return digest == transactional
-}
-
-// UnconfiguredReason states, in one line an operator can act on, why this
-// deployment cannot send Digests — or "" when it can.
-//
-// It is a method rather than a branch at the call site because every answer
-// here is a refusal to send marketing mail, and the three ways to earn one
-// (nothing set, half set, set to the transactional domain) deserve to be listed
-// together and phrased as instructions.
-func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
-	switch {
-	case c.ResendAPIKey == "" && c.From == "":
-		return "neither DIGEST_RESEND_API_KEY nor DIGEST_EMAIL_FROM is set"
-	case c.ResendAPIKey == "":
-		return "DIGEST_EMAIL_FROM is set but DIGEST_RESEND_API_KEY is not"
-	case c.From == "":
-		return "DIGEST_RESEND_API_KEY is set but DIGEST_EMAIL_FROM is not"
-	case c.SharesSendingDomainWith(transactionalFrom):
-		return fmt.Sprintf("DIGEST_EMAIL_FROM (%s) is on the same sending domain as EMAIL_FROM; the Digest needs its own subdomain (ADR 0030)", c.From)
-	}
-	return ""
-}
-
-// sendingDomain pulls the domain out of an RFC 5322 From header, lowercased.
-// It accepts both `Name <user@host>` and a bare `user@host`, which are the two
-// shapes these settings are ever written in. Anything it cannot parse yields
-// "", which every caller reads as "no domain to compare".
-func sendingDomain(from string) string {
-	address := strings.TrimSpace(from)
-	if open := strings.LastIndex(address, "<"); open >= 0 {
-		rest := address[open+1:]
-		close := strings.Index(rest, ">")
-		if close < 0 {
-			return ""
-		}
-		address = strings.TrimSpace(rest[:close])
-	}
-	at := strings.LastIndex(address, "@")
-	if at < 0 || at == len(address)-1 {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(address[at+1:]))
 }
 
 // GoogleOAuthClient is one surface's registration with Google.
@@ -288,14 +188,6 @@ func LoadConfig() (Config, error) {
 		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
 		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
 		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
-
-		// Read with no fallback of any kind, unlike every other setting in this
-		// struct. The Digest's identity is a sibling of the transactional one and
-		// must never be derived from it: see DigestEmailConfig.
-		DigestEmail: DigestEmailConfig{
-			ResendAPIKey: strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY")),
-			From:         strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
-		},
 
 		// The dev-stack Storefront origin. Production injects the real one, as it
 		// already does for the Storefront container itself; until a custom domain

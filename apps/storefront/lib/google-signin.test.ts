@@ -237,54 +237,6 @@ test("a failure never carries a destination off this Storefront", () => {
   assert.equal(signInFailurePath("//evil.example"), "/signin?google=failed");
 });
 
-// --- the Follow intent across the Google leg (#219) ------------------------
-
-test("a Follow intent crosses the redirect in the cookie, never in Google's URL", () => {
-  const pending = newPendingSignIn("/rock-fest", "organization:rock-fest");
-  assert.equal(pending.followIntent, "organization:rock-fest");
-  assert.deepEqual(decodePendingSignIn(encodePendingSignIn(pending)), pending);
-
-  // Google is told the nonce and the challenge and nothing else about this
-  // sign-in: the intent stays on this origin, out of Google's logs.
-  const url = authorizationUrl(
-    { clientId: "client", redirectUri: "https://storefront.example/callback" },
-    { state: pending.state, codeChallenge: "challenge" },
-  );
-  assert.equal(url.includes("rock-fest"), false);
-});
-
-test("a forged or absent intent in the cookie decodes to none", () => {
-  assert.equal(newPendingSignIn("/rock-fest").followIntent, null);
-  assert.equal(newPendingSignIn("/rock-fest", "playlist:rock-fest").followIntent, null);
-  // A cookie is not a place to start trusting text from: the guard runs again on
-  // the way out.
-  assert.equal(
-    decodePendingSignIn(
-      encodeJson({ s: "state", v: "verifier", d: "/rock-fest", f: "organization:ROCK FEST" }),
-    )?.followIntent,
-    null,
-  );
-});
-
-test("the Google button and the failure path both carry the intent", () => {
-  assert.equal(
-    googleSignInStartPath("/rock-fest", "organization:rock-fest"),
-    "/api/customer/auth/google/start?next=%2Frock-fest&follow=organization%3Arock-fest",
-  );
-  // Even when the destination is the default and would otherwise be dropped.
-  assert.equal(
-    googleSignInStartPath("/tickets", "organization:rock-fest"),
-    "/api/customer/auth/google/start?follow=organization%3Arock-fest",
-  );
-  // Falling back to the passcode form must not cost the visitor what they
-  // pressed.
-  assert.equal(
-    signInFailurePath("/rock-fest", "organization:rock-fest"),
-    "/signin?google=failed&next=%2Frock-fest&follow=organization%3Arock-fest",
-  );
-  assert.equal(signInFailurePath("/tickets", "playlist:rock-fest"), "/signin?google=failed");
-});
-
 /** Encodes an arbitrary value the way the state cookie is encoded, for the refusal cases. */
 function encodeJson(value: unknown): string {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
