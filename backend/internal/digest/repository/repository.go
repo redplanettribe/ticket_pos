@@ -45,6 +45,15 @@ type DigestRecipient struct {
 	// Locale is the Customer's remembered Digest Locale (#216). Never empty: the
 	// column is NOT NULL DEFAULT 'en'.
 	Locale string
+	// DigestEnabled is whether this Customer still wants the Digest (#224).
+	//
+	// It is read HERE, at send time, and not only at enqueue, because the enqueue
+	// filter cannot cover the window it does not span: somebody who unsubscribes
+	// between the weekly enqueue and the minute their Digest is drained already
+	// has a row in the queue addressed to them. That window is small and it is
+	// precisely when an opt-out matters most — the message is sitting there,
+	// ready to go — so one press has to be enough to stop it.
+	DigestEnabled bool
 }
 
 // DigestCandidate is one Event a Customer's Follows matched, with the reasons
@@ -71,9 +80,9 @@ type DigestCandidate struct {
 // given week, and reports how many rows it created and how many were already
 // there.
 //
-// ELIGIBILITY IS TWO FACTS and both are enforced here rather than in the
-// service, because both are set-shaped: at least one Follow of either kind, and
-// a verified Customer.
+// ELIGIBILITY IS THREE FACTS and all are enforced here rather than in the
+// service, because all are set-shaped: at least one Follow of either kind, a
+// verified Customer, and a Customer who has not unsubscribed.
 //
 // The Follow requirement is why this query starts from the Follow tables and
 // unions them rather than starting from `customers` and filtering. A Customer
@@ -88,6 +97,21 @@ type DigestCandidate struct {
 // from a full Customer Session today, so the two conditions overlap completely
 // in practice — this is the guard for the write path that does not exist yet,
 // and it costs one predicate.
+//
+// THE UNSUBSCRIBE FILTER IS HERE, AT THE ENQUEUE, and that is where #224 asks
+// for it: a row in this queue is a promise that somebody is owed a Digest, and a
+// Customer who unsubscribed is owed nothing. Composing their week and discarding
+// it would cost a candidate query and a compose per unsubscribed follower every
+// week for a message that could never be sent, and it would leave the queue full
+// of rows an operator reading a backlog has to know to ignore. The drain checks
+// the same flag again for the one window this predicate cannot span — see
+// DigestRecipient.DigestEnabled.
+//
+// It drops such a Customer out of ELIGIBLE and not merely out of ENQUEUED, which
+// is the honest reading of that number: eligible counts the Customers this
+// feature is about at all, and somebody who asked us to stop writing to them is
+// not one of them. Leaving them eligible would make a week of unsubscribes look
+// like the insert failing.
 //
 // ON CONFLICT DO NOTHING is what makes running this twice harmless: the unique
 // constraint on (customer_id, week_start) refuses the second row, and the count
@@ -109,6 +133,7 @@ func (r *Repository) EnqueueWeek(ctx context.Context, weekStart, now time.Time) 
 			JOIN following f ON f.customer_id = c.id
 			WHERE c.verified_at IS NOT NULL
 			  AND c.deleted_at IS NULL
+			  AND c.digest_enabled
 		),
 		inserted AS (
 			INSERT INTO follow_digests (customer_id, week_start, status, next_attempt_at)
@@ -175,10 +200,10 @@ func (r *Repository) ClaimDueDigest(ctx context.Context, now, leaseUntil time.Ti
 func (r *Repository) LoadRecipient(ctx context.Context, customerID string) (*DigestRecipient, error) {
 	var out DigestRecipient
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT email, first_name, digest_locale
+		SELECT email, first_name, digest_locale, digest_enabled
 		FROM customers
 		WHERE id = $1 AND deleted_at IS NULL
-	`, customerID).Scan(&out.Email, &out.FirstName, &out.Locale)
+	`, customerID).Scan(&out.Email, &out.FirstName, &out.Locale, &out.DigestEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -383,6 +408,34 @@ func (r *Repository) MarkDigestEmpty(ctx context.Context, digestID string) error
 	_, err := r.db.Pool.ExecContext(ctx, `
 		UPDATE follow_digests
 		SET status = 'empty', last_error = NULL, updated_at = NOW()
+		WHERE id = $1
+	`, digestID)
+	return err
+}
+
+// MarkDigestSkipped records that a Digest was not sent because its Customer had
+// unsubscribed by the time the drain reached them (#224, ADR 0030).
+//
+// A FIFTH TERMINAL STATE RATHER THAN A QUIET `empty`, because the two are
+// different facts and an operator reading this table has to be able to tell them
+// apart. `empty` says "their Follows matched nothing", which is a reason to
+// wonder whether the matching is working. `skipped` says "we deliberately did
+// not write to this person", which is the feature working. Collapsing them would
+// make a surge of unsubscribes look identical to the composition breaking.
+//
+// It is written BEFORE anything is composed — no candidate query, no Tag
+// resolution, no message — which is #224's "skip rather than compose and
+// discard" held at the second of the two places it can be held. The first is the
+// enqueue, which refuses to create the row at all; this covers only the window
+// between the two.
+//
+// Terminal, like `empty`: the week does not come round again, and a Customer
+// turning the Digest back on must not resurrect a Digest addressed to the week
+// they wanted to be quiet for.
+func (r *Repository) MarkDigestSkipped(ctx context.Context, digestID string) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE follow_digests
+		SET status = 'skipped', last_error = NULL, updated_at = NOW()
 		WHERE id = $1
 	`, digestID)
 	return err

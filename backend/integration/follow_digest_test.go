@@ -43,9 +43,12 @@ type followDigestEnqueueResult struct {
 // followDigestDrainResult is what one drain run did, and what is still waiting
 // once it had done it.
 type followDigestDrainResult struct {
-	Claimed          int    `json:"claimed"`
-	Sent             int    `json:"sent"`
-	Empty            int    `json:"empty"`
+	Claimed int `json:"claimed"`
+	Sent    int `json:"sent"`
+	Empty   int `json:"empty"`
+	// Skipped is Digests whose Customer had unsubscribed by the time the drain
+	// reached them (#224). Distinct from Empty: nothing was composed at all.
+	Skipped          int    `json:"skipped"`
 	Retrying         int    `json:"retrying"`
 	GaveUp           int    `json:"gave_up"`
 	PendingTotal     int    `json:"pending_total"`

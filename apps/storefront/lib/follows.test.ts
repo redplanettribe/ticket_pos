@@ -49,6 +49,11 @@ const bothKinds: SessionOutcome<Follows> = {
         tag: { canonical_key: "arts & theatre", name: "Arts & Theatre", curated: true },
       },
     ],
+    // The Digest switch rides on this listing (#224). Nothing in this file
+    // reads it — every function here is about the Follows — and that is the
+    // point worth having a fixture for: Unsubscribe and Unfollow are different
+    // acts, and no answer below may ever depend on this flag.
+    digest_enabled: true,
   },
 };
 

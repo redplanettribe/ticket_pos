@@ -216,6 +216,24 @@ type FollowDigest struct {
 	//
 	// Never empty. A caller with nothing to say sends nothing at all.
 	Events []FollowDigestEvent
+	// UnsubscribeURL is the signed link that turns this Digest off, carried in
+	// the footer of every one (#224, ADR 0030).
+	//
+	// EVERY DIGEST CARRIES IT, which is the first acceptance criterion and the
+	// one every other one depends on — there is no opt-out at all if the message
+	// does not carry it. It is minted per Customer by the customers module, which
+	// owns the signing key, and it names that one Customer and nothing else.
+	//
+	// It points at a STOREFRONT PAGE and not at an API endpoint, and the page
+	// confirms with a POST. Mail security scanners prefetch every link in every
+	// message before a human sees one, so a link that acted on being fetched
+	// would let a corporate scanner silence everybody it protects, silently and
+	// permanently.
+	//
+	// Empty only when the platform holds no signing key, in which case the
+	// footer degrades to the closing line alone rather than the Digest failing to
+	// send — see digest/service.unsubscribeURL.
+	UnsubscribeURL string
 }
 
 // FollowDigestEvent is one Event as a Follow Digest lists it.

@@ -657,6 +657,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn the Follow Digest on or off
+         * @description Sets whether the signed-in Customer receives the weekly Follow Digest, and returns the switch as it now stands. This is the Customer Area's toggle beside the Following list, and it is the only way to turn the Digest back ON — the unsubscribe link is unauthenticated because somebody who wants quiet must be able to have it without signing in, and none of that argument applies to switching somebody's mail back on. Changes no Follow either way: the list is exactly as it was, and a Customer who turns the Digest off keeps everything they Followed. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to subscribe that inbox to weekly mail. Takes the state asked for rather than flipping, so a retried or double-tapped request means the same thing once.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Whether the Digest is on */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.digestSubscriptionBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDigestSubscription"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/follows": {
         parameters: {
             query?: never;
@@ -1341,6 +1412,59 @@ export interface paths {
                 };
                 /** @description Bad Gateway */
                 502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unsubscribe from the Follow Digest
+         * @description Turns the Follow Digest off for the Customer named by a signed unsubscribe token, which is carried in the footer of every Digest. Requires no sign-in and accepts no credential: a Digest is read months after anybody last signed in, and an opt-out gated behind a passcode would not be an opt-out. Unsubscribing is a switch and not a purge — every Follow stands, stays visible in the Customer Area, and the Customer can turn the Digest back on from there. This is deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link in a message cannot unsubscribe anybody; a GET is answered 405. Idempotent: the same link appears in every Digest a person ever received, and pressing it twice means the same thing once. A malformed, forged or spent token is UNSUBSCRIBE_LINK_INVALID. Touches no transactional mail: One-time Passcodes and Sale Confirmations arrive either way.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Signed unsubscribe token */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.unsubscribeBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerDigestSubscription"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6172,6 +6296,9 @@ export interface components {
         "handler.declinePayoutRequestBody": {
             reason?: string;
         };
+        "handler.digestSubscriptionBody": {
+            enabled?: boolean;
+        };
         "handler.fulfilPayoutRequestBody": {
             amount_cents?: number;
             note?: string;
@@ -6236,6 +6363,9 @@ export interface components {
         };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
+        };
+        "handler.unsubscribeBody": {
+            token?: string;
         };
         "handler.updateAffiliateLinkBody": {
             active?: boolean;
@@ -6433,6 +6563,11 @@ export interface components {
         };
         "openapi.EnvelopeCustomerAvatarUpload": {
             data?: components["schemas"]["storage.CoverUploadResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerDigestSubscription": {
+            data?: components["schemas"]["service.DigestSubscriptionView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -6805,6 +6940,9 @@ export interface components {
             ticket_sale_id?: string;
             verified_at?: string;
         };
+        "service.DigestSubscriptionView": {
+            digest_enabled?: boolean;
+        };
         "service.DrainResult": {
             /**
              * @description Claimed is how many pending Digests this run took out of the queue. Zero is
@@ -6842,6 +6980,23 @@ export interface components {
             retrying?: number;
             /** @description Sent is Digests delivered and recorded in the sent-ledger. */
             sent?: number;
+            /**
+             * @description Skipped is Digests whose Customer had unsubscribed by the time the drain
+             *     reached them (#224). NOTHING WAS COMPOSED for these, which is what
+             *     separates them from Empty: an empty Digest was worked out and found to say
+             *     nothing, a skipped one was never worked out at all.
+             *
+             *     It is its own number for the reason `skipped` is its own status: "their
+             *     Follows matched nothing" is a reason to look at the composition, and "we
+             *     deliberately did not write to this person" is the feature working. An
+             *     operator who could not tell the two apart would read a week of unsubscribes
+             *     as the matching having broken.
+             *
+             *     It counts only the narrow window the enqueue filter cannot cover — somebody
+             *     who unsubscribed after their Digest was already queued — so it is
+             *     ordinarily zero even in a week with many unsubscribes.
+             */
+            skipped?: number;
         };
         "service.EnqueueResult": {
             /**
@@ -6949,6 +7104,23 @@ export interface components {
             name?: string;
         };
         "service.FollowsView": {
+            /**
+             * @description DigestEnabled is whether the Follow Digest is switched on for this
+             *     Customer (#224, ADR 0030).
+             *
+             *     IT RIDES BESIDE THE FOLLOWS RATHER THAN ON AN ENDPOINT OF ITS OWN, and that
+             *     is the point of putting it here. The Customer Area has one sentence to say
+             *     — "the Digest is off, and everything you Follow still stands" — and it is
+             *     one screen; two reads that could disagree is how a Following page comes to
+             *     show an empty list beside a switch that says the mail is on, or a full list
+             *     beside a switch that has not caught up. One read answers both halves, so
+             *     they cannot skew.
+             *
+             *     It is also the surface the criterion is written against: unsubscribing must
+             *     leave every Follow "intact and visible in the Customer Area", and this is
+             *     the response that proves both at once.
+             */
+            digest_enabled?: boolean;
             follows?: components["schemas"]["service.FollowView"][];
         };
         "service.MembershipView": {

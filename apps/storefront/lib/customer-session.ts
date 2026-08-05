@@ -410,6 +410,18 @@ export type Follow =
 /** Everything the Customer Follows, most recently followed first. */
 export type Follows = {
   follows: Follow[];
+  /**
+   * Whether the weekly Follow Digest is switched on for this Customer (#224).
+   *
+   * It rides on the Follows listing rather than on a read of its own because the
+   * Customer Area has one sentence to say — the digest is off, and everything
+   * you follow still stands — and two reads that could disagree is how a page
+   * comes to show a full list beside a switch that has not caught up.
+   *
+   * Unsubscribing and Unfollowing are different acts (CONTEXT.md): this is the
+   * only one that changes, and no Follow above it moves either way.
+   */
+  digest_enabled: boolean;
 };
 
 /**

@@ -91,11 +91,26 @@ type FollowView struct {
 // FollowsView is the whole of what a Customer Follows.
 //
 // A wrapping object rather than a bare array, because the bare array is the
-// shape that cannot grow: this list will one day want a count, a paging cursor,
-// or the Customer's Unsubscribe state beside it, and none of those can be added
-// to a JSON array without breaking every caller.
+// shape that cannot grow: this list wanted a count, a paging cursor, or the
+// Customer's Unsubscribe state beside it, and none of those can be added to a
+// JSON array without breaking every caller. The last of those is now here.
 type FollowsView struct {
 	Follows []FollowView `json:"follows"`
+	// DigestEnabled is whether the Follow Digest is switched on for this
+	// Customer (#224, ADR 0030).
+	//
+	// IT RIDES BESIDE THE FOLLOWS RATHER THAN ON AN ENDPOINT OF ITS OWN, and that
+	// is the point of putting it here. The Customer Area has one sentence to say
+	// — "the Digest is off, and everything you Follow still stands" — and it is
+	// one screen; two reads that could disagree is how a Following page comes to
+	// show an empty list beside a switch that says the mail is on, or a full list
+	// beside a switch that has not caught up. One read answers both halves, so
+	// they cannot skew.
+	//
+	// It is also the surface the criterion is written against: unsubscribing must
+	// leave every Follow "intact and visible in the Customer Area", and this is
+	// the response that proves both at once.
+	DigestEnabled bool `json:"digest_enabled"`
 }
 
 // OrganizationResolver turns the slug a Customer sees into the Organization id a
@@ -288,7 +303,10 @@ func (s *Service) ListFollows(ctx context.Context, token string) (*FollowsView, 
 	}
 	mergeFollows(views)
 
-	return &FollowsView{Follows: views}, nil
+	// The Digest switch comes from the Customer already authenticated above rather
+	// than from a query of its own, so the list and the switch are read in one
+	// pass and cannot disagree (#224).
+	return &FollowsView{Follows: views, DigestEnabled: customer.DigestEnabled}, nil
 }
 
 // mergeFollows puts the two kinds into one order, in place.

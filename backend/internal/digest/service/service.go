@@ -43,11 +43,30 @@ type TagNameResolver interface {
 	LocalizedTagNames(ctx context.Context, canonicalKeys []string, locale platform.Locale) (map[string]string, error)
 }
 
+// UnsubscribeLinkMinter mints the signed link that turns one Customer's Follow
+// Digest off (#224, ADR 0030).
+//
+// Declared here, on the side that calls it, and satisfied by customers — which
+// owns the Customer, the signing key, and the Confirmation Link machinery this
+// link REUSES rather than reinvents. A second signing scheme would have been a
+// second key to configure, rotate and get wrong, for a token that says less than
+// the one that already exists.
+//
+// It is the narrowest statement of the need: one Customer id in, one URL out,
+// with no way to reach the switch itself. This module composes and sends mail;
+// deciding who may unsubscribe whom, and what unsubscribing does and does not
+// touch, belongs entirely to customers — and keeping that decision out of reach
+// here is why nothing in the digest module can ever remove a Follow.
+type UnsubscribeLinkMinter interface {
+	UnsubscribeLinkURL(customerID string) (string, error)
+}
+
 // Service composes and delivers Follow Digests.
 type Service struct {
 	repo              *repository.Repository
 	email             platform.EmailSender
 	tags              TagNameResolver
+	unsubscribe       UnsubscribeLinkMinter
 	storefrontBaseURL string
 	logger            platform.Logger
 	now               func() time.Time
@@ -88,6 +107,23 @@ func (s *Service) WithClock(clock func() time.Time) *Service {
 // attribution is worth less than a Digest nobody gets.
 func (s *Service) WithTags(resolver TagNameResolver) *Service {
 	s.tags = resolver
+	return s
+}
+
+// WithUnsubscribe attaches the minter that signs each Digest's unsubscribe link
+// (#224). Wired after construction because customers is built earlier and the
+// dependency is additive, exactly as WithTags is.
+//
+// A service without it still sends Digests, with the footer's closing line and
+// no link. That degradation is the same trade WithTags makes and it is a worse
+// one — ADR 0030 makes the Digest the only mail a Customer can turn off, so a
+// Digest without the link is a Digest they cannot — but it is still the better
+// of the two available failures: a deployment that lost the signing key would
+// otherwise stop sending Digests entirely and nobody would learn why any faster.
+// The refusal is visible in the logs of whoever declined to mint (see
+// unsubscribeURL).
+func (s *Service) WithUnsubscribe(minter UnsubscribeLinkMinter) *Service {
+	s.unsubscribe = minter
 	return s
 }
 
@@ -141,6 +177,21 @@ type DrainResult struct {
 	// already been shown. NO EMAIL WAS SENT for these, which is the rule and not
 	// a failure: an empty Digest teaches its reader to ignore the next one.
 	Empty int `json:"empty"`
+	// Skipped is Digests whose Customer had unsubscribed by the time the drain
+	// reached them (#224). NOTHING WAS COMPOSED for these, which is what
+	// separates them from Empty: an empty Digest was worked out and found to say
+	// nothing, a skipped one was never worked out at all.
+	//
+	// It is its own number for the reason `skipped` is its own status: "their
+	// Follows matched nothing" is a reason to look at the composition, and "we
+	// deliberately did not write to this person" is the feature working. An
+	// operator who could not tell the two apart would read a week of unsubscribes
+	// as the matching having broken.
+	//
+	// It counts only the narrow window the enqueue filter cannot cover — somebody
+	// who unsubscribed after their Digest was already queued — so it is
+	// ordinarily zero even in a week with many unsubscribes.
+	Skipped int `json:"skipped"`
 	// Retrying is Digests whose delivery failed and which are back in the queue
 	// on a backoff. It is the number that says a provider is unwell.
 	Retrying int `json:"retrying"`
@@ -315,6 +366,8 @@ func (s *Service) DrainDigests(ctx context.Context) (*DrainResult, error) {
 			s.recordFailure(ctx, *pending, err, &out)
 		case outcome == digestOutcomeEmpty:
 			out.Empty++
+		case outcome == digestOutcomeSkipped:
+			out.Skipped++
 		default:
 			out.Sent++
 		}
@@ -348,6 +401,15 @@ const (
 	// digestOutcomeEmpty: there was nothing to say, so nothing was sent and
 	// nothing was written to the ledger.
 	digestOutcomeEmpty
+	// digestOutcomeSkipped: the Customer had unsubscribed by the time this
+	// Digest was reached, so nothing was composed, nothing was sent, and nothing
+	// was written to the ledger (#224).
+	//
+	// The last of those matters as much as the first. A ledger row records what a
+	// person was SHOWN, and writing one for a message nobody sent would make
+	// those Events invisible to them forever after they came back — the Digest
+	// they turned on again would be the poorer for a week they spent quiet.
+	digestOutcomeSkipped
 )
 
 // deliverDigest composes one claimed Digest AT SEND TIME, sends it, and records
@@ -382,6 +444,17 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		// nobody to write to and nothing to retry.
 		return digestOutcomeEmpty, s.repo.MarkDigestEmpty(ctx, pending.ID)
 	}
+	// The unsubscribe check, and it is FIRST — before the candidates are queried,
+	// before anything is composed, and long before anything could be sent (#224).
+	//
+	// The enqueue already refuses to queue an unsubscribed Customer, so this
+	// covers exactly one window: somebody who unsubscribed between the weekly
+	// enqueue and the minute their Digest was drained. That window is small and
+	// it is precisely when an opt-out matters most — the message is queued and
+	// addressed — and one press has to be enough to stop it.
+	if !recipient.DigestEnabled {
+		return digestOutcomeSkipped, s.repo.MarkDigestSkipped(ctx, pending.ID)
+	}
 
 	candidates, err := s.repo.DigestCandidates(ctx, pending.CustomerID, s.now().UTC())
 	if err != nil {
@@ -396,7 +469,7 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		locale = parsed
 	}
 
-	message, err := s.compose(ctx, *recipient, locale, candidates)
+	message, err := s.compose(ctx, pending.CustomerID, *recipient, locale, candidates)
 	if err != nil {
 		return digestOutcomeEmpty, err
 	}
@@ -428,6 +501,7 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 // belong to the message (platform.FollowDigest.Text).
 func (s *Service) compose(
 	ctx context.Context,
+	customerID string,
 	recipient repository.DigestRecipient,
 	locale platform.Locale,
 	candidates []repository.DigestCandidate,
@@ -469,7 +543,43 @@ func (s *Service) compose(
 		CustomerName: recipient.FirstName,
 		Locale:       locale,
 		Events:       events,
+		// EVERY Digest carries it (#224). It is minted here, per message, rather
+		// than stored: the link is derived from the Customer's id and the signing
+		// key, exactly as the Event links above are derived from the Storefront
+		// origin, and a stored token would be a row to create, index and sweep for
+		// a credential whose entire content is "this person, until they say
+		// otherwise".
+		UnsubscribeURL: s.unsubscribeURL(customerID),
 	}, nil
+}
+
+// unsubscribeURL mints this Customer's unsubscribe link, or returns "" and says
+// so in the logs.
+//
+// A DIGEST STILL GOES OUT WITHOUT ONE, which is the uncomfortable half of this
+// function and is deliberate. ADR 0030 makes the Digest the only mail a Customer
+// can turn off, so a Digest without the link is one they cannot turn off from
+// the message — but the only alternative is refusing to send at all, and a
+// deployment that lost its signing key would then silence every Digest on the
+// platform for a reason nobody reading a queue could see. Warning loudly and
+// sending the mail leaves the Customer Area's toggle, which is unaffected.
+//
+// It is not an error return because there is nothing for the caller to decide:
+// every possible answer here still sends the Digest, and threading an error
+// through compose would only invite a future reader to fail the send on it.
+func (s *Service) unsubscribeURL(customerID string) string {
+	if s.unsubscribe == nil {
+		s.logger.Warn("no unsubscribe link minter is wired; Follow Digests are going out with no unsubscribe link in them",
+			"customer_id", customerID)
+		return ""
+	}
+	url, err := s.unsubscribe.UnsubscribeLinkURL(customerID)
+	if err != nil {
+		s.logger.Warn("could not mint an unsubscribe link; this Follow Digest goes out without one",
+			"customer_id", customerID, "error", err)
+		return ""
+	}
+	return url
 }
 
 // tagNames resolves every Tag named across a whole Digest in one call.

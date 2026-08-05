@@ -298,6 +298,16 @@ var (
 		en: "You are getting this because you follow organizers and topics on Multiticketing.",
 		es: "Recibes esto porque sigues organizadores y temas en Multiticketing.",
 	}
+	// The unsubscribe line (#224, ADR 0030). It says what pressing the link does
+	// AND what it does not do, because those are two different acts with two
+	// different names (CONTEXT.md): Unsubscribing silences the Digest,
+	// Unfollowing removes a Follow. A reader who wanted fewer emails and feared
+	// losing what they follow would otherwise have no way to tell, and the
+	// safest-looking answer available to them is to stop opening the mail.
+	digestUnsubscribeCopy = digestCopy{
+		en: "Don't want these? Turn off the digest — you'll keep everything you follow: %s",
+		es: "¿No quieres recibirlos? Desactiva el resumen: seguirás siguiendo todo lo que sigues: %s",
+	}
 )
 
 // Subject is the Follow Digest's subject line.
@@ -320,11 +330,19 @@ func (d FollowDigest) Subject() string {
 // arrives with its own decisions; a first cut that guessed at them would have to
 // be undone rather than extended.
 //
-// There is also no unsubscribe link, which is the one absence that is a debt
-// rather than a decision: ADR 0030 makes the Digest the only mail a Customer can
-// turn off, and #223 is where the switch and the signed link land. Until then
-// this mail must not be sent to anybody who did not press Follow, which is the
-// enqueue's rule and not this method's.
+// THE FOOTER CARRIES THE UNSUBSCRIBE LINK (#224), and it is the one part of
+// this message that is not about Events. ADR 0030 makes the Digest the only mail
+// a Customer can turn off, so it is also the only mail that must always say how
+// — every Digest, not the first one and not a sample. The line says that
+// pressing it keeps their Follows, because Unsubscribe and Unfollow are
+// different acts and a reader who cannot tell them apart will choose the one
+// that risks nothing: ignoring the mail forever.
+//
+// The link is absent only when the platform holds no signing key. The footer
+// then degrades to the closing line rather than rendering a dead address, and
+// the Digest still goes out — a missing footer link is worth less than a Digest
+// nobody gets, and the deployment fault is visible in the logs of whatever
+// refused to mint it.
 //
 // An empty Digest cannot be rendered here because it is never composed: the
 // caller sends nothing at all when nothing matched (digest/service.deliverDigest).
@@ -333,7 +351,11 @@ func (d FollowDigest) Text() string {
 	for _, event := range d.Events {
 		text += "\n\n" + event.render(d.Locale)
 	}
-	return text + "\n\n" + digestClosingCopy.in(d.Locale)
+	text += "\n\n" + digestClosingCopy.in(d.Locale)
+	if d.UnsubscribeURL != "" {
+		text += "\n" + fmt.Sprintf(digestUnsubscribeCopy.in(d.Locale), d.UnsubscribeURL)
+	}
+	return text
 }
 
 // render is one Event's block in the Digest: what it is, when and where, a link,

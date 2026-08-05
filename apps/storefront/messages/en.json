@@ -63,7 +63,30 @@
     "emptyTitle": "You aren't following anything yet",
     "emptyDescription": "Follow an organizer from their page, or a tag from an event, and their events arrive in one weekly email.",
     "loadFailedTitle": "We couldn't load what you follow",
-    "loadNetworkFailed": "We couldn't reach the ticket service. Please check your connection and try again."
+    "loadNetworkFailed": "We couldn't reach the ticket service. Please check your connection and try again.",
+    "digestTitle": "Weekly digest",
+    "digestOnDescription": "One email a week about everything below. Turn it off and you keep every follow — nothing here changes.",
+    "digestOffDescription": "The weekly email is off. Everything you follow is still below and still yours; you just aren't being written to.",
+    "digestTurnOff": "Turn off",
+    "digestTurnOn": "Turn on",
+    "digestOnToast": "The weekly digest is back on.",
+    "digestOffToast": "The weekly digest is off. You still follow everything below.",
+    "digestFailed": "That didn't work. Try again.",
+    "digestNetworkFailed": "That didn't work. Check your connection and try again."
+  },
+  "unsubscribe": {
+    "metaTitle": "Unsubscribe · {brand}",
+    "title": "Turn off the weekly digest",
+    "description": "You'll stop getting the weekly email. Everything you follow stays exactly as it is — this only stops the mail.",
+    "confirm": "Turn off the weekly digest",
+    "doneTitle": "The weekly digest is off",
+    "doneDescription": "We won't send it again. Everything you follow is still yours, and you can turn the digest back on whenever you like.",
+    "manageLink": "Manage what you follow",
+    "failedTitle": "We couldn't turn it off",
+    "failed": "That didn't work. Try again.",
+    "networkFailed": "That didn't work. Check your connection and try again.",
+    "missingTokenTitle": "This link is incomplete",
+    "missingTokenDescription": "Open the link from your email again, or turn the digest off from your account."
   },
   "event": {
     "metaTitle": "{event} · {organization}",
@@ -290,7 +313,8 @@
       "SALE_NOT_REVERSIBLE": "This purchase can't be undone here. Contact the organizer for help.",
       "REVERSAL_WINDOW_CLOSED": "The time to undo this purchase has passed. Contact the organizer for help.",
       "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
-      "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference."
+      "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference.",
+      "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead."
     },
     "field": {
       "REQUIRED": "is required",

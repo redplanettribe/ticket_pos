@@ -115,9 +115,17 @@ func domainHTTPStatus(code string) int {
 	// same reason a bad passcode is: the caller failed to prove anything.
 	case "CONFIRMATION_LINK_INVALID", "CONFIRMATION_LINK_EXPIRED":
 		return http.StatusUnauthorized
+	// An unsubscribe token that does not verify is 400 and pointedly not the 401
+	// its Confirmation Link neighbour gets (#224, ADR 0030). A Confirmation Link
+	// mints a session, so a bad one is a failure to authenticate; unsubscribing
+	// authenticates nobody by design — the link must work in a mail client months
+	// after anybody last signed in — so a bad token is a malformed argument and
+	// there is no credential to re-present.
+	case "UNSUBSCRIBE_LINK_INVALID":
+		return http.StatusBadRequest
 	// No signing key configured is a deployment fault, not the caller's — as is
 	// object storage missing when an Avatar upload is asked for.
-	case "CONFIRMATION_LINK_UNAVAILABLE", "AVATAR_UPLOAD_UNAVAILABLE":
+	case "CONFIRMATION_LINK_UNAVAILABLE", "UNSUBSCRIBE_LINK_UNAVAILABLE", "AVATAR_UPLOAD_UNAVAILABLE":
 		return http.StatusInternalServerError
 	case "FORBIDDEN":
 		return http.StatusForbidden

@@ -189,6 +189,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.digestSubscriptionBody": {
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "handler.fulfilPayoutRequestBody": {
                 "properties": {
                     "amount_cents": {
@@ -368,6 +376,14 @@ const docTemplate = `{
                 "properties": {
                     "notify_buyers": {
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.unsubscribeBody": {
+                "properties": {
+                    "token": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -772,6 +788,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/storage.CoverUploadResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerDigestSubscription": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.DigestSubscriptionView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1646,6 +1676,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.DigestSubscriptionView": {
+                "properties": {
+                    "digest_enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "service.DrainResult": {
                 "properties": {
                     "claimed": {
@@ -1673,6 +1711,10 @@ const docTemplate = `{
                     },
                     "sent": {
                         "description": "Sent is Digests delivered and recorded in the sent-ledger.",
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "description": "Skipped is Digests whose Customer had unsubscribed by the time the drain\nreached them (#224). NOTHING WAS COMPOSED for these, which is what\nseparates them from Empty: an empty Digest was worked out and found to say\nnothing, a skipped one was never worked out at all.\n\nIt is its own number for the reason ` + "`" + `skipped` + "`" + ` is its own status: \"their\nFollows matched nothing\" is a reason to look at the composition, and \"we\ndeliberately did not write to this person\" is the feature working. An\noperator who could not tell the two apart would read a week of unsubscribes\nas the matching having broken.\n\nIt counts only the narrow window the enqueue filter cannot cover — somebody\nwho unsubscribed after their Digest was already queued — so it is\nordinarily zero even in a week with many unsubscribes.",
                         "type": "integer"
                     }
                 },
@@ -1894,6 +1936,10 @@ const docTemplate = `{
             },
             "service.FollowsView": {
                 "properties": {
+                    "digest_enabled": {
+                        "description": "DigestEnabled is whether the Follow Digest is switched on for this\nCustomer (#224, ADR 0030).\n\nIT RIDES BESIDE THE FOLLOWS RATHER THAN ON AN ENDPOINT OF ITS OWN, and that\nis the point of putting it here. The Customer Area has one sentence to say\n— \"the Digest is off, and everything you Follow still stands\" — and it is\none screen; two reads that could disagree is how a Following page comes to\nshow an empty list beside a switch that says the mail is on, or a full list\nbeside a switch that has not caught up. One read answers both halves, so\nthey cannot skew.\n\nIt is also the surface the criterion is written against: unsubscribing must\nleave every Follow \"intact and visible in the Customer Area\", and this is\nthe response that proves both at once.",
+                        "type": "boolean"
+                    },
                     "follows": {
                         "items": {
                             "$ref": "#/components/schemas/service.FollowView"
@@ -3837,6 +3883,82 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/customer/digest": {
+            "put": {
+                "description": "Sets whether the signed-in Customer receives the weekly Follow Digest, and returns the switch as it now stands. This is the Customer Area's toggle beside the Following list, and it is the only way to turn the Digest back ON — the unsubscribe link is unauthenticated because somebody who wants quiet must be able to have it without signing in, and none of that argument applies to switching somebody's mail back on. Changes no Follow either way: the list is exactly as it was, and a Customer who turns the Digest off keeps everything they Followed. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to subscribe that inbox to weekly mail. Takes the state asked for rather than flipping, so a retried or double-tapped request means the same thing once.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.digestSubscriptionBody",
+                                        "summary": "body",
+                                        "description": "Whether the Digest is on"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Whether the Digest is on",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDigestSubscription"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Turn the Follow Digest on or off",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
         "/api/v1/customer/follows": {
             "get": {
                 "description": "Returns everything the signed-in Customer Follows, most recently followed first. One list rather than one per kind: each entry carries a ` + "`" + `type` + "`" + ` discriminator and the subject hangs off the field named by it, so a client switches on ` + "`" + `type` + "`" + ` and keeps working as further kinds of Follow are added. Always scoped by the Customer Session, never by any identifier in the request. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.",
@@ -4547,6 +4669,57 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Undo a Ticket Sale",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/unsubscribe": {
+            "post": {
+                "description": "Turns the Follow Digest off for the Customer named by a signed unsubscribe token, which is carried in the footer of every Digest. Requires no sign-in and accepts no credential: a Digest is read months after anybody last signed in, and an opt-out gated behind a passcode would not be an opt-out. Unsubscribing is a switch and not a purge — every Follow stands, stays visible in the Customer Area, and the Customer can turn the Digest back on from there. This is deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link in a message cannot unsubscribe anybody; a GET is answered 405. Idempotent: the same link appears in every Digest a person ever received, and pressing it twice means the same thing once. A malformed, forged or spent token is UNSUBSCRIBE_LINK_INVALID. Touches no transactional mail: One-time Passcodes and Sale Confirmations arrive either way.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.unsubscribeBody",
+                                        "summary": "body",
+                                        "description": "Signed unsubscribe token"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Signed unsubscribe token",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerDigestSubscription"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Unsubscribe from the Follow Digest",
                 "tags": [
                     "customer"
                 ]

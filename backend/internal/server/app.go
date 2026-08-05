@@ -295,6 +295,17 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// (ADR 0027 as amended by ADR 0030). The digest module declares the narrow
 	// interface and catalog satisfies it, as customers does for Tag ids.
 	digestService = digestService.WithTags(catalogService)
+	// The unsubscribe link in every Digest footer (#224, ADR 0030). It REUSES the
+	// Confirmation Link signing machinery rather than adding a second scheme:
+	// customers owns the key, the Customer, and what unsubscribing does and does
+	// not touch, so the digest module declares the narrow minter interface and
+	// customers satisfies it — as catalog does for Tag names above.
+	//
+	// Tied here rather than at construction because customers is built long
+	// before this and the dependency is additive. Note which way it runs: the
+	// digest module can ask for a link and can do nothing else, so no amount of
+	// change in here can reach a Follow.
+	digestService = digestService.WithUnsubscribe(customersService)
 	digestHandler := digesthandler.New(digestService)
 
 	// The Operator Dashboard is composed from the modules that own its data:

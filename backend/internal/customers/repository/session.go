@@ -41,11 +41,26 @@ type Customer struct {
 	// empty: a Customer a box office sale created has never been on a localized
 	// surface, and carries the column's English default rather than nothing.
 	DigestLocale string
+	// DigestEnabled is whether this Customer's Follow Digest is switched on
+	// (#224, ADR 0030). NOT NULL DEFAULT TRUE, so there is no third state: a
+	// Customer who has never touched the switch carries the consent they gave by
+	// pressing Follow, and this column records only its withdrawal.
+	//
+	// It is read back with every Customer rather than by a query of its own,
+	// because the one surface that publishes it — the Follows listing — has to
+	// say "the Digest is off and your Follows still stand" in one breath, and two
+	// reads that can disagree is how that sentence becomes a lie.
+	//
+	// IT GATES NO TRANSACTIONAL MAIL. Nothing that sends a One-time Passcode or a
+	// Sale Confirmation reads this field, and nothing ever should: unsubscribing
+	// from a weekly discovery email must not cost a person their account or their
+	// tickets.
+	DigestEnabled bool
 }
 
 // customerColumns is every column a Customer is read back with, in the order
 // scanCustomer expects. One list because five statements select it.
-const customerColumns = `id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at, digest_locale`
+const customerColumns = `id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at, digest_locale, digest_enabled`
 
 // scanRow is either a *sql.Row or a *sql.Rows positioned on one.
 type scanRow interface {
@@ -56,7 +71,7 @@ type scanRow interface {
 func scanCustomer(row scanRow) (*Customer, error) {
 	var c Customer
 	if err := row.Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber,
-		&c.Phone, &c.AvatarImageKey, &c.VerifiedAt, &c.DigestLocale); err != nil {
+		&c.Phone, &c.AvatarImageKey, &c.VerifiedAt, &c.DigestLocale, &c.DigestEnabled); err != nil {
 		return nil, err
 	}
 	return &c, nil

@@ -53,6 +53,11 @@ type followView struct {
 
 type followsView struct {
 	Follows []followView `json:"follows"`
+	// DigestEnabled is whether the Follow Digest is switched on for this
+	// Customer (#224). It rides beside the Follows because the Customer Area has
+	// to be able to say "the Digest is off and your Follows still stand", which
+	// is one screen and must never be two reads that can disagree.
+	DigestEnabled bool `json:"digest_enabled"`
 }
 
 func followOrganizationPath(slug string) string {

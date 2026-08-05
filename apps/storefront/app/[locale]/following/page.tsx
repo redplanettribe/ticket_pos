@@ -3,6 +3,7 @@ import { getMessages, getTranslations, setRequestLocale } from "next-intl/server
 
 import { Alert, AlertDescription, AlertTitle, PageHeader } from "@ticket-pos/ui";
 
+import { DigestToggle } from "@/components/digest-toggle";
 import { FollowingList } from "@/components/following-list";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
@@ -89,7 +90,18 @@ export default async function FollowingPage({ params }: FollowingPageProps) {
             <AlertDescription>{loadFailure}</AlertDescription>
           </Alert>
         ) : (
-          <FollowingList follows={followList(follows)} />
+          <>
+            {/* The Follow Digest switch, ABOVE the list and drawn from the same
+                read (#224). Above, because when it is off it changes what the
+                list below means — those Follows stand, and nothing is being sent
+                about them — and a reader who met the list first would have
+                already drawn the wrong conclusion. From the same read, because
+                the two must never disagree: "the digest is off and your follows
+                still stand" is one sentence, and two reads that could skew is
+                how it becomes untrue. */}
+            <DigestToggle enabled={follows.data.digest_enabled} />
+            <FollowingList follows={followList(follows)} />
+          </>
         )}
       </div>
     </StorefrontShell>

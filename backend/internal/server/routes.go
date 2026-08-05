@@ -167,6 +167,18 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// unauthenticated too. It reads Authorization when present, but only to
 	// notice that the caller already holds something wider than a link.
 	mux.HandleFunc("POST /api/v1/customer/auth/confirmation-link", h.RedeemConfirmationLink)
+	// Unsubscribing from the Follow Digest (#224, ADR 0030). Unauthenticated, and
+	// it is the only write in this namespace that is: a Digest is read in a mail
+	// client months after anybody last signed in, so an opt-out behind a passcode
+	// would be no opt-out. The signed token in the link is the whole authority,
+	// it names one Customer, and all it can do is set one reversible flag.
+	//
+	// POST AND ONLY POST, which is the point. The link in the Digest points at a
+	// Storefront page that confirms with this request; mail security scanners
+	// prefetch every link in every message, and a GET that acted would let one
+	// silence everybody it protects. Registering the method alone is what makes
+	// the router answer a bare GET of this path with 405 rather than with an act.
+	mux.HandleFunc("POST /api/v1/customer/unsubscribe", h.Unsubscribe)
 
 	// signedIn gates a route on a valid Customer Session and extends its sliding
 	// window. Everything behind it is scoped to the Customer on that session.
@@ -213,6 +225,17 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// its owner has subscribed to. That narrowing is the service's rather than
 	// this middleware's, exactly as for the profile PATCH.
 	mux.Handle("GET /api/v1/customer/follows", signedIn(http.HandlerFunc(h.ListFollows)))
+	// The Follow Digest switch, as the Customer Area writes it (#224). It sits
+	// beside the Follows rather than under them because it is not about any one
+	// of them: it decides whether the weekly mail is sent at all, and every
+	// Follow stands whichever way it is set. The listing above publishes the same
+	// fact so that one read answers "what do I follow" and "am I being written
+	// to" together.
+	//
+	// This is the entry point that requires a session, and the only one that can
+	// turn the Digest back ON — see service.SetDigestEnabled for why the
+	// unsubscribe link deliberately cannot.
+	mux.Handle("PUT /api/v1/customer/digest", signedIn(http.HandlerFunc(h.SetDigestEnabled)))
 	mux.Handle("POST /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.FollowOrganization)))
 	mux.Handle("DELETE /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.UnfollowOrganization)))
 	// Tag Follows (#218) join the same listing above rather than adding one of
