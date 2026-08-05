@@ -61,12 +61,18 @@ resource "google_secret_manager_secret_iam_member" "api_resend_api_key" {
 # could impair delivery of the One-time Passcodes people sign in with. A
 # discovery feature would be taking down authentication.
 #
-# Everything below is a SIBLING of the transactional settings above, never a
+# Everything below is a SIBLING of the transactional settings above rather than a
 # derivative: a separate variable, a separate Secret Manager secret, a separate
 # env var. The API requires BOTH halves before it will send a single Digest and
 # has no default for either, so a half-finished setup here sends no marketing
 # mail rather than sending it from the transactional domain. Applying this file
 # before either value exists is a no-op on behaviour, exactly as it is above.
+#
+# ONE deployment shape may collapse the two onto a single domain, and only by
+# saying so: digest_email_allow_shared_domain, below. Resend's free tier verifies
+# one domain, which makes the separation a paid plan rather than a setting, and
+# the choice there is between sharing the domain and shipping no Digests at all.
+# Nothing infers the sharing; an undeclared collision is still refused.
 #
 # WHAT THIS FILE DOES NOT DO — read this before assuming the domain exists.
 # It does not create the Resend domain object and it does not create DNS
@@ -78,30 +84,60 @@ resource "google_secret_manager_secret_iam_member" "api_resend_api_key" {
 # ---------------------------------------------------------------------------
 
 variable "digest_email_domain" {
-  description = "Sending subdomain for the Follow Digest. MUST differ from the transactional sender's domain — the API refuses to send Digests if the two share a domain. Not created by Terraform: it is registered in Resend and its DNS records added at Namecheap by hand (see the digest_email_dns_setup output)."
+  description = "Sending subdomain for the Follow Digest when it has one of its own. Ignored when digest_email_allow_shared_domain is true. Not created by Terraform: it is registered in Resend and its DNS records added at Namecheap by hand (see the digest_email_dns_setup output)."
   type        = string
   default     = "digest.multiticketing.com"
 }
 
+# The escape hatch for a deployment that cannot HAVE a second sending domain.
+#
+# Resend's free tier verifies exactly one domain, so the separation ADR 0030
+# asks for is not a configuration step on that plan — it is a paid plan. The
+# reasoning behind the separation does not stop being true; the deployment
+# simply cannot act on it, and the alternative to sharing is shipping the
+# feature dark. Sharing is the lesser cost at free-tier volumes, where the
+# complaint rates that damage a domain's reputation need a sending rate the plan
+# does not permit. Set it back to false the day a second domain is affordable.
+#
+# It is deliberately a stated choice and never inferred from the two domains
+# matching, because a typo in digest_email_from looks exactly the same and the
+# API should keep refusing that one.
+variable "digest_email_allow_shared_domain" {
+  description = "Send Follow Digests from the transactional sending domain instead of a separate one. Accepts the reputation coupling ADR 0030 avoids: spam complaints on marketing mail then bear on the domain delivering One-time Passcodes. Intended for plans that verify only one domain."
+  type        = bool
+  default     = false
+}
+
 variable "digest_resend_api_key" {
-  description = "Resend API key for the Follow Digest's sending domain, separate from resend_api_key. Leave empty and no Follow Digests are sent at all; supply it (via TF_VAR_digest_resend_api_key, never a committed tfvars) together with digest_email_from to switch the Digest on."
+  description = "Resend API key for the Follow Digest's sending domain, separate from resend_api_key. Leave empty and no Follow Digests are sent — UNLESS digest_email_allow_shared_domain is true, in which case the API falls back to the transactional key, the two identities being on one Resend domain by then anyway. Supply via TF_VAR_digest_resend_api_key, never a committed tfvars."
   type        = string
   default     = ""
   sensitive   = true
 }
 
 variable "digest_email_from" {
-  description = "RFC 5322 From header for the Follow Digest. Its address must live on digest_email_domain and must NOT be on the transactional sending domain. Empty means no Digests are sent."
+  description = "RFC 5322 From header for the Follow Digest. Empty derives it from the effective digest domain. It must not be on the transactional sending domain unless digest_email_allow_shared_domain says so."
   type        = string
   default     = ""
 }
 
 # Set the From from the digest domain when the operator did not state one
-# outright, so the two cannot drift apart by a typo. There is deliberately no
-# fallback to var.email_from anywhere in this file: borrowing the transactional
-# identity is the one outcome this whole feature exists to prevent.
+# outright, so the two cannot drift apart by a typo.
+#
+# The transactional domain is read out of var.email_from ONLY to build the
+# shared-domain case, and `can` keeps a From this expression cannot parse from
+# failing a plan that never needed the value: unparseable falls back to the
+# separate domain, which is the safe direction to fall.
 locals {
-  digest_email_from = var.digest_email_from != "" ? var.digest_email_from : "Multiticketing <digest@${var.digest_email_domain}>"
+  transactional_email_domain = can(regex("@([^@>[:space:]]+)>?[[:space:]]*$", var.email_from)) ? lower(one(regex("@([^@>[:space:]]+)>?[[:space:]]*$", var.email_from))) : ""
+
+  digest_email_domain = (
+    var.digest_email_allow_shared_domain && local.transactional_email_domain != ""
+    ? local.transactional_email_domain
+    : var.digest_email_domain
+  )
+
+  digest_email_from = var.digest_email_from != "" ? var.digest_email_from : "Multiticketing <digest@${local.digest_email_domain}>"
 }
 
 # The container always exists, on the same terms as the transactional one: a

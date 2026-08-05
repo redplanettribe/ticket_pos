@@ -202,7 +202,9 @@ them any ability to send mail themselves.
 66. As a Platform Operator, I want overlapping scheduler ticks to be safe, so that a slow run
     overlapping the next one cannot double-send.
 67. As a Platform Operator, I want the digest sent from a different sending domain than transactional
-    mail, so that spam complaints cannot degrade delivery of One-time Passcodes.
+    mail, so that spam complaints cannot degrade delivery of One-time Passcodes. *(Amended
+    2026-08-05: deferred. The mail provider's plan verifies one domain, so production shares it by
+    explicit declaration; the split remains supported and is one setting away. See ADR 0030.)*
 68. As a Platform Operator, I want to be able to pause the weekly send without a deploy, so that I
     can stop it if something is wrong.
 69. As a Platform Operator, I want the scheduled endpoints unreachable from the public internet, so
@@ -335,6 +337,13 @@ from the transactional sender. Marketing mail attracts complaints in a way trans
 not, and complaint rates degrade domain reputation — sharing a domain would let an annoying digest
 impair delivery of the One-time Passcodes people need to sign in.
 
+**Amended 2026-08-05.** Production sends from the transactional domain instead. Resend's free tier
+verifies a single domain, so the separate subdomain is not a configuration step on that plan but a
+paid one, and the real choice is between sharing the domain and never sending a Digest at all. The
+API keeps refusing the shared domain by default and sends only when a deployment declares the
+sharing outright, so an accidental collision — a typo pointing the Digest at the transactional
+domain — still fails. See ADR 0030 for what this trades away and how it is undone.
+
 ### Unsubscribe
 
 A `digest_enabled` boolean on the Customer, defaulting on. Unsubscribing flips it and never touches
@@ -460,7 +469,9 @@ Two constraints found in the codebase shaped the design more than anything in th
 - **Transactional and marketing mail would have shared a sending domain.** This is the highest-risk
   detail in the whole feature and is unrelated to Follows as such. One-time Passcodes are
   login-critical, and complaint-driven reputation damage from a weekly marketing send would land on
-  the same domain. The domain split is not optional polish.
+  the same domain. The domain split is not optional polish — and production nonetheless runs
+  without it, under the one-domain plan noted above, which makes this the risk to watch first if
+  OTP deliverability ever drops.
 
 Two things to watch after launch, neither worth building for yet: a Customer following several busy
 Tags can sit permanently at the cap, so their carried overflow drains lazily and far-future Events

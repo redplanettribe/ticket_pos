@@ -53,17 +53,34 @@ variable "email_from" {
 # transactional pair above and never derived from it: the Digest is marketing
 # mail, its spam complaints would degrade whatever domain it sends from, and the
 # transactional domain is the one delivering the One-time Passcodes people sign
-# in with. Empty means no Digests are sent at all, which is the intended safe
-# state until the domain below is verified in Resend by hand.
+# in with.
+#
+# This deployment nonetheless SHARES the transactional domain, because the Resend
+# plan it runs on verifies only one — see digest_email_allow_shared_domain below
+# for what that trades away and how to undo it.
 
 variable "digest_email_domain" {
-  description = "Sending subdomain for the Follow Digest. Must differ from the transactional sender's domain. Registered in Resend and DNS-verified at Namecheap by hand; Terraform does not create it."
+  description = "Sending subdomain for the Follow Digest when it has one of its own. Registered in Resend and DNS-verified at Namecheap by hand; Terraform does not create it. Unused while digest_email_allow_shared_domain is true."
   type        = string
   default     = "digest.multiticketing.com"
 }
 
+# TRUE HERE, against the module's safe default, because this deployment is on a
+# Resend plan that verifies exactly ONE domain. digest.multiticketing.com cannot
+# be added at all on that plan, so the choice was never "two domains or one" —
+# it was "one domain or no Follow Digests", and a discovery feature that never
+# sends is worth less than the reputation risk it avoids at these volumes.
+#
+# Flip it back to false after verifying a second domain in Resend, and follow
+# the checklist the digest_email_dns_setup output prints in that state.
+variable "digest_email_allow_shared_domain" {
+  description = "Send Follow Digests from the transactional domain (send.multiticketing.com) rather than a separate one. True because the Resend plan verifies a single domain. Accepts the reputation coupling ADR 0030 otherwise avoids."
+  type        = bool
+  default     = true
+}
+
 variable "digest_resend_api_key" {
-  description = "Resend API key scoped to the Digest sending domain. Set via TF_VAR_digest_resend_api_key from a sourced .env; empty means no Follow Digests are sent. Must not be the transactional key."
+  description = "Resend API key for Digest sends. Leave unset while the domain is shared: the API then reuses the transactional key, the two identities being on one Resend domain, and a second copy of that credential would only be a rotation hazard. Set via TF_VAR_digest_resend_api_key from a sourced .env if a separate restricted key is ever wanted."
   type        = string
   default     = ""
   sensitive   = true

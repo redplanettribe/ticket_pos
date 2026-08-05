@@ -122,9 +122,23 @@ func (c PayPhoneConfig) Configured() bool {
 // fallback this whole feature exists to remove, and "unset" has to read as
 // unset rather than as "use the one next to it". A deployment that has not
 // configured this sends no Digests at all — see NewUnconfiguredDigestSender.
+//
+// AllowSharedSendingDomain is the one way to put the Digest back on the
+// transactional domain, and it is a setting rather than a deletion because the
+// reason to keep them apart did not stop being true — the deployment simply
+// cannot act on it. Resend's free tier verifies ONE domain, so a second
+// subdomain is not a configuration step there but a paid plan. Faced with that,
+// the honest options are to send Digests from the transactional domain or to
+// send none at all, and the second is worse: the feature is dark, while the
+// risk it avoids is a reputation effect that only appears at a complaint volume
+// a free tier's sending limits cannot reach. So the flag says yes, out loud, in
+// a place an operator sets deliberately and can unset the day the plan changes.
+// It is never inferred from the domains matching — that shape is also what a
+// typo in DIGEST_EMAIL_FROM looks like, and that one should still be refused.
 type DigestEmailConfig struct {
-	ResendAPIKey string
-	From         string
+	ResendAPIKey             string
+	From                     string
+	AllowSharedSendingDomain bool
 }
 
 // Configured reports whether a usable Digest identity is present — the switch
@@ -147,12 +161,14 @@ func (c DigestEmailConfig) PartiallyConfigured() bool {
 // SharesSendingDomainWith reports whether this Digest identity sends from the
 // same domain as the given transactional From header.
 //
-// The whole point of the second identity is that it is on a DIFFERENT sending
-// domain. A Digest From pointing back at the transactional domain is exactly
-// the coupling ADR 0030 removes, wearing a different variable name, so it is
-// detected rather than trusted — and newDigestEmailSender refuses to send on
-// it. Comparison is case-insensitive because DNS is; an empty From on either
-// side shares nothing, having no domain to share.
+// The preferred second identity is on a DIFFERENT sending domain. A Digest From
+// pointing back at the transactional domain is otherwise exactly the coupling
+// ADR 0030 removes, wearing a different variable name, so it is detected rather
+// than trusted — and newDigestEmailSender refuses to send on it unless
+// AllowSharedSendingDomain says the sharing was meant. This method reports the
+// fact and not the verdict; UnconfiguredReason decides what to do about it.
+// Comparison is case-insensitive because DNS is; an empty From on either side
+// shares nothing, having no domain to share.
 func (c DigestEmailConfig) SharesSendingDomainWith(transactionalFrom string) bool {
 	digest := sendingDomain(c.From)
 	transactional := sendingDomain(transactionalFrom)
@@ -167,8 +183,8 @@ func (c DigestEmailConfig) SharesSendingDomainWith(transactionalFrom string) boo
 //
 // It is a method rather than a branch at the call site because every answer
 // here is a refusal to send marketing mail, and the three ways to earn one
-// (nothing set, half set, set to the transactional domain) deserve to be listed
-// together and phrased as instructions.
+// (nothing set, half set, set to the transactional domain without saying so)
+// deserve to be listed together and phrased as instructions.
 func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 	switch {
 	case c.ResendAPIKey == "" && c.From == "":
@@ -177,10 +193,50 @@ func (c DigestEmailConfig) UnconfiguredReason(transactionalFrom string) string {
 		return "DIGEST_EMAIL_FROM is set but DIGEST_RESEND_API_KEY is not"
 	case c.From == "":
 		return "DIGEST_RESEND_API_KEY is set but DIGEST_EMAIL_FROM is not"
-	case c.SharesSendingDomainWith(transactionalFrom):
-		return fmt.Sprintf("DIGEST_EMAIL_FROM (%s) is on the same sending domain as EMAIL_FROM; the Digest needs its own subdomain (ADR 0030)", c.From)
+	case c.SharesSendingDomainWith(transactionalFrom) && !c.AllowSharedSendingDomain:
+		// Named as a choice with two exits, because both are legitimate and the
+		// operator hitting this cannot tell from the symptom which one they are
+		// in: a typo pointing the Digest at the transactional domain looks
+		// identical to a deliberate single-domain deployment.
+		return fmt.Sprintf("DIGEST_EMAIL_FROM (%s) is on the same sending domain as EMAIL_FROM; give the Digest its own subdomain (ADR 0030), or set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN=true to accept sharing the transactional domain's reputation", c.From)
 	}
 	return ""
+}
+
+// loadDigestEmailConfig reads the Digest's sending identity from the
+// environment. Every field is read with no fallback, with ONE exception it
+// takes the transactional key as an argument in order to make.
+//
+// When the operator has said the two identities share a sending domain, they
+// share the Resend domain object, and a Resend key is scoped to an account
+// rather than to a domain — so requiring DIGEST_RESEND_API_KEY there would be
+// requiring the same secret to be stored twice. Two copies of one credential is
+// not extra isolation; it is a rotation hazard, where the transactional half is
+// rotated, the Digest half is forgotten, and Digests fail with a stale key on
+// some later Thursday. The fallback is therefore gated on the same explicit
+// flag as the domain sharing itself and is unreachable without it: with no flag
+// set, an unset DIGEST_RESEND_API_KEY still means no Digests, exactly as before.
+// Supplying the key outright always wins, so a separate restricted key remains
+// possible for anyone who wants one.
+func loadDigestEmailConfig(transactionalAPIKey string) DigestEmailConfig {
+	cfg := DigestEmailConfig{
+		ResendAPIKey:             strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY")),
+		From:                     strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
+		AllowSharedSendingDomain: envIsTrue("DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"),
+	}
+	if cfg.AllowSharedSendingDomain && cfg.ResendAPIKey == "" {
+		cfg.ResendAPIKey = strings.TrimSpace(transactionalAPIKey)
+	}
+	return cfg
+}
+
+// envIsTrue reads a boolean setting the permissive way round: anything Go does
+// not parse as true — including unset, empty and misspelt — is false. Every
+// caller here guards something that should stay on unless deliberately turned
+// off, so an unreadable value must never be the one that opens the gate.
+func envIsTrue(key string) bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(key)))
+	return err == nil && value
 }
 
 // sendingDomain pulls the domain out of an RFC 5322 From header, lowercased.
@@ -259,6 +315,9 @@ func LoadConfig() (Config, error) {
 	// Requiring it here failed the migrate Job on every production deploy.
 	confirmationLinkSecret := strings.TrimSpace(os.Getenv("CONFIRMATION_LINK_SECRET"))
 
+	resendAPIKey := os.Getenv("RESEND_API_KEY")
+	digestEmail := loadDigestEmailConfig(resendAPIKey)
+
 	google, err := loadGoogleConfig(appEnv)
 	if err != nil {
 		return Config{}, err
@@ -286,16 +345,10 @@ func LoadConfig() (Config, error) {
 		S3SecretKey:   os.Getenv("S3_SECRET_KEY"),
 		S3Bucket:      os.Getenv("S3_BUCKET"),
 		S3Region:      envOrDefault("S3_REGION", "us-east-1"),
-		ResendAPIKey:  os.Getenv("RESEND_API_KEY"),
+		ResendAPIKey:  resendAPIKey,
 		EmailFrom:     envOrDefault("EMAIL_FROM", "Multiticketing <noreply@send.multiticketing.com>"),
 
-		// Read with no fallback of any kind, unlike every other setting in this
-		// struct. The Digest's identity is a sibling of the transactional one and
-		// must never be derived from it: see DigestEmailConfig.
-		DigestEmail: DigestEmailConfig{
-			ResendAPIKey: strings.TrimSpace(os.Getenv("DIGEST_RESEND_API_KEY")),
-			From:         strings.TrimSpace(os.Getenv("DIGEST_EMAIL_FROM")),
-		},
+		DigestEmail: digestEmail,
 
 		// The dev-stack Storefront origin. Production injects the real one, as it
 		// already does for the Storefront container itself; until a custom domain

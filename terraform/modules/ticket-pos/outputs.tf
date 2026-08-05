@@ -208,13 +208,46 @@ output "follow_digest_service_account_emails" {
 # is not ours to write to from here (ADR 0009); a human adds these at Namecheap
 # and then presses Verify in Resend. The exact DKIM selector and value are
 # issued by Resend when the domain is added and are not knowable here.
-output "digest_email_dns_setup" {
-  description = "Operator checklist for the Follow Digest's sending domain. Terraform does NOT create any of this."
-  value       = <<-EOT
+#
+# Two checklists rather than one with caveats: a shared-domain deployment has NO
+# DNS work to do, and the surest way to get the separate-domain steps followed by
+# somebody they do not apply to is to print them with a note on top.
+locals {
+  digest_email_dns_setup_shared = <<-EOT
+    Follow Digest sending domain: ${local.digest_email_domain} (SHARED with transactional mail)
+
+    There is no DNS work to do. This deployment sends Digests from the domain
+    that already carries the transactional mail, so the DKIM, SPF and DMARC
+    records it needs are the ones already verified in Resend.
+
+    What you accepted by setting digest_email_allow_shared_domain:
+      Spam complaints about the Digest now bear on the reputation of the domain
+      that delivers One-time Passcodes. Enough of them degrades the deliverability
+      of the mail people sign in with. ADR 0030 separates the two for this reason;
+      a plan that verifies one domain cannot, and shipping the feature dark was
+      judged worse at these volumes.
+
+    1. Nothing to add at Namecheap. Nothing to verify in Resend.
+    2. Leave TF_VAR_digest_resend_api_key unset unless you want a separate
+       restricted key: one domain is one Resend domain object, the keys are
+       account-scoped, and the API falls back to the transactional key here. A
+       second copy of one credential is a rotation hazard, not isolation.
+    3. Apply. The API logs "digest email sender: resend" at startup when it is
+       satisfied, and "digest email sender: not configured" with a reason when
+       it is not.
+
+    To undo this later: verify ${var.digest_email_domain} in Resend, follow the
+    separate-domain checklist this output prints when the flag is false, then set
+    the flag back to false.
+  EOT
+
+  digest_email_dns_setup_separate = <<-EOT
     Follow Digest sending domain: ${var.digest_email_domain}
 
     None of the following is provisioned by Terraform. Until it is done by hand,
     the Digest sending identity does not exist and Resend rejects Digest sends.
+    If your Resend plan verifies only ONE domain, none of this is possible: set
+    digest_email_allow_shared_domain instead and re-read this output.
 
     1. Add ${var.digest_email_domain} as a domain in Resend. This is a SECOND
        domain, alongside the transactional one; do not reuse it.
@@ -234,4 +267,13 @@ output "digest_email_dns_setup" {
        satisfied, and "digest email sender: not configured" with a reason when
        it is not.
   EOT
+}
+
+output "digest_email_dns_setup" {
+  description = "Operator checklist for the Follow Digest's sending domain. Terraform does NOT create any of this."
+  value = (
+    var.digest_email_allow_shared_domain
+    ? local.digest_email_dns_setup_shared
+    : local.digest_email_dns_setup_separate
+  )
 }

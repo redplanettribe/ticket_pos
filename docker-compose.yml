@@ -79,6 +79,7 @@ services:
       # so Digests print to the container log like everything else.
       DIGEST_RESEND_API_KEY: ${DIGEST_RESEND_API_KEY:-}
       DIGEST_EMAIL_FROM: ${DIGEST_EMAIL_FROM:-}
+      DIGEST_EMAIL_ALLOW_SHARED_DOMAIN: ${DIGEST_EMAIL_ALLOW_SHARED_DOMAIN:-}
       # The `development` Google OAuth client, also from the root .env. Empty (the
       # default) leaves Google Sign-In off and the button hidden; passcode
       # sign-in is unaffected either way. GOOGLE_TOKEN_ENDPOINT is deliberately

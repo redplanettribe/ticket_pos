@@ -38,13 +38,15 @@ module "ticket_pos" {
   resend_api_key = var.resend_api_key
   email_from     = var.email_from
 
-  # The Follow Digest's own sending identity, supplied the same way and kept
-  # strictly separate (#225, ADR 0030). Applying without sourcing the key removes
-  # the secret version and stops Digests — which is the safe direction: the API
-  # then sends none rather than sending them from the transactional domain.
-  digest_email_domain   = var.digest_email_domain
-  digest_resend_api_key = var.digest_resend_api_key
-  digest_email_from     = var.digest_email_from
+  # The Follow Digest's sending identity (#225, ADR 0030). Its own variables,
+  # though this deployment points them at the transactional domain because the
+  # Resend plan verifies only one — see digest_email_allow_shared_domain. With
+  # the domain shared no separate key is sourced, so unlike the pair above there
+  # is no apply that silently removes a secret version and stops Digests.
+  digest_email_domain              = var.digest_email_domain
+  digest_email_allow_shared_domain = var.digest_email_allow_shared_domain
+  digest_resend_api_key            = var.digest_resend_api_key
+  digest_email_from                = var.digest_email_from
 
   # Google Sign-In credentials, one client per surface (ADR 0011). Supplied the
   # same way as the Resend key — sourced .env, never a committed tfvars — and

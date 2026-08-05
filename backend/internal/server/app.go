@@ -370,13 +370,14 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 // newDigestEmailSender selects the sender for the one non-transactional message
 // this platform sends (#225, ADR 0030).
 //
-// It reads cfg.DigestEmail and NOTHING ELSE about the transactional identity
-// except to check the two are not on the same domain. There is deliberately no
-// branch anywhere in this function that can end with the Digest holding
-// cfg.ResendAPIKey or cfg.EmailFrom: marketing mail attracts spam complaints,
-// complaint rates degrade domain reputation, and the reputation at stake on the
-// transactional domain is the one delivering the One-time Passcodes people sign
-// in with. An unconfigured Digest sends nothing, loudly.
+// It reads cfg.DigestEmail and nothing else about the transactional identity
+// except to check whether the two are on the same domain. Sharing it is refused
+// unless the deployment set DIGEST_EMAIL_ALLOW_SHARED_DOMAIN, and the default
+// answer is no because marketing mail attracts spam complaints, complaint rates
+// degrade domain reputation, and the reputation at stake on the transactional
+// domain is the one delivering the One-time Passcodes people sign in with. What
+// this function will not do is decide that for itself: the sharing is never
+// inferred, only obeyed. An unconfigured Digest sends nothing, loudly.
 func newDigestEmailSender(cfg platform.Config, logger platform.Logger) platform.DigestEmailSender {
 	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
 		// Error level, at startup, and again on every refused send. This is a

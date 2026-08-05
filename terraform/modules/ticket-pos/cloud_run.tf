@@ -320,9 +320,23 @@ resource "google_cloud_run_v2_service" "api" {
         value = local.digest_email_from
       }
 
+      # Always sent, both ways round, because the API's refusal to send Digests
+      # from the transactional domain is the default and this is the only thing
+      # that lifts it. An absent var would read as "not allowed", which is the
+      # correct reading and worth stating rather than leaving to inference.
+      env {
+        name  = "DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"
+        value = var.digest_email_allow_shared_domain ? "true" : "false"
+      }
+
       # Guarded exactly like the transactional key: no version exists until a
       # value is supplied, and "latest" against an empty secret is a boot crash.
-      # Absent, the API logs a reason at startup and refuses every Digest.
+      # Absent, the API logs a reason at startup and refuses every Digest — with
+      # one exception it is worth knowing about here: on a shared sending domain
+      # the API falls back to RESEND_API_KEY, because one Resend domain means one
+      # account-scoped key and storing that key in two secrets would buy a
+      # rotation hazard rather than any isolation. So leaving this unset is the
+      # NORMAL shared-domain setup, not a half-finished one.
       dynamic "env" {
         for_each = var.digest_resend_api_key == "" ? [] : [1]
         content {
