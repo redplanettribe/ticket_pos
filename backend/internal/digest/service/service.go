@@ -18,7 +18,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/digest/repository"
@@ -487,6 +489,16 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 	// re-writing it for a reminder would say nothing new while inviting a future
 	// change to move `sent_at` and quietly reset the novelty of an Event this
 	// reader met a month ago.
+	//
+	// AND ONLY WHAT THE CAP LET THROUGH, which is the whole of #222's carry.
+	// `sections.New` is already capped when it arrives here, and
+	// `sections.NewOverflow` — everything the cap shed — is deliberately absent
+	// from this loop. An Event nobody was shown must not be recorded as shown: it
+	// stays New to You and the next Digest carries it, which is what turns a
+	// flood into a queue draining ten a week instead of a truncation nobody can
+	// see. WRITING THE OVERFLOW HERE WOULD LOSE THOSE EVENTS FOREVER, silently
+	// and with nothing to notice it, because a ledger row is permanent and no
+	// later Digest would ever consider them again.
 	eventIDs := make([]string, 0, len(sections.New))
 	for _, candidate := range sections.New {
 		eventIDs = append(eventIDs, candidate.EventID)
@@ -532,6 +544,11 @@ func (s *Service) compose(
 		Locale:       locale,
 		New:          s.composeEvents(sections.New, names),
 		Happening:    s.composeEvents(sections.Happening, names),
+		// The cap admitting to itself (#222). Each section's shed Events become a
+		// count and one address, worked out from the Follows those Events actually
+		// matched.
+		NewOverflow:       s.sectionOverflow(sections.NewOverflow),
+		HappeningOverflow: s.sectionOverflow(sections.HappeningOverflow),
 		// EVERY Digest carries it (#224). It is minted here, per message, rather
 		// than stored: the link is derived from the Customer's id and the signing
 		// key, exactly as the Event links above are derived from the Storefront
@@ -584,6 +601,106 @@ func (s *Service) composeEvents(
 		events = append(events, event)
 	}
 	return events
+}
+
+// sectionOverflow turns what a capped section shed into the line the reader
+// sees: how many more matched, and the one address that shows them (#222).
+//
+// THE LINK IS CHOSEN FROM THE SHED EVENTS' OWN REASONS, not from the reader's
+// Follows at large. A Digest's "+37 more" has to be true about the thirty-seven,
+// and a link derived from every Follow this person holds would send somebody
+// whose overflow is all one Organization's Events to a page about a Tag they
+// happen to follow as well.
+//
+// TAGS WIN WHEN THERE ARE ANY, because the explorer's Tag filter takes SEVERAL
+// keys at once and matches ANY of them, so one address covers every Tag-matched
+// Event in the overflow. The Organization page covers exactly one Organization,
+// which makes it the narrower answer wherever both are available.
+//
+// ORGANIZATION OTHERWISE, and the busiest one when the overflow spans several:
+// the explorer has no Organization filter, so a Follow of an Organization has
+// exactly one existing surface that lists its Events. Picking the Organization
+// that accounts for most of what was shed is the best of the available answers
+// — the alternative, an unfiltered explorer, shows the whole platform and
+// therefore nothing in particular.
+//
+// ADR 0030 BUILDS NO FOLLOWING FEED, which is why both answers are pages that
+// already exist and neither of them is a list of "your matches". A page that
+// showed exactly the overflow would be that feed, arrived at through a link.
+func (s *Service) sectionOverflow(overflow []repository.DigestCandidate) platform.FollowDigestOverflow {
+	if len(overflow) == 0 {
+		return platform.FollowDigestOverflow{}
+	}
+	out := platform.FollowDigestOverflow{Count: len(overflow)}
+
+	var keys []string
+	seen := make(map[string]struct{})
+	byOrganization := make(map[string]int)
+	for _, candidate := range overflow {
+		for _, key := range candidate.MatchedTagKeys {
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+		if candidate.MatchedOrganization && candidate.OrganizationSlug != "" {
+			byOrganization[candidate.OrganizationSlug]++
+		}
+	}
+	if len(keys) > 0 {
+		// Sorted for the reason the attribution line is sorted: two composes of one
+		// Digest — a retry, a re-read — must produce the same address, and the
+		// database's row order is not a promise.
+		sort.Strings(keys)
+		out.URL = s.storefrontExplorerURL(keys)
+		return out
+	}
+	if slug := busiestSlug(byOrganization); slug != "" {
+		out.URL = s.storefrontOrganizationURL(slug)
+	}
+	return out
+}
+
+// busiestSlug is the Organization accounting for most of a section's overflow,
+// ties broken alphabetically so that one Digest composed twice reads the same
+// way both times. Empty when nothing was matched by an Organization Follow at
+// all.
+func busiestSlug(counts map[string]int) string {
+	best, bestCount := "", 0
+	for slug, count := range counts {
+		if count > bestCount || (count == bestCount && slug < best) {
+			best, bestCount = slug, count
+		}
+	}
+	return best
+}
+
+// storefrontExplorerURL is the global explorer already filtered by these Tags —
+// the surface #222's overflow links point at, spelled exactly as the Storefront
+// reads it (`?tags=` with comma-separated canonical keys, matching ANY of them).
+//
+// It carries no Locale segment, for the reason storefrontEventURL carries none:
+// the Storefront resolves a language for an address that names none, and a
+// hard-coded one would send a Spanish reader to an English page.
+func (s *Service) storefrontExplorerURL(canonicalKeys []string) string {
+	if s.storefrontBaseURL == "" {
+		return ""
+	}
+	escaped := make([]string, 0, len(canonicalKeys))
+	for _, key := range canonicalKeys {
+		escaped = append(escaped, url.QueryEscape(key))
+	}
+	return s.storefrontBaseURL + "/?tags=" + strings.Join(escaped, ",")
+}
+
+// storefrontOrganizationURL is an Organization's public page, which already
+// lists everything it has on.
+func (s *Service) storefrontOrganizationURL(organizationSlug string) string {
+	if s.storefrontBaseURL == "" {
+		return ""
+	}
+	return s.storefrontBaseURL + "/" + organizationSlug
 }
 
 // unsubscribeURL mints this Customer's unsubscribe link, or returns "" and says

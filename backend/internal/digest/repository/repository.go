@@ -57,7 +57,7 @@ type DigestRecipient struct {
 }
 
 // DigestSections is what one Customer's Digest is about, split into the two
-// sections a reader sees (#221).
+// sections a reader sees (#221) and each cut at the cap (#222).
 //
 // THE SPLIT IS MADE HERE, in the one query that already knows both the ledger
 // and the clock, rather than by the service partitioning a flat list. Novelty is
@@ -67,11 +67,31 @@ type DigestRecipient struct {
 //
 // The invariant the rest of the feature rests on: NO EventID APPEARS IN BOTH.
 type DigestSections struct {
-	// New is what this reader has never been shown, soonest first.
+	// New is what this reader has never been shown, soonest first, at most
+	// DigestSectionCap of them.
 	New []DigestCandidate
 	// Happening is what they were already shown and which starts within seven
-	// days, soonest first.
+	// days, soonest first, at most DigestSectionCap of them.
 	Happening []DigestCandidate
+	// NewOverflow and HappeningOverflow are what the cap shed from each section,
+	// in the same order, and they are the reason the cap is not a truncation
+	// (#222).
+	//
+	// THEY ARE CARRIED RATHER THAN DROPPED, and the mechanism is the caller's
+	// discipline about which of these four slices reaches the ledger: only the
+	// Events actually printed are recorded as shown, so everything here is still
+	// New to You next week and arrives in a later Digest (see
+	// service.deliverDigest). Keeping the remainder as CANDIDATES rather than as
+	// a bare count is what lets the message say how many more there are and point
+	// at a surface that holds them, from the Follows those Events actually
+	// matched.
+	//
+	// The overflow of an agenda is a milder thing than the overflow of the news:
+	// its Events are already in the ledger, so nothing about them is at risk of
+	// being lost. They simply wait for a week with room, or for their doors to
+	// come closer than the ten ahead of them.
+	NewOverflow       []DigestCandidate
+	HappeningOverflow []DigestCandidate
 }
 
 // Empty reports whether there is nothing at all to say, which is the one
@@ -248,6 +268,28 @@ func (r *Repository) LoadRecipient(ctx context.Context, customerID string) (*Dig
 // ledger exists to stop.
 const digestHappeningWindow = 7 * 24 * time.Hour
 
+// DigestSectionCap is how many Events one section of a Digest may carry (#222).
+//
+// TEN, because the number is about a person reading an email on a phone rather
+// than about a query. A Customer Following a busy Tag matches hundreds of
+// Events; a mail that listed them would be a catalogue, and a catalogue is
+// deleted unread — which costs that reader every Event in it, not merely the
+// ones past the tenth.
+//
+// THE CAP IS ONLY SAFE BECAUSE THE OVERFLOW IS CARRIED. Soonest-first means what
+// the cap sheds is the far-future Events, which are precisely the ones that can
+// afford to wait: they resurface as they approach, and until then the ledger has
+// never been told they were shown. A cap without the carry would be a silent
+// truncation and the worse failure of the two — a reader would never learn that
+// Following that Tag had hidden most of it from them.
+//
+// It is applied HERE rather than as a SQL LIMIT so that the shed Events are
+// still in hand: the message has to say how many more there are and point
+// somewhere that holds them, and both facts come from the Events themselves.
+// The bound on the query is the Follows, which is the same bound the section cut
+// already lived under.
+const DigestSectionCap = 10
+
 // DigestCandidates is what one Customer's Digest is about, in its two sections
 // (#221): the eligible Events their Follows match, split into what they have
 // never been shown and what they were shown and which now starts within seven
@@ -414,7 +456,26 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		}
 		out.New = append(out.New, candidate)
 	}
+	// The cap, applied to each section after the dedupe and never before it: an
+	// Event matched by both an Organization Follow and two Tag Follows is one
+	// Event, and counting its match rows against the cap would let three Follows
+	// of one reader's spend a whole section on a single Event.
+	out.New, out.NewOverflow = capSection(out.New)
+	out.Happening, out.HappeningOverflow = capSection(out.Happening)
 	return out, nil
+}
+
+// capSection cuts one section at the cap and hands back what did not fit, in
+// order.
+//
+// Both halves stay soonest-first because the input is: cutting an ordered list
+// in two leaves both pieces ordered, which is the same property #221 relied on
+// when it split one query's rows into two sections.
+func capSection(candidates []DigestCandidate) (carried, overflow []DigestCandidate) {
+	if len(candidates) <= DigestSectionCap {
+		return candidates, nil
+	}
+	return candidates[:DigestSectionCap], candidates[DigestSectionCap:]
 }
 
 func containsKey(keys []string, key string) bool {

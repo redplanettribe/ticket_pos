@@ -229,6 +229,19 @@ type FollowDigest struct {
 	// Both empty is impossible: a caller with nothing to say sends nothing.
 	New       []FollowDigestEvent
 	Happening []FollowDigestEvent
+	// NewOverflow and HappeningOverflow are what each section could not carry
+	// (#222): how many more matched, and where the reader can see them.
+	//
+	// A CAP THE READER CANNOT SEE IS A LIE ABOUT WHAT THEY FOLLOW. Ten Events
+	// under a heading look identical whether ten matched or three hundred did,
+	// and a reader who cannot tell the two apart has been told that Following
+	// that Tag is worth less than it is. This is the section admitting to its own
+	// edge.
+	//
+	// Zero on a section that fitted, which is the ordinary case and prints
+	// nothing at all.
+	NewOverflow       FollowDigestOverflow
+	HappeningOverflow FollowDigestOverflow
 	// UnsubscribeURL is the signed link that turns this Digest off, carried in
 	// the footer of every one (#224, ADR 0030).
 	//
@@ -258,6 +271,31 @@ type FollowDigest struct {
 // Organization coined it (ADR 0027 as amended by ADR 0030). This type does no
 // language work of its own beyond choosing its own sentences, because doing it
 // twice is how the two copies come to disagree.
+// FollowDigestOverflow is what one capped section of a Digest did not carry
+// (#222): how many more Events matched, and the one address that shows them.
+//
+// IT POINTS AT A SURFACE THAT ALREADY EXISTS, and that is ADR 0030's decision
+// rather than this type's convenience: the global explorer filtered by a Tag's
+// canonical key, or an Organization's public page. No Following feed is built,
+// because the whole payload of a Follow is this Digest and a second browsable
+// stream of the same Events would compete with the explorer for a job the
+// explorer already does.
+//
+// The URL is chosen from the Follows the SHED Events actually matched, so the
+// link is true about what is behind it — see digest/service.sectionOverflow.
+type FollowDigestOverflow struct {
+	// Count is how many matched Events this section could not carry. Zero means
+	// the section fitted and nothing is printed.
+	Count int
+	// URL is where the rest can be seen.
+	//
+	// Empty only when the platform has no Storefront origin configured, in which
+	// case the count is still printed without a link: "there are eleven more"
+	// with nowhere to go is thin, and saying nothing at all would be a silent
+	// truncation, which is the one outcome this feature exists to prevent.
+	URL string
+}
+
 type FollowDigestEvent struct {
 	Name string
 	// StartsAt and Timezone are the Event's own start and its own zone. The date

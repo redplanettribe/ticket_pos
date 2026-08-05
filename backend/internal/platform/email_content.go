@@ -306,6 +306,23 @@ var (
 		en: "Because you follow: %s",
 		es: "Porque sigues: %s",
 	}
+	// The overflow line of a capped section (#222), in its two forms.
+	//
+	// It says the NUMBER and then where to see them, in that order, because the
+	// number is the part that changes what the reader believes about the section
+	// above it: ten Events with nothing after them is a complete list, and ten
+	// with "+37 more" is a sample. The link form is what is sent; the bare form
+	// exists only for a deployment with no Storefront origin configured, where
+	// admitting to the cap without an address is still better than a truncation
+	// nobody can see.
+	digestMoreCopy = digestCopy{
+		en: "+%d more: %s",
+		es: "+%d más: %s",
+	}
+	digestMoreWithoutLinkCopy = digestCopy{
+		en: "+%d more",
+		es: "+%d más",
+	}
 	digestClosingCopy = digestCopy{
 		en: "You are getting this because you follow organizers and topics on Multiticketing.",
 		es: "Recibes esto porque sigues organizadores y temas en Multiticketing.",
@@ -346,9 +363,15 @@ func (d FollowDigest) Subject() string {
 // which is the same failure an empty Digest would be — and the agenda-only week
 // is an ordinary one, not an error.
 //
-// What is still deliberately absent: the cap and its "+N more" (#222), and the
-// marking of Events the reader already holds Tickets to (#223). Each arrives
-// with its own decisions.
+// A CAPPED SECTION ADMITS TO ITS OWN EDGE (#222). Ten Events is where a section
+// stops, and a section that stopped there because more matched prints a "+N
+// more" line pointing at a surface that holds them. Without it the two cases —
+// a short list and a truncated one — are indistinguishable to the reader, and
+// the truncated one quietly teaches them that Following something busy is worth
+// less than it is.
+//
+// What is still deliberately absent: the marking of Events the reader already
+// holds Tickets to (#223). It arrives with its own decisions.
 //
 // THE FOOTER CARRIES THE UNSUBSCRIBE LINK (#224), and it is the one part of
 // this message that is not about Events. ADR 0030 makes the Digest the only mail
@@ -368,8 +391,8 @@ func (d FollowDigest) Subject() string {
 // caller sends nothing at all when nothing matched (digest/service.deliverDigest).
 func (d FollowDigest) Text() string {
 	text := fmt.Sprintf(digestGreetingCopy.in(d.Locale), d.CustomerName)
-	text += digestSection(digestNewHeadingCopy.in(d.Locale), d.New, d.Locale)
-	text += digestSection(digestHappeningHeadingCopy.in(d.Locale), d.Happening, d.Locale)
+	text += digestSection(digestNewHeadingCopy.in(d.Locale), d.New, d.NewOverflow, d.Locale)
+	text += digestSection(digestHappeningHeadingCopy.in(d.Locale), d.Happening, d.HappeningOverflow, d.Locale)
 	text += "\n\n" + digestClosingCopy.in(d.Locale)
 	if d.UnsubscribeURL != "" {
 		text += "\n" + fmt.Sprintf(digestUnsubscribeCopy.in(d.Locale), d.UnsubscribeURL)
@@ -384,13 +407,27 @@ func (d FollowDigest) Text() string {
 // agenda, and a week with an agenda and nothing new, are both ordinary; printing
 // a bare heading for the missing half would tell the reader the Digest is broken
 // on the most common weeks it will ever be sent.
-func digestSection(heading string, events []FollowDigestEvent, locale Locale) string {
+// The overflow line closes the section it belongs to, BELOW the Events rather
+// than beside the heading: a reader who has just finished the tenth entry is
+// exactly the reader who needs to be told there are more, and a count announced
+// before the list would be read as the size of the list.
+func digestSection(heading string, events []FollowDigestEvent, overflow FollowDigestOverflow, locale Locale) string {
 	if len(events) == 0 {
+		// A section with nothing in it prints nothing, overflow included — an
+		// overflow with no section above it is impossible, since only a full
+		// section can shed anything.
 		return ""
 	}
 	text := "\n\n" + heading
 	for _, event := range events {
 		text += "\n\n" + event.render(locale)
+	}
+	if overflow.Count > 0 {
+		if overflow.URL != "" {
+			text += "\n\n" + fmt.Sprintf(digestMoreCopy.in(locale), overflow.Count, overflow.URL)
+		} else {
+			text += "\n\n" + fmt.Sprintf(digestMoreWithoutLinkCopy.in(locale), overflow.Count)
+		}
 	}
 	return text
 }
