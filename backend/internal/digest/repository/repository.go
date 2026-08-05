@@ -56,6 +56,31 @@ type DigestRecipient struct {
 	DigestEnabled bool
 }
 
+// DigestSections is what one Customer's Digest is about, split into the two
+// sections a reader sees (#221).
+//
+// THE SPLIT IS MADE HERE, in the one query that already knows both the ledger
+// and the clock, rather than by the service partitioning a flat list. Novelty is
+// the ledger anti-join and the agenda is the ledger semi-join; they are the same
+// join read in opposite directions, and computing one of them twice is how the
+// two come to disagree about a single Event.
+//
+// The invariant the rest of the feature rests on: NO EventID APPEARS IN BOTH.
+type DigestSections struct {
+	// New is what this reader has never been shown, soonest first.
+	New []DigestCandidate
+	// Happening is what they were already shown and which starts within seven
+	// days, soonest first.
+	Happening []DigestCandidate
+}
+
+// Empty reports whether there is nothing at all to say, which is the one
+// question the drain asks before deciding to send. Both sections empty means no
+// message is composed and the Digest is recorded `empty`.
+func (s DigestSections) Empty() bool {
+	return len(s.New) == 0 && len(s.Happening) == 0
+}
+
 // DigestCandidate is one Event a Customer's Follows matched, with the reasons
 // they matched it.
 type DigestCandidate struct {
@@ -64,6 +89,7 @@ type DigestCandidate struct {
 	Slug             string
 	StartsAt         sql.NullTime
 	Timezone         sql.NullString
+	VenueName        sql.NullString
 	OrganizationName string
 	OrganizationSlug string
 	// MatchedOrganization is true when the Customer Follows the Organization
@@ -213,10 +239,21 @@ func (r *Repository) LoadRecipient(ctx context.Context, customerID string) (*Dig
 	return &out, nil
 }
 
-// DigestCandidates is what one Customer's Digest is about: the eligible Events
-// their Follows match and that they have not already been shown, soonest first.
+// digestHappeningWindow is how far ahead "Happening this week" reaches.
 //
-// This is the composition, and there are four rules in it.
+// Seven days, which is the Digest's own cadence and the only number that makes
+// the section complete: a shorter window would let an Event slip between two
+// Digests and be reminded about never, and a longer one would remind the same
+// reader about the same Event two weeks running, which is precisely what the
+// ledger exists to stop.
+const digestHappeningWindow = 7 * 24 * time.Hour
+
+// DigestCandidates is what one Customer's Digest is about, in its two sections
+// (#221): the eligible Events their Follows match, split into what they have
+// never been shown and what they were shown and which now starts within seven
+// days, each soonest first.
+//
+// This is the composition, and there are five rules in it.
 //
 // ELIGIBILITY MIRRORS THE PUBLIC EXPLORER EXACTLY — published, discoverable, and
 // not yet ended (`COALESCE(ends_at, starts_at) >= now()`, which also excludes an
@@ -225,27 +262,50 @@ func (r *Repository) LoadRecipient(ctx context.Context, customerID string) (*Dig
 // it: `discoverable = FALSE` is an Organization deciding an Event is not to be
 // advertised, and a Digest reaching further than the explorer would take that
 // decision and overturn it in every follower's inbox. Anything looser here is
-// not a bug in a listing, it is mail nobody could recall.
+// not a bug in a listing, it is mail nobody could recall. IT GOVERNS BOTH
+// SECTIONS, which is the half easiest to lose: an Event already shown and since
+// cancelled or unlisted must drop off the agenda too, and a "we already told
+// them" exemption would mail out exactly the Events an Organization most wants
+// unmailed.
 //
-// THE LEDGER IS AN ANTI-JOIN, and it is doing three of ADR 0030's four jobs at
-// once. It is the New to You test — an Event already sent to THIS Customer is
-// not news to them, however recently it was published. It is the week-to-week
-// anti-repetition, without which a standing Event would be mailed every week for
-// as long as it stayed upcoming. And it is the send idempotency, because a
-// retried Digest composes against the rows the earlier attempt wrote.
+// THE LEDGER IS READ IN BOTH DIRECTIONS, and it is doing four of ADR 0030's
+// jobs. Read as an ANTI-join it is the New to You test — an Event already sent
+// to THIS Customer is not news to them, however recently it was published — and
+// with it the send idempotency, because a retried Digest composes against the
+// rows the earlier attempt wrote. Read as a SEMI-join, narrowed to the next
+// seven days, it is the agenda: the week-before reminder ADR 0030 folded into
+// the Digest rather than sending as a second kind of mail. And the seven-day
+// bound on that second reading is the week-to-week anti-repetition, without
+// which an Event two months out would be re-listed every week until its doors
+// opened.
+//
+// AN EVENT QUALIFYING FOR BOTH IS NEWS, ONCE. The two readings are complementary
+// by construction — `shown` is true or it is not — so the overlap cannot happen
+// here at all, which is the reason the sections are cut from ONE query rather
+// than from two that could both claim an Event. A reader who meets the same
+// Event twice in one email learns that this mail repeats itself.
+//
+// THE AGENDA IS "STILL FOLLOWED", NOT "EVERYTHING IN THE LEDGER". The match is
+// the same join for both sections, so unfollowing an Organization drops its
+// Events off the agenda at once. Two reasons: a reader who said they no longer
+// want to hear from somebody must stop hearing from them, and every entry has to
+// name the Follow that brought it — an entry with no surviving Follow has no
+// true answer to give. The ledger row STAYS, which is what stops refollowing
+// making an old Event news again.
 //
 // THE MATCH IS A UNION OF THE TWO FOLLOW KINDS, GROUPED BACK TO ONE ROW PER
-// EVENT, which is the fourth job: cross-Follow dedupe. A Customer who Follows
-// both an Organization and a Tag one Event carries is matched twice and told
-// once. Grouping rather than DISTINCT because both reasons are kept — which
+// EVENT: cross-Follow dedupe, and it holds within each section. A Customer who
+// Follows both an Organization and a Tag one Event carries is matched twice and
+// told once. Grouping rather than DISTINCT because both reasons are kept — which
 // Follow matched is rendered as the Digest's "because you follow", and ADR 0030
 // asks that it be recorded so Tag stuffing can be measured before anything is
 // legislated against it.
 //
-// SOONEST FIRST, tie-broken on the id. The order is what the reader acts on, and
-// a total order is what stops two identical composes producing two different
-// emails.
-func (r *Repository) DigestCandidates(ctx context.Context, customerID string, now time.Time) ([]DigestCandidate, error) {
+// SOONEST FIRST, tie-broken on the id. The order is what the reader acts on —
+// both sections are lists of things with doors, and the one opening first is the
+// one a decision has to be made about first — and a total order is what stops
+// two identical composes producing two different emails.
+func (r *Repository) DigestCandidates(ctx context.Context, customerID string, now time.Time) (DigestSections, error) {
 	// ONE ROW PER MATCH, grouped into one entry per Event in Go below rather than
 	// aggregated into an array in SQL. The array would have been shorter to write
 	// and it would have had to cross the database/sql boundary as a Postgres
@@ -258,10 +318,15 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		       e.slug,
 		       e.starts_at,
 		       e.timezone,
+		       e.venue_name,
 		       o.name,
 		       o.slug,
 		       m.matched_organization,
-		       m.matched_tag_key
+		       m.matched_tag_key,
+		       EXISTS (
+		         SELECT 1 FROM follow_digest_sent_events l
+		         WHERE l.customer_id = $1 AND l.event_id = e.id
+		       ) AS already_shown
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		JOIN (
@@ -284,49 +349,72 @@ func (r *Repository) DigestCandidates(ctx context.Context, customerID string, no
 		WHERE e.status = 'published'
 		  AND e.discoverable = TRUE
 		  AND COALESCE(e.ends_at, e.starts_at) >= $2
-		  AND NOT EXISTS (
-		    SELECT 1 FROM follow_digest_sent_events l
-		    WHERE l.customer_id = $1 AND l.event_id = e.id
+		  -- The section cut. An Event never shown to this Customer is news
+		  -- whenever it starts; one already shown earns a place only while it is
+		  -- inside the agenda's window, and otherwise falls out of the Digest
+		  -- entirely rather than being repeated week after week.
+		  AND (
+		    NOT EXISTS (
+		      SELECT 1 FROM follow_digest_sent_events l
+		      WHERE l.customer_id = $1 AND l.event_id = e.id
+		    )
+		    OR e.starts_at < $3
 		  )
 		ORDER BY e.starts_at ASC, e.id ASC
-	`, customerID, now)
+	`, customerID, now, now.Add(digestHappeningWindow))
 	if err != nil {
-		return nil, err
+		return DigestSections{}, err
 	}
 	defer rows.Close()
 
 	// The dedupe itself: several match rows for one Event fold into one entry,
-	// keeping every reason. `out` preserves the query's order, which is the order
-	// the Digest lists Events in.
-	var out []DigestCandidate
+	// keeping every reason. `ordered` preserves the query's order, which is the
+	// order each section lists its Events in — splitting a soonest-first list in
+	// two leaves both halves soonest-first, so no second sort is needed.
+	var ordered []DigestCandidate
+	shown := make([]bool, 0, 8)
 	index := make(map[string]int)
 	for rows.Next() {
 		var (
-			row        DigestCandidate
-			byOrg      bool
-			matchedTag sql.NullString
+			row          DigestCandidate
+			byOrg        bool
+			matchedTag   sql.NullString
+			alreadyShown bool
 		)
 		if err := rows.Scan(
-			&row.EventID, &row.Name, &row.Slug, &row.StartsAt, &row.Timezone,
+			&row.EventID, &row.Name, &row.Slug, &row.StartsAt, &row.Timezone, &row.VenueName,
 			&row.OrganizationName, &row.OrganizationSlug,
-			&byOrg, &matchedTag,
+			&byOrg, &matchedTag, &alreadyShown,
 		); err != nil {
-			return nil, err
+			return DigestSections{}, err
 		}
 		at, seen := index[row.EventID]
 		if !seen {
-			out = append(out, row)
-			at = len(out) - 1
+			ordered = append(ordered, row)
+			shown = append(shown, alreadyShown)
+			at = len(ordered) - 1
 			index[row.EventID] = at
 		}
 		if byOrg {
-			out[at].MatchedOrganization = true
+			ordered[at].MatchedOrganization = true
 		}
-		if matchedTag.Valid && !containsKey(out[at].MatchedTagKeys, matchedTag.String) {
-			out[at].MatchedTagKeys = append(out[at].MatchedTagKeys, matchedTag.String)
+		if matchedTag.Valid && !containsKey(ordered[at].MatchedTagKeys, matchedTag.String) {
+			ordered[at].MatchedTagKeys = append(ordered[at].MatchedTagKeys, matchedTag.String)
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return DigestSections{}, err
+	}
+
+	var out DigestSections
+	for i, candidate := range ordered {
+		if shown[i] {
+			out.Happening = append(out.Happening, candidate)
+			continue
+		}
+		out.New = append(out.New, candidate)
+	}
+	return out, nil
 }
 
 func containsKey(keys []string, key string) bool {

@@ -236,7 +236,7 @@ func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context,
 // identity is the only one this method is ever reached on (#225).
 func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
 	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
-		s.logger.Error("resend send follow digest failed", "email", d.To, "locale", string(d.Locale), "events", len(d.Events), "error", err)
+		s.logger.Error("resend send follow digest failed", "email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}
 	return nil

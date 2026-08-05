@@ -18,12 +18,16 @@ import (
 // produce a week deterministically and then drain it, with no scheduler, no
 // goroutine and no sleep anywhere in the feature.
 //
-// What is deliberately NOT here, because it is not built: sections ("New to
-// You" versus what is happening this week), the cap and its carried overflow,
-// the "you're going" marking, and the Unsubscribe link. Those are #221 to #224
-// and each will add its own tests. A flat list is the contract for now, and a
-// test here asserting more than a flat list would be asserting a feature nobody
-// wrote.
+// The Digest's two sections — "New this week" and "Happening this week" — are
+// #221 and are covered from TestFollowDigestCarriesANewSectionAndAHappeningSection
+// down.
+//
+// The Unsubscribe link (#224) has its own file, follow_digest_unsubscribe_test.go.
+//
+// What is deliberately NOT here, because it is not built: the cap and its
+// carried overflow (#222) and the "you're going" marking and the Register call
+// to action (#223). Each arrives with its own tests, and a test here asserting
+// more than what is built would be asserting a feature nobody wrote.
 
 const (
 	followDigestEnqueuePath = "/api/v1/internal/follow-digests/enqueue"
@@ -765,5 +769,499 @@ func TestFollowDigestDrainStopsAtItsBatchBound(t *testing.T) {
 		if got := len(digestsFor(t, env, email)); got != 1 {
 			t.Fatalf("%s received %d Digests, want exactly 1", email, got)
 		}
+	}
+}
+
+// The Digest's two sections (#221).
+//
+// Every rule below is about WHICH SECTION an Event lands in and in what order,
+// so the tests read the rendered body and split it on the headings a reader
+// actually sees. Asserting on the composed struct instead would let a section
+// exist in the pipeline and never reach an inbox.
+
+const (
+	digestNewHeading       = "New this week"
+	digestHappeningHeading = "Happening this week"
+)
+
+// digestSections splits a rendered Digest into what falls under each heading.
+//
+// It also enforces the one ordering rule that is BETWEEN the sections rather
+// than within them: New comes first. The Digest's job is to tell a reader
+// something they did not know, and an agenda printed above the news buries it.
+//
+// A missing heading yields an empty string rather than a failure, because the
+// absence of a section is itself a rule several tests assert: a Digest with
+// nothing new must not print an empty "New this week".
+func digestSections(t *testing.T, text string) (newSection, happeningSection string) {
+	t.Helper()
+	newAt := strings.Index(text, digestNewHeading)
+	happeningAt := strings.Index(text, digestHappeningHeading)
+	switch {
+	case newAt >= 0 && happeningAt >= 0:
+		if happeningAt < newAt {
+			t.Fatalf("the Digest prints its agenda above its news; body:\n%s", text)
+		}
+		return text[newAt+len(digestNewHeading) : happeningAt], text[happeningAt+len(digestHappeningHeading):]
+	case newAt >= 0:
+		return text[newAt+len(digestNewHeading):], ""
+	case happeningAt >= 0:
+		return "", text[happeningAt+len(digestHappeningHeading):]
+	}
+	return "", ""
+}
+
+// assertOrder fails unless the named Events appear in the given order within one
+// section.
+func assertOrder(t *testing.T, section, label string, names ...string) {
+	t.Helper()
+	previous := -1
+	for _, name := range names {
+		at := strings.Index(section, name)
+		if at < 0 {
+			t.Fatalf("the %q section omits %q; section:\n%s", label, name, section)
+		}
+		if at < previous {
+			t.Fatalf("the %q section is not soonest-first: %q comes too late; section:\n%s", label, name, section)
+		}
+		previous = at
+	}
+}
+
+// TestFollowDigestCarriesANewSectionAndAHappeningSection is #221's spine: the
+// flat list becomes two headings answering two different questions.
+//
+// "New this week" is what this reader has never been shown. "Happening this
+// week" is what they were already told about and which now starts within seven
+// days — the original reminder intent, which ADR 0030 keeps alive inside the
+// Digest rather than as a second kind of mail.
+//
+// One Event carries the whole test by moving between them: announced twenty days
+// out it can only be news, and a fortnight later, six days from its doors, it
+// can only be the agenda.
+func TestFollowDigestCarriesANewSectionAndAHappeningSection(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Agenda Fest", "agenda-fest", env.fixedClock.Add(20*24*time.Hour))
+	followingCustomer(t, env, "ana@example.com")
+
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	first := digestsFor(t, env, "ana@example.com")
+	if len(first) != 1 {
+		t.Fatalf("ana received %d Digests in the first week, want exactly 1", len(first))
+	}
+	newSection, happening := digestSections(t, first[0].Text)
+	if !strings.Contains(newSection, "Agenda Fest") {
+		t.Fatalf("an Event never shown before is not under %q; body:\n%s", digestNewHeading, first[0].Text)
+	}
+	if strings.Contains(happening, "Agenda Fest") {
+		t.Fatalf("an Event twenty days out is on this week's agenda; body:\n%s", first[0].Text)
+	}
+
+	// A fortnight on: the same Event now starts in six days, and something else
+	// has been announced.
+	advanceDigestClock(t, env, 14*24*time.Hour)
+	discoverableEvent(t, env, sessionID, "Fresh Fest", "fresh-fest", env.fixedClock.Add(50*24*time.Hour))
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	second := digestsFor(t, env, "ana@example.com")
+	if len(second) != 2 {
+		t.Fatalf("ana received %d Digests over two weeks, want 2", len(second))
+	}
+	newSection, happening = digestSections(t, second[1].Text)
+	if !strings.Contains(newSection, "Fresh Fest") {
+		t.Fatalf("the newly announced Event is not under %q; body:\n%s", digestNewHeading, second[1].Text)
+	}
+	if strings.Contains(newSection, "Agenda Fest") {
+		t.Fatalf("an Event already shown is advertised as new again; body:\n%s", second[1].Text)
+	}
+	if !strings.Contains(happening, "Agenda Fest") {
+		t.Fatalf("an already-shown Event starting in six days is not under %q; body:\n%s", digestHappeningHeading, second[1].Text)
+	}
+	if strings.Contains(happening, "Fresh Fest") {
+		t.Fatalf("a never-shown Event appears on the agenda; body:\n%s", second[1].Text)
+	}
+}
+
+// TestFollowDigestPutsAnEventQualifyingForBothSectionsInNewOnly is the overlap
+// rule, and the one place the two headings could contradict each other.
+//
+// An Event announced today and opening its doors in three days is both news to
+// this reader and something happening this week. It is news, once: a reader who
+// meets the same Event twice in one email learns that this mail repeats itself.
+func TestFollowDigestPutsAnEventQualifyingForBothSectionsInNewOnly(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Imminent Fest", "imminent-fest", env.fixedClock.Add(72*time.Hour))
+	followingCustomer(t, env, "ana@example.com")
+
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 1 {
+		t.Fatalf("ana received %d Digests, want exactly 1", len(digests))
+	}
+	if n := strings.Count(digests[0].Text, "Imminent Fest"); n != 1 {
+		t.Fatalf("the Digest names the Event %d times, want once; body:\n%s", n, digests[0].Text)
+	}
+	newSection, happening := digestSections(t, digests[0].Text)
+	if !strings.Contains(newSection, "Imminent Fest") {
+		t.Fatalf("an Event qualifying for both sections is not under %q; body:\n%s", digestNewHeading, digests[0].Text)
+	}
+	if strings.Contains(happening, "Imminent Fest") {
+		t.Fatalf("an Event qualifying for both sections also appears on the agenda; body:\n%s", digests[0].Text)
+	}
+}
+
+// TestFollowDigestOrdersEachSectionSoonestFirst holds the order the reader acts
+// on. Both sections are lists of things with doors, and the one opening first is
+// the one a decision has to be made about first.
+//
+// The Events are announced in the WRONG order within each section, so a passing
+// test cannot be insertion order wearing a sort's clothes.
+func TestFollowDigestOrdersEachSectionSoonestFirst(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	// Shown in the first week, so they become the second week's agenda.
+	discoverableEvent(t, env, sessionID, "Agenda Later", "agenda-later", env.fixedClock.Add(31*24*time.Hour))
+	discoverableEvent(t, env, sessionID, "Agenda Sooner", "agenda-sooner", env.fixedClock.Add(30*24*time.Hour))
+	followingCustomer(t, env, "ana@example.com")
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	// Four weeks on: both are within seven days, and two more are announced.
+	advanceDigestClock(t, env, 28*24*time.Hour)
+	discoverableEvent(t, env, sessionID, "Fresh Later", "fresh-later", env.fixedClock.Add(60*24*time.Hour))
+	discoverableEvent(t, env, sessionID, "Fresh Sooner", "fresh-sooner", env.fixedClock.Add(50*24*time.Hour))
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 2 {
+		t.Fatalf("ana received %d Digests over two weeks, want 2", len(digests))
+	}
+	newSection, happening := digestSections(t, digests[1].Text)
+	assertOrder(t, newSection, digestNewHeading, "Fresh Sooner", "Fresh Later")
+	assertOrder(t, happening, digestHappeningHeading, "Agenda Sooner", "Agenda Later")
+}
+
+// TestFollowDigestDoesNotRemindAboutAnEventBeyondSevenDays is the bound on the
+// agenda, and the reason "Happening this week" is not "everything you were ever
+// shown".
+//
+// An Event two months out was already announced to this reader. Repeating it
+// every week until its doors open is the behaviour the ledger exists to stop,
+// and a Digest with nothing else to say must be silence rather than a re-run.
+func TestFollowDigestDoesNotRemindAboutAnEventBeyondSevenDays(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Distant Fest", "distant-fest", env.fixedClock.Add(60*24*time.Hour))
+	followingCustomer(t, env, "ana@example.com")
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	advanceDigestClock(t, env, 7*24*time.Hour)
+	enqueueFollowDigests(t, env)
+	second := drainFollowDigests(t, env)
+
+	if second.Claimed != 1 || second.Empty != 1 || second.Sent != 0 {
+		t.Fatalf("second week claimed=%d empty=%d sent=%d, want 1, 1 and 0 (%+v)", second.Claimed, second.Empty, second.Sent, second)
+	}
+	if got := len(digestsFor(t, env, "ana@example.com")); got != 1 {
+		t.Fatalf("ana received %d Digests, want exactly 1 — an Event fifty-three days out was put on this week's agenda", got)
+	}
+}
+
+// TestFollowDigestSendsAnAgendaEvenWithNothingNew is the other half of that
+// rule, and the one an over-eager "nothing new means nothing to say" would
+// break.
+//
+// A reader told about something a month ago who has heard nothing since is
+// exactly the reader the reminder is for. The week their Event finally comes
+// within seven days, the Digest goes out carrying only an agenda.
+func TestFollowDigestSendsAnAgendaEvenWithNothingNew(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Agenda Only Fest", "agenda-only-fest", env.fixedClock.Add(20*24*time.Hour))
+	followingCustomer(t, env, "ana@example.com")
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	advanceDigestClock(t, env, 14*24*time.Hour)
+	enqueueFollowDigests(t, env)
+	second := drainFollowDigests(t, env)
+	if second.Sent != 1 {
+		t.Fatalf("the agenda-only week sent=%d empty=%d, want 1 sent (%+v)", second.Sent, second.Empty, second)
+	}
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 2 {
+		t.Fatalf("ana received %d Digests, want 2", len(digests))
+	}
+	newSection, happening := digestSections(t, digests[1].Text)
+	if strings.TrimSpace(newSection) != "" {
+		t.Fatalf("a Digest with nothing new still prints a %q heading; body:\n%s", digestNewHeading, digests[1].Text)
+	}
+	if !strings.Contains(happening, "Agenda Only Fest") {
+		t.Fatalf("the agenda-only Digest does not carry its Event; body:\n%s", digests[1].Text)
+	}
+}
+
+// TestFollowDigestEntryCarriesEnoughToDecideWithoutClicking is the entry itself.
+//
+// A listing that gives only a name makes the reader open a page to find out
+// whether they care, and most of them will not. What it is, when, where and who
+// is putting it on is what the decision is actually made from; the link is for
+// the decision already made.
+func TestFollowDigestEntryCarriesEnoughToDecideWithoutClicking(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Detail Fest", "detail-fest", env.fixedClock.Add(20*24*time.Hour))
+	followingCustomer(t, env, "ana@example.com")
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 1 {
+		t.Fatalf("ana received %d Digests, want exactly 1", len(digests))
+	}
+	newSection, _ := digestSections(t, digests[0].Text)
+	for label, want := range map[string]string{
+		"the Event's name":      "Detail Fest",
+		"the date and time":     "July",
+		"the venue":             "The Hall",
+		"the Organization":      "Test Org",
+		"a link to the Event":   "/test-org/events/detail-fest",
+		"the Follow it matched": "Because you follow",
+	} {
+		if !strings.Contains(newSection, want) {
+			t.Fatalf("the entry does not carry %s (%q); section:\n%s", label, want, newSection)
+		}
+	}
+}
+
+// TestFollowDigestAgendaEntryKeepsItsAttributionAndIsListedOnce carries both
+// per-entry rules into the section easiest to build as an afterthought.
+//
+// The reader Follows the Organization AND a Tag the Event carries, so it is
+// matched twice and must be listed once — the cross-Follow dedupe holding within
+// the agenda, not only within the news. And it keeps its "because you follow"
+// line, which is the Digest answering "why am I being told this?" before it is
+// asked.
+func TestFollowDigestAgendaEntryKeepsItsAttributionAndIsListedOnce(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := discoverableEvent(t, env, sessionID, "Agenda Fest", "agenda-fest", env.fixedClock.Add(20*24*time.Hour))
+	if resp, body := setEventTags(t, env, sessionID, eventID, []string{"Music"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set tags status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	token := followingCustomer(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	advanceDigestClock(t, env, 14*24*time.Hour)
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 2 {
+		t.Fatalf("ana received %d Digests, want 2", len(digests))
+	}
+	if n := strings.Count(digests[1].Text, "Agenda Fest"); n != 1 {
+		t.Fatalf("the agenda names the Event %d times, want once; body:\n%s", n, digests[1].Text)
+	}
+	_, happening := digestSections(t, digests[1].Text)
+	if !strings.Contains(happening, "Because you follow") {
+		t.Fatalf("the agenda entry lost its attribution; section:\n%s", happening)
+	}
+	for _, reason := range []string{"Test Org", "Music"} {
+		if !strings.Contains(happening, reason) {
+			t.Fatalf("the agenda entry does not name %q among the Follows that matched it; section:\n%s", reason, happening)
+		}
+	}
+	if ledger := digestLedgerEvents(t, env, "ana@example.com"); len(ledger) != 1 {
+		t.Fatalf("sent-ledger holds %v after the Event was reminded about, want exactly one row", ledger)
+	}
+}
+
+// TestFollowDigestDropsAnUnfollowedEventFromTheAgenda resolves the one thing the
+// spec leaves open: whether the agenda is "everything in the ledger" or
+// "everything in the ledger they still Follow".
+//
+// It is the latter, on two grounds. Unfollowing changes what the Digest is about
+// (CONTEXT.md), and a reader who has said they no longer want to hear from an
+// Organization must not keep hearing from it. And every entry has to say which
+// Follow brought it — an entry with no surviving Follow has no true answer.
+//
+// The ledger row STAYS, which is the part that is more than a filter: refollowing
+// must not make an Event news again, and ADR 0030 rests the whole of New to You
+// on that.
+func TestFollowDigestDropsAnUnfollowedEventFromTheAgenda(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Dropped Fest", "dropped-fest", env.fixedClock.Add(20*24*time.Hour))
+	token := followingCustomer(t, env, "ana@example.com")
+	// A second Follow, so the Customer stays eligible for a Digest at all and the
+	// test cannot pass merely by nobody being enqueued.
+	followTagOK(t, env, token, "music")
+
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+	if got := len(digestsFor(t, env, "ana@example.com")); got != 1 {
+		t.Fatalf("ana received %d Digests in the first week, want 1", got)
+	}
+
+	unfollowOrganizationOK(t, env, token, testOrgSlug)
+
+	advanceDigestClock(t, env, 14*24*time.Hour)
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	for i, d := range digests[1:] {
+		if strings.Contains(d.Text, "Dropped Fest") {
+			t.Fatalf("Digest %d reminds ana about an Organization she unfollowed; body:\n%s", i+1, d.Text)
+		}
+	}
+	if ledger := digestLedgerEvents(t, env, "ana@example.com"); len(ledger) != 1 || ledger[0] != "Dropped Fest" {
+		t.Fatalf("sent-ledger holds %v after an Unfollow, want it left intact as [Dropped Fest]", ledger)
+	}
+}
+
+// TestFollowDigestDropsAnIneligibleEventFromTheAgenda carries the eligibility
+// rule into the section that could most easily be exempted from it.
+//
+// "We already told them about it" is not a licence to keep telling them. An
+// Event cancelled after it was announced is the case that matters: reminding ten
+// thousand people, in the week of its doors, about something that is not
+// happening is the failure this feature would be remembered for — and the
+// unlisted case is the same Organization decision the New section already
+// respects, made a week later.
+//
+// The Digest goes out with nothing at all rather than with an agenda, which is
+// also the assertion that the exclusion happened in the composition and not in
+// the rendering.
+func TestFollowDigestDropsAnIneligibleEventFromTheAgenda(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	cancelled := discoverableEvent(t, env, sessionID, "Doomed Fest", "doomed-fest", env.fixedClock.Add(20*24*time.Hour))
+	unlisted := discoverableEvent(t, env, sessionID, "Withdrawn Fest", "withdrawn-fest", env.fixedClock.Add(19*24*time.Hour))
+
+	followingCustomer(t, env, "ana@example.com")
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+	if got := len(digestsFor(t, env, "ana@example.com")); got != 1 {
+		t.Fatalf("ana received %d Digests in the first week, want 1", got)
+	}
+
+	// Both were announced. One is called off, the other is taken off the listing.
+	if resp, body := env.post(t, "/api/v1/staff/events/"+cancelled+"/cancel", nil, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if resp, body := env.put(t, "/api/v1/staff/events/"+unlisted+"/discoverable", map[string]any{
+		"discoverable": false,
+	}, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set discoverable status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// A fortnight on, both would otherwise be within seven days of their doors.
+	advanceDigestClock(t, env, 14*24*time.Hour)
+	enqueueFollowDigests(t, env)
+	second := drainFollowDigests(t, env)
+
+	if second.Claimed != 1 || second.Empty != 1 || second.Sent != 0 {
+		t.Fatalf("second week claimed=%d empty=%d sent=%d, want 1, 1 and 0 (%+v)", second.Claimed, second.Empty, second.Sent, second)
+	}
+	if got := len(digestsFor(t, env, "ana@example.com")); got != 1 {
+		t.Fatalf("ana received %d Digests, want exactly 1 — an Event the explorer would no longer list was put on her agenda", got)
+	}
+}
+
+// TestFollowDigestReachesAnEventTaggedAfterTheFollowBegan is the Tag Follow
+// being a standing subscription rather than a snapshot.
+//
+// The Follow is pressed while the Event carries no Tags at all, and the Tag is
+// added afterwards. A composition that resolved matches at enqueue, or that
+// remembered which Events a Tag held when it was Followed, would miss it — and
+// missing it is what an Organization tagging their listing later would
+// experience as the feature not working.
+func TestFollowDigestReachesAnEventTaggedAfterTheFollowBegan(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := discoverableEvent(t, env, sessionID, "Tagged Later Fest", "tagged-later-fest", env.fixedClock.Add(20*24*time.Hour))
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	if resp, body := setEventTags(t, env, sessionID, eventID, []string{"Music"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set tags status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 1 {
+		t.Fatalf("ana received %d Digests, want exactly 1", len(digests))
+	}
+	newSection, _ := digestSections(t, digests[0].Text)
+	if !strings.Contains(newSection, "Tagged Later Fest") {
+		t.Fatalf("an Event Tagged after the Follow began never reached its follower; body:\n%s", digests[0].Text)
+	}
+}
+
+// TestFollowDigestNeverMailsACancelledOrDatelessEvent completes the eligibility
+// exclusions, on the two states TestFollowDigestMailsOnlyWhatTheExplorerWouldList
+// does not reach.
+//
+// A cancelled Event is the worse of the two: mailing ten thousand people about
+// something that is not happening is the failure this feature would be
+// remembered for. A dateless Event is seeded in SQL because the API refuses to
+// publish one — which is the point, since the predicate exists for the row some
+// future path leaves behind rather than for one anybody can make today.
+func TestFollowDigestNeverMailsACancelledOrDatelessEvent(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	discoverableEvent(t, env, sessionID, "Standing Fest", "standing-fest", env.fixedClock.Add(20*24*time.Hour))
+
+	cancelled := discoverableEvent(t, env, sessionID, "Cancelled Fest", "cancelled-fest", env.fixedClock.Add(21*24*time.Hour))
+	if resp, body := env.post(t, "/api/v1/staff/events/"+cancelled+"/cancel", nil, authHeader(sessionID)); resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel event status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// SQL because no API path publishes an Event with no date: the guard is for
+	// the row a future write path leaves behind.
+	if _, err := env.db.Exec(`
+		INSERT INTO events (id, organization_id, name, slug, status, discoverable, starts_at)
+		SELECT 'e0000000-0000-4000-8000-0000000000d1', id, 'Dateless Fest', 'dateless-fest', 'published', TRUE, NULL
+		FROM organizations WHERE slug = $1
+	`, testOrgSlug); err != nil {
+		t.Fatalf("seed dateless Event: %v", err)
+	}
+
+	followingCustomer(t, env, "ana@example.com")
+	enqueueFollowDigests(t, env)
+	drainFollowDigests(t, env)
+
+	digests := digestsFor(t, env, "ana@example.com")
+	if len(digests) != 1 {
+		t.Fatalf("ana received %d Digests, want exactly 1", len(digests))
+	}
+	if !strings.Contains(digests[0].Text, "Standing Fest") {
+		t.Fatalf("the Digest omits the one Event that is still on; body:\n%s", digests[0].Text)
+	}
+	for _, forbidden := range []string{"Cancelled Fest", "Dateless Fest"} {
+		if strings.Contains(digests[0].Text, forbidden) {
+			t.Fatalf("the Digest carries %q; body:\n%s", forbidden, digests[0].Text)
+		}
+	}
+	if ledger := digestLedgerEvents(t, env, "ana@example.com"); len(ledger) != 1 || ledger[0] != "Standing Fest" {
+		t.Fatalf("sent-ledger holds %v, want exactly [Standing Fest]", ledger)
 	}
 }
