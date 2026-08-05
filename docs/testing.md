@@ -119,6 +119,11 @@ Avoid deprecated synonyms such as "user" for Member or "order" for Ticket Sale.
 | `make test-parity` | Playwright smoke tests against the production-parity stack (requires `make prod`) |
 | `make ci` | Pre-push parity with CI: full Go suite including integration, `go vet`, and `pnpm turbo lint typecheck build` |
 
+A package that owns a Postgres testcontainer must never run concurrently with another that does.
+`go test` runs separate packages in parallel, so `go test ./...` in one invocation tears one container down under the other and the integration package fails with `connection reset by peer` — a failure about the runner, not the code.
+`make ci` therefore runs the non-integration packages and `./integration/...` as two invocations.
+Today the only container owners are the integration harness and the repository-level concurrency test for the Follow Digest drain; adding a third means keeping it out of the same invocation as the others.
+
 Pull request CI runs the full Go test suite including integration tests with Docker available.
 Integration test failure blocks merge.
 
