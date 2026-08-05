@@ -21,6 +21,9 @@ import (
 	customershandler "github.com/peter/ticket_pos/backend/internal/customers/handler"
 	customersrepo "github.com/peter/ticket_pos/backend/internal/customers/repository"
 	customerssvc "github.com/peter/ticket_pos/backend/internal/customers/service"
+	digesthandler "github.com/peter/ticket_pos/backend/internal/digest/handler"
+	digestrepo "github.com/peter/ticket_pos/backend/internal/digest/repository"
+	digestsvc "github.com/peter/ticket_pos/backend/internal/digest/service"
 	identityhandler "github.com/peter/ticket_pos/backend/internal/identity/handler"
 	identityrepo "github.com/peter/ticket_pos/backend/internal/identity/repository"
 	identitysvc "github.com/peter/ticket_pos/backend/internal/identity/service"
@@ -63,6 +66,12 @@ type App struct {
 	// that own the data it shows (ADR 0015).
 	OperatorService *operatorsvc.Service
 	OperatorHandler *operatorhandler.Handler
+	// The Follow Digest pipeline (#220, ADR 0030). It owns two tables nobody else
+	// could — the pending-Digest queue and the sent-ledger — and reads Follows,
+	// Events and Tags that belong to other modules.
+	DigestRepo    *digestrepo.Repository
+	DigestService *digestsvc.Service
+	DigestHandler *digesthandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -199,6 +208,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}
+	// A Follow is stored against an Organization id, and the Customer names one
+	// by the slug they see in the address bar (#217). Turning the one into the
+	// other is identity's rule — including that an unknown slug is
+	// ORGANIZATION_NOT_FOUND rather than an empty answer — so customers declares
+	// the narrow interface and identity satisfies it, as sales does for in-flight
+	// Reversal Requests below.
+	customersService = customersService.WithOrganizations(identityService)
 	customersHandler := customershandler.New(customersService)
 
 	salesRepo := salesrepo.New(db)
@@ -233,6 +249,16 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	}
 	catalogHandler := cataloghandler.New(catalogService)
 
+	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
+	// the canonical key the Storefront's chips already carry (#218). Turning the
+	// one into the other is catalog's rule — including canonicalizing the key the
+	// same way every other path into the shared pool does, and answering an
+	// unknown key with TAG_NOT_FOUND rather than coining a Tag — so customers
+	// declares the narrow interface and catalog satisfies it, exactly as identity
+	// does for Organization slugs above. Tied here rather than at construction
+	// because catalog is built after customers.
+	customersService = customersService.WithTags(catalogService)
+
 	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
 	// platform ask the Payment Provider again about their own stuck reversal.
 	// Wired here rather than at construction because sales is built after
@@ -252,6 +278,35 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// built after sales, and because it is additive — an unwired resolver simply
 	// attributes nothing (#146).
 	salesService = salesService.WithAffiliateLinks(affiliatesService)
+
+	// The Follow Digest pipeline (#220, ADR 0030): the platform's second piece of
+	// scheduled work, driven by two internal endpoints.
+	//
+	// It is built after catalog because it needs catalog's localized Tag names,
+	// and it takes the Storefront origin for the reason affiliates does: the link
+	// on each Event in a Digest is derived at send time and never stored.
+	digestRepo := digestrepo.New(db)
+	digestService := digestsvc.New(digestRepo, emailSender, cfg.StorefrontBaseURL, platformLogger)
+	if options.clock != nil {
+		digestService = digestService.WithClock(options.clock)
+	}
+	// Naming a Tag in the reader's Digest Locale is catalog's rule and not this
+	// module's — a Preset Tag from the catalogue, a Custom Tag exactly as coined
+	// (ADR 0027 as amended by ADR 0030). The digest module declares the narrow
+	// interface and catalog satisfies it, as customers does for Tag ids.
+	digestService = digestService.WithTags(catalogService)
+	// The unsubscribe link in every Digest footer (#224, ADR 0030). It REUSES the
+	// Confirmation Link signing machinery rather than adding a second scheme:
+	// customers owns the key, the Customer, and what unsubscribing does and does
+	// not touch, so the digest module declares the narrow minter interface and
+	// customers satisfies it — as catalog does for Tag names above.
+	//
+	// Tied here rather than at construction because customers is built long
+	// before this and the dependency is additive. Note which way it runs: the
+	// digest module can ask for a link and can do nothing else, so no amount of
+	// change in here can reach a Follow.
+	digestService = digestService.WithUnsubscribe(customersService)
+	digestHandler := digesthandler.New(digestService)
 
 	// The Operator Dashboard is composed from the modules that own its data:
 	// identity for Organizations, catalog for Events, sales for money. It is
@@ -282,6 +337,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		CustomersHandler:  customersHandler,
 		OperatorService:   operatorService,
 		OperatorHandler:   operatorHandler,
+		DigestRepo:        digestRepo,
+		DigestService:     digestService,
+		DigestHandler:     digestHandler,
 	}, nil
 }
 
@@ -294,12 +352,40 @@ func newEmailSender(cfg platform.Config, logger platform.Logger) platform.EmailS
 	// The presence of a Resend key is the switch: prod injects it from Secret
 	// Manager, local dev and tests set none and keep logging OTP codes to the
 	// console. Mirrors how newObjectStorage gates on S3_ENDPOINT. See ADR 0009.
-	if cfg.ResendAPIKey != "" {
-		logger.Info("email sender: resend", "from", cfg.EmailFrom)
-		return platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+	//
+	// A deployment with NO transactional key sends no real mail at all, so there
+	// is no domain to protect and nothing to split: the logging sender handles
+	// Digests too, which is what local development and the manual verification
+	// docs read. The split below is for deployments that actually send.
+	if cfg.ResendAPIKey == "" {
+		logger.Info("email sender: logging (no RESEND_API_KEY set)")
+		return &platform.LoggingEmailSender{Logger: logger}
 	}
-	logger.Info("email sender: logging (no RESEND_API_KEY set)")
-	return &platform.LoggingEmailSender{Logger: logger}
+
+	logger.Info("email sender: resend", "from", cfg.EmailFrom)
+	transactional := platform.NewResendEmailSender(cfg.ResendAPIKey, cfg.EmailFrom, logger)
+	return platform.NewSplitEmailSender(transactional, newDigestEmailSender(cfg, logger))
+}
+
+// newDigestEmailSender selects the sender for the one non-transactional message
+// this platform sends (#225, ADR 0030).
+//
+// It reads cfg.DigestEmail and NOTHING ELSE about the transactional identity
+// except to check the two are not on the same domain. There is deliberately no
+// branch anywhere in this function that can end with the Digest holding
+// cfg.ResendAPIKey or cfg.EmailFrom: marketing mail attracts spam complaints,
+// complaint rates degrade domain reputation, and the reputation at stake on the
+// transactional domain is the one delivering the One-time Passcodes people sign
+// in with. An unconfigured Digest sends nothing, loudly.
+func newDigestEmailSender(cfg platform.Config, logger platform.Logger) platform.DigestEmailSender {
+	if reason := cfg.DigestEmail.UnconfiguredReason(cfg.EmailFrom); reason != "" {
+		// Error level, at startup, and again on every refused send. This is a
+		// deployment that believes it has a discovery feature and does not.
+		logger.Error("digest email sender: not configured; follow digests will not be sent", "reason", reason)
+		return platform.NewUnconfiguredDigestSender(logger, reason)
+	}
+	logger.Info("digest email sender: resend", "from", cfg.DigestEmail.From)
+	return platform.NewResendEmailSender(cfg.DigestEmail.ResendAPIKey, cfg.DigestEmail.From, logger)
 }
 
 // newPaymentProvider selects the Payment Provider by credential presence,

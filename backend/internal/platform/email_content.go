@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -239,6 +240,368 @@ func (p PayoutRequestTransferFailed) Subject() string {
 func (p PayoutRequestTransferFailed) Text() string {
 	return fmt.Sprintf("The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request — the transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request — this one cannot be retried, because it carries a frozen copy of the details it was sent with.",
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
+}
+
+// The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike
+// everything above it for two reasons, and both are worth stating before the
+// code.
+//
+// IT IS THE FIRST MESSAGE THAT BRANCHES ON LANGUAGE. Every other Text() here is
+// English because every other message answers something its reader just did on
+// a page, and the page was already worded. This one arrives unbidden, in
+// whatever language the reader last used the Storefront in (ADR 0030), so every
+// sentence exists twice. The branching is done with a small lookup per sentence
+// rather than by writing two whole methods: two methods drift, and the drift
+// shows up as a Spanish reader missing a line an English reader gets.
+//
+// IT NAMES TAGS IT DID NOT TRANSLATE. The Tag names arriving on each entry have
+// already been resolved by catalog's LocalizedTagNames — a Preset Tag in the
+// reader's language, a Custom Tag exactly as its Organization coined it. Nothing
+// below touches them. There is one localization rule for Tags in this system and
+// it lives in catalog; a second one here would only have to agree with it.
+
+// digestCopy is one sentence in both languages. Every piece of Digest copy is
+// declared as one of these, so a line added in English cannot be shipped without
+// its Spanish, and the two are read side by side rather than a screen apart.
+type digestCopy struct {
+	en string
+	es string
+}
+
+// in picks the sentence for a Locale, falling back to English for anything this
+// platform does not write — which is the same fallback DefaultLocale states, and
+// is unreachable while ParseLocale and the digest_locale CHECK both hold.
+func (c digestCopy) in(locale Locale) string {
+	if locale == LocaleES {
+		return c.es
+	}
+	return c.en
+}
+
+var (
+	digestSubjectCopy = digestCopy{
+		en: "What's on from the things you follow",
+		es: "Novedades de lo que sigues",
+	}
+	digestGreetingCopy = digestCopy{
+		en: "Hi %s,\n\nHere is what's coming up from the things you follow.",
+		es: "Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
+	}
+	// The two section headings (#221). They are the whole difference between a
+	// list and a Digest: one answers "what is there that I did not know about",
+	// the other "what do I need to be ready for", and a reader who cannot tell
+	// which is which has to read every entry to find out.
+	digestNewHeadingCopy = digestCopy{
+		en: "New this week",
+		es: "Nuevo esta semana",
+	}
+	digestHappeningHeadingCopy = digestCopy{
+		en: "Happening this week",
+		es: "Esta semana",
+	}
+	// The three CALLS TO ACTION (#223), of which every entry carries exactly one.
+	//
+	// Before #223 an entry printed a bare URL and left the reader to work out
+	// what pressing it would do. It could afford to, because there was only ever
+	// one answer. There are now three, and which one an entry carries is a fact
+	// about the Event and about this reader — so the line has to say what it is
+	// for, or a reader who already holds a ticket cannot tell their entry from
+	// anybody else's.
+	//
+	// digestGetTicketsCopy is the ordinary one: a ticketed Event this reader does
+	// not hold a ticket for.
+	digestGetTicketsCopy = digestCopy{
+		en: "Get tickets: %s",
+		es: "Consigue entradas: %s",
+	}
+	// digestRegisterCopy is an externally registered Event (ADR 0028), which has
+	// no Ticket Types to sell and whose only way in is to sign up. It still
+	// points at the Storefront Event page rather than at the Registration Link
+	// itself: that page is where the Registration Link's clicks are counted, and
+	// a Digest that jumped straight to the third-party site would spend the
+	// Organization's traffic without ever recording it.
+	digestRegisterCopy = digestCopy{
+		en: "Register: %s",
+		es: "Regístrate: %s",
+	}
+	// digestYourTicketsCopy replaces the purchase line for a reader who already
+	// holds one, sending them to what they own instead of to a checkout they have
+	// already been through.
+	digestYourTicketsCopy = digestCopy{
+		en: "Your tickets: %s",
+		es: "Tus entradas: %s",
+	}
+	// digestAttendingCopy is the mark itself, printed directly under the Event's
+	// name so it is read before the date rather than after the address. It is the
+	// answer to the question the reader would otherwise ask of every line below
+	// it: "is this the one I already booked?"
+	digestAttendingCopy = digestCopy{
+		en: "You're going",
+		es: "Vas a ir",
+	}
+	// The attribution line, which is the Digest answering "why am I being told
+	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
+	// recorded; this is the half of that the reader sees.
+	digestBecauseCopy = digestCopy{
+		en: "Because you follow: %s",
+		es: "Porque sigues: %s",
+	}
+	// The overflow line of a capped section (#222), in its two forms.
+	//
+	// It says the NUMBER and then where to see them, in that order, because the
+	// number is the part that changes what the reader believes about the section
+	// above it: ten Events with nothing after them is a complete list, and ten
+	// with "+37 more" is a sample. The link form is what is sent; the bare form
+	// exists only for a deployment with no Storefront origin configured, where
+	// admitting to the cap without an address is still better than a truncation
+	// nobody can see.
+	digestMoreCopy = digestCopy{
+		en: "+%d more: %s",
+		es: "+%d más: %s",
+	}
+	digestMoreWithoutLinkCopy = digestCopy{
+		en: "+%d more",
+		es: "+%d más",
+	}
+	digestClosingCopy = digestCopy{
+		en: "You are getting this because you follow organizers and topics on Multiticketing.",
+		es: "Recibes esto porque sigues organizadores y temas en Multiticketing.",
+	}
+	// The unsubscribe line (#224, ADR 0030). It says what pressing the link does
+	// AND what it does not do, because those are two different acts with two
+	// different names (CONTEXT.md): Unsubscribing silences the Digest,
+	// Unfollowing removes a Follow. A reader who wanted fewer emails and feared
+	// losing what they follow would otherwise have no way to tell, and the
+	// safest-looking answer available to them is to stop opening the mail.
+	digestUnsubscribeCopy = digestCopy{
+		en: "Don't want these? Turn off the digest — you'll keep everything you follow: %s",
+		es: "¿No quieres recibirlos? Desactiva el resumen: seguirás siguiendo todo lo que sigues: %s",
+	}
+)
+
+// Subject is the Follow Digest's subject line.
+//
+// It names no Event and counts none. The obvious alternative — "3 new events
+// from the things you follow" — reads as a campaign, and this message has to
+// survive arriving every week for a year without being trained away as one; a
+// count also makes a week with one Event look like a mistake. What the line says
+// is what the mail is, which is the only thing that stays true every week.
+func (d FollowDigest) Subject() string {
+	return digestSubjectCopy.in(d.Locale)
+}
+
+// Text is the Follow Digest's plain-text body: a greeting, two sections of
+// Events, and one closing line saying why this arrived.
+//
+// NEW COMES FIRST, and that order is a decision rather than a convenience
+// (#221). The Digest's job is to tell a reader something they did not know; an
+// agenda of things they were already told about, printed above the news, buries
+// the only part of the message that could not have reached them any other way.
+//
+// A SECTION WITH NOTHING IN IT PRINTS NO HEADING. A "New this week" with
+// nothing under it reads as a mail that had nothing to say and said it anyway,
+// which is the same failure an empty Digest would be — and the agenda-only week
+// is an ordinary one, not an error.
+//
+// A CAPPED SECTION ADMITS TO ITS OWN EDGE (#222). Ten Events is where a section
+// stops, and a section that stopped there because more matched prints a "+N
+// more" line pointing at a surface that holds them. Without it the two cases —
+// a short list and a truncated one — are indistinguishable to the reader, and
+// the truncated one quietly teaches them that Following something busy is worth
+// less than it is.
+//
+// EVERY ENTRY CARRIES EXACTLY ONE CALL TO ACTION (#223), and which one is a
+// fact about the Event and about this reader: their own Ticket Sale when they
+// already hold one, Register when the Event signs its audience up elsewhere, and
+// otherwise the purchase. See FollowDigestEvent.callToAction.
+//
+// THE FOOTER CARRIES THE UNSUBSCRIBE LINK (#224), and it is the one part of
+// this message that is not about Events. ADR 0030 makes the Digest the only mail
+// a Customer can turn off, so it is also the only mail that must always say how
+// — every Digest, not the first one and not a sample. The line says that
+// pressing it keeps their Follows, because Unsubscribe and Unfollow are
+// different acts and a reader who cannot tell them apart will choose the one
+// that risks nothing: ignoring the mail forever.
+//
+// The link is absent only when the platform holds no signing key. The footer
+// then degrades to the closing line rather than rendering a dead address, and
+// the Digest still goes out — a missing footer link is worth less than a Digest
+// nobody gets, and the deployment fault is visible in the logs of whatever
+// refused to mint it.
+//
+// An empty Digest cannot be rendered here because it is never composed: the
+// caller sends nothing at all when nothing matched (digest/service.deliverDigest).
+func (d FollowDigest) Text() string {
+	text := fmt.Sprintf(digestGreetingCopy.in(d.Locale), d.CustomerName)
+	text += digestSection(digestNewHeadingCopy.in(d.Locale), d.New, d.NewOverflow, d.Locale)
+	text += digestSection(digestHappeningHeadingCopy.in(d.Locale), d.Happening, d.HappeningOverflow, d.Locale)
+	text += "\n\n" + digestClosingCopy.in(d.Locale)
+	if d.UnsubscribeURL != "" {
+		text += "\n" + fmt.Sprintf(digestUnsubscribeCopy.in(d.Locale), d.UnsubscribeURL)
+	}
+	return text
+}
+
+// digestSection renders one heading and everything under it, or NOTHING AT ALL
+// when the section is empty (#221).
+//
+// The empty case is the whole reason this is a function. A week with news and no
+// agenda, and a week with an agenda and nothing new, are both ordinary; printing
+// a bare heading for the missing half would tell the reader the Digest is broken
+// on the most common weeks it will ever be sent.
+// The overflow line closes the section it belongs to, BELOW the Events rather
+// than beside the heading: a reader who has just finished the tenth entry is
+// exactly the reader who needs to be told there are more, and a count announced
+// before the list would be read as the size of the list.
+func digestSection(heading string, events []FollowDigestEvent, overflow FollowDigestOverflow, locale Locale) string {
+	if len(events) == 0 {
+		// A section with nothing in it prints nothing, overflow included — an
+		// overflow with no section above it is impossible, since only a full
+		// section can shed anything.
+		return ""
+	}
+	text := "\n\n" + heading
+	for _, event := range events {
+		text += "\n\n" + event.render(locale)
+	}
+	if overflow.Count > 0 {
+		if overflow.URL != "" {
+			text += "\n\n" + fmt.Sprintf(digestMoreCopy.in(locale), overflow.Count, overflow.URL)
+		} else {
+			text += "\n\n" + fmt.Sprintf(digestMoreWithoutLinkCopy.in(locale), overflow.Count)
+		}
+	}
+	return text
+}
+
+// render is one Event's block in the Digest: what it is, when and where, a link,
+// and why the reader is hearing about it.
+//
+// The date is rendered in the EVENT's own timezone rather than the reader's,
+// which is how every other Event-facing surface in this system states a time and
+// the only way a Digest read from another country names the day the doors
+// actually open.
+func (e FollowDigestEvent) render(locale Locale) string {
+	block := e.Name
+	// The attending mark goes directly under the name (#223), above everything
+	// else the entry says. A reader scanning an agenda is looking for exactly one
+	// thing — which of these have I already booked — and an answer printed below
+	// the venue is an answer they have to read four lines to find.
+	if e.Attending {
+		block += "\n" + digestAttendingCopy.in(locale)
+	}
+	if when := formatEventDate(e.StartsAt, e.Timezone, locale); when != "" {
+		block += "\n" + when
+	}
+	if e.Venue != "" {
+		block += "\n" + e.Venue
+	}
+	if e.OrganizationName != "" {
+		block += "\n" + e.OrganizationName
+	}
+	if cta := e.callToAction(locale); cta != "" {
+		block += "\n" + cta
+	}
+	if reasons := e.reasons(); len(reasons) > 0 {
+		block += "\n" + fmt.Sprintf(digestBecauseCopy.in(locale), strings.Join(reasons, ", "))
+	}
+	return block
+}
+
+// callToAction is the one thing this entry asks the reader to do, and there is
+// never more than one of them (#223).
+//
+// The order of the branches is the order of the rules, and it is not
+// interchangeable. ATTENDING WINS OUTRIGHT: a reader holding a live Ticket Sale
+// is sent to what they already own, and the purchase line is not softened or
+// moved but removed. EXTERNAL REGISTRATION comes next, because ADR 0028 makes
+// the two registration modes exclusive — such an Event has no Ticket Types, so
+// there is nothing a purchase line could point at. Everything else is an
+// ordinary ticketed Event nobody here has bought yet.
+//
+// An attending reader with no Storefront origin configured gets NO line at all
+// rather than the purchase one. That is the deliberate degradation: an entry
+// with nowhere to press is a small loss, and telling somebody to buy the ticket
+// they are holding is the exact failure this whole function exists to prevent.
+func (e FollowDigestEvent) callToAction(locale Locale) string {
+	switch {
+	case e.Attending:
+		if e.TicketSaleURL == "" {
+			return ""
+		}
+		return fmt.Sprintf(digestYourTicketsCopy.in(locale), e.TicketSaleURL)
+	case e.URL == "":
+		return ""
+	case e.ExternallyRegistered:
+		return fmt.Sprintf(digestRegisterCopy.in(locale), e.URL)
+	default:
+		return fmt.Sprintf(digestGetTicketsCopy.in(locale), e.URL)
+	}
+}
+
+// reasons is the Follows this Event matched, as the reader would name them: the
+// Organization putting it on, and the Tags they follow that it carries.
+//
+// The Organization comes first because it is the more specific subscription —
+// somebody who followed this organizer chose them, where a Tag is a whole
+// category — and because it is the one a reader recognises without thinking.
+func (e FollowDigestEvent) reasons() []string {
+	reasons := make([]string, 0, len(e.MatchedTagNames)+1)
+	if e.MatchedOrganization && e.OrganizationName != "" {
+		reasons = append(reasons, e.OrganizationName)
+	}
+	reasons = append(reasons, e.MatchedTagNames...)
+	return reasons
+}
+
+// formatEventDate renders an Event's start in the Event's own zone, in the
+// reader's language — "Friday 10 July, 20:00" / "viernes 10 de julio, 20:00".
+//
+// The month and weekday names are spelled out here rather than taken from
+// time.Format's English-only names, because Go's standard library carries no
+// localized calendar and pulling in one for twelve words would be a dependency
+// bigger than the feature. An unknown or unloadable timezone yields no date line
+// at all rather than one in the wrong zone: a Digest that tells somebody the
+// wrong day is worse than one that tells them to open the link.
+func formatEventDate(startsAt time.Time, timezone string, locale Locale) string {
+	if startsAt.IsZero() {
+		return ""
+	}
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		return ""
+	}
+	local := startsAt.In(loc)
+	if locale == LocaleES {
+		return fmt.Sprintf("%s %d de %s, %s",
+			spanishWeekdays[local.Weekday()], local.Day(), spanishMonths[local.Month()], local.Format("15:04"))
+	}
+	return local.Format("Monday 2 January, 15:04")
+}
+
+var spanishWeekdays = map[time.Weekday]string{
+	time.Sunday:    "domingo",
+	time.Monday:    "lunes",
+	time.Tuesday:   "martes",
+	time.Wednesday: "miércoles",
+	time.Thursday:  "jueves",
+	time.Friday:    "viernes",
+	time.Saturday:  "sábado",
+}
+
+var spanishMonths = map[time.Month]string{
+	time.January:   "enero",
+	time.February:  "febrero",
+	time.March:     "marzo",
+	time.April:     "abril",
+	time.May:       "mayo",
+	time.June:      "junio",
+	time.July:      "julio",
+	time.August:    "agosto",
+	time.September: "septiembre",
+	time.October:   "octubre",
+	time.November:  "noviembre",
+	time.December:  "diciembre",
 }
 
 // formatEcuadorDate renders an instant as the calendar date it falls on in

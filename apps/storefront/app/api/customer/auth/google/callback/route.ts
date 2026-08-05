@@ -58,6 +58,10 @@ export async function GET(request: Request) {
   // or a callback nobody here started. Either way the Customer Area is the right
   // place to be heading.
   const destination = pending?.destination ?? DEFAULT_DESTINATION;
+  // What the visitor pressed before they came here, if anything (#219). Read off
+  // the same spent cookie as the destination and already re-guarded by
+  // decodePendingSignIn.
+  const followIntent = pending?.followIntent ?? null;
 
   const code = params.get("code");
   const config = googleSignInConfig();
@@ -69,7 +73,7 @@ export async function GET(request: Request) {
     !statesMatch(pending.state, params.get("state")) ||
     !config
   ) {
-    return redirectTo(signInFailurePath(destination));
+    return redirectTo(signInFailurePath(destination, followIntent));
   }
 
   try {
@@ -87,13 +91,26 @@ export async function GET(request: Request) {
           code,
           code_verifier: pending.codeVerifier,
           redirect_uri: config.redirectUri,
+          // Remembered as this Customer's Digest Locale (ADR 0030). It is the
+          // same value that decides which language page this hand-off lands on
+          // a few lines below, which is the strongest claim this route can
+          // make: Google's callback is a fixed address with no locale segment
+          // to read, so the language the visitor is about to be shown is the
+          // language they are signing in in.
+          locale,
+          // The Follow pressed before signing in (#219), relayed and not acted
+          // on. This route has no session token to act with — it is about to be
+          // handed one — and the API writes the Follow against the session this
+          // exchange produces. Nothing here names an email, so the intent cannot
+          // be aimed at an address even in principle.
+          ...(followIntent ? { follow: followIntent } : {}),
         }),
       },
     );
 
     const result = envelope.data;
     if (!result?.session_id) {
-      return redirectTo(signInFailurePath(destination));
+      return redirectTo(signInFailurePath(destination, followIntent));
     }
 
     // The session token goes straight from this process into an httpOnly cookie.
@@ -105,7 +122,7 @@ export async function GET(request: Request) {
   } catch {
     // Includes the API refusing the exchange, Google refusing the code, an
     // unverified address, and the API being unreachable. All one message.
-    return redirectTo(signInFailurePath(destination));
+    return redirectTo(signInFailurePath(destination, followIntent));
   }
 }
 

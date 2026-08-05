@@ -85,6 +85,37 @@ type EnvelopeCheckoutReversal struct {
 	RequestID string                `json:"request_id"`
 }
 
+// EnvelopeCustomerFollows documents GET /api/v1/customer/follows success
+// responses: everything the Customer Follows, as one discriminated list.
+type EnvelopeCustomerFollows struct {
+	Data      service.FollowsView `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeCustomerDigestSubscription documents the success responses of both
+// routes that write the Follow Digest switch (#224): POST
+// /api/v1/customer/unsubscribe and PUT /api/v1/customer/digest.
+//
+// ONE SHAPE FOR BOTH, because both answer the same question — is the Digest on
+// for this person now — and the two entry points differ only in what authorises
+// them. The same fact also rides on the Follows listing, so nothing that reads
+// it has to reconcile two spellings.
+type EnvelopeCustomerDigestSubscription struct {
+	Data      service.DigestSubscriptionView `json:"data"`
+	Error     *platform.APIError             `json:"error"`
+	RequestID string                         `json:"request_id"`
+}
+
+// EnvelopeCustomerFollow documents POST
+// /api/v1/customer/follows/organizations/{slug} success responses: the one
+// Follow, in exactly the shape it takes inside the list above.
+type EnvelopeCustomerFollow struct {
+	Data      service.FollowView `json:"data"`
+	Error     *platform.APIError `json:"error"`
+	RequestID string             `json:"request_id"`
+}
+
 // EnvelopeCustomerArea documents GET /api/v1/customer/ticket-sales success responses.
 type EnvelopeCustomerArea struct {
 	Data      service.CustomerAreaView `json:"data"`

@@ -28,7 +28,9 @@ import (
 // folding happens here. Where it differs from what a box office recorded, the
 // person is a different Customer — deliberately, since the alternative rewrites
 // the identity key of every existing row.
-func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI string) (*CustomerSessionView, string, error) {
+// locale is the Locale of the Storefront the sign-in started on, remembered as
+// the Customer's Digest Locale exactly as the passcode path remembers it.
+func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, locale string) (*CustomerSessionView, string, error) {
 	identity, err := s.google.VerifiedIdentity(ctx, googleauth.Exchange{
 		Code:         code,
 		CodeVerifier: codeVerifier,
@@ -43,5 +45,5 @@ func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, re
 	// The picture URL rides along to seed a Customer Avatar into an empty slot
 	// and for nothing else — it proves nothing, names nobody, and an upload the
 	// person made is never overwritten by it (see seedAvatarFromGoogle).
-	return s.signInProvenEmail(ctx, platform.NormalizeEmail(identity.Email), s.now(), identity.PictureURL)
+	return s.signInProvenEmail(ctx, platform.NormalizeEmail(identity.Email), s.now(), identity.PictureURL, locale)
 }

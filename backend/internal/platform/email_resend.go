@@ -48,6 +48,15 @@ func NewResendEmailSender(apiKey, from string, logger Logger) *ResendEmailSender
 	}
 }
 
+// From reports the RFC 5322 From header every message from this sender carries
+// — which is to say, which sending IDENTITY this object is.
+//
+// It is exported because the platform now runs two Resend senders at once, on
+// two different domains (#225, ADR 0030), and "which of the two is this" stops
+// being obvious the moment there is more than one. Startup logging and the
+// wiring tests both ask.
+func (s *ResendEmailSender) From() string { return s.from }
+
 // resendRequest is the subset of Resend's send payload this system uses. Plain
 // text only for now: the messages are short, and text/plain sidesteps an HTML
 // templating dependency and the deliverability tuning HTML mail invites.
@@ -203,6 +212,31 @@ func (s *ResendEmailSender) SendPayoutRequestTransferSent(ctx context.Context, p
 func (s *ResendEmailSender) SendPayoutRequestTransferFailed(ctx context.Context, p PayoutRequestTransferFailed) error {
 	if err := s.send(ctx, p.To, p.Subject(), p.Text()); err != nil {
 		s.logger.Error("resend send payout request transfer failed failed", "email", p.To, "organization", p.OrganizationName, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendFollowDigest delivers the weekly Follow Digest — the first
+// non-transactional mail this platform sends, and the first whose language
+// depends on its reader.
+//
+// Best-effort from this sender's point of view, but NOT from its caller's: the
+// error is returned and the drain acts on it, because a Digest is the whole
+// payload of a Follow and a failed one is retried rather than shrugged off
+// (ADR 0030). That is the opposite of the notices above, where the money record
+// is the fact and the mail is the courtesy.
+//
+// ADR 0030 requires this to send from a subdomain separate from transactional
+// mail, so that complaints about a Digest cannot degrade the reputation the
+// One-time Passcodes depend on. That separation is NOT made here and cannot be:
+// this type holds one From and one key, and which of them it holds is decided by
+// whoever constructed it. A production deployment builds TWO of these — see
+// server.newEmailSender and SplitEmailSender — and the one carrying the Digest
+// identity is the only one this method is ever reached on (#225).
+func (s *ResendEmailSender) SendFollowDigest(ctx context.Context, d FollowDigest) error {
+	if err := s.send(ctx, d.To, d.Subject(), d.Text()); err != nil {
+		s.logger.Error("resend send follow digest failed", "email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening), "error", err)
 		return err
 	}
 	return nil

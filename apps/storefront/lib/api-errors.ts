@@ -48,7 +48,7 @@ export type ErrorCatalog = Readonly<Record<string, Readonly<Record<string, strin
  * through to the API's message — so a third surface that starts receiving an
  * ambiguous code shows the API's own sentence rather than another surface's.
  */
-export type ErrorSurface = "undo" | "myInfo";
+export type ErrorSurface = "undo" | "myInfo" | "follow";
 
 /**
  * As much of a failed envelope's `error` as choosing copy needs.

@@ -38,6 +38,14 @@ module "ticket_pos" {
   resend_api_key = var.resend_api_key
   email_from     = var.email_from
 
+  # The Follow Digest's own sending identity, supplied the same way and kept
+  # strictly separate (#225, ADR 0030). Applying without sourcing the key removes
+  # the secret version and stops Digests — which is the safe direction: the API
+  # then sends none rather than sending them from the transactional domain.
+  digest_email_domain   = var.digest_email_domain
+  digest_resend_api_key = var.digest_resend_api_key
+  digest_email_from     = var.digest_email_from
+
   # Google Sign-In credentials, one client per surface (ADR 0011). Supplied the
   # same way as the Resend key — sourced .env, never a committed tfvars — and
   # subject to the same trap: applying without sourcing it removes the secret
@@ -66,4 +74,15 @@ module "ticket_pos" {
   reversal_reconciler_enabled                  = var.reversal_reconciler_enabled
   reversal_reconciler_schedule                 = var.reversal_reconciler_schedule
   reversal_reconciler_attempt_deadline_seconds = var.reversal_reconciler_attempt_deadline_seconds
+
+  # The Follow Digest jobs (#226, ADR 0030), threaded through for the same reason
+  # the reconciler's are: turning the weekly send off is an incident move, and
+  # `terraform apply -var follow_digest_enqueue_enabled=false` from this directory
+  # leaves the state agreeing with reality.
+  follow_digest_enqueue_enabled                  = var.follow_digest_enqueue_enabled
+  follow_digest_enqueue_schedule                 = var.follow_digest_enqueue_schedule
+  follow_digest_enqueue_attempt_deadline_seconds = var.follow_digest_enqueue_attempt_deadline_seconds
+  follow_digest_drain_enabled                    = var.follow_digest_drain_enabled
+  follow_digest_drain_schedule                   = var.follow_digest_drain_schedule
+  follow_digest_drain_attempt_deadline_seconds   = var.follow_digest_drain_attempt_deadline_seconds
 }

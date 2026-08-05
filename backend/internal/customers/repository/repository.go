@@ -189,22 +189,20 @@ type UpdateProfileInput struct {
 // Nothing here touches a Ticket Sale. The Customer holds what the person
 // asserts now; each sale holds what was transacted, immutably (ADR 0016).
 func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (*Customer, error) {
-	var c Customer
-	err := r.db.Pool.QueryRowContext(ctx, `
+	c, err := scanCustomer(r.db.Pool.QueryRowContext(ctx, `
 		UPDATE customers
 		SET first_name = $2, last_name = $3, tax_id_type = $4, tax_id_number = $5,
 			phone = CASE WHEN $6::boolean THEN $7::text ELSE customers.phone END
 		WHERE id = $1
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
-	`, in.CustomerID, in.FirstName, in.LastName, in.TaxIDType, in.TaxIDNumber, in.PhoneSet, in.Phone).
-		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
+		RETURNING `+customerColumns+`
+	`, in.CustomerID, in.FirstName, in.LastName, in.TaxIDType, in.TaxIDNumber, in.PhoneSet, in.Phone))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return c, nil
 }
 
 // UpdateAvatarKey writes the Customer's Avatar object key — a set key attaches
@@ -215,21 +213,19 @@ func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (
 // Avatar is presentation, and setting or removing one asserts nothing about
 // name, Tax ID, or verification.
 func (r *Repository) UpdateAvatarKey(ctx context.Context, customerID string, key *string) (*Customer, error) {
-	var c Customer
-	err := r.db.Pool.QueryRowContext(ctx, `
+	c, err := scanCustomer(r.db.Pool.QueryRowContext(ctx, `
 		UPDATE customers
 		SET avatar_image_key = $2
 		WHERE id = $1
-		RETURNING id, email, first_name, last_name, tax_id_type, tax_id_number, phone, avatar_image_key, verified_at
-	`, customerID, key).
-		Scan(&c.ID, &c.Email, &c.FirstName, &c.LastName, &c.TaxIDType, &c.TaxIDNumber, &c.Phone, &c.AvatarImageKey, &c.VerifiedAt)
+		RETURNING `+customerColumns+`
+	`, customerID, key))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return c, nil
 }
 
 // SeedAvatarKey sets the Avatar object key only when the Customer has none,

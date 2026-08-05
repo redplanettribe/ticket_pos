@@ -1,0 +1,64 @@
+-- Unsubscribing from the Follow Digest (#224, parent #215, ADR 0030).
+--
+-- UNSUBSCRIBING IS A SWITCH, NOT A PURGE, and this column is the switch. It is
+-- the single most important line in the feature to read correctly, because the
+-- obvious alternative implementation — "unsubscribe deletes the Follows" — is
+-- destructive, irreversible, and reachable by anything that can open a URL.
+--
+-- The Digest is the platform's first non-transactional mail, so it is the first
+-- that must carry an opt-out reachable WITHOUT SIGNING IN: it is read in a mail
+-- client months after anybody last signed in, and an opt-out gated behind a
+-- passcode is not an opt-out. The moment such a link exists, mail security
+-- scanners — which routinely prefetch every link in every message before a human
+-- sees it — can press it. Had Unsubscribe meant "Unfollow everything", a
+-- corporate scanner would have silently wiped its own users' lists, and nobody
+-- on either side would ever have learned why. Flipping one reversible flag makes
+-- the worst case "this person stopped getting a weekly email they can turn back
+-- on from their own Area", and the confirmation is a POST so a prefetch alone
+-- does not even do that.
+--
+-- DEFAULT TRUE, and NOT NULL, so there is no such thing as a Customer with no
+-- answer. The Digest is only ever sent to somebody who pressed Follow — an act
+-- CONTEXT.md defines as "a request to be written to" — so the default is the
+-- consent already given, and this column records only its withdrawal. A
+-- nullable column would have made every reader handle a third state that has no
+-- meaning: "they have not said" is exactly "they pressed Follow and have not
+-- since asked us to stop".
+--
+-- It sits on `customers` rather than on either Follow table because it is a
+-- fact about the READER and not about any one subscription. Per-Follow mute
+-- switches would be a different feature with a different name, and would leave
+-- the Digest with no single answer to "may we write to this person at all".
+--
+-- No index. It is read one Customer at a time while composing their Digest, and
+-- as one predicate in the weekly enqueue — which already scans the Follow tables
+-- and is bounded by the number of Customers who follow anything.
+--
+-- IT TOUCHES NO TRANSACTIONAL MAIL and nothing in this schema suggests it
+-- could: One-time Passcodes and Sale Confirmations answer something the Customer
+-- did seconds ago, are read by nothing in the Digest pipeline, and are the two
+-- messages a person cannot do without.
+ALTER TABLE customers ADD COLUMN digest_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- A fifth terminal state for a pending Digest: the Customer had unsubscribed by
+-- the time the drain reached them.
+--
+-- The enqueue already refuses to create a row for an unsubscribed Customer, so
+-- this covers exactly one window — somebody who unsubscribes between the weekly
+-- enqueue and the minute their Digest would have been drained. That window is
+-- small and it is precisely when an opt-out matters most: the Digest is sitting
+-- in a queue, addressed, and one press must be enough to stop it.
+--
+-- A state of its own rather than a quiet `empty`, because the two are different
+-- facts and an operator reading this table has to be able to tell them apart.
+-- `empty` says "their Follows matched nothing", which is a reason to wonder
+-- whether the matching is working. `skipped` says "we deliberately did not write
+-- to this person", which is the feature working. Collapsing them would make a
+-- surge of unsubscribes look identical to the composition breaking.
+--
+-- Terminal, like `empty`: the week does not come round again, and nothing about
+-- a Customer turning the Digest back on should resurrect a Digest addressed to
+-- the week they were quiet for.
+ALTER TABLE follow_digests DROP CONSTRAINT follow_digests_status_check;
+ALTER TABLE follow_digests ADD CONSTRAINT follow_digests_status_check
+    CHECK (status IN ('pending', 'sent', 'empty', 'skipped', 'failed'));

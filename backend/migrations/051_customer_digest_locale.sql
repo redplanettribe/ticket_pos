@@ -1,0 +1,28 @@
+-- The Customer's remembered Digest Locale (#216, parent #215).
+--
+-- A Locale is a property of a page's address (`/{locale}/...`), and mail has no
+-- address. So the language a Follow Digest is written in cannot be derived at
+-- send time from anything the Customer record holds today, and it is remembered
+-- here instead — captured from the Storefront the Customer last signed in on,
+-- through either door (One-time Passcode or Google Sign-In). See ADR 0030 and
+-- the Digest Locale entry in CONTEXT.md.
+--
+-- NOT NULL DEFAULT 'en', so there is no such thing as a Customer with no
+-- language. Most Customers on the platform the day this shipped have never
+-- signed in at all — a record created by a box office sale or an import — and
+-- an empty Locale would make every future reader of this column handle a case
+-- that has an obvious answer: English is what every mail this platform has ever
+-- sent was written in. The default is also what the sign-in path leans on, so a
+-- caller that names no Locale leaves the column standing rather than blanking
+-- it.
+--
+-- The CHECK is the same shape of guard as the one on tags.display_name_es: the
+-- Storefront serves exactly two languages, and a value outside them is a Digest
+-- with no copy to render. The service refuses an unserved language before it
+-- gets here (platform.ParseLocale) rather than failing a sign-in over it; this
+-- constraint is the backstop for a write path added later that forgets to.
+--
+-- No index. It is read one Customer at a time while composing that Customer's
+-- Digest, never selected on.
+ALTER TABLE customers ADD COLUMN digest_locale TEXT NOT NULL DEFAULT 'en'
+    CHECK (digest_locale IN ('en', 'es'));

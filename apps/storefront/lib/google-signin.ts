@@ -22,6 +22,7 @@
 // `node --experimental-strip-types`, which resolves specifiers exactly. Next
 // resolves it identically.
 import { DEFAULT_DESTINATION, safeNext } from "./destination.ts";
+import { safeFollowIntent } from "./follow-intent.ts";
 
 /** Google's OAuth 2.0 authorization endpoint, where the browser is sent. */
 const AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -102,13 +103,29 @@ export function isGoogleSignInConfigured(): boolean {
   return googleSignInConfig() !== null;
 }
 
-/** Where the Google button points, carrying the destination the visitor came for. */
-export function googleSignInStartPath(destination: string): string {
+/**
+ * Where the Google button points, carrying the destination the visitor came for
+ * and any Follow they pressed on the way (#219).
+ *
+ * Both travel as query on this origin only. Neither reaches Google: the start
+ * route puts them in the state cookie a few lines below, which is what crosses
+ * the redirect, so Google's logs never hold either one.
+ */
+export function googleSignInStartPath(
+  destination: string,
+  followIntent?: string | null,
+): string {
+  const params = new URLSearchParams();
   const safe = safeNext(destination);
-  if (safe === DEFAULT_DESTINATION) {
-    return GOOGLE_SIGN_IN_START_PATH;
+  if (safe !== DEFAULT_DESTINATION) {
+    params.set("next", safe);
   }
-  return `${GOOGLE_SIGN_IN_START_PATH}?next=${encodeURIComponent(safe)}`;
+  const intent = safeFollowIntent(followIntent);
+  if (intent) {
+    params.set("follow", intent);
+  }
+  const query = params.toString();
+  return query ? `${GOOGLE_SIGN_IN_START_PATH}?${query}` : GOOGLE_SIGN_IN_START_PATH;
 }
 
 /**
@@ -125,6 +142,17 @@ export type PendingSignIn = {
   state: string;
   codeVerifier: string;
   destination: string;
+  /**
+   * The Follow the visitor pressed before signing in, or null (#219).
+   *
+   * It rides in the cookie for the same reasons the destination does — it stays
+   * on this origin and out of Google's logs — and it is re-guarded on the way
+   * out by `safeFollowIntent`, so even a forged cookie can only name a
+   * well-formed subject. It could not name a subscriber in any case: whose
+   * Follow this becomes is decided by the session the API mints from Google's
+   * answer, and this app never sees an email at all on this path.
+   */
+  followIntent: string | null;
 };
 
 /**
@@ -134,11 +162,15 @@ export type PendingSignIn = {
  * characters, comfortably inside RFC 7636's 43-128 range for a code verifier and
  * far beyond guessing for a nonce.
  */
-export function newPendingSignIn(destination: string): PendingSignIn {
+export function newPendingSignIn(
+  destination: string,
+  followIntent?: string | null,
+): PendingSignIn {
   return {
     state: randomToken(),
     codeVerifier: randomToken(),
     destination: safeNext(destination),
+    followIntent: safeFollowIntent(followIntent),
   };
 }
 
@@ -204,7 +236,14 @@ export function clearedGoogleStateCookieOptions() {
 export function encodePendingSignIn(pending: PendingSignIn): string {
   return base64UrlEncode(
     new TextEncoder().encode(
-      JSON.stringify({ s: pending.state, v: pending.codeVerifier, d: pending.destination }),
+      JSON.stringify({
+        s: pending.state,
+        v: pending.codeVerifier,
+        d: pending.destination,
+        // Omitted rather than written as null when there is none, so the
+        // ordinary sign-in's cookie is exactly the length it always was.
+        ...(pending.followIntent ? { f: pending.followIntent } : {}),
+      }),
     ),
   );
 }
@@ -231,7 +270,7 @@ export function decodePendingSignIn(raw: string | null | undefined): PendingSign
   if (typeof parsed !== "object" || parsed === null) {
     return null;
   }
-  const { s, v, d } = parsed as { s?: unknown; v?: unknown; d?: unknown };
+  const { s, v, d, f } = parsed as { s?: unknown; v?: unknown; d?: unknown; f?: unknown };
   if (typeof s !== "string" || typeof v !== "string" || !s || !v) {
     return null;
   }
@@ -239,6 +278,10 @@ export function decodePendingSignIn(raw: string | null | undefined): PendingSign
     state: s,
     codeVerifier: v,
     destination: safeNext(typeof d === "string" ? d : null),
+    // Guarded on the way out for the same reason the destination is: this value
+    // is about to be relayed to the API, and a cookie is not a place to start
+    // trusting text from.
+    followIntent: safeFollowIntent(typeof f === "string" ? f : null),
   };
 }
 
@@ -271,13 +314,21 @@ export function statesMatch(expected: string, returned: string | null | undefine
  * endpoint spends real effort denying (prd-customer-login.md decision 10).
  *
  * The destination survives the failure so that the passcode form below still
- * returns the visitor to the Event page they started from.
+ * returns the visitor to the Event page they started from — and so does the
+ * Follow they pressed (#219). Somebody who dismissed the account picker and fell
+ * back to a passcode is the same person who pressed Follow two minutes ago;
+ * dropping the intent here would make the fallback quietly cost them the thing
+ * they came to do.
  */
-export function signInFailurePath(destination: string): string {
+export function signInFailurePath(destination: string, followIntent?: string | null): string {
   const safe = safeNext(destination);
   const params = new URLSearchParams({ google: "failed" });
   if (safe !== DEFAULT_DESTINATION) {
     params.set("next", safe);
+  }
+  const intent = safeFollowIntent(followIntent);
+  if (intent) {
+    params.set("follow", intent);
   }
   return `/signin?${params.toString()}`;
 }

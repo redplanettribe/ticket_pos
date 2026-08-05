@@ -8,11 +8,27 @@ import { Button, Input, cn } from "@ticket-pos/ui";
 
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
+import { followIntent } from "@/lib/follow-intent";
+import { tagFollowEndpoint } from "@/lib/follows";
 import { tagName, toTagTranslator } from "@/lib/tag-name";
 import { WHEN_PRESETS, isWhenPreset, type WhenPreset } from "@/lib/when";
 
+import { FollowButton } from "./follow-button";
+
 type ExplorerFiltersProps = {
   presetTags?: PublicTag[];
+  /**
+   * The canonical keys of the Tags this Customer already Follows, as the server
+   * rendered them, and `null` when nobody is signed in or the Follows could not
+   * be read (#218).
+   *
+   * Null rather than an empty array, because the two are different: an empty
+   * array is "signed in, follows no Tag" and draws the controls unpressed, while
+   * null is "we cannot say" and draws none at all. Passed down from the page
+   * rather than fetched here — one read answers the whole chip bar, and this is
+   * a client component that must never hold a session token.
+   */
+  followedTagKeys?: string[] | null;
 };
 
 // parseTags reads the comma-separated tag selection from the URL as a set of
@@ -29,7 +45,15 @@ function parseTags(raw: string | null): Set<string> {
   );
 }
 
-export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
+export function ExplorerFilters({
+  presetTags = [],
+  followedTagKeys = null,
+}: ExplorerFiltersProps) {
+  // Every visitor gets the Follow control (#219): a null read means signed out
+  // or unresolvable, and either way pressing it is a way into sign-in rather
+  // than a reason to hide the control from the anonymous majority this bar is
+  // mostly seen by.
+  const signedIn = followedTagKeys !== null;
   const t = useTranslations("explorer");
   // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
   const tTags = toTagTranslator(useTranslations("tags"));
@@ -139,9 +163,15 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
         <div className="flex flex-wrap gap-2" aria-label={t("tagFilterLabel")}>
           {presetTags.map((tag) => {
             const active = selectedTags.has(tag.canonical_key);
-            return (
+            const label = tagName(tag, tTags);
+            // FILTERING AND FOLLOWING ARE TWO DIFFERENT ACTS on the same word,
+            // so they are two controls rather than one chip that does both.
+            // Pressing the chip narrows what is on screen right now; pressing
+            // Follow subscribes to the Tag for good (ADR 0030). Merging them
+            // would make an ordinary browse — tap Music, look, tap it off —
+            // silently sign somebody up for mail.
+            const chip = (
               <button
-                key={tag.canonical_key}
                 type="button"
                 onClick={() => toggleTag(tag)}
                 aria-pressed={active}
@@ -150,10 +180,27 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
                   active
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-input bg-background text-foreground hover:bg-muted",
+                  "rounded-r-none border-r-0",
                 )}
               >
-                {tagName(tag, tTags)}
+                {label}
               </button>
+            );
+
+            return (
+              <span key={tag.canonical_key} className="flex items-stretch">
+                {chip}
+                {/* Drawn for anybody. A signed-out press carries the Tag
+                    through sign-in and comes back made (#219). */}
+                <FollowButton
+                  endpoint={tagFollowEndpoint(tag.canonical_key)}
+                  following={followedTagKeys?.includes(tag.canonical_key) ?? false}
+                  subjectName={label}
+                  intent={followIntent("tag", tag.canonical_key)}
+                  signedIn={signedIn}
+                  compact
+                />
+              </span>
             );
           })}
         </div>

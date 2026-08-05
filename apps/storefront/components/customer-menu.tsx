@@ -35,6 +35,9 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
   // Each entry is named by the surface it opens, from that surface's own key, so
   // a menu item and the heading it lands on cannot come to disagree.
   const myInfo = useTranslations("myInfo");
+  // The Following list is the Customer Area's third surface (#218): everything
+  // the Customer Follows, in one place, with unfollow available there.
+  const following = useTranslations("following");
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -122,6 +125,14 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
             onClick={() => setOpen(false)}
           >
             {myInfo("heading")}
+          </Link>
+          <Link
+            href="/following"
+            role="menuitem"
+            className={itemClass}
+            onClick={() => setOpen(false)}
+          >
+            {following("title")}
           </Link>
           <div className="my-1 border-t" />
           <button

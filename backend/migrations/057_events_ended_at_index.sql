@@ -1,0 +1,20 @@
+-- An index on when an Event ended, for the sent-ledger prune (#226, ADR 0030).
+--
+-- Migration 054 says its `follow_digest_sent_events_by_event_idx` serves "the
+-- prune that clears a whole Event's rows once it has ended". Half true: that
+-- index answers "given an Event, find its ledger rows", but nothing answered the
+-- question the prune asks FIRST — "which Events have ended?" — so the planner
+-- had to walk the ledger and join every row to `events` to find out.
+--
+-- That is cheapest exactly when it matters least. With rows to delete the LIMIT
+-- lets the scan stop early; in the steady state, when the prune has nothing to
+-- do, there is no early stop and it reads the whole followers-by-Events table
+-- every minute to return zero. The one table whose size is driven by reading
+-- rather than by selling is the one the prune scans in full, forever.
+--
+-- The expression matches `PruneSentLedger`'s predicate exactly, and it is the
+-- same expression the public explorer and the Digest's own eligibility filter
+-- already use to mean "not yet over", so it earns its keep beyond the prune.
+-- An Event with neither timestamp indexes as NULL and is never pruned, which is
+-- correct: a dateless Event has not ended, it has not been scheduled.
+CREATE INDEX events_ended_at_idx ON events ((COALESCE(ends_at, starts_at)));
