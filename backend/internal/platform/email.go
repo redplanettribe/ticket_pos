@@ -209,13 +209,26 @@ type FollowDigest struct {
 	// resolved into Events below. It is never empty: DefaultLocale is what a
 	// Customer who has never been on a localized surface reads in.
 	Locale Locale
-	// Events is what this Digest is about, soonest first. It is a FLAT LIST in
-	// this first cut, deliberately: sections, caps, carried overflow and the
-	// marking of Events the reader already holds Tickets to are #221 to #224, and
-	// each of them changes this shape rather than being squeezed into it.
+	// New and Happening are the Digest's TWO SECTIONS (#221), each soonest first,
+	// and they answer two different questions.
 	//
-	// Never empty. A caller with nothing to say sends nothing at all.
-	Events []FollowDigestEvent
+	// New is what this reader has never been shown — novelty as ADR 0030 defines
+	// it, a fact about the reader rather than about the Event. Happening is what
+	// they were already told about and which now starts within seven days, which
+	// is the week-before reminder the Digest absorbed rather than sending as a
+	// second kind of mail.
+	//
+	// AN EVENT IS NEVER IN BOTH. One qualifying for each is news, once: a reader
+	// who meets the same Event twice in one email learns that this mail repeats
+	// itself. The rule is enforced where the two lists are built
+	// (digest/repository.DigestCandidates) rather than here, because it is a
+	// property of the sets and not of the rendering.
+	//
+	// EITHER MAY BE EMPTY, and an empty one prints no heading at all — a Digest
+	// with nothing new must not announce a "New this week" with nothing under it.
+	// Both empty is impossible: a caller with nothing to say sends nothing.
+	New       []FollowDigestEvent
+	Happening []FollowDigestEvent
 	// UnsubscribeURL is the signed link that turns this Digest off, carried in
 	// the footer of every one (#224, ADR 0030).
 	//
@@ -258,6 +271,14 @@ type FollowDigestEvent struct {
 	// OrganizationName is who is putting it on — the fact a reader uses to place
 	// an Event they have not heard of.
 	OrganizationName string
+	// Venue is where it is. It is here because an entry has to carry enough to
+	// decide WITHOUT CLICKING (#221): what it is, when, where and who is putting
+	// it on is what the decision is actually made from, and a listing that gives
+	// only a name makes the reader open a page to find out whether they care.
+	//
+	// Empty when the Event names no venue, in which case the line is omitted
+	// rather than rendered blank.
+	Venue string
 	// URL opens the Event on the Storefront. Built in the same shape an Affiliate
 	// Link is (service.storefrontURL), because an Event listing with nothing to
 	// press is a list of things the reader now has to go and search for.
@@ -371,7 +392,7 @@ func (s *LoggingEmailSender) SendPayoutRequestTransferFailed(_ context.Context, 
 // a local developer needs from this line is that a Digest went out, to whom, in
 // which language, and that it was not empty.
 func (s *LoggingEmailSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
-	s.Logger.Info("follow digest sent", "email", d.To, "locale", string(d.Locale), "events", len(d.Events))
+	s.Logger.Info("follow digest sent", "email", d.To, "locale", string(d.Locale), "new", len(d.New), "happening", len(d.Happening))
 	return nil
 }
 

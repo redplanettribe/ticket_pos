@@ -456,11 +456,15 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		return digestOutcomeSkipped, s.repo.MarkDigestSkipped(ctx, pending.ID)
 	}
 
-	candidates, err := s.repo.DigestCandidates(ctx, pending.CustomerID, s.now().UTC())
+	sections, err := s.repo.DigestCandidates(ctx, pending.CustomerID, s.now().UTC())
 	if err != nil {
 		return digestOutcomeEmpty, err
 	}
-	if len(candidates) == 0 {
+	// NOTHING NEW IS NOT NOTHING TO SAY (#221). A reader told about something a
+	// month ago who has heard nothing since is exactly the reader the agenda is
+	// for, and the week their Event finally comes within seven days the Digest
+	// goes out carrying only that. Only both sections being empty is silence.
+	if sections.Empty() {
 		return digestOutcomeEmpty, s.repo.MarkDigestEmpty(ctx, pending.ID)
 	}
 
@@ -469,7 +473,7 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		locale = parsed
 	}
 
-	message, err := s.compose(ctx, pending.CustomerID, *recipient, locale, candidates)
+	message, err := s.compose(ctx, pending.CustomerID, *recipient, locale, sections)
 	if err != nil {
 		return digestOutcomeEmpty, err
 	}
@@ -477,8 +481,14 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		return digestOutcomeEmpty, fmt.Errorf("send follow digest: %w", err)
 	}
 
-	eventIDs := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
+	// ONLY THE NEW SECTION IS WRITTEN TO THE LEDGER, and the agenda is not,
+	// because everything in the agenda is already there — that is what put it
+	// there. A ledger row records the FIRST time a person was shown an Event, and
+	// re-writing it for a reminder would say nothing new while inviting a future
+	// change to move `sent_at` and quietly reset the novelty of an Event this
+	// reader met a month ago.
+	eventIDs := make([]string, 0, len(sections.New))
+	for _, candidate := range sections.New {
 		eventIDs = append(eventIDs, candidate.EventID)
 	}
 	if err := s.repo.MarkDigestSent(ctx, pending.ID, pending.CustomerID, eventIDs, s.now().UTC()); err != nil {
@@ -492,25 +502,58 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 }
 
 // compose turns matched Events into the message a person reads, in their Digest
-// Locale.
+// Locale, with the two sections kept apart all the way to the inbox.
 //
 // All the language work that is not a sentence happens here in one pass: the Tag
-// names are resolved for the whole Digest in ONE call to catalog rather than one
-// per Event, because a reader Following four Tags across twenty Events would
-// otherwise cost twenty queries to answer one question. The sentences themselves
-// belong to the message (platform.FollowDigest.Text).
+// names are resolved for the whole Digest — BOTH SECTIONS AT ONCE — in ONE call
+// to catalog rather than one per Event, because a reader Following four Tags
+// across twenty Events would otherwise cost twenty queries to answer one
+// question. The sentences themselves belong to the message
+// (platform.FollowDigest.Text).
+//
+// An agenda entry is built by exactly the same code as a news entry, which is
+// how it keeps its "because you follow" attribution and its venue: the section
+// an Event landed in changes where it is printed and nothing about what it says.
 func (s *Service) compose(
 	ctx context.Context,
 	customerID string,
 	recipient repository.DigestRecipient,
 	locale platform.Locale,
-	candidates []repository.DigestCandidate,
+	sections repository.DigestSections,
 ) (platform.FollowDigest, error) {
-	names, err := s.tagNames(ctx, candidates, locale)
+	names, err := s.tagNames(ctx, sections, locale)
 	if err != nil {
 		return platform.FollowDigest{}, err
 	}
 
+	return platform.FollowDigest{
+		To:           recipient.Email,
+		CustomerName: recipient.FirstName,
+		Locale:       locale,
+		New:          s.composeEvents(sections.New, names),
+		Happening:    s.composeEvents(sections.Happening, names),
+		// EVERY Digest carries it (#224). It is minted here, per message, rather
+		// than stored: the link is derived from the Customer's id and the signing
+		// key, exactly as the Event links above are derived from the Storefront
+		// origin, and a stored token would be a row to create, index and sweep for
+		// a credential whose entire content is "this person, until they say
+		// otherwise".
+		UnsubscribeURL: s.unsubscribeURL(customerID),
+	}, nil
+}
+
+// composeEvents renders one section's Events, preserving the order the query
+// gave them — soonest first, which is the order the reader acts on.
+func (s *Service) composeEvents(
+	candidates []repository.DigestCandidate,
+	names map[string]string,
+) []platform.FollowDigestEvent {
+	if len(candidates) == 0 {
+		// nil rather than an empty slice, so an absent section is absent all the
+		// way down: the message prints no heading for one, and a zero-length slice
+		// and a nil one must not be two different answers to that question.
+		return nil
+	}
 	events := make([]platform.FollowDigestEvent, 0, len(candidates))
 	for _, candidate := range candidates {
 		event := platform.FollowDigestEvent{
@@ -525,6 +568,9 @@ func (s *Service) compose(
 		if candidate.Timezone.Valid {
 			event.Timezone = candidate.Timezone.String
 		}
+		if candidate.VenueName.Valid {
+			event.Venue = candidate.VenueName.String
+		}
 		for _, key := range candidate.MatchedTagKeys {
 			if name, ok := names[key]; ok && name != "" {
 				event.MatchedTagNames = append(event.MatchedTagNames, name)
@@ -537,20 +583,7 @@ func (s *Service) compose(
 		sort.Strings(event.MatchedTagNames)
 		events = append(events, event)
 	}
-
-	return platform.FollowDigest{
-		To:           recipient.Email,
-		CustomerName: recipient.FirstName,
-		Locale:       locale,
-		Events:       events,
-		// EVERY Digest carries it (#224). It is minted here, per message, rather
-		// than stored: the link is derived from the Customer's id and the signing
-		// key, exactly as the Event links above are derived from the Storefront
-		// origin, and a stored token would be a row to create, index and sweep for
-		// a credential whose entire content is "this person, until they say
-		// otherwise".
-		UnsubscribeURL: s.unsubscribeURL(customerID),
-	}, nil
+	return events
 }
 
 // unsubscribeURL mints this Customer's unsubscribe link, or returns "" and says
@@ -582,14 +615,20 @@ func (s *Service) unsubscribeURL(customerID string) string {
 	return url
 }
 
-// tagNames resolves every Tag named across a whole Digest in one call.
+// tagNames resolves every Tag named across a whole Digest — BOTH SECTIONS — in
+// one call.
+//
+// Both sections together, deliberately: they are one message and they overlap
+// heavily in Tags, so resolving them separately would be two round trips to
+// answer one question and would let the same Tag arrive under two names if a
+// future resolver ever became stateful.
 //
 // A service with no resolver wired returns no names, and the Digest goes out
 // without its Tag attributions rather than not at all — the degradation
 // WithTags describes.
 func (s *Service) tagNames(
 	ctx context.Context,
-	candidates []repository.DigestCandidate,
+	sections repository.DigestSections,
 	locale platform.Locale,
 ) (map[string]string, error) {
 	if s.tags == nil {
@@ -597,7 +636,7 @@ func (s *Service) tagNames(
 	}
 	var keys []string
 	seen := make(map[string]struct{})
-	for _, candidate := range candidates {
+	for _, candidate := range append(append([]repository.DigestCandidate{}, sections.New...), sections.Happening...) {
 		for _, key := range candidate.MatchedTagKeys {
 			if _, dup := seen[key]; dup {
 				continue

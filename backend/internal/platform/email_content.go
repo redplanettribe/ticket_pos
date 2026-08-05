@@ -287,6 +287,18 @@ var (
 		en: "Hi %s,\n\nHere is what's coming up from the things you follow.",
 		es: "Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
 	}
+	// The two section headings (#221). They are the whole difference between a
+	// list and a Digest: one answers "what is there that I did not know about",
+	// the other "what do I need to be ready for", and a reader who cannot tell
+	// which is which has to read every entry to find out.
+	digestNewHeadingCopy = digestCopy{
+		en: "New this week",
+		es: "Nuevo esta semana",
+	}
+	digestHappeningHeadingCopy = digestCopy{
+		en: "Happening this week",
+		es: "Esta semana",
+	}
 	// The attribution line, which is the Digest answering "why am I being told
 	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
 	// recorded; this is the half of that the reader sees.
@@ -321,14 +333,22 @@ func (d FollowDigest) Subject() string {
 	return digestSubjectCopy.in(d.Locale)
 }
 
-// Text is the Follow Digest's plain-text body: a greeting, a flat list of
+// Text is the Follow Digest's plain-text body: a greeting, two sections of
 // Events, and one closing line saying why this arrived.
 //
-// FLAT, deliberately, and this is the shape most likely to be mistaken for an
-// oversight. There are no sections, no cap and no "+N more", and no marking of
-// Events the reader already holds Tickets to. Those are #221 to #224 and each
-// arrives with its own decisions; a first cut that guessed at them would have to
-// be undone rather than extended.
+// NEW COMES FIRST, and that order is a decision rather than a convenience
+// (#221). The Digest's job is to tell a reader something they did not know; an
+// agenda of things they were already told about, printed above the news, buries
+// the only part of the message that could not have reached them any other way.
+//
+// A SECTION WITH NOTHING IN IT PRINTS NO HEADING. A "New this week" with
+// nothing under it reads as a mail that had nothing to say and said it anyway,
+// which is the same failure an empty Digest would be — and the agenda-only week
+// is an ordinary one, not an error.
+//
+// What is still deliberately absent: the cap and its "+N more" (#222), and the
+// marking of Events the reader already holds Tickets to (#223). Each arrives
+// with its own decisions.
 //
 // THE FOOTER CARRIES THE UNSUBSCRIBE LINK (#224), and it is the one part of
 // this message that is not about Events. ADR 0030 makes the Digest the only mail
@@ -348,12 +368,29 @@ func (d FollowDigest) Subject() string {
 // caller sends nothing at all when nothing matched (digest/service.deliverDigest).
 func (d FollowDigest) Text() string {
 	text := fmt.Sprintf(digestGreetingCopy.in(d.Locale), d.CustomerName)
-	for _, event := range d.Events {
-		text += "\n\n" + event.render(d.Locale)
-	}
+	text += digestSection(digestNewHeadingCopy.in(d.Locale), d.New, d.Locale)
+	text += digestSection(digestHappeningHeadingCopy.in(d.Locale), d.Happening, d.Locale)
 	text += "\n\n" + digestClosingCopy.in(d.Locale)
 	if d.UnsubscribeURL != "" {
 		text += "\n" + fmt.Sprintf(digestUnsubscribeCopy.in(d.Locale), d.UnsubscribeURL)
+	}
+	return text
+}
+
+// digestSection renders one heading and everything under it, or NOTHING AT ALL
+// when the section is empty (#221).
+//
+// The empty case is the whole reason this is a function. A week with news and no
+// agenda, and a week with an agenda and nothing new, are both ordinary; printing
+// a bare heading for the missing half would tell the reader the Digest is broken
+// on the most common weeks it will ever be sent.
+func digestSection(heading string, events []FollowDigestEvent, locale Locale) string {
+	if len(events) == 0 {
+		return ""
+	}
+	text := "\n\n" + heading
+	for _, event := range events {
+		text += "\n\n" + event.render(locale)
 	}
 	return text
 }
@@ -369,6 +406,9 @@ func (e FollowDigestEvent) render(locale Locale) string {
 	block := e.Name
 	if when := formatEventDate(e.StartsAt, e.Timezone, locale); when != "" {
 		block += "\n" + when
+	}
+	if e.Venue != "" {
+		block += "\n" + e.Venue
 	}
 	if e.OrganizationName != "" {
 		block += "\n" + e.OrganizationName
