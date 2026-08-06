@@ -72,6 +72,14 @@ services:
       # mail via Resend from the dev stack. See .env.example.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Multiticketing <noreply@send.multiticketing.com>}
+      # The Follow Digest's own sending identity (#225, ADR 0030). Empty by
+      # default and with NO fallback to the two above — the Digest is marketing
+      # mail and may not borrow the transactional domain. Empty here is harmless
+      # locally: with no RESEND_API_KEY the whole stack is on the logging sender,
+      # so Digests print to the container log like everything else.
+      DIGEST_RESEND_API_KEY: ${DIGEST_RESEND_API_KEY:-}
+      DIGEST_EMAIL_FROM: ${DIGEST_EMAIL_FROM:-}
+      DIGEST_EMAIL_ALLOW_SHARED_DOMAIN: ${DIGEST_EMAIL_ALLOW_SHARED_DOMAIN:-}
       # The `development` Google OAuth client, also from the root .env. Empty (the
       # default) leaves Google Sign-In off and the button hidden; passcode
       # sign-in is unaffected either way. GOOGLE_TOKEN_ENDPOINT is deliberately

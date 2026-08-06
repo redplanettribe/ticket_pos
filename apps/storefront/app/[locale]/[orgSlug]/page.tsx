@@ -5,10 +5,14 @@ import { notFound } from "next/navigation";
 import { Breadcrumb, PageHeader } from "@ticket-pos/ui";
 
 import { EmptyState, EventGrid } from "@/components/event-grid";
+import { FollowButton } from "@/components/follow-button";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { localeAlternates } from "@/lib/alternates";
 import { getOrganizationEvents } from "@/lib/api";
+import { getFollows } from "@/lib/customer-session";
+import { followIntent } from "@/lib/follow-intent";
+import { followsOrganization, organizationFollowEndpoint } from "@/lib/follows";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { storefrontBaseUrl } from "@/lib/site";
 
@@ -52,6 +56,26 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
   }
 
   const { organization, upcoming, past } = data;
+
+  // Whether this visitor Follows this Organization, read on the server so the
+  // control renders in its true state on first paint rather than flickering into
+  // it. An anonymous visitor never reaches the API for this — no Customer
+  // Session cookie, no call — so a signed-out reader pays nothing.
+  //
+  // They are still shown the control (#219). This page is public and most of its
+  // readers are anonymous, so a Follow only signed-in visitors could see would be
+  // invisible to almost everyone it is for; pressing it takes them through
+  // sign-in carrying what they pressed, and they land back here Following it.
+  //
+  // A failed read is treated as signed out for this one purpose. The page is the
+  // Organization's Events; a Follow control that could not be resolved is worth
+  // less than the page being served without it.
+  const follows = await getFollows();
+  // Asked through the shared helper rather than narrowed inline, because the
+  // listing now carries two kinds and matching a slug against the wrong one is
+  // the mistake the type system cannot see: both are strings (lib/follows.ts).
+  const following = followsOrganization(follows, organization.slug);
+
   const t = await getTranslations("organization");
   const shell = await getTranslations("shell");
   const explorer = await getTranslations("explorer");
@@ -75,7 +99,18 @@ export default async function OrganizationPage({ params }: OrganizationPageProps
             { label: organization.name },
           ]}
         />
-        <PageHeader title={organization.name} description={t("subtitle")} />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <PageHeader title={organization.name} description={t("subtitle")} />
+          <FollowButton
+            endpoint={organizationFollowEndpoint(organization.slug)}
+            following={following}
+            subjectName={organization.name}
+            // The same slug the endpoint above is built from, spelled as an
+            // intent: what a signed-out visitor's press carries through sign-in.
+            intent={followIntent("organization", organization.slug)}
+            signedIn={follows.status === "ok"}
+          />
+        </div>
 
         <section className="space-y-4">
           <h2 className="text-lg font-semibold tracking-tight">{t("upcomingHeading")}</h2>

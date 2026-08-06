@@ -224,6 +224,19 @@ func ErrInvalidTag(invalid []string) apperror.DomainError {
 	)
 }
 
+// ErrTagNotFound is returned when a canonical key names no Tag in the shared
+// pool (#218).
+//
+// It exists because a Follow of a Tag has to fail when the Tag is not there,
+// rather than coin one. Every other way a Tag enters the pool is an Organization
+// naming it on an Event (ADR 0004) — a considered act, by somebody who will see
+// it rendered — and a Customer following a word is neither. Coining on Follow
+// would fill the shared pool with typos nothing displays, and leave Follows that
+// no Event can ever match feeding the Follow Digest.
+func ErrTagNotFound() apperror.DomainError {
+	return apperror.New("TAG_NOT_FOUND", "Tag not found.", nil)
+}
+
 // ErrTooManyTags is returned when an Event would exceed the maximum number of Tags.
 func ErrTooManyTags(max int) apperror.DomainError {
 	return apperror.New(

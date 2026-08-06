@@ -9,7 +9,7 @@ import { EventHeroMedia } from "@/components/event-hero-media";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { RegisterPanel } from "@/components/register-panel";
 import { StorefrontShell } from "@/components/storefront-shell";
-import { TagBadges } from "@/components/tag-badges";
+import { FollowableTags } from "@/components/followable-tags";
 import { TicketSelection } from "@/components/ticket-selection";
 import { TicketTypeCard } from "@/components/ticket-type-card";
 import { getFormatLocale } from "@/i18n/format-locale.server";
@@ -17,7 +17,7 @@ import { Link } from "@/i18n/navigation";
 import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
 import { getPublicEvent } from "@/lib/api";
-import { customerSessionToken } from "@/lib/customer-session";
+import { customerSessionToken, getFollows } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
@@ -156,6 +156,12 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
   const tTags = toTagTranslator(await getTranslations("tags"));
 
+  // What this Customer already Follows, read once for the whole Tag row (#218).
+  // An anonymous visitor holds no cookie, so this costs them no API call at all
+  // and comes back "signed-out" — which is what makes the Tags render as the
+  // plain badges they were before, with no control and no invitation.
+  const follows = await getFollows();
+
   // The Organization's Support WhatsApp number, resolved to a tappable link.
   // Absent when they published none — the API omits the key — in which case
   // nothing renders at all: no link, no placeholder, no empty state.
@@ -242,7 +248,9 @@ export default async function EventPage({ params, searchParams }: EventPageProps
               ),
             })}
           </p>
-          <TagBadges tags={event.tags} t={tTags} className="pt-1" />
+          {/* The Tags carry the Follow control for a signed-in Customer, and are
+              the plain badges they have always been for everybody else (#218). */}
+          <FollowableTags tags={event.tags} t={tTags} follows={follows} className="pt-1" />
         </header>
 
         {event.description ? (

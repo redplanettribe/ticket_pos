@@ -63,6 +63,9 @@ importers:
       '@ticket-pos/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      lucide-react:
+        specifier: ^0.511.0
+        version: 0.511.0(react@19.2.7)
       next:
         specifier: ^15.0.0
         version: 15.5.20(@playwright/test@1.61.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

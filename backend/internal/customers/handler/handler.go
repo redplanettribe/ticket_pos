@@ -11,6 +11,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/customers"
 	"github.com/peter/ticket_pos/backend/internal/customers/middleware"
 	"github.com/peter/ticket_pos/backend/internal/customers/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -33,11 +34,39 @@ type otpRequestBody struct {
 type otpVerifyBody struct {
 	Email string `json:"email"`
 	Code  string `json:"code"`
+	// Locale is the language of the Storefront page this sign-in happened on,
+	// and it is the one field here that is not part of proving anything. It is
+	// remembered as the Customer's Digest Locale (ADR 0030), because a Locale is
+	// a property of a page's address and the Follow Digest is mail. Optional and
+	// never validated into a refusal: a caller with no page to name — anything
+	// but the Storefront — omits it and leaves what was remembered standing, and
+	// a language this platform does not serve is dropped rather than made a
+	// reason a person cannot sign in.
+	Locale string `json:"locale"`
+	// Follow is the Follow somebody asked for before they could be asked who
+	// they are (#219): one string, "organization:<slug>", carried explicitly
+	// from the sign-in address rather than stashed in browser storage so that it
+	// is server-visible and can be validated at all.
+	//
+	// It names a subject and never a subscriber. Whose Follow it becomes is
+	// decided by the session this verification mints and by nothing in this
+	// body — the Email field above proves who is signing in, and is never read
+	// as who is being subscribed. Optional; see service.ParseFollowIntent.
+	Follow string `json:"follow"`
 }
 
+// verifyOTPResponse is what both doors answer with: the session, its token, and
+// what became of any Follow intent that rode along.
+//
+// Follow is null on every ordinary sign-in, and null too when an intent named a
+// subject that no longer exists — verification is what was asked for and does
+// not fail over the other half. It is present rather than implied so a client
+// can render the control in its true state without a second round trip, and so
+// the round trip is assertable at this seam.
 type verifyOTPResponse struct {
 	Session   *service.CustomerSessionView `json:"session"`
 	SessionID string                       `json:"session_id"`
+	Follow    *service.FollowView          `json:"follow"`
 }
 
 // RequestOTP sends a one-time passcode to a Customer's email.
@@ -80,7 +109,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // VerifyOTP validates a passcode and issues a Customer Session.
 //
 // @Summary      Verify Customer passcode
-// @Description  Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session.
+// @Description  Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused. An optional `follow` carries a Follow the visitor pressed before signing in, as `organization:<slug>`. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in `follow`, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and `follow` is null.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -101,20 +130,31 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 
 	fields := validateEmail(body.Email)
 	fields = append(fields, validateOTPCode(body.Code)...)
+	// The intent is parsed BEFORE anything is proved, and a malformed one is
+	// refused here rather than after verification. A passcode is single-use: were
+	// the intent read afterwards, a mangled one would spend the code and leave
+	// somebody staring at a form asking for a passcode that is now worthless.
+	intent, intentFields := service.ParseFollowIntent(body.Follow)
+	fields = append(fields, intentFields...)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code)
+	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 
+	// Applied against the token that verification just returned, and against no
+	// other identifier in this request. That is the whole security property of
+	// the feature, and it is a property of this line: nothing else here could
+	// name a Customer even if it wanted to.
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
 		Session:   session,
 		SessionID: sessionID,
+		Follow:    h.svc.ApplyFollowIntent(r.Context(), sessionID, intent),
 	})
 }
 
@@ -122,6 +162,14 @@ type googleVerifyBody struct {
 	Code         string `json:"code"`
 	CodeVerifier string `json:"code_verifier"`
 	RedirectURI  string `json:"redirect_uri"`
+	// Locale is read exactly as it is on the passcode door; see otpVerifyBody.
+	Locale string `json:"locale"`
+	// Follow is read exactly as it is on the passcode door too, and deliberately
+	// so: both doors are Proof of Email Ownership and neither is worth more than
+	// the other (ADR 0011), so a visitor who pressed Follow and then chose Google
+	// must not silently lose it. This body cannot name an email at all, which
+	// makes the rule that the intent never chooses a subscriber structural here.
+	Follow string `json:"follow"`
 }
 
 // VerifyGoogle completes a Google Sign-In and issues a Customer Session.
@@ -135,7 +183,7 @@ type googleVerifyBody struct {
 // credential rather than consuming one.
 //
 // @Summary      Verify a Google Sign-In
-// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. An optional `follow` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -166,12 +214,14 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, platform.FieldError{Field: required.name, Code: platform.CodeRequired, Message: "is required"})
 		}
 	}
+	intent, intentFields := service.ParseFollowIntent(body.Follow)
+	fields = append(fields, intentFields...)
 	if len(fields) > 0 {
 		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI)
+	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -180,11 +230,25 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
 		Session:   session,
 		SessionID: sessionID,
+		Follow:    h.svc.ApplyFollowIntent(r.Context(), sessionID, intent),
 	})
 }
 
 type confirmationLinkBody struct {
 	Token string `json:"token"`
+	// Follow exists on this body only so that it can be refused, and refused
+	// loudly (#219).
+	//
+	// A Confirmation Link mints a sale-scoped session, which is possession of an
+	// email somebody was SENT and may well have been forwarded. #217 already
+	// refuses that session the three Follow routes; an intent riding the
+	// redemption would be the same subscription by another road — whoever a Sale
+	// Confirmation reached could sign the ticket-holder's address up for a
+	// weekly email without ever proving they own it (ADR 0010, CONTEXT.md
+	// "Follow"). Leaving the field off the struct would have refused it too, by
+	// silently dropping it, and silence is the wrong answer to a request that
+	// must never work.
+	Follow string `json:"follow"`
 }
 
 // RedeemConfirmationLink exchanges a Confirmation Link token for a Customer
@@ -197,7 +261,7 @@ type confirmationLinkBody struct {
 // rather than the narrower one the link would have minted.
 //
 // @Summary      Redeem a Confirmation Link
-// @Description  Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed.
+// @Description  Exchanges the signed token from a Sale Confirmation for a short-lived Customer Session scoped to that one Ticket Sale. Does not mark the Customer verified. If a full Customer Session is presented in Authorization, it is returned unchanged rather than narrowed. A `follow` intent is refused outright with CUSTOMER_SESSION_SCOPE_INSUFFICIENT: this door mints a sale-scoped session, and subscribing an address to mail takes the same proof signing in does.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -205,6 +269,7 @@ type confirmationLinkBody struct {
 // @Success      200   {object}  openapi.EnvelopeCustomerVerifyOTP
 // @Failure      400   {object}  platform.Envelope
 // @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
 // @Router       /api/v1/customer/auth/confirmation-link [post]
 func (h *Handler) RedeemConfirmationLink(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
@@ -216,6 +281,14 @@ func (h *Handler) RedeemConfirmationLink(w http.ResponseWriter, r *http.Request)
 	}
 	if strings.TrimSpace(body.Token) == "" {
 		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "token", Code: platform.CodeRequired, Message: "is required"}})
+		return
+	}
+	// Refused before the link is redeemed, so the answer is the same whether or
+	// not the token was any good: this door does not subscribe anybody, and
+	// whether it could have opened is not part of that answer. The same 403 the
+	// Follow routes give a sale-scoped session, for the same reason.
+	if strings.TrimSpace(body.Follow) != "" {
+		_ = platform.WriteDomainError(w, reqID, customers.ErrFollowRequiresFullSession())
 		return
 	}
 

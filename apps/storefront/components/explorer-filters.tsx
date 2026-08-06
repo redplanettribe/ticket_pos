@@ -8,11 +8,27 @@ import { Button, Input, cn } from "@ticket-pos/ui";
 
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { PublicTag } from "@/lib/api";
+import { followIntent } from "@/lib/follow-intent";
+import { tagFollowEndpoint } from "@/lib/follows";
 import { tagName, toTagTranslator } from "@/lib/tag-name";
 import { WHEN_PRESETS, isWhenPreset, type WhenPreset } from "@/lib/when";
 
+import { FollowButton } from "./follow-button";
+
 type ExplorerFiltersProps = {
   presetTags?: PublicTag[];
+  /**
+   * The canonical keys of the Tags this Customer already Follows, as the server
+   * rendered them, and `null` when nobody is signed in or the Follows could not
+   * be read (#218).
+   *
+   * Null rather than an empty array, because the two are different: an empty
+   * array is "signed in, follows no Tag" and draws the controls unpressed, while
+   * null is "we cannot say" and draws none at all. Passed down from the page
+   * rather than fetched here — one read answers the whole chip bar, and this is
+   * a client component that must never hold a session token.
+   */
+  followedTagKeys?: string[] | null;
 };
 
 // parseTags reads the comma-separated tag selection from the URL as a set of
@@ -29,7 +45,15 @@ function parseTags(raw: string | null): Set<string> {
   );
 }
 
-export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
+export function ExplorerFilters({
+  presetTags = [],
+  followedTagKeys = null,
+}: ExplorerFiltersProps) {
+  // Every visitor gets the Follow control (#219): a null read means signed out
+  // or unresolvable, and either way pressing it is a way into sign-in rather
+  // than a reason to hide the control from the anonymous majority this bar is
+  // mostly seen by.
+  const signedIn = followedTagKeys !== null;
   const t = useTranslations("explorer");
   // Preset Tag copy is the Storefront's, not the API's (ADR 0027).
   const tTags = toTagTranslator(useTranslations("tags"));
@@ -139,21 +163,57 @@ export function ExplorerFilters({ presetTags = [] }: ExplorerFiltersProps) {
         <div className="flex flex-wrap gap-2" aria-label={t("tagFilterLabel")}>
           {presetTags.map((tag) => {
             const active = selectedTags.has(tag.canonical_key);
-            return (
+            const label = tagName(tag, tTags);
+            // FILTERING AND FOLLOWING ARE TWO DIFFERENT ACTS on the same word,
+            // so they are two controls rather than one chip that does both.
+            // Pressing the chip narrows what is on screen right now; pressing
+            // Follow subscribes to the Tag for good (ADR 0030). Merging them
+            // would make an ordinary browse — tap Music, look, tap it off —
+            // silently sign somebody up for mail.
+            // The chip carries no border of its own: the pill around both halves
+            // draws the only one there is. Bordering the halves separately put a
+            // rule down the middle of a single object, and a filter chip does
+            // not need to be fenced off from the heart that follows it.
+            const chip = (
               <button
-                key={tag.canonical_key}
                 type="button"
                 onClick={() => toggleTag(tag)}
                 aria-pressed={active}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-sm transition-colors",
+                  "rounded-l-full py-1 pr-2 pl-3 text-sm transition-colors",
                   active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-input bg-background text-foreground hover:bg-muted",
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground hover:bg-muted",
                 )}
               >
-                {tagName(tag, tTags)}
+                {label}
               </button>
+            );
+
+            return (
+              <span
+                key={tag.canonical_key}
+                // One pill, one border, two controls inside it. The heart is
+                // spaced off the word by its own width rather than divided from
+                // it by a line.
+                className="inline-flex items-center rounded-full border border-input bg-background"
+              >
+                {chip}
+                {/* Drawn for anybody. A signed-out press carries the Tag
+                    through sign-in and comes back made (#219). */}
+                <FollowButton
+                  endpoint={tagFollowEndpoint(tag.canonical_key)}
+                  following={followedTagKeys?.includes(tag.canonical_key) ?? false}
+                  subjectName={label}
+                  intent={followIntent("tag", tag.canonical_key)}
+                  signedIn={signedIn}
+                  compact
+                  // Rounded to the pill it closes. Its height is left alone: it
+                  // sets the pill's, and the design system's shortest control is
+                  // already the floor for something this small to hit.
+                  className="rounded-full"
+                />
+              </span>
             );
           })}
         </div>

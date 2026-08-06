@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ticket-pos/ui": "workspace:*",
+    "lucide-react": "^0.511.0",
     "next": "^15.0.0",
     "next-intl": "^4.13.4",
     "react": "^19.0.0",

@@ -180,6 +180,100 @@ output "reversal_reconciler_job_name" {
 }
 
 output "reversal_reconciler_service_account_email" {
-  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else; it is the third and last principal with that role."
+  description = "Identity Cloud Scheduler presents to the API. Holds run.invoker on the API service and nothing else."
   value       = google_service_account.reversal_reconciler.email
+}
+
+# --- Follow Digest ------------------------------------------------------------
+
+output "follow_digest_enqueue_job_name" {
+  description = "Cloud Scheduler job declaring the Follow Digest week. The name `gcloud scheduler jobs pause|resume|run <name> --location <region>` takes — the fastest way to stop the weekly send mid-incident, ahead of an apply, and the way to send this week's Digests a day late once one is fixed."
+  value       = google_cloud_scheduler_job.follow_digest_enqueue.name
+}
+
+output "follow_digest_drain_job_name" {
+  description = "Cloud Scheduler job pacing the Follow Digest send. Pausing it holds the week's Digests in the queue rather than losing them; resuming it sends whatever is still owed."
+  value       = google_cloud_scheduler_job.follow_digest_drain.name
+}
+
+output "follow_digest_service_account_emails" {
+  description = "The two identities Cloud Scheduler presents to the API for the Digest, one per job. Each holds run.invoker on the API service and nothing else, so either can be revoked without touching the other."
+  value = {
+    enqueue = google_service_account.follow_digest_enqueue.email
+    drain   = google_service_account.follow_digest_drain.email
+  }
+}
+
+# The DNS work Terraform cannot do. Printed rather than applied because the zone
+# is not ours to write to from here (ADR 0009); a human adds these at Namecheap
+# and then presses Verify in Resend. The exact DKIM selector and value are
+# issued by Resend when the domain is added and are not knowable here.
+#
+# Two checklists rather than one with caveats: a shared-domain deployment has NO
+# DNS work to do, and the surest way to get the separate-domain steps followed by
+# somebody they do not apply to is to print them with a note on top.
+locals {
+  digest_email_dns_setup_shared = <<-EOT
+    Follow Digest sending domain: ${local.digest_email_domain} (SHARED with transactional mail)
+
+    There is no DNS work to do. This deployment sends Digests from the domain
+    that already carries the transactional mail, so the DKIM, SPF and DMARC
+    records it needs are the ones already verified in Resend.
+
+    What you accepted by setting digest_email_allow_shared_domain:
+      Spam complaints about the Digest now bear on the reputation of the domain
+      that delivers One-time Passcodes. Enough of them degrades the deliverability
+      of the mail people sign in with. ADR 0030 separates the two for this reason;
+      a plan that verifies one domain cannot, and shipping the feature dark was
+      judged worse at these volumes.
+
+    1. Nothing to add at Namecheap. Nothing to verify in Resend.
+    2. Leave TF_VAR_digest_resend_api_key unset unless you want a separate
+       restricted key: one domain is one Resend domain object, the keys are
+       account-scoped, and the API falls back to the transactional key here. A
+       second copy of one credential is a rotation hazard, not isolation.
+    3. Apply. The API logs "digest email sender: resend" at startup when it is
+       satisfied, and "digest email sender: not configured" with a reason when
+       it is not.
+
+    To undo this later: verify ${var.digest_email_domain} in Resend, follow the
+    separate-domain checklist this output prints when the flag is false, then set
+    the flag back to false.
+  EOT
+
+  digest_email_dns_setup_separate = <<-EOT
+    Follow Digest sending domain: ${var.digest_email_domain}
+
+    None of the following is provisioned by Terraform. Until it is done by hand,
+    the Digest sending identity does not exist and Resend rejects Digest sends.
+    If your Resend plan verifies only ONE domain, none of this is possible: set
+    digest_email_allow_shared_domain instead and re-read this output.
+
+    1. Add ${var.digest_email_domain} as a domain in Resend. This is a SECOND
+       domain, alongside the transactional one; do not reuse it.
+    2. At Namecheap, on the ${var.digest_email_domain} subdomain, add the records
+       Resend issues for it:
+         - the DKIM TXT record (selector and value are given by Resend)
+         - the SPF TXT record Resend states for the domain
+         - an MX record for the return path, if Resend asks for one
+         - _dmarc.${var.digest_email_domain} TXT "v=DMARC1; p=none;"
+       These are SEPARATE records from the transactional domain's. Separating
+       the reputations is the entire point (ADR 0030) — do not CNAME one to the
+       other.
+    3. Press Verify in Resend and wait for the domain to read verified.
+    4. Create an API key in Resend scoped to this domain and supply it as
+       TF_VAR_digest_resend_api_key. It must NOT be the transactional key.
+    5. Apply. The API logs "digest email sender: resend" at startup when it is
+       satisfied, and "digest email sender: not configured" with a reason when
+       it is not.
+  EOT
+}
+
+output "digest_email_dns_setup" {
+  description = "Operator checklist for the Follow Digest's sending domain. Terraform does NOT create any of this."
+  value = (
+    var.digest_email_allow_shared_domain
+    ? local.digest_email_dns_setup_shared
+    : local.digest_email_dns_setup_separate
+  )
 }

@@ -308,6 +308,48 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # The Follow Digest's own sending identity (#225, ADR 0030, email.tf).
+      #
+      # Two env vars, both independent of the transactional pair above. The API
+      # requires BOTH before it sends a single Digest and defaults NEITHER from
+      # EMAIL_FROM or RESEND_API_KEY, so a deployment that has only got halfway
+      # sends no marketing mail rather than sending it from the domain the
+      # One-time Passcodes depend on.
+      env {
+        name  = "DIGEST_EMAIL_FROM"
+        value = local.digest_email_from
+      }
+
+      # Always sent, both ways round, because the API's refusal to send Digests
+      # from the transactional domain is the default and this is the only thing
+      # that lifts it. An absent var would read as "not allowed", which is the
+      # correct reading and worth stating rather than leaving to inference.
+      env {
+        name  = "DIGEST_EMAIL_ALLOW_SHARED_DOMAIN"
+        value = var.digest_email_allow_shared_domain ? "true" : "false"
+      }
+
+      # Guarded exactly like the transactional key: no version exists until a
+      # value is supplied, and "latest" against an empty secret is a boot crash.
+      # Absent, the API logs a reason at startup and refuses every Digest — with
+      # one exception it is worth knowing about here: on a shared sending domain
+      # the API falls back to RESEND_API_KEY, because one Resend domain means one
+      # account-scoped key and storing that key in two secrets would buy a
+      # rotation hazard rather than any isolation. So leaving this unset is the
+      # NORMAL shared-domain setup, not a half-finished one.
+      dynamic "env" {
+        for_each = var.digest_resend_api_key == "" ? [] : [1]
+        content {
+          name = "DIGEST_RESEND_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.digest_resend_api_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
       # The Google OAuth credentials, one client per surface (google_oauth.tf).
       # Guarded the same way as the Resend key and for the same reason: no
       # version exists until a value is supplied, and "latest" against an empty
