@@ -8,20 +8,24 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 )
 
-// The Suggested Follow (#231 and #232, parent #229, ADR 0031): a Tag or an
+// The Suggested Follow (#231, #232 and #233, parent #229, ADR 0031): a Tag or an
 // Organization the Customer does not Follow, offered to them as one they might.
 //
 // TWO RANKINGS, ONE BEHIND THE OTHER, and which one a Customer meets depends
-// only on whether they Follow a Tag.
+// only on whether they Follow anything.
 //
-//   - CO-OCCURRENCE first, for a Customer who Follows at least one Tag: the Tags
-//     that ride alongside theirs on real Events, and the Organizations whose
+//   - CO-OCCURRENCE first, for a Customer who Follows anything at all: the Tags
+//     that ride alongside their own on real Events, and the Organizations whose
 //     upcoming Events carry them. This is what makes the panel about this reader
 //     rather than about the catalogue, and each of these suggestions names the
-//     followed Tag that produced it.
+//     Tag that produced it. The seeds are the Tags the Customer CHOSE and, below
+//     them in weight, the DERIVED Tags carried by the upcoming Events of the
+//     Organizations they Follow (#233) — so Following an Organization, which is
+//     the natural first Follow for somebody who came to buy a ticket, is read as
+//     the statement it is.
 //   - ACTIVITY behind it — the count of discoverable upcoming Events carrying a
 //     Tag or run by an Organization — filling whatever slots Co-occurrence left.
-//     For a Customer who Follows no Tag it fills all of them, which is #231's
+//     For a Customer who Follows NOTHING it fills all of them, which is #231's
 //     ranking unchanged and is the right answer for somebody the platform knows
 //     nothing about yet.
 //
@@ -33,9 +37,9 @@ import (
 // Activity measures supply and never audience; it counts Events, not the
 // Customers who Follow (CONTEXT.md). Co-occurrence is a fact about the catalogue
 // and never about other Customers — there is no collaborative filtering here in
-// any disguise. The Tags derived from a Customer's followed Organizations are
-// #233 and are deliberately not seeded here, so a Customer who Follows only
-// Organizations still meets the Activity ranking today.
+// any disguise, and deriving Tags from a followed Organization does not make it
+// one: a derived Tag is read from this Customer's own Follow joined to the
+// catalogue, and no other Customer's Follows are touched by any query here.
 //
 // A SEPARATE READ FROM THE FOLLOWS LISTING, deliberately. That listing is not a
 // page-local read: ADR 0030 built no per-subject "do I Follow this" probe, so
@@ -85,9 +89,19 @@ const maxSuggestions = 10
 // they land on, where three Tags joined by commas is a report on the algorithm.
 //
 // It is nil on everything the Activity ranking returns, which is every
-// suggestion made to a Customer who Follows no Tag. Activity has no producing
-// Tag: the subject is offered because things are happening under it, not because
-// of anything the Customer Follows.
+// suggestion made to a Customer who Follows nothing at all. Activity has no
+// producing Tag: the subject is offered because things are happening under it,
+// not because of anything the Customer Follows.
+//
+// A DERIVED TAG NAMES ITSELF HERE, and not the Organization it was inferred
+// from (#233). The reason is a claim about the CATALOGUE — the Storefront words
+// it "Goes with X", meaning this candidate rides alongside X on real Events —
+// which is as true of a derived Tag as of a chosen one, and is the only relation
+// the ranking actually measured. Naming the Organization would turn the sentence
+// into a claim about the reader, "because you Follow them", which is a second
+// shape on the wire, new copy in both message catalogues, and a report on the
+// inference rather than something the reader can check against the Event they
+// land on.
 type SuggestionReason struct {
 	TagCanonicalKey string `json:"tag_canonical_key"`
 }
@@ -201,10 +215,13 @@ func (s *Service) ListFollowSuggestions(ctx context.Context, token string) (*Fol
 // "the best of them" — the same reason every other rule in this feature lives in
 // SQL.
 //
-// A Customer who Follows no Tag gets nothing from the first read and everything
+// A Customer who Follows nothing gets nothing from the first read and everything
 // from the second, with no branch to say so. That is deliberate: a conditional
 // here would be a second code path to keep working, where the empty case falls
-// out of the query itself.
+// out of the query itself — and it is why widening the seeds to derived Tags
+// (#233) needed nothing here at all. Which Customers meet Co-occurrence is a
+// property of what the seed set contains, and the seed set is one CTE in the
+// repository.
 func (s *Service) rankedTags(ctx context.Context, customerID string, now time.Time) ([]repository.SuggestedTagRow, error) {
 	related, err := s.repo.ListTagSuggestionsByCoOccurrence(ctx, customerID, now, maxSuggestedTags)
 	if err != nil {

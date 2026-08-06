@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// Suggested Follows, ranked on Co-occurrence and on Activity (#231 and #232,
-// parent #229, ADR 0031).
+// Suggested Follows, ranked on Co-occurrence and on Activity (#231, #232 and
+// #233, parent #229, ADR 0031).
 //
 // ACTIVITY IS A COUNT OF EVENTS AND NEVER OF FOLLOWERS. Neither query below
 // touches a Follow table except to subtract what the Customer already has, and
@@ -24,8 +24,11 @@ import (
 //
 // CO-OCCURRENCE IS A FACT ABOUT THE CATALOGUE AND NEVER ABOUT OTHER CUSTOMERS.
 // Two Tags co-occur when ONE EVENT CARRIES BOTH — that is the whole of the
-// relation, and the only Follow table either Co-occurrence query reads is this
-// Customer's own, to learn what to start from and what to subtract. There is no
+// relation, and the only Follow rows any query here reads are this Customer's
+// own, to learn what to start from and what to subtract. That stays true of the
+// derived Tags #233 seeds from their followed Organizations: the derivation runs
+// through Events and their Tags, which is the catalogue, and never through
+// anybody else's Follows. Every WHERE below is scoped to $1 alone. There is no
 // "Customers who Follow this also Follow that" here in any disguise, and none is
 // to be added (ADR 0031, CONTEXT.md). A query that joined one Customer's Follows
 // to another's would be a different feature wearing this one's name.
@@ -83,33 +86,92 @@ type SuggestedOrganizationRow struct {
 	ReasonTagCanonicalKey sql.NullString
 }
 
-// followedTags is the Customer's own Tag Follows, and the starting point of
-// every Co-occurrence query below.
+// derivedTagWeight is what a Tag reached through a followed Organization counts
+// for beside a Tag the Customer chose, which counts for 1.
 //
-// DIRECTLY FOLLOWED TAGS ONLY. The Tags carried by the Events of an
-// Organization the Customer Follows are NOT in here: treating those as weakly
-// followed is #233's work, and folding it in early would mean a Customer being
-// offered a Tag inferred from their own Follow with no weighting to hold it
-// below the Tags they actually chose — the panel's most obvious way of looking
-// foolish (ADR 0031). Until then a Customer who Follows only Organizations has
-// an empty set here and falls through to the Activity ranking, which is #231's
-// and is unchanged.
+// A QUARTER, AND THE NUMBER IS THE SENTENCE "you Followed the Organization, not
+// necessarily its genre" WRITTEN DOWN. Following an Organization is a statement
+// about who is putting the Event on; the Tags on its programme are a by-product
+// of that statement, often several genres wide, and one of them is frequently
+// the house style rather than anything the Customer came for. At a quarter, a
+// derived Tag needs FOUR shared Events to weigh what one shared Event under a
+// chosen Tag weighs — which is the claim being made: derivation is evidence, and
+// it takes several times as much of it to say what a Follow says once.
+//
+// Neither extreme was available. At 1 the inference stops being an inference and
+// a Customer who Followed a venue for one band is ranked as though they had
+// declared its whole programme; near 0 the derived Tags stop changing any order
+// and #233 is a query that runs for nothing, leaving the Organization-only
+// Customer with the cold-start panel this ticket exists to take away from them.
+//
+// It is a constant and not a column because it is a judgement about the domain,
+// not a property of any row, and because the day it wants tuning the tuning is
+// one number in one place with every test in this feature standing over it. It
+// is spelled as the SQL literal it is inlined as rather than bound as a
+// parameter, so that every query here reads the same weight from the same
+// declaration and no call site can pass a different one — it is a compile-time
+// constant and never anything from a request.
+const derivedTagWeight = "0.25"
+
+// followedTags is everything this Customer has told the platform, weighted, and
+// the starting point of every Co-occurrence query below.
+//
+// TWO KINDS OF SEED IN ONE SET (#233). The Tags the Customer CHOSE, at full
+// weight, and the DERIVED Tags carried by the upcoming Events of the
+// Organizations they Follow, at derivedTagWeight. Union rather than two CTEs
+// because every query downstream wants the same two things from a seed — what
+// it co-occurs with, and how much that counts — and a second set would mean
+// every join below written twice and drifting.
+//
+// MAX RATHER THAN SUM ON THE OVERLAP, which is where a union quietly goes wrong.
+// A Tag can be both chosen and carried by a followed Organization's Events, and
+// it can be carried by several of them; adding those up would make a Customer's
+// strongest interest a function of how many of their Organizations happen to
+// stamp it on a programme. A seed is a statement, not a tally, and the strongest
+// statement the Customer made about a Tag is what it weighs — so a chosen Tag
+// weighs 1 whatever else derives it, and a Tag derived five times weighs what a
+// Tag derived once does.
+//
+// The derived half is confined to the discoverable upcoming subset, the same one
+// every ranking here counts over. A Tag reachable only through a followed
+// Organization's finished or unlisted Events is not something that Organization
+// is telling anybody about now, and seeding from it would rank on a programme
+// nobody can go to.
+//
+// THIS IS ALSO THE EXCLUSION SET, and the two uses are deliberately the same
+// rows. `followed` is what the Customer already stands in front of, so every
+// query below subtracts it from its candidates — which is how ADR 0031's rule
+// that a derived Tag is NEVER offered back to that Customer is enforced: not as
+// a filter somebody remembered to add, but as the same NOT EXISTS that keeps a
+// chosen Tag out.
 const followedTags = `
 	followed AS (
-	    SELECT t.id, t.canonical_key
-	    FROM customer_tag_follows f
-	    JOIN tags t ON t.id = f.tag_id
-	    WHERE f.customer_id = $1
+	    SELECT id, canonical_key, MAX(weight) AS weight
+	    FROM (
+	        SELECT t.id, t.canonical_key, 1::float8 AS weight
+	        FROM customer_tag_follows f
+	        JOIN tags t ON t.id = f.tag_id
+	        WHERE f.customer_id = $1
+	        UNION ALL
+	        SELECT t.id, t.canonical_key, ` + derivedTagWeight + `::float8
+	        FROM customer_organization_follows f
+	        JOIN events e ON e.organization_id = f.organization_id
+	        JOIN event_tags et ON et.event_id = e.id
+	        JOIN tags t ON t.id = et.tag_id
+	        WHERE f.customer_id = $1
+	          AND ` + discoverableUpcomingEvent + `$2
+	    ) seed
+	    GROUP BY id, canonical_key
 	)`
 
 // ListTagSuggestionsByActivity returns the Tags this Customer does not Follow
 // that have discoverable upcoming Events behind them, busiest first.
 //
-// STILL HERE, AND STILL THE ONLY RANKING FOR A CUSTOMER WHO FOLLOWS NO TAG
-// (#232). Co-occurrence has nothing to start from for that person, and the
-// cold-start answer to "what should I Follow" is "whatever has the most coming
-// up". It also runs BEHIND Co-occurrence for a Customer who does Follow a Tag,
-// filling the slots Co-occurrence left empty — which is why it takes
+// STILL HERE, AND STILL THE ONLY RANKING FOR A CUSTOMER WHO FOLLOWS NOTHING AT
+// ALL (#232, narrowed by #233). Co-occurrence has nothing to start from for that
+// person, and the cold-start answer to "what should I Follow" is "whatever has
+// the most coming up". It also runs BEHIND Co-occurrence for a Customer who does
+// Follow something, filling the slots Co-occurrence left empty — which is why it takes
 // `excluding`: the Tags already offered above it, subtracted here so the LIMIT
 // keeps the best of what is left rather than repeating what is already on the
 // page. An empty `excluding` excludes nothing, so the cold-start path passes nil.
@@ -119,9 +181,17 @@ const followedTags = `
 // service would mean fetching an unbounded pool to throw most of it away, and
 // would make the cap mean "some of the qualifying Tags" rather than "the best".
 //
-//  1. NOT EXISTS against customer_tag_follows removes what the Customer already
-//     has. The customer id is the only scope on it; nothing in the request can
-//     aim this at another person's Follows.
+//  1. NOT EXISTS against `followed` removes what the Customer already stands in
+//     front of — the Tags they chose AND the Tags derived from the Organizations
+//     they Follow (#233). THE BACKFILL IS WHERE THE "never offer a derived Tag
+//     back" RULE IS EASIEST TO LOSE: Co-occurrence excludes derived Tags because
+//     it excludes everything it seeds from, but this query runs behind it over
+//     the whole pool and would happily offer a Customer the Tag just inferred
+//     from their own Follow — with a top-of-the-panel Activity, since a Tag
+//     stamped across an Organization's programme is by construction a busy one.
+//     One exclusion set serves both rankings so the rule cannot hold in one and
+//     not the other. The customer id is the only scope on it; nothing in the
+//     request can aim this at another person's Follows.
 //  2. HAVING lets a Preset Tag through on one Event and requires a Custom Tag to
 //     have two. A Preset Tag comes from a curated pool that predates every Event
 //     and cannot be an Event's own name; a Custom Tag on exactly one Event
@@ -140,17 +210,14 @@ const followedTags = `
 // not touch.
 func (r *Repository) ListTagSuggestionsByActivity(ctx context.Context, customerID string, now time.Time, limit int, excluding []string) ([]SuggestedTagRow, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
+		WITH `+followedTags+`
 		SELECT t.canonical_key, t.display_name, t.curated, COUNT(DISTINCT e.id) AS activity
 		FROM tags t
 		JOIN event_tags et ON et.tag_id = t.id
 		JOIN events e ON e.id = et.event_id
 		WHERE `+discoverableUpcomingEvent+`$2
 		  AND NOT t.canonical_key = ANY($4)
-		  AND NOT EXISTS (
-		    SELECT 1
-		    FROM customer_tag_follows f
-		    WHERE f.customer_id = $1 AND f.tag_id = t.id
-		  )
+		  AND NOT EXISTS (SELECT 1 FROM followed WHERE followed.id = t.id)
 		GROUP BY t.id, t.canonical_key, t.display_name, t.curated
 		HAVING t.curated = TRUE OR COUNT(DISTINCT e.id) > 1
 		ORDER BY activity DESC, t.canonical_key ASC
@@ -269,11 +336,37 @@ func (r *Repository) ListOrganizationSuggestionsByActivity(ctx context.Context, 
 //
 // The score SUMS across the Customer's followed Tags rather than counting
 // distinct Events, so a candidate matching two of their interests is ranked
-// above one matching a single interest twice as often. The REASON is then the
-// strongest single contributor — the followed Tag sharing the most Events with
-// this candidate, ties broken on canonical key ascending so a reason is a fact
-// about the catalogue and not about which row Postgres reached first. A key and
-// never a sentence: the Storefront words it (ADR 0027).
+// above one matching a single interest twice as often. Each term is WEIGHTED by
+// its seed (#233): a shared Event under a chosen Tag counts for one, the same
+// Event under a Tag derived from a followed Organization counts for
+// derivedTagWeight. The multiplication is the whole of the weighting and it is
+// inside the sum, because the two kinds of seed have to compete term by term —
+// applied outside it would scale a Customer's every candidate equally and change
+// no order at all.
+//
+// The REASON is then the strongest single contributor — the followed Tag whose
+// WEIGHTED share is largest, ties broken on canonical key ascending so a reason
+// is a fact about the catalogue and not about which row Postgres reached first.
+// Weighted and not raw, so a candidate reached by a chosen Tag and a derived Tag
+// on the same evidence names the one the Customer actually chose.
+//
+// A DERIVED TAG NAMES ITSELF AS THE REASON, NOT THE ORGANIZATION IT CAME FROM,
+// and the choice is smaller than it looks because of what the reason says. The
+// Storefront words it as "Goes with X" — a claim about the CATALOGUE, that this
+// candidate rides alongside X on real Events, which is exactly as true of a
+// derived Tag as of a chosen one and is the relation this query actually
+// computed. Naming the Organization instead would publish a relation nobody
+// measured: the candidate does not go with the Organization, it goes with a Tag
+// the Organization happens to programme, and the sentence would have to become
+// "because you follow that Organization" — a claim about the READER, which is a
+// different sentence, a second shape on the wire, and new copy in both message
+// catalogues. It would also expose the inference itself, telling a Customer that
+// their one Organization Follow has been read as a statement about genre; the
+// Tag names something they can check against the Event they land on. The
+// asymmetry it costs is real and accepted: a Customer cannot tell a chosen seed
+// from a derived one in the panel, which is right, because the panel's claim is
+// about the Events and not about them. A key and never a sentence either way:
+// the Storefront words it (ADR 0027).
 //
 // Every rule the Activity ranking keeps is kept here, because `candidate` is
 // where they live: existing Follows subtracted, the Custom Tag floor of a second
@@ -295,6 +388,7 @@ func (r *Repository) ListTagSuggestionsByCoOccurrence(ctx context.Context, custo
 		together AS (
 		    SELECT candidate.id AS candidate_id,
 		           followed.canonical_key AS reason_key,
+		           followed.weight AS weight,
 		           COUNT(DISTINCT e.id) AS shared
 		    FROM events e
 		    JOIN event_tags fet ON fet.event_id = e.id
@@ -302,12 +396,12 @@ func (r *Repository) ListTagSuggestionsByCoOccurrence(ctx context.Context, custo
 		    JOIN event_tags cet ON cet.event_id = e.id
 		    JOIN candidate ON candidate.id = cet.tag_id
 		    WHERE `+discoverableUpcomingEvent+`$2
-		    GROUP BY candidate.id, followed.canonical_key
+		    GROUP BY candidate.id, followed.canonical_key, followed.weight
 		),
 		scored AS (
 		    SELECT together.candidate_id,
-		           SUM(together.shared)::float8 / sqrt(candidate.activity::float8) AS score,
-		           (ARRAY_AGG(together.reason_key ORDER BY together.shared DESC, together.reason_key ASC))[1] AS reason_key
+		           SUM(together.shared * together.weight) / sqrt(candidate.activity::float8) AS score,
+		           (ARRAY_AGG(together.reason_key ORDER BY together.shared * together.weight DESC, together.reason_key ASC))[1] AS reason_key
 		    FROM together
 		    JOIN candidate ON candidate.id = together.candidate_id
 		    GROUP BY together.candidate_id, candidate.activity
@@ -360,14 +454,25 @@ func (r *Repository) ListTagSuggestionsByCoOccurrence(ctx context.Context, custo
 // so an Event carrying two of the Customer's followed Tags is one Event's worth
 // of programme and not two. `pairs` keeps the per-Tag breakdown, and it is only
 // there to name the reason: the followed Tag matching the most of this
-// Organization's Events, ties broken on canonical key.
+// Organization's Events by WEIGHTED share, ties broken on canonical key.
 //
-// Ordered by match count then slug, total for the reason every order here is.
+// THE WEIGHT IS TAKEN PER EVENT AND NEVER PER TAG-MATCH (#233), which is the one
+// place a weighted sum here could quietly undo the distinct-Event rule above. An
+// Event carrying a chosen Tag and two derived ones is still one Event's worth of
+// programme, and it is worth what its STRONGEST seed says — so `weighted` maxes
+// the weight within each Event first and sums across Events after. Summing the
+// pairs instead would rank an Organization by how many of a Customer's seeds it
+// managed to stack onto one night.
+//
+// Ordered by that weighted score then slug, total for the reason every order
+// here is. `matches` still travels as the row's Activity: a count of Events is
+// what that field has always meant, and a weighted score is not a count.
 func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Context, customerID string, now time.Time, limit int) ([]SuggestedOrganizationRow, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		WITH `+followedTags+`,
 		matching AS (
-		    SELECT o.id, o.name, o.slug, o.logo_image_key, e.id AS event_id, followed.canonical_key AS reason_key
+		    SELECT o.id, o.name, o.slug, o.logo_image_key, e.id AS event_id,
+		           followed.canonical_key AS reason_key, followed.weight AS weight
 		    FROM organizations o
 		    JOIN events e ON e.organization_id = o.id
 		    JOIN event_tags et ON et.event_id = e.id
@@ -380,14 +485,21 @@ func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Conte
 		      )
 		),
 		pairs AS (
-		    SELECT id, reason_key, COUNT(DISTINCT event_id) AS shared
+		    SELECT id, reason_key, COUNT(DISTINCT event_id) * MAX(weight) AS shared
 		    FROM matching
 		    GROUP BY id, reason_key
 		),
-		matched AS (
-		    SELECT id, name, slug, logo_image_key, COUNT(DISTINCT event_id) AS matches
+		weighted AS (
+		    SELECT id, event_id, MAX(weight) AS weight
 		    FROM matching
-		    GROUP BY id, name, slug, logo_image_key
+		    GROUP BY id, event_id
+		),
+		matched AS (
+		    SELECT matching.id, matching.name, matching.slug, matching.logo_image_key,
+		           COUNT(DISTINCT matching.event_id) AS matches,
+		           (SELECT SUM(weighted.weight) FROM weighted WHERE weighted.id = matching.id) AS score
+		    FROM matching
+		    GROUP BY matching.id, matching.name, matching.slug, matching.logo_image_key
 		)
 		SELECT matched.name, matched.slug, matched.logo_image_key, matched.matches,
 		       (SELECT pairs.reason_key
@@ -396,7 +508,7 @@ func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Conte
 		        ORDER BY pairs.shared DESC, pairs.reason_key ASC
 		        LIMIT 1) AS reason_key
 		FROM matched
-		ORDER BY matched.matches DESC, matched.slug ASC
+		ORDER BY matched.score DESC, matched.slug ASC
 		LIMIT $3
 	`, customerID, now, limit)
 	if err != nil {

@@ -7,19 +7,20 @@ import (
 	"time"
 )
 
-// Suggested Follows (#231 and #232, parent #229, ADR 0031): Tags and
+// Suggested Follows (#231, #232 and #233, parent #229, ADR 0031): Tags and
 // Organizations a Customer does not Follow, offered to them beneath the ones
 // they do.
 //
-// TWO RANKINGS, AND THE TESTS ARE IN TWO HALVES BECAUSE OF IT. A Customer who
-// Follows no Tag is ranked on ACTIVITY — the count of discoverable upcoming
+// TWO RANKINGS, AND THE TESTS ARE IN THREE PARTS BECAUSE OF IT. A Customer who
+// Follows NOTHING is ranked on ACTIVITY — the count of discoverable upcoming
 // Events carrying a Tag or run by an Organization — and every suggestion they
 // get carries a null reason, because Activity has no producing Tag to name.
-// A Customer who Follows a Tag is ranked first on CO-OCCURRENCE with it, and
-// each of those suggestions names the Tag that produced it. The first half of
-// this file is #231's and asserts the reason is absent; the second is #232's and
-// asserts which Tag it names. Derived Tags from followed Organizations are #233
-// and are not built here, which the last test below pins.
+// A Customer who Follows anything is ranked first on CO-OCCURRENCE with it, and
+// each of those suggestions names the Tag that produced it. The first part of
+// this file is #231's and asserts the reason is absent; the second is #232's,
+// seeded by the Tags the Customer chose; the third is #233's, seeded by the
+// DERIVED Tags on the upcoming Events of the Organizations they Follow, which
+// are weighted below the chosen ones and are never offered back.
 //
 // Activity measures SUPPLY and never audience. Nothing below counts Followers,
 // and nothing below could: no such count is computed, stored or exposed
@@ -89,11 +90,12 @@ func readFollowSuggestions(t *testing.T, env *testEnv, token string) followSugge
 // RETURNED THEM, and insists on the way each entry claims its place: no reason,
 // and no entry without a subject.
 //
-// Still no reason, after #232 added them. Every catalogue below that uses this
-// helper is one where the reading Customer Follows no Tag that co-occurs with
-// what they are offered — so the suggestion came from Activity, which has no
-// producing Tag to name. A reason appearing here would mean the ranking had
-// invented one; suggestedTagOffers is what the Co-occurrence tests read with.
+// Still no reason, after #232 added them and #233 widened where they come from.
+// Every catalogue below that uses this helper is one where the reading Customer
+// has no seed — chosen or derived — that co-occurs with what they are offered,
+// so the suggestion came from Activity, which has no producing Tag to name. A
+// reason appearing here would mean the ranking had invented one;
+// suggestedTagOffers is what the Co-occurrence tests read with.
 func suggestedTagKeys(t *testing.T, view followSuggestionsView) []string {
 	t.Helper()
 	keys := make([]string, 0, len(view.Tags))
@@ -680,16 +682,18 @@ func TestFollowSuggestionsOrderIsTotalUnderCoOccurrence(t *testing.T) {
 	}
 }
 
-// TestFollowSuggestionsFallBackToActivityWithoutATagFollow keeps #231's ranking
-// alive beside the personalised one, and pins the boundary with #233.
+// TestFollowSuggestionsFallBackToActivityWithoutAnyFollow keeps #231's ranking
+// alive beside the personalised one, for the person it was written for.
 //
-// A Customer who Follows only an Organization has told the platform something,
-// and treating the Tags on that Organization's Events as weakly followed is the
-// next ticket's work — deliberately not this one's. Until it lands, this
-// Customer is ranked on Activity exactly as a Customer who Follows nothing is,
-// and every suggestion carries a null reason, because there is no Tag Follow to
-// name as the producer.
-func TestFollowSuggestionsFallBackToActivityWithoutATagFollow(t *testing.T) {
+// THIS TEST WAS NARROWED BY #233 AND THE NARROWING IS THE FEATURE. It used to
+// arrange a Customer who Follows one Organization and assert they met the
+// generic Activity ranking, pinning the boundary #232 stopped at. Deriving Tags
+// from a followed Organization is exactly the erasure of that boundary, so the
+// arrangement now Follows nothing at all — which is the only remaining case
+// with nothing for Co-occurrence to start from, and still the right answer for
+// somebody the platform knows nothing about yet. Every suggestion carries a null
+// reason, because there is no Tag, chosen or derived, to name as the producer.
+func TestFollowSuggestionsFallBackToActivityWithoutAnyFollow(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	other := otherOrganizationSession(t, env)
@@ -703,17 +707,170 @@ func TestFollowSuggestionsFallBackToActivityWithoutATagFollow(t *testing.T) {
 	setEventTagsOK(t, env, other, theirs, []string{"Nightlife"})
 
 	token := customerSignIn(t, env, "ana@example.com")
-	followOrganizationOK(t, env, token, testOrgSlug)
 
 	view := readFollowSuggestions(t, env, token)
 	// suggestedTagKeys is the assertion: it fails on any reason at all. Nightlife
 	// leads on three upcoming Events to Music's two — Activity, not
 	// Co-occurrence, which has nothing to work from here.
 	if got := suggestedTagKeys(t, view); !equalStrings(got, []string{"nightlife", "music"}) {
-		t.Fatalf("suggested tags = %v, want [nightlife music] — a Customer with no Tag Follow is ranked on Activity, with no reason to name", got)
+		t.Fatalf("suggested tags = %v, want [nightlife music] — a Customer who Follows nothing is ranked on Activity, with no reason to name", got)
 	}
-	if got := suggestedOrganizationSlugs(t, view); !equalStrings(got, []string{"other-org"}) {
-		t.Fatalf("suggested organizations = %v, want [other-org]", got)
+	if got := suggestedOrganizationSlugs(t, view); !equalStrings(got, []string{testOrgSlug, "other-org"}) {
+		t.Fatalf("suggested organizations = %v, want [%s other-org]", got, testOrgSlug)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Derived Tags (#233). The Tags carried by a followed Organization's upcoming
+// Events seed the Co-occurrence ranking too, weighted BELOW the Tags the
+// Customer chose, and are never offered back to that Customer.
+//
+// Still nothing about other Customers. A derived Tag is read from the
+// catalogue — this Customer's own Organization Follow joined to Events and
+// their Tags — so the widening keeps Co-occurrence a fact about what is on
+// sale (ADR 0031).
+// ---------------------------------------------------------------------------
+
+// TestFollowSuggestionsDeriveTagsFromAFollowedOrganization is the ticket's first
+// sentence: a Customer who Follows only an Organization stops being treated as a
+// Customer who Follows nothing.
+//
+// The catalogue is built so the two rankings disagree, because a test where they
+// agree proves nothing. On ACTIVITY alone the panel would read [film, music,
+// comedy] — Film is on three upcoming Events and leads comfortably. Following
+// test-org derives Music from its Event, and Comedy rides alongside Music on
+// other-org's Event, so Comedy comes first and Film arrives behind it on
+// Activity alone, with no reason to name.
+//
+// Music itself is absent, which is the rule the next test is about.
+func TestFollowSuggestionsDeriveTagsFromAFollowedOrganization(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	other := otherOrganizationSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	// The followed Organization's whole programme, and the whole of what it says
+	// about this Customer: one Event carrying Music.
+	mine := discoverableEvent(t, env, sessionID, "Mine", "mine", upcoming)
+	setEventTagsOK(t, env, sessionID, mine, []string{"Music"})
+
+	// Somebody else's Event carrying Music and Comedy together: the Co-occurrence.
+	shared := discoverableEvent(t, env, other, "Shared", "shared", upcoming)
+	setEventTagsOK(t, env, other, shared, []string{"Music", "Comedy"})
+
+	// And the busiest Tag in the catalogue, related to nothing this Customer has
+	// touched. It would lead the panel on Activity.
+	for _, slug := range []string{"film-one", "film-two", "film-three"} {
+		event := discoverableEvent(t, env, other, slug, slug, upcoming)
+		setEventTagsOK(t, env, other, event, []string{"Film"})
+	}
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followOrganizationOK(t, env, token, testOrgSlug)
+
+	view := readFollowSuggestions(t, env, token)
+	got := suggestedTagOffers(t, view)
+	if !equalStrings(got, []string{"comedy from music", "film"}) {
+		t.Fatalf("suggested tags = %v, want [comedy from music, film] — the Tags on a followed Organization's Events seed the ranking, so Comedy leads a busier Film", got)
+	}
+
+	// Derived Tags reach Organization suggestions THROUGH THE SAME JOIN chosen
+	// Tags reach them by: other-org carries Music on an upcoming Event, so it is
+	// offered and names the Tag that produced it.
+	if got := suggestedOrganizationOffers(t, view); !equalStrings(got, []string{"other-org from music"}) {
+		t.Fatalf("suggested organizations = %v, want [other-org from music] — a derived Tag reaches Organizations through the same join as a chosen one", got)
+	}
+}
+
+// TestFollowSuggestionsNeverOfferBackATagDerivedFromAFollowedOrganization is the
+// explicit rule of ADR 0031, and the panel's most obvious way of looking foolish
+// if it is missed.
+//
+// Offering somebody the Tag just inferred from their own Follow presents them
+// their own answer as a discovery. Both Tags on the followed Organization's
+// Events are the two busiest in this catalogue and would lead the Activity
+// ranking; neither may appear, in either ranking — the exclusion has to survive
+// the Activity backfill behind Co-occurrence as well, which is the half a query
+// gets wrong by only filtering the personalised path.
+func TestFollowSuggestionsNeverOfferBackATagDerivedFromAFollowedOrganization(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	other := otherOrganizationSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	for _, slug := range []string{"one", "two"} {
+		event := discoverableEvent(t, env, sessionID, slug, slug, upcoming)
+		setEventTagsOK(t, env, sessionID, event, []string{"Music", "Nightlife"})
+	}
+	theirs := discoverableEvent(t, env, other, "Theirs", "theirs", upcoming)
+	setEventTagsOK(t, env, other, theirs, []string{"Comedy"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followOrganizationOK(t, env, token, testOrgSlug)
+
+	got := suggestedTagOffers(t, readFollowSuggestions(t, env, token))
+	if !equalStrings(got, []string{"comedy"}) {
+		t.Fatalf("suggested tags = %v, want [comedy] — Music and Nightlife were inferred from this Customer's own Follow and are never offered back", got)
+	}
+}
+
+// TestFollowSuggestionsWeighAChosenTagAboveADerivedOne is where the inference is
+// kept honest: you Followed the Organization, not necessarily its genre.
+//
+// THE WEIGHT IS ONLY OBSERVABLE WHEN THE TWO KINDS OF SEED COMPETE, which is why
+// this arranges a Customer who Follows both. A weight applied to every seed a
+// Customer has is a constant factor across every candidate, and a constant
+// factor changes no order at all — so a Customer who Follows only Organizations
+// cannot show it, and the assertion has to be a race between a candidate reached
+// through a chosen Tag and one reached through a derived Tag on identical
+// supply.
+//
+// Ana chose Music and Follows other-org, whose Event carries Film. Sports shares
+// one Event with Music; Comedy shares one Event with Film; both are on exactly
+// one upcoming Event, so nothing but the weight separates them. THE ALPHABET IS
+// AGAINST THE ASSERTION on purpose — "comedy" sorts before "sports", so if the
+// two ever scored equal the tie-break would seat the derived one first and this
+// test would notice.
+//
+// Festival is the third case: it shares one Event with the chosen Tag and one
+// with the derived Tag, so it scores above both and NAMES THE CHOSEN ONE. A
+// reason is the strongest contributor, and a chosen Tag contributes more than a
+// derived Tag on the same evidence.
+func TestFollowSuggestionsWeighAChosenTagAboveADerivedOne(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	other := otherOrganizationSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	// The followed Organization's Event, and the only thing that derives Film.
+	theirs := discoverableEvent(t, env, other, "Theirs", "theirs", upcoming)
+	setEventTagsOK(t, env, other, theirs, []string{"Film"})
+
+	// One candidate through the chosen Tag, one through the derived Tag.
+	chosen := discoverableEvent(t, env, sessionID, "Chosen", "chosen", upcoming)
+	setEventTagsOK(t, env, sessionID, chosen, []string{"Music", "Sports"})
+	derived := discoverableEvent(t, env, sessionID, "Derived", "derived", upcoming)
+	setEventTagsOK(t, env, sessionID, derived, []string{"Film", "Comedy"})
+
+	// And one candidate reached by both at once.
+	both := discoverableEvent(t, env, sessionID, "Both", "both", upcoming)
+	setEventTagsOK(t, env, sessionID, both, []string{"Music", "Film", "Festival"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+	followOrganizationOK(t, env, token, "other-org")
+
+	view := readFollowSuggestions(t, env, token)
+	want := []string{"festival from music", "sports from music", "comedy from film"}
+	if got := suggestedTagOffers(t, view); !equalStrings(got, want) {
+		t.Fatalf("suggested tags = %v, want %v — a Tag the Customer chose outranks the same evidence reached by derivation, and names the suggestion when both contribute", got, want)
+	}
+
+	// The weighting reaches Organizations through the same seeds. test-org
+	// carries Music on two upcoming Events and Film on two, and names the chosen
+	// Tag for the same reason a suggested Tag does.
+	if got := suggestedOrganizationOffers(t, view); !equalStrings(got, []string{testOrgSlug + " from music"}) {
+		t.Fatalf("suggested organizations = %v, want [%s from music]", got, testOrgSlug)
 	}
 }
 
