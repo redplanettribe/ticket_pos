@@ -225,6 +225,16 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// its owner has subscribed to. That narrowing is the service's rather than
 	// this middleware's, exactly as for the profile PATCH.
 	mux.Handle("GET /api/v1/customer/follows", signedIn(http.HandlerFunc(h.ListFollows)))
+	// Suggested Follows (#231, ADR 0031): what the Customer does NOT Follow,
+	// ranked by Activity. Behind the same middleware as the listing above and
+	// narrowed to a full session in the same place, because what a person is
+	// suggested is derived from what they Follow and is as private as it.
+	//
+	// A SIXTH ROUTE rather than a field on the listing. That listing is called by
+	// the explorer and by every Event and Organization page to resolve their
+	// Follow controls, so a ranking query folded into it would run on every
+	// render of the hot public surfaces and be thrown away.
+	mux.Handle("GET /api/v1/customer/follow-suggestions", signedIn(http.HandlerFunc(h.ListFollowSuggestions)))
 	// The Follow Digest switch, as the Customer Area writes it (#224). It sits
 	// beside the Follows rather than under them because it is not about any one
 	// of them: it decides whether the weekly mail is sent at all, and every

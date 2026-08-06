@@ -93,6 +93,21 @@ type EnvelopeCustomerFollows struct {
 	RequestID string              `json:"request_id"`
 }
 
+// EnvelopeCustomerFollowSuggestions documents GET
+// /api/v1/customer/follow-suggestions success responses: the Suggested Follows
+// panel, as two groups rather than one interleaved list (#231, ADR 0031).
+//
+// A SECOND ENVELOPE BESIDE EnvelopeCustomerFollows RATHER THAN A WIDER ONE. The
+// two reads answer different questions and are called by different callers —
+// the listing by every public page with a Follow control on it, this only by the
+// Following page — so a shared shape would document a payload most of its
+// callers never receive.
+type EnvelopeCustomerFollowSuggestions struct {
+	Data      service.FollowSuggestionsView `json:"data"`
+	Error     *platform.APIError            `json:"error"`
+	RequestID string                        `json:"request_id"`
+}
+
 // EnvelopeCustomerDigestSubscription documents the success responses of both
 // routes that write the Follow Digest switch (#224): POST
 // /api/v1/customer/unsubscribe and PUT /api/v1/customer/digest.

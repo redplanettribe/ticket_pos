@@ -826,6 +826,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeCustomerFollowSuggestions": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.FollowSuggestionsView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeCustomerFollows": {
                 "properties": {
                     "data": {
@@ -1889,6 +1903,25 @@ const docTemplate = `{
                     },
                     "venue_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.FollowSuggestionsView": {
+                "properties": {
+                    "organizations": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.SuggestedOrganizationView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "tags": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.SuggestedTagView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -3092,6 +3125,36 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.SuggestedOrganizationView": {
+                "properties": {
+                    "organization": {
+                        "$ref": "#/components/schemas/service.FollowedOrganizationView"
+                    },
+                    "reason": {
+                        "$ref": "#/components/schemas/service.SuggestionReason"
+                    }
+                },
+                "type": "object"
+            },
+            "service.SuggestedTagView": {
+                "properties": {
+                    "reason": {
+                        "$ref": "#/components/schemas/service.SuggestionReason"
+                    },
+                    "tag": {
+                        "$ref": "#/components/schemas/service.FollowedTagView"
+                    }
+                },
+                "type": "object"
+            },
+            "service.SuggestionReason": {
+                "properties": {
+                    "tag_canonical_key": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.TagView": {
                 "properties": {
                     "canonical_key": {
@@ -3958,6 +4021,52 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Turn the Follow Digest on or off",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/follow-suggestions": {
+            "get": {
+                "description": "Returns Tags and Organizations the signed-in Customer does not Follow, ranked by Activity — the count of discoverable upcoming Events carrying a Tag or run by an Organization, over exactly the subset the public explorer lists. Activity measures supply and never audience: it counts Events, and no follower count is computed, stored or exposed. Two groups rather than one interleaved list, because a Tag's rank and an Organization's are not the same unit; subjects reuse the shapes the Follows listing publishes. Each entry carries the reason it was chosen, naming the producing Tag by canonical key so no language crosses the wire — null while ranking is by Activity alone. Subjects the Customer already Follows are excluded, a Custom Tag needs more than one upcoming Event to qualify, and an Organization with nothing upcoming never appears. An empty result is a 200 with empty groups, never an error. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because what a person is suggested is derived from what they Follow, which is private to them.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerFollowSuggestions"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List Suggested Follows",
                 "tags": [
                     "customer"
                 ]

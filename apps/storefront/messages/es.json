@@ -60,6 +60,8 @@
     "organizationKind": "Organizador",
     "tagKind": "Etiqueta",
     "customTag": "Palabra propia",
+    "suggestionsTitle": "Más para seguir",
+    "suggestionsDescription": "Organizadores y etiquetas con eventos próximos que todavía no sigue.",
     "emptyTitle": "Todavía no sigue nada",
     "emptyDescription": "Siga a un organizador desde su página, o una etiqueta desde un evento, y sus eventos llegarán en un solo correo semanal.",
     "loadFailedTitle": "No pudimos cargar lo que sigue",

@@ -4,13 +4,14 @@ import { getMessages, getTranslations, setRequestLocale } from "next-intl/server
 import { Alert, AlertDescription, AlertTitle, PageHeader } from "@ticket-pos/ui";
 
 import { DigestToggle } from "@/components/digest-toggle";
+import { FollowSuggestionsPanel } from "@/components/follow-suggestions";
 import { FollowingList } from "@/components/following-list";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { redirect } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
-import { customerSessionToken, getFollows } from "@/lib/customer-session";
+import { customerSessionToken, getFollowSuggestions, getFollows } from "@/lib/customer-session";
 import { followList } from "@/lib/follows";
 
 // Same posture as every other Storefront page: rendered per request with
@@ -53,7 +54,15 @@ export default async function FollowingPage({ params }: FollowingPageProps) {
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
 
-  const follows = await getFollows();
+  // Two reads, made TOGETHER rather than one after the other: they are
+  // independent, and the panel is worth a page's width of latency but not a
+  // second round trip's. Suggestions are their own endpoint precisely so that
+  // the hot public pages calling the listing do not run this query (ADR 0031),
+  // which is also what makes reading both here cost this page alone.
+  //
+  // The suggestions read carries no identifier of whose suggestions they are,
+  // exactly as the listing carries none: the session is the only scope.
+  const [follows, suggestions] = await Promise.all([getFollows(), getFollowSuggestions()]);
 
   if (follows.status === "signed-out") {
     // What a person Follows is theirs, so there is nothing to show a visitor who
@@ -103,6 +112,21 @@ export default async function FollowingPage({ params }: FollowingPageProps) {
             <FollowingList follows={followList(follows)} />
           </>
         )}
+
+        {/* Suggested Follows, BELOW the Customer's own list and in the same
+            place whether or not they Follow anything (#231, ADR 0031). When they
+            Follow nothing this lands beneath the empty state's copy, which stays:
+            the sentence explaining what a Follow is for is what makes the
+            suggestions beneath it legible, so the panel adds to that explanation
+            rather than replacing it.
+
+            Outside the error branch above, because the two reads are independent
+            and neither owes the other its silence: a listing that failed does not
+            make a panel that succeeded wrong. The panel draws NOTHING when its
+            own read failed and nothing when both groups are empty, so this line
+            is unconditional by design — there is no state in which it produces an
+            error, a heading or an empty box. */}
+        <FollowSuggestionsPanel suggestions={suggestions} />
       </div>
     </StorefrontShell>
   );

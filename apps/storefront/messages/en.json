@@ -60,6 +60,8 @@
     "organizationKind": "Organizer",
     "tagKind": "Tag",
     "customTag": "Their own word",
+    "suggestionsTitle": "More to follow",
+    "suggestionsDescription": "Organizers and tags with events coming up that you don't follow yet.",
     "emptyTitle": "You aren't following anything yet",
     "emptyDescription": "Follow an organizer from their page, or a tag from an event, and their events arrive in one weekly email.",
     "loadFailedTitle": "We couldn't load what you follow",

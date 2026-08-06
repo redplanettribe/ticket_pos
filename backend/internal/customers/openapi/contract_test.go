@@ -52,6 +52,11 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"/api/v1/customer/follows",
 		"/api/v1/customer/follows/organizations/{slug}",
 		"/api/v1/customer/follows/tags/{canonicalKey}",
+		// Suggested Follows (#231, ADR 0031): a SECOND READ beside the listing
+		// above, never a field on it. It is here so that folding it back into
+		// `/customer/follows` — which the explorer and every Event and
+		// Organization page call — cannot happen without this test noticing.
+		"/api/v1/customer/follow-suggestions",
 		// The guest-facing Reversal Window read (#121). Unauthenticated, because
 		// checkout is: the buyer who most wants to undo may have no account yet.
 		"/api/v1/public/checkout/{clientTransactionId}/reversal",
@@ -71,6 +76,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"openapi.EnvelopeCheckoutReversal",
 		"openapi.EnvelopeCustomerFollows",
 		"openapi.EnvelopeCustomerFollow",
+		"openapi.EnvelopeCustomerFollowSuggestions",
 	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Fatalf("missing typed envelope schema %s", schema)
