@@ -7,14 +7,19 @@ import (
 	"time"
 )
 
-// Suggested Follows (#231, parent #229, ADR 0031): Tags and Organizations a
-// Customer does not Follow, offered to them beneath the ones they do.
+// Suggested Follows (#231 and #232, parent #229, ADR 0031): Tags and
+// Organizations a Customer does not Follow, offered to them beneath the ones
+// they do.
 //
-// This ticket ranks on ACTIVITY alone — the count of discoverable upcoming
-// Events carrying a Tag or run by an Organization. Co-occurrence is #232 and
-// derived Tags are #233, so every suggestion here carries a null reason; the
-// tests say so explicitly rather than ignoring the field, because a reason
-// appearing before #232 lands would mean the panel had started guessing.
+// TWO RANKINGS, AND THE TESTS ARE IN TWO HALVES BECAUSE OF IT. A Customer who
+// Follows no Tag is ranked on ACTIVITY — the count of discoverable upcoming
+// Events carrying a Tag or run by an Organization — and every suggestion they
+// get carries a null reason, because Activity has no producing Tag to name.
+// A Customer who Follows a Tag is ranked first on CO-OCCURRENCE with it, and
+// each of those suggestions names the Tag that produced it. The first half of
+// this file is #231's and asserts the reason is absent; the second is #232's and
+// asserts which Tag it names. Derived Tags from followed Organizations are #233
+// and are not built here, which the last test below pins.
 //
 // Activity measures SUPPLY and never audience. Nothing below counts Followers,
 // and nothing below could: no such count is computed, stored or exposed
@@ -81,8 +86,14 @@ func readFollowSuggestions(t *testing.T, env *testEnv, token string) followSugge
 }
 
 // suggestedTagKeys flattens the Tag group to canonical keys IN THE ORDER THE API
-// RETURNED THEM, and insists on the way each entry claims its place: no reason
-// before #232, and no entry without a subject.
+// RETURNED THEM, and insists on the way each entry claims its place: no reason,
+// and no entry without a subject.
+//
+// Still no reason, after #232 added them. Every catalogue below that uses this
+// helper is one where the reading Customer Follows no Tag that co-occurs with
+// what they are offered — so the suggestion came from Activity, which has no
+// producing Tag to name. A reason appearing here would mean the ranking had
+// invented one; suggestedTagOffers is what the Co-occurrence tests read with.
 func suggestedTagKeys(t *testing.T, view followSuggestionsView) []string {
 	t.Helper()
 	keys := make([]string, 0, len(view.Tags))
@@ -91,7 +102,7 @@ func suggestedTagKeys(t *testing.T, view followSuggestionsView) []string {
 			t.Fatalf("suggested tag carries no canonical key: %+v", suggestion)
 		}
 		if suggestion.Reason != nil {
-			t.Fatalf("suggested tag %q carries reason %+v — Activity ranking has no producing Tag to name (#232 adds one)",
+			t.Fatalf("suggested tag %q carries reason %+v — Activity ranking has no producing Tag to name",
 				suggestion.Tag.CanonicalKey, suggestion.Reason)
 		}
 		keys = append(keys, suggestion.Tag.CanonicalKey)
@@ -391,6 +402,319 @@ func TestFollowSuggestionsRefuseWithoutAFullCustomerSession(t *testing.T) {
 	// The same person, having proved they own the address, reads the panel.
 	full := customerSignIn(t, env, "ana@example.com")
 	readFollowSuggestions(t, env, full)
+}
+
+// ---------------------------------------------------------------------------
+// Co-occurrence (#232). Two Tags co-occur when ONE EVENT CARRIES BOTH.
+//
+// It is a fact about the CATALOGUE and never about other Customers. Nothing
+// below arranges a second Customer's Follows and then reads the first
+// Customer's panel, because no such path exists: there is no collaborative
+// filtering here in any disguise, and the tests are written so that adding one
+// would not make any of them pass.
+// ---------------------------------------------------------------------------
+
+// suggestedTagOffers flattens the Tag group to "key" or "key from reason-key",
+// in the order the API returned them.
+//
+// The reason belongs in the same string as the subject rather than in a second
+// map, because the two assertions are one: a panel that offers the right Tags
+// while naming the wrong interest is as wrong as one that offers the wrong
+// Tags, and a test that checked them separately would let the pairing drift.
+func suggestedTagOffers(t *testing.T, view followSuggestionsView) []string {
+	t.Helper()
+	offers := make([]string, 0, len(view.Tags))
+	for _, suggestion := range view.Tags {
+		if suggestion.Tag.CanonicalKey == "" {
+			t.Fatalf("suggested tag carries no canonical key: %+v", suggestion)
+		}
+		offers = append(offers, offer(suggestion.Tag.CanonicalKey, suggestion.Reason))
+	}
+	return offers
+}
+
+// suggestedOrganizationOffers is the Organization group's counterpart, keyed on
+// slug as suggestedOrganizationSlugs is.
+func suggestedOrganizationOffers(t *testing.T, view followSuggestionsView) []string {
+	t.Helper()
+	offers := make([]string, 0, len(view.Organizations))
+	for _, suggestion := range view.Organizations {
+		if suggestion.Organization.Slug == "" {
+			t.Fatalf("suggested organization carries no slug: %+v", suggestion)
+		}
+		offers = append(offers, offer(suggestion.Organization.Slug, suggestion.Reason))
+	}
+	return offers
+}
+
+// offer renders one suggestion as the subject and, if it has one, the Tag that
+// produced it.
+//
+// A CANONICAL KEY AND NEVER A SENTENCE, which is what these tests are checking
+// as much as which key it is: the Storefront words a Tag from its own message
+// catalogues in the page's Locale (ADR 0027), so a reason arriving as English
+// prose would be the one place a Tag's name crossed the wire in a language.
+func offer(subject string, reason *suggestionReason) string {
+	if reason == nil {
+		return subject
+	}
+	if reason.TagCanonicalKey == "" {
+		return subject + " from an empty reason"
+	}
+	return subject + " from " + reason.TagCanonicalKey
+}
+
+// TestFollowSuggestionsOfferTagsCoOccurringWithAFollowedTag is the ticket's
+// first sentence: a Customer who Follows one Tag stops getting everybody's list.
+//
+// Two Events carry Music and Comedy together, one carries Film alone. Comedy is
+// offered ahead of Film — not because Comedy is busier, since it is not, but
+// because it rides alongside the Tag this Customer chose. And Music itself is
+// never offered back, which is the panel's most basic obligation.
+func TestFollowSuggestionsOfferTagsCoOccurringWithAFollowedTag(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	first := discoverableEvent(t, env, sessionID, "Jazz Night", "jazz-night", upcoming)
+	setEventTagsOK(t, env, sessionID, first, []string{"Music", "Comedy"})
+	second := discoverableEvent(t, env, sessionID, "Jazz Again", "jazz-again", upcoming)
+	setEventTagsOK(t, env, sessionID, second, []string{"Music", "Comedy"})
+	// Film shares no Event with Music, so it co-occurs with nothing this
+	// Customer Follows and can only arrive behind Comedy, on Activity alone.
+	unrelated := discoverableEvent(t, env, sessionID, "Film Club", "film-club", upcoming)
+	setEventTagsOK(t, env, sessionID, unrelated, []string{"Film"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	got := suggestedTagOffers(t, readFollowSuggestions(t, env, token))
+	if !equalStrings(got, []string{"comedy from music", "film"}) {
+		t.Fatalf("suggested tags = %v, want [comedy from music, film] — Comedy rides alongside the Tag this Customer chose", got)
+	}
+	for _, offered := range got {
+		if offered == "music" {
+			t.Fatalf("suggested tags = %v, include the Tag the Customer already Follows", got)
+		}
+	}
+}
+
+// TestFollowSuggestionsNormaliseAwayATagThatRidesWithEverything is the reason
+// normalisation exists, and it is not a refinement.
+//
+// Nightlife is on six upcoming Events and shares three of them with Music;
+// Comedy is on two and shares both. RAW CO-OCCURRENCE WOULD PUT NIGHTLIFE
+// FIRST — three shared Events beat two — and would put it first for every
+// Customer on the platform, whatever they Follow, because a Tag carried by
+// nearly everything co-occurs with nearly everything. Dividing by a damped
+// function of each candidate's own Activity is what turns that around.
+func TestFollowSuggestionsNormaliseAwayATagThatRidesWithEverything(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	// Three Events carrying the followed Tag. Two of them also carry Comedy, and
+	// all three also carry Nightlife.
+	withComedy := []string{"Music", "Comedy", "Nightlife"}
+	first := discoverableEvent(t, env, sessionID, "One", "one", upcoming)
+	setEventTagsOK(t, env, sessionID, first, withComedy)
+	second := discoverableEvent(t, env, sessionID, "Two", "two", upcoming)
+	setEventTagsOK(t, env, sessionID, second, withComedy)
+	third := discoverableEvent(t, env, sessionID, "Three", "three", upcoming)
+	setEventTagsOK(t, env, sessionID, third, []string{"Music", "Nightlife"})
+
+	// Three more Events that make Nightlife ubiquitous and have nothing to do
+	// with this Customer.
+	for _, slug := range []string{"four", "five", "six"} {
+		event := discoverableEvent(t, env, sessionID, slug, slug, upcoming)
+		setEventTagsOK(t, env, sessionID, event, []string{"Nightlife"})
+	}
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	got := suggestedTagOffers(t, readFollowSuggestions(t, env, token))
+	if !equalStrings(got, []string{"comedy from music", "nightlife from music"}) {
+		t.Fatalf("suggested tags = %v, want [comedy from music, nightlife from music] — Nightlife shares MORE Events with Music and must still rank below it, because it shares that many with everything", got)
+	}
+}
+
+// TestFollowSuggestionsDoNotLetASingleCoincidenceOutrankRealSupply is the other
+// half of the same decision, and the reason the division is DAMPED rather than
+// plain.
+//
+// Comedy is on one Event, which happens to carry Music: one shared Event out of
+// one, a perfect ratio built on a coincidence. Festival is on three, two of them
+// shared: a worse ratio with real supply behind it. Dividing by Activity
+// outright would hand the top of the list to Comedy (1.00 against 0.67);
+// dividing by its square root keeps the ratio's judgement while letting the
+// well-supported Tag win (1.15 against 1.00).
+//
+// The alphabet is against the assertion on purpose — "comedy" sorts before
+// "festival", so the tie-break would seat the coincidence first if the two ever
+// scored equal, and this test would notice.
+func TestFollowSuggestionsDoNotLetASingleCoincidenceOutrankRealSupply(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	first := discoverableEvent(t, env, sessionID, "One", "one", upcoming)
+	setEventTagsOK(t, env, sessionID, first, []string{"Music", "Festival", "Comedy"})
+	second := discoverableEvent(t, env, sessionID, "Two", "two", upcoming)
+	setEventTagsOK(t, env, sessionID, second, []string{"Music", "Festival"})
+	third := discoverableEvent(t, env, sessionID, "Three", "three", upcoming)
+	setEventTagsOK(t, env, sessionID, third, []string{"Festival"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	got := suggestedTagOffers(t, readFollowSuggestions(t, env, token))
+	if !equalStrings(got, []string{"festival from music", "comedy from music"}) {
+		t.Fatalf("suggested tags = %v, want [festival from music, comedy from music] — one Event that co-occurred once is a coincidence, not a related Tag", got)
+	}
+}
+
+// TestFollowSuggestionsRankOrganizationsByHowMuchOfTheirProgrammeMatches is the
+// same mechanism reaching the other followable kind through the SAME join.
+//
+// Tags are worn by Events and never by Organizations, so an Organization is
+// related to a Tag exactly when its upcoming Events carry it. No
+// Organization–Tag association is invented, and none exists to invent.
+//
+// AND ORGANIZATIONS ARE NOT NORMALISED, which this catalogue is built to pin.
+// test-org runs four upcoming Events of which two carry Music; other-org runs
+// one, which carries Music. Normalising by programme size would put other-org
+// first on a perfect one-of-one. It ranks second, because a match count is
+// genuine signal for an Organization: an Organization spans only its own
+// programme, so it cannot be ubiquitous the way a shared-pool Tag can.
+func TestFollowSuggestionsRankOrganizationsByHowMuchOfTheirProgrammeMatches(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	other := otherOrganizationSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	for _, slug := range []string{"mine-one", "mine-two"} {
+		event := discoverableEvent(t, env, sessionID, slug, slug, upcoming)
+		setEventTagsOK(t, env, sessionID, event, []string{"Music"})
+	}
+	for _, slug := range []string{"mine-three", "mine-four"} {
+		event := discoverableEvent(t, env, sessionID, slug, slug, upcoming)
+		setEventTagsOK(t, env, sessionID, event, []string{"Film"})
+	}
+
+	theirs := discoverableEvent(t, env, other, "Theirs", "theirs", upcoming)
+	setEventTagsOK(t, env, other, theirs, []string{"Music"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	got := suggestedOrganizationOffers(t, readFollowSuggestions(t, env, token))
+	if !equalStrings(got, []string{testOrgSlug + " from music", "other-org from music"}) {
+		t.Fatalf("suggested organizations = %v, want [%s from music, other-org from music] — two matching Events beat one, and neither is divided by the size of the programme it came from", got, testOrgSlug)
+	}
+}
+
+// TestFollowSuggestionsNameTheFollowedTagThatProducedTheSuggestion is user
+// story 19: the panel reads as reasoned rather than random.
+//
+// Ana Follows Music and Film. Comedy shares two Events with Music and one with
+// Film, so Music is named; Sports shares one with Film alone, so Film is. And
+// Festival shares exactly one with each, which is the tie: it breaks on the
+// canonical key ascending, so "film" is named, deterministically, and the same
+// read twice cannot name two different interests.
+func TestFollowSuggestionsNameTheFollowedTagThatProducedTheSuggestion(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	first := discoverableEvent(t, env, sessionID, "One", "one", upcoming)
+	setEventTagsOK(t, env, sessionID, first, []string{"Music", "Comedy"})
+	second := discoverableEvent(t, env, sessionID, "Two", "two", upcoming)
+	setEventTagsOK(t, env, sessionID, second, []string{"Music", "Comedy"})
+	third := discoverableEvent(t, env, sessionID, "Three", "three", upcoming)
+	setEventTagsOK(t, env, sessionID, third, []string{"Film", "Comedy", "Sports"})
+	fourth := discoverableEvent(t, env, sessionID, "Four", "four", upcoming)
+	setEventTagsOK(t, env, sessionID, fourth, []string{"Music", "Film", "Festival"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+	followTagOK(t, env, token, "film")
+
+	got := suggestedTagOffers(t, readFollowSuggestions(t, env, token))
+	want := []string{"festival from film", "comedy from music", "sports from film"}
+	if !equalStrings(got, want) {
+		t.Fatalf("suggested tags = %v, want %v — each suggestion names the strongest contributor among the Tags this Customer Follows, ties broken on canonical key", got, want)
+	}
+}
+
+// TestFollowSuggestionsOrderIsTotalUnderCoOccurrence keeps the panel from
+// shuffling under the Customer.
+//
+// Three candidates scoring identically, which at this catalogue size is the
+// common case rather than the exotic one: the same Event carrying four Tags
+// gives every one of them the same Co-occurrence and the same Activity. Without
+// a tie-break Postgres may return them in any order it likes, and a Following
+// page re-rendering after a Follow would show a shuffle of things the Customer
+// never touched.
+func TestFollowSuggestionsOrderIsTotalUnderCoOccurrence(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	tied := []string{"Music", "Sports", "Comedy", "Festival"}
+	first := discoverableEvent(t, env, sessionID, "One", "one", upcoming)
+	setEventTagsOK(t, env, sessionID, first, tied)
+	second := discoverableEvent(t, env, sessionID, "Two", "two", upcoming)
+	setEventTagsOK(t, env, sessionID, second, tied)
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "music")
+
+	want := []string{"comedy from music", "festival from music", "sports from music"}
+	firstRead := suggestedTagOffers(t, readFollowSuggestions(t, env, token))
+	if !equalStrings(firstRead, want) {
+		t.Fatalf("suggested tags = %v, want %v — equal scores break on canonical key ascending", firstRead, want)
+	}
+	if secondRead := suggestedTagOffers(t, readFollowSuggestions(t, env, token)); !equalStrings(secondRead, firstRead) {
+		t.Fatalf("two identical reads returned %v then %v — the order is not total", firstRead, secondRead)
+	}
+}
+
+// TestFollowSuggestionsFallBackToActivityWithoutATagFollow keeps #231's ranking
+// alive beside the personalised one, and pins the boundary with #233.
+//
+// A Customer who Follows only an Organization has told the platform something,
+// and treating the Tags on that Organization's Events as weakly followed is the
+// next ticket's work — deliberately not this one's. Until it lands, this
+// Customer is ranked on Activity exactly as a Customer who Follows nothing is,
+// and every suggestion carries a null reason, because there is no Tag Follow to
+// name as the producer.
+func TestFollowSuggestionsFallBackToActivityWithoutATagFollow(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	other := otherOrganizationSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	for _, slug := range []string{"one", "two"} {
+		event := discoverableEvent(t, env, sessionID, slug, slug, upcoming)
+		setEventTagsOK(t, env, sessionID, event, []string{"Nightlife", "Music"})
+	}
+	theirs := discoverableEvent(t, env, other, "Theirs", "theirs", upcoming)
+	setEventTagsOK(t, env, other, theirs, []string{"Nightlife"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followOrganizationOK(t, env, token, testOrgSlug)
+
+	view := readFollowSuggestions(t, env, token)
+	// suggestedTagKeys is the assertion: it fails on any reason at all. Nightlife
+	// leads on three upcoming Events to Music's two — Activity, not
+	// Co-occurrence, which has nothing to work from here.
+	if got := suggestedTagKeys(t, view); !equalStrings(got, []string{"nightlife", "music"}) {
+		t.Fatalf("suggested tags = %v, want [nightlife music] — a Customer with no Tag Follow is ranked on Activity, with no reason to name", got)
+	}
+	if got := suggestedOrganizationSlugs(t, view); !equalStrings(got, []string{"other-org"}) {
+		t.Fatalf("suggested organizations = %v, want [other-org]", got)
+	}
 }
 
 // setEventTagsOK sets an Event's Tags and insists it worked. setEventTags itself

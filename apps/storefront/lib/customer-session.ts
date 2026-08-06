@@ -442,15 +442,18 @@ export async function getFollows(): Promise<SessionOutcome<Follows>> {
 
 /**
  * Why a subject is being suggested: the Tag that produced it, named by canonical
- * key (#231, ADR 0031).
+ * key (#231, #232, ADR 0031).
  *
- * NULL ON EVERY SUGGESTION TODAY. Ranking is by Activity alone — the count of
- * discoverable upcoming Events behind a subject — and Activity has no producing
- * Tag to name. Co-occurrence is what fills this in, and it is its own ticket.
+ * NULL WHENEVER THE SUBJECT WAS RANKED ON ACTIVITY — the count of discoverable
+ * upcoming Events behind it — which is every suggestion made to a Customer who
+ * Follows no Tag, and the tail of the panel for one who does. Activity has no
+ * producing Tag to name.
  *
  * The key rather than a sentence, so this app words it from its own message
  * catalogues exactly as it words every other Tag (ADR 0027) and no language
- * crosses the wire.
+ * crosses the wire. The key alone is not enough to word a CUSTOM Tag, whose name
+ * is not in any catalogue — followedTag() in lib/follows.ts is where the rest of
+ * it comes from.
  */
 export type SuggestionReason = {
   tag_canonical_key: string;

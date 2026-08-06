@@ -22,6 +22,7 @@ import type { Follows, SessionOutcome } from "./customer-session.ts";
 // `node --experimental-strip-types`, which resolves specifiers exactly.
 import {
   followList,
+  followedTag,
   followsOrganization,
   followsTag,
   organizationFollowEndpoint,
@@ -65,6 +66,28 @@ test("a Tag Follow is not mistaken for an Organization Follow, or the reverse", 
   // plain strings, so only the discriminator keeps these apart.
   assert.equal(followsTag(bothKinds, "test-org"), false);
   assert.equal(followsOrganization(bothKinds, "warehouse techno"), false);
+});
+
+test("the Tag a suggestion names is found with the name and the flag needed to word it", () => {
+  // A Suggested Follow names its producing Tag by canonical key and by nothing
+  // else, so the panel has to find the rest here (#232). Both halves matter:
+  // `name` is what gets rendered for a Custom Tag, and `curated` is what decides
+  // whether it is rendered at all or looked up in this app's catalogue.
+  assert.deepEqual(followedTag(bothKinds, "arts & theatre"), {
+    canonical_key: "arts & theatre",
+    name: "Arts & Theatre",
+    curated: true,
+  });
+  assert.equal(followedTag(bothKinds, "warehouse techno")?.curated, false);
+
+  // An Organization's slug is not a Tag's key, whatever the strings look like.
+  assert.equal(followedTag(bothKinds, "test-org"), null);
+
+  // Nothing to word, and no raw key printed at a reader: this is reachable when
+  // the listing read failed while the suggestions read succeeded, since the two
+  // are independent.
+  assert.equal(followedTag(bothKinds, "comedy"), null);
+  assert.equal(followedTag({ status: "signed-out" }, "arts & theatre"), null);
 });
 
 test("something not followed is not followed", () => {

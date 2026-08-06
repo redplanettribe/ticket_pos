@@ -125,8 +125,13 @@ export default async function FollowingPage({ params }: FollowingPageProps) {
             make a panel that succeeded wrong. The panel draws NOTHING when its
             own read failed and nothing when both groups are empty, so this line
             is unconditional by design — there is no state in which it produces an
-            error, a heading or an empty box. */}
-        <FollowSuggestionsPanel suggestions={suggestions} />
+            error, a heading or an empty box.
+
+            The listing goes in beside the suggestions because a suggestion names
+            the Tag that produced it by canonical key, and the listing is where
+            that Tag's name is (#232). It is not a second source of suggestions
+            and the panel does not re-derive anything from it. */}
+        <FollowSuggestionsPanel suggestions={suggestions} follows={follows} />
       </div>
     </StorefrontShell>
   );

@@ -2,20 +2,40 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 )
 
-// The Suggested Follow (#231, parent #229, ADR 0031): a Tag or an Organization
-// the Customer does not Follow, offered to them as one they might.
+// The Suggested Follow (#231 and #232, parent #229, ADR 0031): a Tag or an
+// Organization the Customer does not Follow, offered to them as one they might.
 //
-// Ranked on ACTIVITY alone in this ticket — the count of discoverable upcoming
-// Events carrying a Tag or run by an Organization. Activity measures supply and
-// never audience; it counts Events, not the Customers who Follow (CONTEXT.md).
-// Co-occurrence, which is what will make the panel about this reader rather than
-// about the catalogue, is #232, and the Tags derived from a Customer's followed
-// Organizations are #233. Until they land every suggestion carries a null
-// reason, because there is no producing Tag to name.
+// TWO RANKINGS, ONE BEHIND THE OTHER, and which one a Customer meets depends
+// only on whether they Follow a Tag.
+//
+//   - CO-OCCURRENCE first, for a Customer who Follows at least one Tag: the Tags
+//     that ride alongside theirs on real Events, and the Organizations whose
+//     upcoming Events carry them. This is what makes the panel about this reader
+//     rather than about the catalogue, and each of these suggestions names the
+//     followed Tag that produced it.
+//   - ACTIVITY behind it — the count of discoverable upcoming Events carrying a
+//     Tag or run by an Organization — filling whatever slots Co-occurrence left.
+//     For a Customer who Follows no Tag it fills all of them, which is #231's
+//     ranking unchanged and is the right answer for somebody the platform knows
+//     nothing about yet.
+//
+// The order of the two is the whole personalisation, and the fallback is not a
+// second-class path: a Customer who Follows one narrow Tag has very few
+// co-occurring candidates at this catalogue size, and a panel that stopped there
+// would be one chip long.
+//
+// Activity measures supply and never audience; it counts Events, not the
+// Customers who Follow (CONTEXT.md). Co-occurrence is a fact about the catalogue
+// and never about other Customers — there is no collaborative filtering here in
+// any disguise. The Tags derived from a Customer's followed Organizations are
+// #233 and are deliberately not seeded here, so a Customer who Follows only
+// Organizations still meets the Activity ranking today.
 //
 // A SEPARATE READ FROM THE FOLLOWS LISTING, deliberately. That listing is not a
 // page-local read: ADR 0030 built no per-subject "do I Follow this" probe, so
@@ -56,12 +76,18 @@ const maxSuggestions = 10
 // composed here would be the one place a Tag's name crossed the wire in a
 // language — English, from an API that has no idea which Locale the page is in,
 // arriving inside a Spanish panel. A struct rather than a bare nullable string so
-// that #232's Organization reasons, which may want to name more than one Tag,
-// widen this rather than replacing it.
+// that a later reason naming more than one Tag widens this rather than replacing
+// it.
 //
-// It is nil on every suggestion this ticket produces. Activity ranking has no
-// producing Tag: the subject is offered because things are happening under it,
-// not because of anything the Customer Follows.
+// ONE TAG AND NOT A LIST, deliberately. A candidate may co-occur with several of
+// the Customer's Follows, and the Storefront has one line to say it in; naming
+// the strongest contributor is a sentence a reader can check against the Event
+// they land on, where three Tags joined by commas is a report on the algorithm.
+//
+// It is nil on everything the Activity ranking returns, which is every
+// suggestion made to a Customer who Follows no Tag. Activity has no producing
+// Tag: the subject is offered because things are happening under it, not because
+// of anything the Customer Follows.
 type SuggestionReason struct {
 	TagCanonicalKey string `json:"tag_canonical_key"`
 }
@@ -91,12 +117,11 @@ type SuggestedOrganizationView struct {
 //
 // The opposite choice from the Follows listing, and for the reason that decided
 // that one too. The listing interleaves because `followed_at` is one real scale
-// across both kinds; here a Tag's rank and an Organization's are computed over
-// different populations, and #232 will make them different units outright — a
-// normalised co-occurrence score against an Event count. Ordering them together
-// would publish a comparability that does not exist, and the presentation splits
-// them anyway: chips for one kind, rows for the other, so a reader knows what is
-// being offered before reading a word.
+// across both kinds; here a Tag's rank and an Organization's are not even the
+// same unit — a normalised Co-occurrence score against a count of matching
+// Events. Ordering them together would publish a comparability that does not
+// exist, and the presentation splits them anyway: chips for one kind, rows for
+// the other, so a reader knows what is being offered before reading a word.
 //
 // Both slices are non-nil and empty rather than null when nothing qualifies. An
 // empty panel is a success — a Customer who Follows everything worth Following is
@@ -119,27 +144,27 @@ type FollowSuggestionsView struct {
 // concluded from that.
 //
 // The Tags are read first and the Organizations take whatever budget is left —
-// which is the whole of the backfill, and it is here rather than in SQL because
-// it is a decision about the PANEL, spanning two queries that know nothing of
-// each other.
+// which is the whole of the backfill between the two KINDS, and it is here
+// rather than in SQL because it is a decision about the PANEL, spanning queries
+// that know nothing of each other. The backfill between the two RANKINGS is
+// here for the same reason.
 func (s *Service) ListFollowSuggestions(ctx context.Context, token string) (*FollowSuggestionsView, error) {
 	customer, err := s.fullSessionCustomer(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
-	// One instant for both queries. Reading the clock twice would let an Event
-	// end between them and put an Organization in the panel whose only Tag had
-	// just dropped out of it — a skew nobody would ever reproduce and everybody
-	// would blame on the ranking.
+	// One instant for every query below. Reading the clock more than once would
+	// let an Event end between two of them and put an Organization in the panel
+	// whose only Tag had just dropped out of it — a skew nobody would ever
+	// reproduce and everybody would blame on the ranking.
 	now := s.now().UTC()
 
-	tagRows, err := s.repo.ListTagSuggestionsByActivity(ctx, customer.ID, now, maxSuggestedTags)
+	tagRows, err := s.rankedTags(ctx, customer.ID, now)
 	if err != nil {
 		return nil, err
 	}
-
-	organizationRows, err := s.repo.ListOrganizationSuggestionsByActivity(ctx, customer.ID, now, maxSuggestions-len(tagRows))
+	organizationRows, err := s.rankedOrganizations(ctx, customer.ID, now, maxSuggestions-len(tagRows))
 	if err != nil {
 		return nil, err
 	}
@@ -155,19 +180,92 @@ func (s *Service) ListFollowSuggestions(ctx context.Context, token string) (*Fol
 				Name:         row.DisplayName,
 				Curated:      row.Curated,
 			},
-			// Null, explicitly. See SuggestionReason: Activity has no producing
-			// Tag to name, and inventing one here — "because it is busy" — would
-			// be the panel claiming a personalisation it has not made yet.
-			Reason: nil,
+			Reason: reason(row.ReasonTagCanonicalKey),
 		})
 	}
 	for _, row := range organizationRows {
 		view.Organizations = append(view.Organizations, SuggestedOrganizationView{
 			Organization: s.suggestedOrganizationView(row),
-			Reason:       nil,
+			Reason:       reason(row.ReasonTagCanonicalKey),
 		})
 	}
 	return &view, nil
+}
+
+// rankedTags is Co-occurrence first, Activity behind it.
+//
+// The second read is made ONLY for the slots the first left empty, and excludes
+// what it already returned so the two cannot offer the same Tag twice. That
+// exclusion is passed down to the query rather than filtered here, because a
+// LIMIT applied before a filter means "some of the qualifying Tags" instead of
+// "the best of them" — the same reason every other rule in this feature lives in
+// SQL.
+//
+// A Customer who Follows no Tag gets nothing from the first read and everything
+// from the second, with no branch to say so. That is deliberate: a conditional
+// here would be a second code path to keep working, where the empty case falls
+// out of the query itself.
+func (s *Service) rankedTags(ctx context.Context, customerID string, now time.Time) ([]repository.SuggestedTagRow, error) {
+	related, err := s.repo.ListTagSuggestionsByCoOccurrence(ctx, customerID, now, maxSuggestedTags)
+	if err != nil {
+		return nil, err
+	}
+	if len(related) >= maxSuggestedTags {
+		return related, nil
+	}
+
+	offered := make([]string, 0, len(related))
+	for _, row := range related {
+		offered = append(offered, row.CanonicalKey)
+	}
+	active, err := s.repo.ListTagSuggestionsByActivity(ctx, customerID, now, maxSuggestedTags-len(related), offered)
+	if err != nil {
+		return nil, err
+	}
+	return append(related, active...), nil
+}
+
+// rankedOrganizations is the same two rankings in the same order, over the
+// budget the Tag group left.
+//
+// The Activity backfill matters MORE here than it does for Tags. An
+// Organization is related to a followed Tag only through its own upcoming
+// Events, so a Customer who Follows one narrow Tag can easily match no
+// Organization at all — and an Organization running things this week is a
+// defensible suggestion whether or not it happens to carry that Tag, which is
+// why the panel offers it rather than leaving the space blank (ADR 0031).
+func (s *Service) rankedOrganizations(ctx context.Context, customerID string, now time.Time, limit int) ([]repository.SuggestedOrganizationRow, error) {
+	related, err := s.repo.ListOrganizationSuggestionsByCoOccurrence(ctx, customerID, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(related) >= limit {
+		return related, nil
+	}
+
+	offered := make([]string, 0, len(related))
+	for _, row := range related {
+		offered = append(offered, row.Slug)
+	}
+	active, err := s.repo.ListOrganizationSuggestionsByActivity(ctx, customerID, now, limit-len(related), offered)
+	if err != nil {
+		return nil, err
+	}
+	return append(related, active...), nil
+}
+
+// reason turns the producing Tag's key into the nullable field on the wire, and
+// is the one place a missing one becomes JSON null.
+//
+// A row from the Activity ranking carries no key and must report no reason at
+// all: an empty string would put `{"tag_canonical_key": ""}` on the wire, which
+// every consumer would have to learn to read as "none" and one of them would
+// eventually render as a blank sentence.
+func reason(key sql.NullString) *SuggestionReason {
+	if !key.Valid || key.String == "" {
+		return nil
+	}
+	return &SuggestionReason{TagCanonicalKey: key.String}
 }
 
 // suggestedOrganizationView turns a logo's object key into a URL, which is the
