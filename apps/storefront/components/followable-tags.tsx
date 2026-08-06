@@ -1,4 +1,4 @@
-import { Badge, cn } from "@ticket-pos/ui";
+import { cn } from "@ticket-pos/ui";
 
 import type { PublicTag } from "@/lib/api";
 import type { Follows, SessionOutcome } from "@/lib/customer-session";
@@ -54,11 +54,14 @@ export function FollowableTags({ tags, t, follows, className }: FollowableTagsPr
           // One pill: the name, then the heart that follows it. Nothing divides
           // the two — the border belongs to the pill, not between its halves —
           // and the heart is set off by plain space instead.
-          className="flex items-center gap-1 rounded-md border py-0.5 pr-0.5 pl-2"
+          //
+          // Deliberately the SAME pill as the explorer's tag filters, down to
+          // the radius and the padding. A Tag is one thing wherever it is drawn,
+          // and the two rows differ only in what pressing the left half does:
+          // there it narrows the listing, here it is a label and does nothing.
+          className="inline-flex items-center rounded-full border border-input bg-background"
         >
-          <Badge variant="outline" className="border-0 px-0">
-            {tagName(tag, t)}
-          </Badge>
+          <span className="py-1 pr-2 pl-3 text-sm text-foreground">{tagName(tag, t)}</span>
           <FollowButton
             endpoint={tagFollowEndpoint(tag.canonical_key)}
             following={signedIn ? followsTag(follows, tag.canonical_key) : false}
@@ -72,6 +75,8 @@ export function FollowableTags({ tags, t, follows, className }: FollowableTagsPr
             intent={followIntent("tag", tag.canonical_key)}
             signedIn={signedIn}
             compact
+            // Rounded to the pill it closes, as in the explorer.
+            className="rounded-full"
           />
         </span>
       ))}
