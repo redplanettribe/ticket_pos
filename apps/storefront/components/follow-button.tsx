@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, toast } from "@ticket-pos/ui";
+import { Heart } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMessages, useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
@@ -33,11 +34,15 @@ import { followSignInHref } from "@/lib/follow-intent";
  *
  * Tag Follows arrived and needed one thing this did not have: a form small
  * enough to sit beside a chip. `compact` is that form — the same button, the
- * same request, the same optimism, without the sentence underneath and without a
- * visible word, since the chip it sits against already names the subject and a
- * row of identically-labelled "Follow" buttons would name nothing. It is a
- * second SIZE rather than a second control, which is the distinction worth
- * keeping: every rule about what pressing this means is stated once.
+ * same request, the same optimism, without the sentence underneath, since the
+ * chip it sits against already names the subject. It is a second SIZE rather
+ * than a second control, which is the distinction worth keeping: every rule
+ * about what pressing this means is stated once.
+ *
+ * It still says the word. Dropping to the heart alone is the obvious next step
+ * beside a chip and is deliberately not taken here: an unlabelled heart is the
+ * "favourite" reading this feature spent a design decision avoiding, and it
+ * would be a UI change to the tag explorer rather than to this control.
  *
  * When it is compact the subject's name moves into `aria-label`, because a
  * screen reader gets no help from the chip sitting next to it and "Follow" alone
@@ -95,6 +100,27 @@ type FollowButtonProps = {
 type Envelope = {
   error: { code: string; message: string } | null;
 };
+
+/**
+ * The heart beside the word, outlined while not Following and filled once
+ * Following.
+ *
+ * It carries the STATE and not the meaning. The meaning is the word next to it,
+ * which stays "Follow" throughout (CONTEXT.md) — a heart alone would read as
+ * "favourite", the shortlist idea this feature deliberately is not, and the fill
+ * is only doing what `aria-pressed` already does for anyone not looking at it.
+ * Hence aria-hidden: a screen reader that has just been told the button is
+ * pressed gains nothing from a second announcement of the same fact, and the
+ * accessible name is left as the word alone, which is what the Playwright
+ * journey and every translation still address it by.
+ *
+ * Sized by the Button's own `[&_svg]:size-4`, not overridden here. Discretion is
+ * the outline and the inherited colour doing it; a one-off smaller icon would
+ * only be this control disagreeing with every other icon in the design system.
+ */
+function FollowHeart({ following }: { following: boolean }) {
+  return <Heart aria-hidden="true" className={following ? "fill-current" : undefined} />;
+}
 
 export function FollowButton({
   endpoint,
@@ -173,6 +199,7 @@ export function FollowButton({
       disabled={busy || pending}
       onClick={toggle}
     >
+      <FollowHeart following={isFollowing} />
       {isFollowing ? t("following") : t("follow")}
     </Button>
   );
@@ -196,6 +223,9 @@ export function FollowButton({
         aria-label={compact ? t("followLabel", { name: subjectName }) : undefined}
       >
         <Link href={followSignInHref(intent, pathname, searchParams.toString())}>
+          {/* Always the outline: a visitor who is not signed in Follows nothing
+              yet, whatever they are about to do on the far side of sign-in. */}
+          <FollowHeart following={false} />
           {t("follow")}
         </Link>
       </Button>
