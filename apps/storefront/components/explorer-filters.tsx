@@ -170,17 +170,20 @@ export function ExplorerFilters({
             // Follow subscribes to the Tag for good (ADR 0030). Merging them
             // would make an ordinary browse — tap Music, look, tap it off —
             // silently sign somebody up for mail.
+            // The chip carries no border of its own: the pill around both halves
+            // draws the only one there is. Bordering the halves separately put a
+            // rule down the middle of a single object, and a filter chip does
+            // not need to be fenced off from the heart that follows it.
             const chip = (
               <button
                 type="button"
                 onClick={() => toggleTag(tag)}
                 aria-pressed={active}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-sm transition-colors",
+                  "rounded-l-full py-1 pr-2 pl-3 text-sm transition-colors",
                   active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-input bg-background text-foreground hover:bg-muted",
-                  "rounded-r-none border-r-0",
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground hover:bg-muted",
                 )}
               >
                 {label}
@@ -188,7 +191,13 @@ export function ExplorerFilters({
             );
 
             return (
-              <span key={tag.canonical_key} className="flex items-stretch">
+              <span
+                key={tag.canonical_key}
+                // One pill, one border, two controls inside it. The heart is
+                // spaced off the word by its own width rather than divided from
+                // it by a line.
+                className="inline-flex items-center rounded-full border border-input bg-background"
+              >
                 {chip}
                 {/* Drawn for anybody. A signed-out press carries the Tag
                     through sign-in and comes back made (#219). */}
@@ -199,6 +208,10 @@ export function ExplorerFilters({
                   intent={followIntent("tag", tag.canonical_key)}
                   signedIn={signedIn}
                   compact
+                  // Rounded to the pill it closes. Its height is left alone: it
+                  // sets the pill's, and the design system's shortest control is
+                  // already the floor for something this small to hit.
+                  className="rounded-full"
                 />
               </span>
             );

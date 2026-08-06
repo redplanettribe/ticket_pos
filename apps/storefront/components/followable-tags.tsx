@@ -51,7 +51,10 @@ export function FollowableTags({ tags, t, follows, className }: FollowableTagsPr
       {tags.map((tag) => (
         <span
           key={tag.canonical_key}
-          className="flex items-center gap-1.5 rounded-md border py-0.5 pr-0.5 pl-2"
+          // One pill: the name, then the heart that follows it. Nothing divides
+          // the two — the border belongs to the pill, not between its halves —
+          // and the heart is set off by plain space instead.
+          className="flex items-center gap-1 rounded-md border py-0.5 pr-0.5 pl-2"
         >
           <Badge variant="outline" className="border-0 px-0">
             {tagName(tag, t)}

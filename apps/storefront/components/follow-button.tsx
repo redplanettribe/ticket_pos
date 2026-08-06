@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, toast } from "@ticket-pos/ui";
+import { Button, cn, toast } from "@ticket-pos/ui";
 import { Heart } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMessages, useTranslations } from "next-intl";
@@ -39,10 +39,17 @@ import { followSignInHref } from "@/lib/follow-intent";
  * than a second control, which is the distinction worth keeping: every rule
  * about what pressing this means is stated once.
  *
- * It still says the word. Dropping to the heart alone is the obvious next step
- * beside a chip and is deliberately not taken here: an unlabelled heart is the
- * "favourite" reading this feature spent a design decision avoiding, and it
- * would be a UI change to the tag explorer rather than to this control.
+ * Compact is the HEART ALONE — no word at all. Beside a chip the word was
+ * saying nothing the chip did not already say, and a row of them said "Follow"
+ * over and over next to the only text that varied. The state moves into the
+ * icon: outlined is "you could follow this", filled is "you do".
+ *
+ * The word survives everywhere else, and that is the line worth holding. An
+ * unlabelled heart reads as "favourite" — the shortlist this feature is
+ * deliberately not (CONTEXT.md) — so the surfaces with room to say what pressing
+ * it means still say it, and the chip row borrows that meaning rather than
+ * restating it. Which is also why the name never leaves: it moves into
+ * `aria-label`, so nothing is lost to a reader who cannot see the fill.
  *
  * When it is compact the subject's name moves into `aria-label`, because a
  * screen reader gets no help from the chip sitting next to it and "Follow" alone
@@ -82,6 +89,16 @@ type FollowButtonProps = {
    * else — the request, the optimistic state, the error copy — is unchanged.
    */
   compact?: boolean;
+  /**
+   * Chrome for the pill this compact control completes, and nothing else.
+   *
+   * The two chip rows are different shapes — a rounded-md bordered span on the
+   * Event page, a rounded-full filter pill in the explorer whose left half is a
+   * separate button — and the half that follows has to finish whichever it is
+   * joined to. That is knowledge the pill has and this control does not, so it
+   * arrives from the caller rather than being guessed at from `compact`.
+   */
+  className?: string;
   /**
    * The intended Follow as it travels through sign-in: "organization:<slug>" or
    * "tag:<key>". Built by the page from the same identifier the endpoint above
@@ -127,6 +144,7 @@ export function FollowButton({
   following,
   subjectName,
   compact = false,
+  className,
   intent,
   signedIn,
 }: FollowButtonProps) {
@@ -179,12 +197,23 @@ export function FollowButton({
     }
   }
 
+  // Square and chrome-less, and no smaller than the design system's shortest
+  // control. A heart is already a small thing to hit; shrinking the button to
+  // sit more snugly in the pill would be buying tidiness with missed taps.
+  const compactChrome = cn("w-9 px-0", className);
+
   const button = (
     <Button
-      // Following is the settled state and reads as such; not following is the
-      // invitation, and gets the emphasis.
-      variant={isFollowing ? "outline" : "default"}
+      // Compact carries no chrome of its own: it sits INSIDE a pill that already
+      // has the border and the background, and a second surface there is a box
+      // drawn in a box. Everything it needs to say is in the heart.
+      //
+      // Labelled, the button still says it twice over: Following is the settled
+      // state and reads as such, not following is the invitation and gets the
+      // emphasis.
+      variant={compact ? "ghost" : isFollowing ? "outline" : "default"}
       size="sm"
+      className={compact ? compactChrome : className}
       aria-pressed={isFollowing}
       // Named for a screen reader only where the label is not the name: beside a
       // chip the button says "Follow" and the chip says which, which no reader
@@ -200,7 +229,7 @@ export function FollowButton({
       onClick={toggle}
     >
       <FollowHeart following={isFollowing} />
-      {isFollowing ? t("following") : t("follow")}
+      {compact ? null : isFollowing ? t("following") : t("follow")}
     </Button>
   );
 
@@ -218,15 +247,16 @@ export function FollowButton({
     const link = (
       <Button
         asChild
-        variant="default"
+        variant={compact ? "ghost" : "default"}
         size="sm"
+        className={compact ? compactChrome : className}
         aria-label={compact ? t("followLabel", { name: subjectName }) : undefined}
       >
         <Link href={followSignInHref(intent, pathname, searchParams.toString())}>
           {/* Always the outline: a visitor who is not signed in Follows nothing
               yet, whatever they are about to do on the far side of sign-in. */}
           <FollowHeart following={false} />
-          {t("follow")}
+          {compact ? null : t("follow")}
         </Link>
       </Button>
     );
