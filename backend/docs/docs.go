@@ -3149,8 +3149,8 @@ const docTemplate = `{
             },
             "service.SuggestionReason": {
                 "properties": {
-                    "tag_canonical_key": {
-                        "type": "string"
+                    "tag": {
+                        "$ref": "#/components/schemas/service.FollowedTagView"
                     }
                 },
                 "type": "object"

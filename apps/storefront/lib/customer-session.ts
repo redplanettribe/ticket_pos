@@ -441,22 +441,28 @@ export async function getFollows(): Promise<SessionOutcome<Follows>> {
 }
 
 /**
- * Why a subject is being suggested: the Tag that produced it, named by canonical
- * key (#231, #232, ADR 0031).
+ * Why a subject is being suggested: the Tag that produced it (#231, #232, #234,
+ * ADR 0031).
  *
  * NULL WHENEVER THE SUBJECT WAS RANKED ON ACTIVITY — the count of discoverable
  * upcoming Events behind it — which is every suggestion made to a Customer who
  * Follows no Tag, and the tail of the panel for one who does. Activity has no
  * producing Tag to name.
  *
- * The key rather than a sentence, so this app words it from its own message
- * catalogues exactly as it words every other Tag (ADR 0027) and no language
- * crosses the wire. The key alone is not enough to word a CUSTOM Tag, whose name
- * is not in any catalogue — followedTag() in lib/follows.ts is where the rest of
- * it comes from.
+ * THE TAG ITSELF, IN THE SAME SHAPE AS EVERY OTHER TAG ON THE WIRE, and it is
+ * self-sufficient on purpose (#234). It used to be a canonical key alone and the
+ * panel went to the Follows listing for the name and the `curated` flag needed
+ * to word it — which holds Tags the Customer Follows DIRECTLY, so once a reason
+ * could name a DERIVED Tag (#233, never in that listing by ADR 0031) the lookup
+ * missed and the line vanished. Nothing about wording a reason may depend on a
+ * second read.
+ *
+ * Still no sentence and no Locale on the wire: `tagName()` words it from this
+ * app's own catalogues exactly as it words the subject beside it (ADR 0027), and
+ * `name` is the English fallback for the Custom Tags no catalogue can hold.
  */
 export type SuggestionReason = {
-  tag_canonical_key: string;
+  tag: FollowedTag;
 };
 
 /** One Tag the Customer does not Follow, offered as one they might. */

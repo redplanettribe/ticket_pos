@@ -1,14 +1,9 @@
 import { Badge, OrgAvatar } from "@ticket-pos/ui";
 import { getTranslations } from "next-intl/server";
 
-import type {
-  FollowSuggestions,
-  Follows,
-  SessionOutcome,
-  SuggestionReason,
-} from "@/lib/customer-session";
+import type { FollowSuggestions, SessionOutcome, SuggestionReason } from "@/lib/customer-session";
 import { followIntent } from "@/lib/follow-intent";
-import { followedTag, organizationFollowEndpoint, tagFollowEndpoint } from "@/lib/follows";
+import { organizationFollowEndpoint, tagFollowEndpoint } from "@/lib/follows";
 import { tagName, toTagTranslator } from "@/lib/tag-name";
 
 import { FollowButton } from "./follow-button";
@@ -22,18 +17,6 @@ type FollowSuggestionsPanelProps = {
    * a page that had to remember that would eventually forget. See below.
    */
   suggestions: SessionOutcome<FollowSuggestions>;
-  /**
-   * The Follows listing the page has already read, WHICH IS NOT A SECOND SOURCE
-   * OF SUGGESTIONS (#232).
-   *
-   * Nothing here re-derives what is offered or whether it is followed — the API
-   * excludes existing Follows, and doing it twice is how two answers come to
-   * disagree. This is read for one thing: a suggestion names the Tag that
-   * produced it by canonical key alone, and the listing is where that key's name
-   * and its `curated` flag are, which is what lets the reason be worded in this
-   * page's language. See followedTag() in lib/follows.ts.
-   */
-  follows: SessionOutcome<Follows>;
 };
 
 /**
@@ -76,10 +59,7 @@ type FollowSuggestionsPanelProps = {
  * panel. Its own refresh is what moves an accepted suggestion up into the list
  * above and out of this one.
  */
-export async function FollowSuggestionsPanel({
-  suggestions,
-  follows,
-}: FollowSuggestionsPanelProps) {
+export async function FollowSuggestionsPanel({ suggestions }: FollowSuggestionsPanelProps) {
   if (suggestions.status !== "ok") return null;
 
   const { tags, organizations } = suggestions.data;
@@ -94,7 +74,7 @@ export async function FollowSuggestionsPanel({
   /**
    * Why a suggestion is here, as a sentence in THIS PAGE'S LANGUAGE.
    *
-   * The API sends a canonical key and never a sentence, so the wording is
+   * The API sends the producing Tag and never a sentence, so the wording is
    * composed here from this app's own catalogues — exactly as every other Tag on
    * the platform is worded, and for the same reason: an API with no idea which
    * Locale a page is in cannot write for it (ADR 0027).
@@ -106,15 +86,20 @@ export async function FollowSuggestionsPanel({
    * meets it as somebody's own word rather than as a sentence that failed to
    * translate.
    *
-   * Null when the reason names a Tag the listing does not have, which is only
-   * reachable when the listing read failed and the suggestions read did not: the
-   * two are independent. No line at all beats a lowercased canonical key.
+   * Null only when there is no reason at all, which is every suggestion the
+   * Activity ranking made. NOTHING ELSE CAN SILENCE THIS LINE (#234): the reason
+   * carries the producing Tag whole, so it is worded from what arrived and from
+   * nothing else. It used to be looked up in the Follows listing by canonical
+   * key, which held while every producer was a Tag the Customer Follows
+   * DIRECTLY, and stopped holding the moment a producer could be a DERIVED Tag —
+   * one inferred from a followed Organization's upcoming Events, which ADR 0031
+   * keeps out of that listing by design (#233). A Customer who Follows only
+   * Organizations then met a full panel with every reason line missing, which is
+   * the reader that ticket exists for.
    */
   function reasonLine(reason: SuggestionReason | null): string | null {
     if (!reason) return null;
-    const producer = followedTag(follows, reason.tag_canonical_key);
-    if (!producer) return null;
-    return t("suggestionReason", { tag: tagName(producer, tTags) });
+    return t("suggestionReason", { tag: tagName(reason.tag, tTags) });
   }
 
   return (

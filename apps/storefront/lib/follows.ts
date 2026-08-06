@@ -1,4 +1,4 @@
-import type { Follow, FollowedTag, Follows, SessionOutcome } from "./customer-session";
+import type { Follow, Follows, SessionOutcome } from "./customer-session";
 
 /**
  * The Follows, as the pages that draw Follow controls need them (#218).
@@ -68,34 +68,4 @@ export function followsTag(follows: SessionOutcome<Follows>, canonicalKey: strin
  */
 export function followList(follows: SessionOutcome<Follows>): Follow[] {
   return follows.status === "ok" ? follows.data.follows : [];
-}
-
-/**
- * The Tag the Customer Follows under this canonical key, or null.
- *
- * This exists for the Suggested Follows panel's reason line (#232). A suggestion
- * names the Tag that produced it BY CANONICAL KEY and by nothing else — no
- * display name and no language crosses the wire (ADR 0027) — and the key alone
- * cannot be worded: the `tags` message catalogue holds copy for Preset Tags
- * only, so a Custom Tag's key would render as the lowercased string somebody
- * typed.
- *
- * The listing the same page already read is where the missing half is. Every
- * reason names a Tag the Customer Follows DIRECTLY, so the subject is always in
- * that list, carrying the `name` and the `curated` flag `tagName()` needs to
- * decide between this app's own copy and the Organization's own word.
- *
- * Null rather than a guess when it is not there, which happens when the listing
- * read failed while the suggestions read succeeded — the two are independent
- * (ADR 0031). The panel drops the reason line in that case rather than printing
- * a raw key at a reader.
- */
-export function followedTag(
-  follows: SessionOutcome<Follows>,
-  canonicalKey: string,
-): FollowedTag | null {
-  for (const follow of followList(follows)) {
-    if (follow.type === "tag" && follow.tag.canonical_key === canonicalKey) return follow.tag;
-  }
-  return null;
 }

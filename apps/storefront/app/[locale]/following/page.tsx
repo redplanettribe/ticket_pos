@@ -127,11 +127,14 @@ export default async function FollowingPage({ params }: FollowingPageProps) {
             is unconditional by design — there is no state in which it produces an
             error, a heading or an empty box.
 
-            The listing goes in beside the suggestions because a suggestion names
-            the Tag that produced it by canonical key, and the listing is where
-            that Tag's name is (#232). It is not a second source of suggestions
-            and the panel does not re-derive anything from it. */}
-        <FollowSuggestionsPanel suggestions={suggestions} follows={follows} />
+            The panel takes its own read and nothing else. It used to be handed
+            the listing as well, to find the name of the Tag a suggestion named
+            by canonical key — which only ever worked for a producer the Customer
+            Follows directly (#232), and stopped working when a producer could be
+            a Tag derived from a followed Organization (#233). The reason now
+            carries the Tag itself (#234), so the two reads are independent here
+            in the same way they are on the API. */}
+        <FollowSuggestionsPanel suggestions={suggestions} />
       </div>
     </StorefrontShell>
   );

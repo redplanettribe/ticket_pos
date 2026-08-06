@@ -39,14 +39,22 @@ import (
 const customerFollowSuggestionsPath = "/api/v1/customer/follow-suggestions"
 
 // suggestionReason is why a suggestion is being made: the Tag that produced it,
-// named by canonical key and never as a sentence, so the Storefront words it
-// from its own catalogues as it words every other Tag (ADR 0027).
+// as a Tag and never as a sentence, so the Storefront words it from its own
+// catalogues as it words every other Tag (ADR 0027).
 //
-// It is null throughout this ticket. Activity ranking has no producing Tag to
-// name — the subject is offered because things are happening under it, not
-// because of anything the Customer Follows.
+// THE SUBJECT'S OWN SHAPE, followedTag, WHICH IS THE POINT (#234). A reason used
+// to travel as a bare canonical key, and the panel fetched the name and the
+// `curated` flag it needs to word one out of the Follows listing — which holds
+// DIRECTLY followed Tags only. #233 made a producer a DERIVED Tag, never in that
+// listing by ADR 0031, so a Customer who Follows only Organizations met a full
+// panel with every reason line silently dropped. The reason carries what it
+// takes to word it, whatever produced it.
+//
+// It is null wherever Activity ranked the suggestion: that ranking has no
+// producing Tag to name — the subject is offered because things are happening
+// under it, not because of anything the Customer Follows.
 type suggestionReason struct {
-	TagCanonicalKey string `json:"tag_canonical_key"`
+	Tag followedTag `json:"tag"`
 }
 
 // suggestedTag is one Tag being offered. The subject is the SAME shape the
@@ -452,18 +460,32 @@ func suggestedOrganizationOffers(t *testing.T, view followSuggestionsView) []str
 // offer renders one suggestion as the subject and, if it has one, the Tag that
 // produced it.
 //
-// A CANONICAL KEY AND NEVER A SENTENCE, which is what these tests are checking
-// as much as which key it is: the Storefront words a Tag from its own message
-// catalogues in the page's Locale (ADR 0027), so a reason arriving as English
-// prose would be the one place a Tag's name crossed the wire in a language.
+// A TAG AND NEVER A SENTENCE, which is what these tests are checking as much as
+// which Tag it is: the Storefront words a Tag from its own message catalogues in
+// the page's Locale (ADR 0027), so a reason arriving as English prose would be
+// the one place a Tag's name crossed the wire in a language. The canonical key
+// is what the string carries, because it is the identity every assertion below
+// is written against.
+//
+// A REASON THAT CANNOT BE WORDED IS RENDERED AS THE FAILURE IT IS (#234), and
+// every Co-occurrence test in this file is a regression test because of it. A
+// key with no display name beside it is exactly the state that reached a reader
+// as a MISSING LINE — the panel had no name to put in the sentence and dropped
+// it — so it is spelled out here rather than silently matching the key the test
+// expected. `curated` is not in the string: it is a boolean whose false is
+// indistinguishable from unset, so the tests that care about it assert on it
+// directly.
 func offer(subject string, reason *suggestionReason) string {
 	if reason == nil {
 		return subject
 	}
-	if reason.TagCanonicalKey == "" {
+	if reason.Tag.CanonicalKey == "" {
 		return subject + " from an empty reason"
 	}
-	return subject + " from " + reason.TagCanonicalKey
+	if reason.Tag.Name == "" {
+		return subject + " from " + reason.Tag.CanonicalKey + " with no name to word it"
+	}
+	return subject + " from " + reason.Tag.CanonicalKey
 }
 
 // TestFollowSuggestionsOfferTagsCoOccurringWithAFollowedTag is the ticket's
@@ -871,6 +893,112 @@ func TestFollowSuggestionsWeighAChosenTagAboveADerivedOne(t *testing.T) {
 	// Tag for the same reason a suggested Tag does.
 	if got := suggestedOrganizationOffers(t, view); !equalStrings(got, []string{testOrgSlug + " from music"}) {
 		t.Fatalf("suggested organizations = %v, want [%s from music]", got, testOrgSlug)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The reason is SELF-SUFFICIENT (#234): it carries the producing Tag, not a key
+// pointing at one.
+//
+// The two tests below are the ones the bug walked past. Every assertion above
+// reads the reason's canonical key, which was always right; what was missing was
+// everything needed to TURN that key into words, which the Storefront went to
+// the Follows listing for. That listing holds directly followed Tags only, so a
+// DERIVED producer was never in it and the panel dropped the line — a full panel
+// of suggestions with no reason under any of them, for exactly the Customer #233
+// was built for.
+// ---------------------------------------------------------------------------
+
+// TestFollowSuggestionsWordEveryReasonForACustomerWhoFollowsOnlyAnOrganization is
+// the regression, and the Customer is the one whose reasons all came out blank.
+//
+// They Follow ONE Organization and no Tag at all, so every producing Tag in this
+// panel is DERIVED — inferred from that Organization's upcoming Events and, by
+// ADR 0031, never offered back and never in their Follows listing. Nothing but
+// the reason itself can say what Comedy goes with.
+//
+// It asserts both groups, because the Tag chips and the Organization rows word
+// their reason with the same helper on the far side and a fix reaching only one
+// of them is the same reader with half a panel.
+func TestFollowSuggestionsWordEveryReasonForACustomerWhoFollowsOnlyAnOrganization(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	other := otherOrganizationSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	// The followed Organization's programme, and the whole of what derives Music.
+	mine := discoverableEvent(t, env, sessionID, "Mine", "mine", upcoming)
+	setEventTagsOK(t, env, sessionID, mine, []string{"Music"})
+
+	// Somebody else's Event carrying Music and Comedy together.
+	shared := discoverableEvent(t, env, other, "Shared", "shared", upcoming)
+	setEventTagsOK(t, env, other, shared, []string{"Music", "Comedy"})
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followOrganizationOK(t, env, token, testOrgSlug)
+
+	view := readFollowSuggestions(t, env, token)
+	if len(view.Tags) == 0 || len(view.Organizations) == 0 {
+		t.Fatalf("suggestions = %+v, want at least one of each kind to check the reasons on", view)
+	}
+	for _, suggestion := range view.Tags {
+		assertReason(t, "suggested tag "+suggestion.Tag.CanonicalKey, suggestion.Reason, followedTag{
+			CanonicalKey: "music", Name: "Music", Curated: true,
+		})
+	}
+	for _, suggestion := range view.Organizations {
+		assertReason(t, "suggested organization "+suggestion.Organization.Slug, suggestion.Reason, followedTag{
+			CanonicalKey: "music", Name: "Music", Curated: true,
+		})
+	}
+}
+
+// TestFollowSuggestionsCarryACustomProducingTagAsItsOrganizationCoinedIt is the
+// other half of user stories 19 and 20: the reason has to be wordable for BOTH
+// kinds of Tag.
+//
+// A Preset Tag survives a bare key, barely — the Storefront could look "music"
+// up in its own catalogue. A CUSTOM TAG CANNOT: there is no copy for it in any
+// Locale by constraint (ADR 0027, migration 050), so the English display name
+// the Organization coined IS the only word there will ever be for it, and
+// `curated` is what tells the panel to render it as typed rather than look for
+// copy that does not exist. Both travel or the sentence cannot be written.
+func TestFollowSuggestionsCarryACustomProducingTagAsItsOrganizationCoinedIt(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	upcoming := env.fixedClock.Add(30 * 24 * time.Hour)
+
+	// Warehouse Techno is nobody's Preset Tag: it exists because an Organization
+	// typed it. Two Events carry it, which is also the Custom Tag floor.
+	for _, slug := range []string{"one", "two"} {
+		event := discoverableEvent(t, env, sessionID, slug, slug, upcoming)
+		setEventTagsOK(t, env, sessionID, event, []string{"Warehouse Techno", "Nightlife"})
+	}
+
+	token := customerSignIn(t, env, "ana@example.com")
+	followTagOK(t, env, token, "warehouse techno")
+
+	view := readFollowSuggestions(t, env, token)
+	if got := suggestedTagOffers(t, view); !equalStrings(got, []string{"nightlife from warehouse techno"}) {
+		t.Fatalf("suggested tags = %v, want [nightlife from warehouse techno]", got)
+	}
+	assertReason(t, "suggested tag nightlife", view.Tags[0].Reason, followedTag{
+		CanonicalKey: "warehouse techno", Name: "Warehouse Techno", Curated: false,
+	})
+}
+
+// assertReason insists a reason names the producing Tag WHOLE.
+//
+// All three facts at once rather than three assertions, because they are one
+// fact: a reason with a key and no name is not a partly correct reason, it is a
+// line the reader never sees.
+func assertReason(t *testing.T, subject string, got *suggestionReason, want followedTag) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s carries no reason, want %+v — Co-occurrence has a producing Tag to name", subject, want)
+	}
+	if got.Tag != want {
+		t.Fatalf("%s reason = %+v, want %+v — the reason carries the Tag itself, so the panel can word it without the Follows listing", subject, got.Tag, want)
 	}
 }
 

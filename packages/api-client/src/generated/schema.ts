@@ -8034,7 +8034,7 @@ export interface components {
             tag?: components["schemas"]["service.FollowedTagView"];
         };
         "service.SuggestionReason": {
-            tag_canonical_key?: string;
+            tag?: components["schemas"]["service.FollowedTagView"];
         };
         "service.TagView": {
             canonical_key?: string;

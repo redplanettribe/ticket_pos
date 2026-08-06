@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
@@ -75,13 +74,25 @@ const maxSuggestions = 10
 
 // SuggestionReason is why a subject is being offered: the Tag that produced it.
 //
-// NAMED BY CANONICAL KEY AND NEVER AS A SENTENCE. The Storefront words a Tag
-// from its own message catalogues everywhere else (ADR 0027), and a reason
-// composed here would be the one place a Tag's name crossed the wire in a
-// language — English, from an API that has no idea which Locale the page is in,
-// arriving inside a Spanish panel. A struct rather than a bare nullable string so
-// that a later reason naming more than one Tag widens this rather than replacing
-// it.
+// THE TAG ITSELF AND NEVER A SENTENCE. The Storefront words a Tag from its own
+// message catalogues everywhere else (ADR 0027), and a reason composed here
+// would be the one place a Tag's name crossed the wire in a language — English,
+// from an API that has no idea which Locale the page is in, arriving inside a
+// Spanish panel. So this carries the same FollowedTagView the listing carries
+// and the panel words it exactly as it words the subject: the canonical key is
+// the Preset Tag's lookup, the English display name is the Custom Tag's
+// fallback, and `curated` says which of the two a reader is holding.
+//
+// IT CARRIED A BARE KEY UNTIL #234, AND THE BARE KEY WAS A BUG. A key alone
+// cannot be worded, so the panel fetched the missing half from the Follows
+// listing — sound only while every producer was a Tag the Customer Follows
+// DIRECTLY. #233 made a producer a DERIVED Tag, which ADR 0031 keeps out of that
+// listing on purpose, so a Customer who Follows only Organizations got a full
+// panel with every reason line silently dropped. A reason has to be
+// self-sufficient: whatever produced it, the words to say so travel with it.
+//
+// A struct rather than the view inlined, so that a later reason naming more than
+// one Tag widens this rather than replacing it.
 //
 // ONE TAG AND NOT A LIST, deliberately. A candidate may co-occur with several of
 // the Customer's Follows, and the Storefront has one line to say it in; naming
@@ -103,7 +114,7 @@ const maxSuggestions = 10
 // inference rather than something the reader can check against the Event they
 // land on.
 type SuggestionReason struct {
-	TagCanonicalKey string `json:"tag_canonical_key"`
+	Tag FollowedTagView `json:"tag"`
 }
 
 // SuggestedTagView is one Tag being offered, with the reason it was chosen.
@@ -194,13 +205,13 @@ func (s *Service) ListFollowSuggestions(ctx context.Context, token string) (*Fol
 				Name:         row.DisplayName,
 				Curated:      row.Curated,
 			},
-			Reason: reason(row.ReasonTagCanonicalKey),
+			Reason: reason(row.ReasonTag),
 		})
 	}
 	for _, row := range organizationRows {
 		view.Organizations = append(view.Organizations, SuggestedOrganizationView{
 			Organization: s.suggestedOrganizationView(row),
-			Reason:       reason(row.ReasonTagCanonicalKey),
+			Reason:       reason(row.ReasonTag),
 		})
 	}
 	return &view, nil
@@ -271,18 +282,27 @@ func (s *Service) rankedOrganizations(ctx context.Context, customerID string, no
 	return append(related, active...), nil
 }
 
-// reason turns the producing Tag's key into the nullable field on the wire, and
-// is the one place a missing one becomes JSON null.
+// reason turns the producing Tag into the nullable field on the wire, and is the
+// one place a missing one becomes JSON null.
 //
-// A row from the Activity ranking carries no key and must report no reason at
-// all: an empty string would put `{"tag_canonical_key": ""}` on the wire, which
-// every consumer would have to learn to read as "none" and one of them would
-// eventually render as a blank sentence.
-func reason(key sql.NullString) *SuggestionReason {
-	if !key.Valid || key.String == "" {
+// A row from the Activity ranking carries no producing Tag and must report no
+// reason at all: an empty struct would put a Tag with no key and no name on the
+// wire, which every consumer would have to learn to read as "none" and one of
+// them would eventually render as a blank sentence.
+//
+// THE KEY DECIDES, AND THE OTHER TWO COME WITH IT. The three columns are one
+// fact — the query selects them from a single row — so a reason with a key is a
+// reason with a name, and reading each independently would invent a state the
+// database cannot produce.
+func reason(tag repository.SuggestedByTagRow) *SuggestionReason {
+	if !tag.CanonicalKey.Valid || tag.CanonicalKey.String == "" {
 		return nil
 	}
-	return &SuggestionReason{TagCanonicalKey: key.String}
+	return &SuggestionReason{Tag: FollowedTagView{
+		CanonicalKey: tag.CanonicalKey.String,
+		Name:         tag.DisplayName.String,
+		Curated:      tag.Curated.Bool,
+	}}
 }
 
 // suggestedOrganizationView turns a logo's object key into a URL, which is the

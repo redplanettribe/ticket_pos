@@ -62,28 +62,51 @@ const discoverableUpcomingEvent = `
 // would invite a Storefront to draw "12 events" beside a chip, which is a claim
 // about a moment that stops being true the day after it is read.
 //
-// ReasonTagCanonicalKey is the followed Tag that produced this suggestion, and
-// is NULL on everything the Activity ranking returns — there is no producing Tag
-// when the subject was chosen for being busy. A canonical key and never a name:
-// the Storefront words a Tag from its own message catalogues (ADR 0027), so
-// nothing here may travel in a language.
+// The Reason* fields are the followed Tag that produced this suggestion, and are
+// all NULL together on everything the Activity ranking returns — there is no
+// producing Tag when the subject was chosen for being busy.
+//
+// THE SAME THREE FACTS THE SUBJECT CARRIES, and for the same reason (#234). The
+// producing Tag is a Tag, so it needs exactly what any Tag needs to be worded:
+// the canonical key the Storefront looks a Preset Tag's copy up under (ADR
+// 0027), the English display name that is the fallback for every Custom Tag, and
+// `curated` to say which of the two it is holding. The key ALONE cannot be
+// worded, and the missing half used to be fetched from the Follows listing —
+// which works only while every producing Tag is one the Customer Follows
+// DIRECTLY. #233 made a producer a DERIVED Tag, which by ADR 0031 is never in
+// that listing, so the reason has to be self-sufficient.
+//
+// Still nothing in a Locale on the wire: `DisplayName` here is the same English
+// the listing publishes, and it is the fallback rather than the copy.
 type SuggestedTagRow struct {
-	CanonicalKey          string
-	DisplayName           string
-	Curated               bool
-	Activity              int
-	ReasonTagCanonicalKey sql.NullString
+	CanonicalKey string
+	DisplayName  string
+	Curated      bool
+	Activity     int
+	ReasonTag    SuggestedByTagRow
+}
+
+// SuggestedByTagRow is the producing Tag, nullable as a unit.
+//
+// One struct rather than three loose columns because the three are one fact: a
+// reason either names a Tag with everything needed to word it or names nothing
+// at all, and three independently nullable fields is the shape in which a row
+// comes back carrying a key and no name.
+type SuggestedByTagRow struct {
+	CanonicalKey sql.NullString
+	DisplayName  sql.NullString
+	Curated      sql.NullBool
 }
 
 // SuggestedOrganizationRow is one Organization worth offering, in
 // OrganizationFollowRow's shape minus the `followed_at` a suggestion by
 // definition does not have.
 type SuggestedOrganizationRow struct {
-	Name                  string
-	Slug                  string
-	LogoImageKey          sql.NullString
-	Activity              int
-	ReasonTagCanonicalKey sql.NullString
+	Name         string
+	Slug         string
+	LogoImageKey sql.NullString
+	Activity     int
+	ReasonTag    SuggestedByTagRow
 }
 
 // derivedTagWeight is what a Tag reached through a followed Organization counts
@@ -144,16 +167,24 @@ const derivedTagWeight = "0.25"
 // that a derived Tag is NEVER offered back to that Customer is enforced: not as
 // a filter somebody remembered to add, but as the same NOT EXISTS that keeps a
 // chosen Tag out.
+//
+// IT CARRIES THE DISPLAY NAME AND `curated` BESIDE THE KEY (#234), because a
+// seed is also what a reason names, and a key alone cannot be worded — the
+// Storefront's `tags` catalogue holds copy for Preset Tags only, so a Custom
+// Tag's key would render as the lowercased string somebody typed. They ride here
+// rather than being joined back to `tags` in each query below for the reason
+// every other column does: one declaration, and no query that can drift from it.
+// The GROUP BY widens with them harmlessly — a Tag's id already determines both.
 const followedTags = `
 	followed AS (
-	    SELECT id, canonical_key, MAX(weight) AS weight
+	    SELECT id, canonical_key, display_name, curated, MAX(weight) AS weight
 	    FROM (
-	        SELECT t.id, t.canonical_key, 1::float8 AS weight
+	        SELECT t.id, t.canonical_key, t.display_name, t.curated, 1::float8 AS weight
 	        FROM customer_tag_follows f
 	        JOIN tags t ON t.id = f.tag_id
 	        WHERE f.customer_id = $1
 	        UNION ALL
-	        SELECT t.id, t.canonical_key, ` + derivedTagWeight + `::float8
+	        SELECT t.id, t.canonical_key, t.display_name, t.curated, ` + derivedTagWeight + `::float8
 	        FROM customer_organization_follows f
 	        JOIN events e ON e.organization_id = f.organization_id
 	        JOIN event_tags et ON et.event_id = e.id
@@ -161,7 +192,7 @@ const followedTags = `
 	        WHERE f.customer_id = $1
 	          AND ` + discoverableUpcomingEvent + `$2
 	    ) seed
-	    GROUP BY id, canonical_key
+	    GROUP BY id, canonical_key, display_name, curated
 	)`
 
 // ListTagSuggestionsByActivity returns the Tags this Customer does not Follow
@@ -350,6 +381,14 @@ func (r *Repository) ListOrganizationSuggestionsByActivity(ctx context.Context, 
 // Weighted and not raw, so a candidate reached by a chosen Tag and a derived Tag
 // on the same evidence names the one the Customer actually chose.
 //
+// `best` picks that contributor whole, with DISTINCT ON rather than the
+// ARRAY_AGG the reason was a single key long enough to fit in (#234). The
+// producing Tag now travels as THREE facts — key, English display name, curated
+// — and three parallel ARRAY_AGGs sorted three times is the shape in which one
+// of them eventually names a different Tag from the other two. DISTINCT ON keeps
+// one ROW, so the three cannot disagree by construction, and the ORDER BY is the
+// same one the score's tie-break uses.
+//
 // A DERIVED TAG NAMES ITSELF AS THE REASON, NOT THE ORGANIZATION IT CAME FROM,
 // and the choice is smaller than it looks because of what the reason says. The
 // Storefront words it as "Goes with X" — a claim about the CATALOGUE, that this
@@ -388,6 +427,8 @@ func (r *Repository) ListTagSuggestionsByCoOccurrence(ctx context.Context, custo
 		together AS (
 		    SELECT candidate.id AS candidate_id,
 		           followed.canonical_key AS reason_key,
+		           followed.display_name AS reason_name,
+		           followed.curated AS reason_curated,
 		           followed.weight AS weight,
 		           COUNT(DISTINCT e.id) AS shared
 		    FROM events e
@@ -396,19 +437,26 @@ func (r *Repository) ListTagSuggestionsByCoOccurrence(ctx context.Context, custo
 		    JOIN event_tags cet ON cet.event_id = e.id
 		    JOIN candidate ON candidate.id = cet.tag_id
 		    WHERE `+discoverableUpcomingEvent+`$2
-		    GROUP BY candidate.id, followed.canonical_key, followed.weight
+		    GROUP BY candidate.id, followed.canonical_key, followed.display_name, followed.curated, followed.weight
 		),
 		scored AS (
 		    SELECT together.candidate_id,
-		           SUM(together.shared * together.weight) / sqrt(candidate.activity::float8) AS score,
-		           (ARRAY_AGG(together.reason_key ORDER BY together.shared * together.weight DESC, together.reason_key ASC))[1] AS reason_key
+		           SUM(together.shared * together.weight) / sqrt(candidate.activity::float8) AS score
 		    FROM together
 		    JOIN candidate ON candidate.id = together.candidate_id
 		    GROUP BY together.candidate_id, candidate.activity
+		),
+		best AS (
+		    SELECT DISTINCT ON (candidate_id)
+		           candidate_id, reason_key, reason_name, reason_curated
+		    FROM together
+		    ORDER BY candidate_id, shared * weight DESC, reason_key ASC
 		)
-		SELECT candidate.canonical_key, candidate.display_name, candidate.curated, candidate.activity, scored.reason_key
+		SELECT candidate.canonical_key, candidate.display_name, candidate.curated, candidate.activity,
+		       best.reason_key, best.reason_name, best.reason_curated
 		FROM scored
 		JOIN candidate ON candidate.id = scored.candidate_id
+		JOIN best ON best.candidate_id = scored.candidate_id
 		ORDER BY scored.score DESC, candidate.canonical_key ASC
 		LIMIT $3
 	`, customerID, now, limit)
@@ -420,7 +468,8 @@ func (r *Repository) ListTagSuggestionsByCoOccurrence(ctx context.Context, custo
 	suggestions := []SuggestedTagRow{}
 	for rows.Next() {
 		var row SuggestedTagRow
-		if err := rows.Scan(&row.CanonicalKey, &row.DisplayName, &row.Curated, &row.Activity, &row.ReasonTagCanonicalKey); err != nil {
+		if err := rows.Scan(&row.CanonicalKey, &row.DisplayName, &row.Curated, &row.Activity,
+			&row.ReasonTag.CanonicalKey, &row.ReasonTag.DisplayName, &row.ReasonTag.Curated); err != nil {
 			return nil, err
 		}
 		suggestions = append(suggestions, row)
@@ -472,7 +521,10 @@ func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Conte
 		WITH `+followedTags+`,
 		matching AS (
 		    SELECT o.id, o.name, o.slug, o.logo_image_key, e.id AS event_id,
-		           followed.canonical_key AS reason_key, followed.weight AS weight
+		           followed.canonical_key AS reason_key,
+		           followed.display_name AS reason_name,
+		           followed.curated AS reason_curated,
+		           followed.weight AS weight
 		    FROM organizations o
 		    JOIN events e ON e.organization_id = o.id
 		    JOIN event_tags et ON et.event_id = e.id
@@ -485,9 +537,10 @@ func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Conte
 		      )
 		),
 		pairs AS (
-		    SELECT id, reason_key, COUNT(DISTINCT event_id) * MAX(weight) AS shared
+		    SELECT id, reason_key, reason_name, reason_curated,
+		           COUNT(DISTINCT event_id) * MAX(weight) AS shared
 		    FROM matching
-		    GROUP BY id, reason_key
+		    GROUP BY id, reason_key, reason_name, reason_curated
 		),
 		weighted AS (
 		    SELECT id, event_id, MAX(weight) AS weight
@@ -502,12 +555,20 @@ func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Conte
 		    GROUP BY matching.id, matching.name, matching.slug, matching.logo_image_key
 		)
 		SELECT matched.name, matched.slug, matched.logo_image_key, matched.matches,
-		       (SELECT pairs.reason_key
-		        FROM pairs
-		        WHERE pairs.id = matched.id
-		        ORDER BY pairs.shared DESC, pairs.reason_key ASC
-		        LIMIT 1) AS reason_key
+		       best.reason_key, best.reason_name, best.reason_curated
 		FROM matched
+		-- LATERAL rather than three correlated subqueries, for the reason the Tag
+		-- query's best is one row: the producing Tag travels as three facts now
+		-- (#234) and they must all come from the SAME pairs row. Three subqueries
+		-- each re-running the same ORDER BY is a reason that can name one Tag's
+		-- key beside another's name the day the sort is touched in only two.
+		LEFT JOIN LATERAL (
+		    SELECT pairs.reason_key, pairs.reason_name, pairs.reason_curated
+		    FROM pairs
+		    WHERE pairs.id = matched.id
+		    ORDER BY pairs.shared DESC, pairs.reason_key ASC
+		    LIMIT 1
+		) best ON TRUE
 		ORDER BY matched.score DESC, matched.slug ASC
 		LIMIT $3
 	`, customerID, now, limit)
@@ -519,7 +580,8 @@ func (r *Repository) ListOrganizationSuggestionsByCoOccurrence(ctx context.Conte
 	suggestions := []SuggestedOrganizationRow{}
 	for rows.Next() {
 		var row SuggestedOrganizationRow
-		if err := rows.Scan(&row.Name, &row.Slug, &row.LogoImageKey, &row.Activity, &row.ReasonTagCanonicalKey); err != nil {
+		if err := rows.Scan(&row.Name, &row.Slug, &row.LogoImageKey, &row.Activity,
+			&row.ReasonTag.CanonicalKey, &row.ReasonTag.DisplayName, &row.ReasonTag.Curated); err != nil {
 			return nil, err
 		}
 		suggestions = append(suggestions, row)
