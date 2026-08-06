@@ -625,6 +625,48 @@ type EmailSender interface {
   subscribing an address takes the same proof signing in does. On the Storefront the same guard runs
   in `lib/follow-intent.ts`, which drops a malformed intent rather than refusing the sign-in, and
   the Google leg carries it in the existing state cookie rather than through Google.
+- **Suggested Follows are a sixth route and a second read, never a field on the listing** (ADR 0031).
+  `GET /api/v1/customer/follow-suggestions` returns Tags and Organizations the Customer does not
+  Follow, in **two groups rather than one interleaved list** — the opposite of the Follows listing,
+  and for the reason that decided that one too: the listing interleaves because `followed_at` is a
+  single real scale across both kinds, while a Tag's normalised co-occurrence score and an
+  Organization's Activity are different units, and ordering them together would publish a
+  comparability that does not exist. Subjects reuse the listing's own shapes, so the Storefront
+  holds one type per kind. Each entry names the Tag that produced it **by canonical key**, never as
+  a sentence: the Storefront words it from its own catalogues as it words every Tag (ADR 0027), and
+  no language crosses the wire. An empty result is a 200 with empty groups. The route is deliberately
+  **not** folded into `GET /customer/follows`, which the explorer and every Event and Organization
+  page call to resolve their Follow controls — putting the ranking there would run it on every render
+  of the hot public surfaces and discard the result.
+- The ranking is **one query at request time**: no table, no migration, no cache, no scheduled
+  recomputation. **Activity** counts discoverable upcoming Events, reusing the same subset the
+  explorer lists and the index on `COALESCE(ends_at, starts_at)` migration 057 already added.
+  **Co-occurrence** is a self-join through `event_tags`, normalised by each candidate Tag's own
+  frequency so that the broadest Tags in the shared pool are not suggested to everyone. The starting
+  set is the union of Tags the Customer Follows and Tags carried by their followed Organizations'
+  upcoming Events, the latter **weighted lower and excluded from the results** — the derived Tag is
+  an inference from a Follow the Customer already made, so offering it back is offering them their
+  own answer. Organizations are reached through the same join, an Organization being related to a Tag
+  when its upcoming Events carry it; there is no Organization–Tag table and this adds none. Custom
+  Tags qualify above a floor of more than one upcoming Event, because a Custom Tag on a single Event
+  is usually that Event's own name.
+- On the Storefront the panel sits **below** the Follows list on `/following`, in one layout for
+  both the populated and empty states, read **server-side** alongside the listing through the same
+  customer-session module — no BFF route handler, because nothing here is operated by the browser
+  except the Follow control, which already has one. Tags render as a compact chip row and
+  Organizations as rows matching the Following list's shape, both reusing the same generic Follow
+  control against the same endpoints, so accepting a suggestion is byte-for-byte the request the
+  Event page makes and the control's own refresh is what moves it into the list above. A suggested
+  Custom Tag carries the Following list's existing badge, in the same words. A failed suggestions
+  read degrades to **no panel, silently** — the listing keeps its own error handling, and an error
+  banner about a feature the reader did not come for is worse than its absence.
+- The header's Following link is rendered by the Storefront's own customer-nav component in **both**
+  its signed-in and signed-out branches, immediately before the Avatar chip. The shared shell package
+  takes a node for the header's trailing edge and needs no change — it is shared with Staff, which
+  has no Follows and must not learn of them. Shown signed-out, where it leads into sign-in carrying a
+  return to `/following`, which the page already handles because it must already survive a signed-out
+  arrival. The account menu keeps its own Following entry: the menu is the complete index of the
+  Customer Area, the header link is a shortcut.
 - Each Ticket Sale keeps its own immutable Tax ID snapshot, and that snapshot — not the Customer's
   current assertion — is what organizers see and search. `GET /api/v1/staff/events/{id}/sales`
   returns it per row as `tax_id_type` / `tax_id_number` (null together on sales recorded without
