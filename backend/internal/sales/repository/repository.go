@@ -1109,10 +1109,10 @@ type ListSalesQuery struct {
 	// primary ORDER BY expression; Dir is "asc" or "desc".
 	Sort string
 	Dir  string
-	// Limit and Offset paginate the result. A Limit of zero or less means
-	// unpaginated: every matching sale, in one read. That is what the Sales
-	// Export takes — a file is the whole answer or it is misleading, and paging
-	// a download would be a way to hand somebody a partial one.
+	// Limit and Offset paginate the result, and Limit is always required: the
+	// Sales list passes its page size, the Sales Export the row cap plus one —
+	// one past the cap being how it learns it has been exceeded without reading
+	// an Event's whole history to find out.
 	Limit  int
 	Offset int
 }
@@ -1177,7 +1177,8 @@ func salesOrderBy(sort, dir string) string {
 // EXISTS sub-query so it narrows sales without touching the rollup or fanning
 // the row out.
 //
-// A Limit of zero or less returns every match unpaginated — see ListSalesQuery.
+// Limit is always applied; total still reports the true unpaginated match count,
+// which is what lets the Sales Export refuse an oversized request exactly.
 func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
 	// $1..$3 are the always-present event/org/status scope; further filters
 	// append their own placeholders so the query only mentions active filters.
@@ -1232,16 +1233,15 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	if len(conds) > 0 {
 		filterSQL = " AND " + strings.Join(conds, " AND ")
 	}
-	// A non-positive Limit is the unpaginated read: no LIMIT/OFFSET clause at
-	// all, rather than a sentinel row count nobody would recognise later.
-	pageSQL := ""
-	if q.Limit > 0 {
-		args = append(args, q.Limit)
-		limitP := len(args)
-		args = append(args, q.Offset)
-		offsetP := len(args)
-		pageSQL = fmt.Sprintf("LIMIT $%d OFFSET $%d", limitP, offsetP)
-	}
+	// Every read is bounded. The Sales list passes its page size and the Sales
+	// Export the row cap plus one; there is deliberately no "fetch everything"
+	// path, because a caller that reached it by passing a zero would pull an
+	// Event's entire sales history into memory without saying so.
+	args = append(args, q.Limit)
+	limitP := len(args)
+	args = append(args, q.Offset)
+	offsetP := len(args)
+	pageSQL := fmt.Sprintf("LIMIT $%d OFFSET $%d", limitP, offsetP)
 
 	query := fmt.Sprintf(`
 		SELECT
