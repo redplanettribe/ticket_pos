@@ -234,6 +234,30 @@ function exportFilenameFrom(disposition: string | null): string {
 // envelope on failure, so a plain link would navigate the browser to raw JSON
 // whenever the export was refused and the error we rely on would be invisible.
 // Fetching also lets the caller show a spinner while a large file is built.
+/** The error half of the envelope an export refusal arrives in. */
+type ExportErrorEnvelope = {
+  error?: {
+    message?: string;
+    code?: string;
+    details?: { fields?: { field?: string; message?: string }[] };
+  };
+} | null;
+
+// salesExportErrorMessage is what the person is shown when an export is refused.
+//
+// It prefers the FIELD error's message over the envelope's own. That is not a
+// cosmetic preference: the row-cap refusal is a VALIDATION_FAILED, whose
+// top-level message is the generic "Request validation failed", while the
+// sentence that actually helps — how many sales matched, how many may be
+// downloaded at once, and to narrow the filters — is the field error underneath
+// it. Reading only the top level would replace the one useful message in the
+// feature with boilerplate, and the cap is only survivable because the person is
+// told which lever to pull.
+export function salesExportErrorMessage(envelope: ExportErrorEnvelope): string {
+  const fieldMessage = envelope?.error?.details?.fields?.find((f) => f?.message)?.message;
+  return fieldMessage ?? envelope?.error?.message ?? "Failed to export sales";
+}
+
 export async function downloadSalesExport(
   eventId: string,
   filters: SalesFilters,
@@ -242,10 +266,8 @@ export async function downloadSalesExport(
 ): Promise<void> {
   const response = await fetch(salesExportPath(eventId, filters, sort, dir));
   if (!response.ok) {
-    const envelope = (await response.json().catch(() => null)) as {
-      error?: { message?: string; code?: string };
-    } | null;
-    throw new ApiError(envelope?.error?.message ?? "Failed to export sales", envelope?.error?.code);
+    const envelope = (await response.json().catch(() => null)) as ExportErrorEnvelope;
+    throw new ApiError(salesExportErrorMessage(envelope), envelope?.error?.code);
   }
 
   const blob = await response.blob();

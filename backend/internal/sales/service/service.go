@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,6 +169,9 @@ type Service struct {
 	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
 	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
 	drainBatch int
+	// exportRowCap is how many Ticket Sales one Sales Export may carry. Set by
+	// New to defaultExportRowCap; see WithExportRowCap.
+	exportRowCap int
 }
 
 // New returns a sales service. The customers service is required: every Ticket
@@ -184,12 +189,25 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 		fees:              fees,
 		logger:            logger,
 		now:               time.Now,
+		exportRowCap:      defaultExportRowCap,
 	}
 }
 
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithLogger swaps the structured logger.
+//
+// It exists for one kind of test: the Sales Export's log line is the only record
+// of who took a file of every buyer's email and Tax ID, and what it must NOT
+// contain — the free-text search term — can only be asserted by reading what was
+// logged. Nothing in production calls it; the deployed logger is the one New is
+// handed.
+func (s *Service) WithLogger(logger platform.Logger) *Service {
+	s.logger = logger
 	return s
 }
 
@@ -598,6 +616,44 @@ type SalesExport struct {
 	Filename string
 }
 
+// defaultExportRowCap is how many Ticket Sales one Sales Export may carry.
+//
+// It is the Sale Import's row limit, referenced rather than repeated. The same
+// number twice would be two numbers the day one of them moved, and the point of
+// the choice is that the system has ONE answer to how many sale rows travel in a
+// file: an export can never hand back more than the importer would accept.
+//
+// The cap exists because generation is synchronous and the workbook is buffered
+// in memory, so an unbounded Event would produce a request that hangs and then
+// either times out at the proxy or takes the process down — on the busiest day
+// of the Event, which is exactly when somebody reaches for this.
+const defaultExportRowCap = importfile.MaxRows
+
+// WithExportRowCap narrows how many Ticket Sales a Sales Export may carry.
+//
+// It exists so a test can prove the cap is a cap. Reaching the deployed ten
+// thousand would mean seeding ten thousand and one Ticket Sales, which takes
+// minutes and buys nothing: what has to hold is the behaviour AT the bound — the
+// refusal, its count, and that exactly the cap still succeeds — and none of that
+// is a property of the number. A value of zero or less keeps the default, so a
+// misapplied override can never quietly mean "export nothing".
+//
+// Nothing in production calls it; the deployed cap is defaultExportRowCap.
+func (s *Service) WithExportRowCap(rows int) *Service {
+	if rows > 0 {
+		s.exportRowCap = rows
+	}
+	return s
+}
+
+// ExportRowCap reports the export row cap currently in force.
+func (s *Service) ExportRowCap() int {
+	if s.exportRowCap > 0 {
+		return s.exportRowCap
+	}
+	return defaultExportRowCap
+}
+
 // ExportSales builds the Event's Ticket Sales into an .xlsx, narrowed by the
 // same filters as the Sales list.
 //
@@ -610,13 +666,21 @@ type SalesExport struct {
 // concentrates every buyer's email and Tax ID for an Event into something that
 // is forwarded and kept, so it takes the Sales summary's guard rather than the
 // Sales list's looser one.
-func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID string, params ListSalesParams) (*SalesExport, error) {
+//
+// Above the row cap it builds nothing and returns field errors instead, which
+// the handler writes as the standard VALIDATION_FAILED envelope. That is the
+// same shape RequestPayout uses for a refusal the caller fixes by changing their
+// input, and it is the right one here for the same reason: the answer is not
+// "this failed" but "narrow your filters", and the filters are on screen beside
+// the button. The refusal names the matched count because that is how the person
+// knows how much narrower to go.
+func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID string, params ListSalesParams) (*SalesExport, []platform.FieldError, error) {
 	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !ok {
-		return nil, sales.ErrEventNotFound()
+		return nil, nil, sales.ErrEventNotFound()
 	}
 
 	status := params.Status
@@ -626,8 +690,13 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 	loc := resolveEventLocation(event.Timezone)
 	soldFrom, soldTo := dateRangeBounds(params.SoldFrom, params.SoldTo, loc)
 
-	// Limit 0 is the unpaginated read: the file is the whole answer.
-	rows, _, err := s.repo.ListSales(ctx, repository.ListSalesQuery{
+	// One row past the cap is all that is ever read. The total the query reports
+	// is COUNT(*) OVER(), computed before the LIMIT, so the true matched count is
+	// exact however far over the cap the Event is — the refusal can name it
+	// without a second query, and an Event with a hundred thousand sales never
+	// pulls a hundred thousand rows into this process to be told so.
+	rowCap := s.ExportRowCap()
+	rows, total, err := s.repo.ListSales(ctx, repository.ListSalesQuery{
 		OrganizationID: actor.OrganizationID,
 		EventID:        eventID,
 		Status:         status,
@@ -640,9 +709,13 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		PaymentMethod:  params.PaymentMethod,
 		Sort:           params.Sort,
 		Dir:            params.Dir,
+		Limit:          rowCap + 1,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if total > rowCap {
+		return nil, []platform.FieldError{exportTooManyRows(total, rowCap)}, nil
 	}
 
 	// The columns are the Event's LIVE catalog, in display order — not the Ticket
@@ -658,7 +731,7 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 	// stands now.
 	catalog, err := s.repo.ListEventTicketTypes(ctx, actor.OrganizationID, eventID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	types := make([]exportfile.TicketTypeColumn, 0, len(catalog))
 	ticketTypeNames := make(map[string]string, len(catalog))
@@ -698,6 +771,11 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		})
 	}
 
+	// Whether a free-text search was applied, computed once and read twice: the
+	// Info sheet states it and the log line records it, and both must say THAT
+	// one happened without ever repeating what it was.
+	searched := strings.TrimSpace(params.Search) != ""
+
 	// What the Info sheet says about the file. The status handed over is the
 	// RESOLVED one, not the request's: it is the default that makes the honesty
 	// necessary — a person who filtered nothing still gets a file with every
@@ -720,16 +798,93 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			PaymentMethod:  params.PaymentMethod,
 			// THAT a search happened, never what it was: the term is routinely a
 			// buyer's email or Tax ID, and this file is forwarded. Same call the
-			// export's log line makes.
-			Searched: strings.TrimSpace(params.Search) != "",
+			// export's log line makes, from the same value.
+			Searched: searched,
 		},
 	}
 
 	data, err := exportfile.Build(exported, types, loc, info)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, generatedAt.In(loc))}, nil
+
+	// The one record that a copy of this Event's buyers left the building.
+	//
+	// There is no audit table behind it — that implies a reading surface, a
+	// retention policy and an access rule, and should be designed once across
+	// Payout Profile reads and Operator actions rather than growing out of this
+	// feature. So this line is the whole answer to "who pulled the customer
+	// list", and it is not a question that can be answered retroactively: it is
+	// written here or it is never written.
+	//
+	// It is logged AFTER the workbook exists, so the line claims a file that was
+	// actually handed over rather than one whose build then failed.
+	//
+	// The free-text search is a BOOLEAN and never its value. The search matches
+	// customer email and Tax ID number, so a support lookup for one buyer puts
+	// that buyer's PII into the filter — and a log aggregator typically has
+	// broader access and longer retention than the database it would be copied
+	// out of. The structural filters below say what was asked for without saying
+	// anything about any one person, which is exactly the line the Info sheet
+	// draws in the file itself.
+	s.logger.Info("sales export generated",
+		"member_id", actor.MemberID,
+		"organization_id", actor.OrganizationID,
+		"event_id", eventID,
+		"row_count", len(exported),
+		"status", status,
+		"ticket_type_id", params.TicketTypeID,
+		"sold_from", params.SoldFrom,
+		"sold_to", params.SoldTo,
+		"channel", params.Channel,
+		"source", params.Source,
+		"payment_method", params.PaymentMethod,
+		"search", searched,
+	)
+
+	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, generatedAt.In(loc))}, nil, nil
+}
+
+// exportTooManyRows is the refusal a Sales Export over the row cap carries.
+//
+// It is a field error rather than a domain error because of what the reader is
+// meant to do next: the filters that produced this request are on screen beside
+// the button that sent it, and narrowing them is the fix. The staff app renders
+// the message inline there, so the message is the feature — it names how many
+// matched (which is how the person knows how much narrower to go), how many may
+// travel at once, and the lever to reach for.
+//
+// The field named is `filters` and not any one parameter: no single filter is at
+// fault, and blaming sold_from would be wrong for somebody whose lever is the
+// Ticket Type or the channel.
+func exportTooManyRows(matched, rowCap int) platform.FieldError {
+	return platform.FieldError{
+		Field: "filters",
+		Code:  platform.CodeTooManyItems,
+		Message: fmt.Sprintf(
+			"This Event has %s matching sales; up to %s can be downloaded at once. Narrow the date range and try again.",
+			groupDigits(matched), groupDigits(rowCap),
+		),
+	}
+}
+
+// groupDigits renders a count with thousands separators, because these numbers
+// are read by a person deciding how much to narrow a filter and "24,318" is
+// legible at a glance where "24318" is not.
+func groupDigits(n int) string {
+	digits := strconv.Itoa(n)
+	sign := ""
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	var b strings.Builder
+	for i, d := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(d)
+	}
+	return sign + b.String()
 }
 
 // exportedNetProceeds is the Net Proceeds a Sales Export row states, or nil

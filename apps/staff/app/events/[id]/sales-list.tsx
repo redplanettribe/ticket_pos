@@ -585,7 +585,12 @@ function SalesExportButton({ eventId, filters, sort, dir }: SalesExportButtonPro
 
   return (
     <>
-      {error ? <span className="text-sm text-destructive">{error}</span> : null}
+      {/* Its own full-width line inside the wrapping row: the refusal that
+          matters here is a whole sentence naming a count and pointing back at
+          the filters, and squeezed beside the button it would be a column of
+          two words. It stays in this row so it reads as an answer to the
+          button, right where the filters that caused it are. */}
+      {error ? <span className="basis-full text-right text-sm text-destructive">{error}</span> : null}
       <Button type="button" variant="outline" size="sm" disabled={downloading} onClick={handleDownload}>
         {downloading ? "Preparing…" : "Download .xlsx"}
       </Button>

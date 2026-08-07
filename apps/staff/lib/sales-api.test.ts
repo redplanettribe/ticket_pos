@@ -6,6 +6,7 @@ import {
   paymentMethodLabel,
   reversalLabel,
   reversedCountLabel,
+  salesExportErrorMessage,
   taxIdLabel,
 } from "./sales-api.ts";
 
@@ -93,4 +94,42 @@ test("reversedCountLabel counts the Event's reversed sales, singular and plural"
 
 test("reversedCountLabel says nothing was reversed rather than showing a bare zero", () => {
   assert.equal(reversedCountLabel(0), "No reversed sales");
+});
+
+// --- the Sales Export refusal ---------------------------------------------
+
+test("salesExportErrorMessage shows the row cap's own sentence, not the generic one", () => {
+  // What the API sends when the filters match more sales than one file carries.
+  // The useful sentence is the FIELD error; the envelope's own message is
+  // boilerplate, and showing it would hide the only thing that helps.
+  assert.equal(
+    salesExportErrorMessage({
+      error: {
+        code: "VALIDATION_FAILED",
+        message: "Request validation failed",
+        details: {
+          fields: [
+            {
+              field: "filters",
+              message:
+                "This Event has 24,318 matching sales; up to 10,000 can be downloaded at once. Narrow the date range and try again.",
+            },
+          ],
+        },
+      },
+    }),
+    "This Event has 24,318 matching sales; up to 10,000 can be downloaded at once. Narrow the date range and try again.",
+  );
+});
+
+test("salesExportErrorMessage falls back to the envelope's message without field errors", () => {
+  assert.equal(
+    salesExportErrorMessage({ error: { code: "EVENT_NOT_FOUND", message: "Event not found." } }),
+    "Event not found.",
+  );
+});
+
+test("salesExportErrorMessage says something rather than nothing on an unreadable failure", () => {
+  assert.equal(salesExportErrorMessage(null), "Failed to export sales");
+  assert.equal(salesExportErrorMessage({ error: { details: { fields: [] } } }), "Failed to export sales");
 });

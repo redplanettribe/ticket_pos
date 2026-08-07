@@ -6478,9 +6478,22 @@ paths:
         rather than duplicating every sale. It carries nothing above its header row,
         so select-all, autofilter and pivot source ranges work without deleting a
         preamble — which is why the stamp is a sheet of its own. The filename is set
-        by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Restricted
-        to Org Admins and Event Owners — the same guard as the sales summary, because
-        this file concentrates every buyer''s email and Tax ID for an Event into something
+        by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Generation
+        is synchronous and the workbook is buffered in memory, so the file is CAPPED
+        at 10,000 Ticket Sales — the same constant the Sale Import accepts, so an
+        export can never exceed what the importer would take back. A request whose
+        filters match MORE than the cap builds nothing and is refused with the standard
+        VALIDATION_FAILED envelope, carrying one field error on `filters` whose message
+        names how many sales matched and how many may be downloaded at once, so the
+        caller knows how much narrower to go; exactly the cap succeeds. One structured
+        log line is written per generated file — the acting Member, Organization,
+        Event, the structural filters and the row count — because this is the largest
+        concentration of buyer PII the product emits and "who pulled the customer
+        list" cannot be answered retroactively. The free-text search is recorded in
+        it as a boolean only: it matches customer email and Tax ID number, and logging
+        the term would copy a buyer''s PII into a log aggregator. Restricted to Org
+        Admins and Event Owners — the same guard as the sales summary, because this
+        file concentrates every buyer''s email and Tax ID for an Event into something
         that is forwarded and retained; Event Staff are refused and keep the on-screen
         Sales list.'
       parameters:

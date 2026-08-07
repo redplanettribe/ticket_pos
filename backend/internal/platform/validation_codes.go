@@ -144,7 +144,10 @@ const (
 	// CodeEmptyCollection — "must contain at least one line" / "at least one
 	// row".
 	CodeEmptyCollection = "EMPTY_COLLECTION"
-	// CodeTooManyItems — "must contain at most N lines".
+	// CodeTooManyItems — "must contain at most N lines". Also the code a request
+	// carries when what it MATCHED is more than one response may hold, as the
+	// Sales Export's row cap does: same rule ("too many"), same lever (send
+	// less), and its message names the count so the caller knows by how much.
 	CodeTooManyItems = "TOO_MANY_ITEMS"
 	// CodeTooLong — "must be at most N characters".
 	CodeTooLong = "TOO_LONG"

@@ -2,8 +2,10 @@ package integration
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -11,6 +13,9 @@ import (
 	"testing"
 
 	"github.com/xuri/excelize/v2"
+
+	"github.com/peter/ticket_pos/backend/internal/platform"
+	"github.com/peter/ticket_pos/backend/internal/sales/importfile"
 )
 
 // The Sales Export (#236): an Org Admin or Event Owner presses Download on the
@@ -1709,4 +1714,307 @@ func TestSalesExportInfoRowCountMatchesTheRows(t *testing.T) {
 		t.Fatalf("online data rows = %d, want none", got)
 	}
 	openSalesExportInfo(t, empty).says(t, "rows: 0")
+}
+
+// --- the row cap and the log line (#241) ----------------------------------
+//
+// The export is generated synchronously and buffered in memory, so an unbounded
+// Event would produce a request that hangs and then either times out at the
+// proxy or takes the process's memory with it — on the busiest day, which is
+// exactly when somebody reaches for this. The cap is what makes a synchronous
+// export survivable, and the refusal is what makes the cap survivable: the
+// person always has the filters as a lever, so the message has to name the
+// count and point at them.
+
+// withSalesExportCap lowers the export's row cap for one test and restores the
+// deployed one afterwards.
+//
+// Reaching the real cap would mean seeding ten thousand and one Ticket Sales,
+// which takes minutes and bloats the suite for a guarantee that is not about
+// the number at all: what is under test is the behaviour AT the bound, and the
+// bound is configuration. This mirrors withGlobalCeiling on the OTP ceiling,
+// which lowers its number for exactly the same reason. That the deployed
+// default is the Sale Import's own row limit is pinned separately, by
+// TestSalesExportCapIsTheSaleImportRowLimit, so the two can never drift.
+//
+// The sales service is shared by the whole package and integration tests run
+// serially, so swapping it here is safe in the same way the harness's clock
+// swaps are.
+func withSalesExportCap(t *testing.T, rows int) {
+	t.Helper()
+	original := sharedApp.SalesService.ExportRowCap()
+	sharedApp.SalesService.WithExportRowCap(rows)
+	t.Cleanup(func() { sharedApp.SalesService.WithExportRowCap(original) })
+}
+
+// salesExportRefusal reads the field errors out of a refused export's standard
+// validation envelope, failing the test if the response is not one.
+func salesExportRefusal(t *testing.T, resp *http.Response, data []byte) []platform.FieldError {
+	t.Helper()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("refusal status=%d, want 400; body=%s", resp.StatusCode, string(data))
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("refusal content-type = %q, want JSON — a refusal is not a file", ct)
+	}
+	var body struct {
+		Error *struct {
+			Code    string                          `json:"code"`
+			Message string                          `json:"message"`
+			Details platform.ValidationErrorDetails `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &body); err != nil {
+		t.Fatalf("decode refusal %s: %v", string(data), err)
+	}
+	if body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("refusal = %s, want the standard VALIDATION_FAILED envelope", string(data))
+	}
+	if len(body.Error.Details.Fields) == 0 {
+		t.Fatalf("refusal carries no fields: %s", string(data))
+	}
+	return body.Error.Details.Fields
+}
+
+// TestSalesExportRefusesAboveTheRowCap is the acceptance criterion: over the cap
+// the request is refused with the standard validation envelope carrying the
+// matched count, at the cap it succeeds, and narrowing the filters afterwards
+// produces the download.
+func TestSalesExportRefusesAboveTheRowCap(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Cap Fest", "cap-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	commitBatch(t, env, sessionID, eventID, "cap-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T11:00:00Z"},
+		{"customer_email": "caro@example.com", "customer_first_name": "Caro", "customer_last_name": "Diaz", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-05T10:00:00Z"},
+	})
+	withSalesExportCap(t, 2)
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	fields := salesExportRefusal(t, resp, data)
+	// Blamed on the filters as a whole, with a stable code beside the sentence —
+	// no one filter is at fault, and which lever to pull is the person's call.
+	if fields[0].Field != "filters" {
+		t.Fatalf("refusal blames %q, want the filters", fields[0].Field)
+	}
+	if fields[0].Code != platform.CodeTooManyItems {
+		t.Fatalf("refusal code = %q, want %q", fields[0].Code, platform.CodeTooManyItems)
+	}
+	message := fields[0].Message
+	// The message is the whole reason a synchronous cap is acceptable: it says
+	// how many matched, how many may travel at once, and what to do about it.
+	for _, want := range []string{"3 matching sales", "up to 2", "Narrow"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("refusal message = %q, want it to contain %q", message, want)
+		}
+	}
+	if bytes.HasPrefix(data, []byte("PK\x03\x04")) {
+		t.Fatalf("a refused export still returned a workbook")
+	}
+
+	// Exactly at the cap succeeds: only ABOVE it is refused.
+	resp, data = downloadSalesExport(t, env, sessionID, eventID, "sold_from=2026-07-01&sold_to=2026-07-01")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export at the cap status=%d body=%s", resp.StatusCode, string(data))
+	}
+	if got := openSalesExport(t, data).dataRows; got != 2 {
+		t.Fatalf("narrowed export rows = %d, want the two sales at the cap", got)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != salesExportSpreadsheetType {
+		t.Fatalf("narrowed export content-type = %q, want the spreadsheet type", ct)
+	}
+
+	// Every filter is a lever, not only the dates.
+	if resp, data := downloadSalesExport(t, env, sessionID, eventID, "q=caro@example.com"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("export narrowed by search status=%d body=%s", resp.StatusCode, string(data))
+	}
+
+	// The refusal is decided on the FILTERED count, not the Event's: the whole
+	// Event is over the cap while this file is not.
+	if resp, data := downloadSalesExport(t, env, sessionID, eventID, "sold_from=2026-07-05&sold_to=2026-07-05"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("export narrowed to one day status=%d body=%s", resp.StatusCode, string(data))
+	}
+}
+
+// TestSalesExportCapIsTheSaleImportRowLimit pins the deployed default to the
+// Sale Import's row limit — the same constant, not a second number that happens
+// to agree today. The system has one answer to how many sale rows travel in a
+// file, and an export can never exceed what the importer would accept.
+func TestSalesExportCapIsTheSaleImportRowLimit(t *testing.T) {
+	if got := sharedApp.SalesService.ExportRowCap(); got != importfile.MaxRows {
+		t.Fatalf("deployed export row cap = %d, want the Sale Import's MaxRows (%d)", got, importfile.MaxRows)
+	}
+}
+
+// captureLogger records what a service logged during one test, so the log line
+// can be read back the way a log aggregator would see it.
+type captureLogger struct {
+	lines []capturedLine
+}
+
+type capturedLine struct {
+	level string
+	msg   string
+	args  []any
+}
+
+func (l *captureLogger) Info(msg string, args ...any) {
+	l.lines = append(l.lines, capturedLine{level: "info", msg: msg, args: args})
+}
+
+func (l *captureLogger) Warn(msg string, args ...any) {
+	l.lines = append(l.lines, capturedLine{level: "warn", msg: msg, args: args})
+}
+
+func (l *captureLogger) Error(msg string, args ...any) {
+	l.lines = append(l.lines, capturedLine{level: "error", msg: msg, args: args})
+}
+
+func (l *captureLogger) reset() { l.lines = nil }
+
+// rendered is everything logged, flattened — the message and every key and
+// value — which is the shape the assertion "no buyer PII reaches the
+// aggregator" needs.
+func (l *captureLogger) rendered() string {
+	var b strings.Builder
+	for _, line := range l.lines {
+		b.WriteString(line.level)
+		b.WriteString(" ")
+		b.WriteString(line.msg)
+		for _, a := range line.args {
+			b.WriteString(fmt.Sprintf(" %v", a))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// only returns the single logged line whose message contains the fragment.
+func (l *captureLogger) only(t *testing.T, fragment string) capturedLine {
+	t.Helper()
+	var found []capturedLine
+	for _, line := range l.lines {
+		if strings.Contains(line.msg, fragment) {
+			found = append(found, line)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("logged %d lines matching %q, want exactly one; log was:\n%s", len(found), fragment, l.rendered())
+	}
+	return found[0]
+}
+
+// arg reads a structured key's value off a log line.
+func (line capturedLine) arg(t *testing.T, key string) any {
+	t.Helper()
+	for i := 0; i+1 < len(line.args); i += 2 {
+		if k, ok := line.args[i].(string); ok && k == key {
+			return line.args[i+1]
+		}
+	}
+	t.Fatalf("log line %q carries no %q; args = %v", line.msg, key, line.args)
+	return nil
+}
+
+// withSalesLogger captures what the sales service logs for one test.
+func withSalesLogger(t *testing.T) *captureLogger {
+	t.Helper()
+	capture := &captureLogger{}
+	sharedApp.SalesService.WithLogger(capture)
+	t.Cleanup(func() {
+		sharedApp.SalesService.WithLogger(platform.NewSlogLogger(sharedApp.Logger))
+	})
+	return capture
+}
+
+// TestSalesExportLogsWhoTookWhatAndNeverTheSearchTerm: this file is the largest
+// concentration of buyer PII the product can emit, and without a deliberate log
+// line there is no answering "who pulled the customer list" after the fact — a
+// question that cannot be answered retroactively.
+//
+// The free-text search is logged as a BOOLEAN and never as its value. The search
+// matches customer email and Tax ID number, so a support lookup for one buyer
+// puts that buyer's PII into the filter, and a log aggregator typically has
+// broader access and longer retention than the database. The Info sheet made
+// exactly this call in #240; this is the same call in the same words.
+func TestSalesExportLogsWhoTookWhatAndNeverTheSearchTerm(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Log Fest", "log-fest", 1000, 10)
+
+	// An Online Sale carrying a Tax ID: the sharpest pair of values the search
+	// reaches, and the pair that must never appear in a log line.
+	begun := beginCheckoutOK(t, env, "test-org", "log-fest",
+		taxIDCheckoutBody("buyer@example.com", "Bea", "Ruiz", "ruc", naturalRUC,
+			map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	if confirmed := confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved"); confirmed.Status != "approved" {
+		t.Fatalf("confirm status = %q, want approved", confirmed.Status)
+	}
+
+	logs := withSalesLogger(t)
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID,
+		"channel=online&q="+url.QueryEscape("buyer@example.com"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+
+	line := logs.only(t, "sales export")
+	for _, key := range []string{"member_id", "organization_id", "event_id"} {
+		if got, _ := line.arg(t, key).(string); got == "" {
+			t.Fatalf("log line %s is blank; it is how the file is traced back", key)
+		}
+	}
+	if got, _ := line.arg(t, "event_id").(string); got != eventID {
+		t.Fatalf("log event_id = %q, want the exported Event %q", got, eventID)
+	}
+	if got := line.arg(t, "row_count"); got != 1 {
+		t.Fatalf("log row_count = %v, want the one exported row", got)
+	}
+	// The structural filters, which say nothing about any one buyer.
+	if got, _ := line.arg(t, "channel").(string); got != "online" {
+		t.Fatalf("log channel = %q, want online", got)
+	}
+	if got, _ := line.arg(t, "status").(string); got != "active" {
+		t.Fatalf("log status = %q, want the resolved default", got)
+	}
+	// The search: THAT one happened, never what it was.
+	if got := line.arg(t, "search"); got != true {
+		t.Fatalf("log search = %v, want the boolean true", got)
+	}
+	if strings.Contains(logs.rendered(), "buyer@example.com") {
+		t.Fatalf("the buyer's email reached the log:\n%s", logs.rendered())
+	}
+
+	// The same again with the Tax ID number as the search term, because that is
+	// the other thing the search matches and the more damaging of the two.
+	logs.reset()
+	resp, data = downloadSalesExport(t, env, sessionID, eventID, "q="+url.QueryEscape(naturalRUC))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tax id search export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	if got := logs.only(t, "sales export").arg(t, "search"); got != true {
+		t.Fatalf("log search = %v, want the boolean true", got)
+	}
+	rendered := logs.rendered()
+	for _, secret := range []string{naturalRUC, "buyer@example.com", "Ruiz"} {
+		if strings.Contains(rendered, secret) {
+			t.Fatalf("%q reached the log:\n%s", secret, rendered)
+		}
+	}
+
+	// An export that matched nothing still says so: the record of who asked is
+	// not conditional on the answer being non-empty.
+	logs.reset()
+	if resp, _ := downloadSalesExport(t, env, sessionID, eventID, "channel=in_person"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("empty export status=%d", resp.StatusCode)
+	}
+	if got := logs.only(t, "sales export").arg(t, "row_count"); got != 0 {
+		t.Fatalf("empty export logged row_count = %v, want 0", got)
+	}
+	if got := logs.only(t, "sales export").arg(t, "search"); got != false {
+		t.Fatalf("unsearched export logged search = %v, want false", got)
+	}
 }
