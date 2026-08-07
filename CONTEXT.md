@@ -448,6 +448,34 @@ The language a Customer's Follow Digest is written in, remembered from the Store
 Exists because a Locale is a property of a page's address and mail has no address to carry one. Names Preset Tags in the Customer's language as a Storefront page would, and leaves Custom Tags as coined.
 _Avoid_: Email language, preferred language, user locale
 
+**Suggested Follow**:
+A Tag or an Organization a Customer does not Follow, offered to them as one they might.
+Named for what accepting it produces: a Follow, made with the same act and carrying the same
+entitlement as one made anywhere else. Offered only where a Customer's own Follows are — never on
+the surfaces where Events are browsed and bought — and always with the interest that produced it
+named, so it reads as reasoned rather than guessed at.
+Distinct from Discoverable, which is an Organization advertising an Event to everyone; a Suggested
+Follow is the platform answering one Customer from what they already told it.
+_Avoid_: Recommendation, for you, discover, related, similar
+
+**Activity**:
+How much is happening under a Tag or an Organization: the discoverable upcoming Events that carry
+the Tag, or that the Organization is running.
+A measure of supply and never of audience — it counts Events, not the Customers who Follow. It
+answers whether Following something would bring the Customer anything, which is the only promise a
+Follow makes; a subject with nothing upcoming has nothing to say to a Follow Digest, however many
+people Follow it. This platform holds no count of a subject's Followers and shows none.
+_Avoid_: Popularity, trending, hot, top, most followed
+
+**Co-occurrence**:
+The relationship between two Tags carried by the same Event, and the ground of every Suggested
+Follow.
+A fact about the catalogue rather than about Customers: Tags are related because Events wear them
+together, never because Customers Follow them together. Reaches Organizations through the same
+fact, an Organization being related to a Tag when its upcoming Events carry it — which is what
+relates the two followable kinds at all, since Tags are worn by Events and never by Organizations.
+_Avoid_: Similarity, affinity, collaborative filtering, taste graph
+
 ## Signing in
 
 **Proof of Email Ownership**:

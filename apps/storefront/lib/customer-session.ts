@@ -439,3 +439,88 @@ export type Follows = {
 export async function getFollows(): Promise<SessionOutcome<Follows>> {
   return readWithSession<Follows>("/api/v1/customer/follows");
 }
+
+/**
+ * Why a subject is being suggested: the Tag that produced it (#231, #232, #234,
+ * ADR 0031).
+ *
+ * NULL WHENEVER THE SUBJECT WAS RANKED ON ACTIVITY — the count of discoverable
+ * upcoming Events behind it — which is every suggestion made to a Customer who
+ * Follows no Tag, and the tail of the panel for one who does. Activity has no
+ * producing Tag to name.
+ *
+ * THE TAG ITSELF, IN THE SAME SHAPE AS EVERY OTHER TAG ON THE WIRE, and it is
+ * self-sufficient on purpose (#234). It used to be a canonical key alone and the
+ * panel went to the Follows listing for the name and the `curated` flag needed
+ * to word it — which holds Tags the Customer Follows DIRECTLY, so once a reason
+ * could name a DERIVED Tag (#233, never in that listing by ADR 0031) the lookup
+ * missed and the line vanished. Nothing about wording a reason may depend on a
+ * second read.
+ *
+ * Still no sentence and no Locale on the wire: `tagName()` words it from this
+ * app's own catalogues exactly as it words the subject beside it (ADR 0027), and
+ * `name` is the English fallback for the Custom Tags no catalogue can hold.
+ */
+export type SuggestionReason = {
+  tag: FollowedTag;
+};
+
+/** One Tag the Customer does not Follow, offered as one they might. */
+export type SuggestedTag = {
+  /**
+   * The subject, in the SAME shape a followed Tag arrives in. That is the point
+   * of the API publishing it this way: `tagName()` takes it as-is and this app
+   * holds one type per followable kind, so a suggested Tag and a followed Tag
+   * are drawn from the same catalogue in the same words.
+   */
+  tag: FollowedTag;
+  reason: SuggestionReason | null;
+};
+
+/** One Organization the Customer does not Follow, in a followed one's shape. */
+export type SuggestedOrganization = {
+  organization: FollowedOrganization;
+  reason: SuggestionReason | null;
+};
+
+/**
+ * The Suggested Follows panel: TWO GROUPS, never one interleaved list.
+ *
+ * The opposite of the Follows listing above, deliberately. That one interleaves
+ * because `followed_at` is one real scale across both kinds; here the two kinds
+ * are ranked over different populations, so ordering them together would invent
+ * a comparability that does not exist. The presentation splits them anyway —
+ * chips for Tags, rows for Organizations — so a reader knows which kind of thing
+ * is on offer before reading a word.
+ *
+ * Both arrive as arrays and are empty rather than absent when nothing qualifies:
+ * a Customer who already Follows everything worth Following is this feature
+ * working, not failing.
+ */
+export type FollowSuggestions = {
+  tags: SuggestedTag[];
+  organizations: SuggestedOrganization[];
+};
+
+/**
+ * Reads the Suggested Follows for the signed-in Customer.
+ *
+ * A SECOND READ, made server-side beside getFollows() on the Following page and
+ * nowhere else. It is not folded into the Follows listing because that listing
+ * resolves the Follow control on the explorer and on every Event and
+ * Organization page, and those pages must not pay for a ranking they discard
+ * (ADR 0031).
+ *
+ * There is no route handler under app/api/customer/ for this, and that absence
+ * is the design rather than an omission: the route handlers exist for controls
+ * the BROWSER operates, and nothing in the panel is operated by the browser
+ * except the Follow control, which already has one and is reused unchanged.
+ *
+ * The failure posture is the caller's to apply and is stated where the panel is
+ * rendered: a failed read means NO PANEL, silently. Nobody arrives at the
+ * Following page for suggestions, so an error banner about a feature the reader
+ * never asked for is worse than its absence.
+ */
+export async function getFollowSuggestions(): Promise<SessionOutcome<FollowSuggestions>> {
+  return readWithSession<FollowSuggestions>("/api/v1/customer/follow-suggestions");
+}

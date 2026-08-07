@@ -728,6 +728,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/follow-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Suggested Follows
+         * @description Returns Tags and Organizations the signed-in Customer does not Follow. Ranked first by Co-occurrence with the Tags the Customer Follows — two Tags co-occur when one Event carries both, and an Organization is related to a Tag when its upcoming Events carry it. The Tags carried by the upcoming Events of the Organizations the Customer Follows seed that ranking too, as derived Tags weighted below the Tags the Customer chose, and a derived Tag is itself never offered back to that Customer. Tag scores are normalised by a damped function of each candidate's own Activity so a Tag riding alongside nearly everything is not offered to everyone, and Organization scores left unnormalised because an Organization spans only its own programme. Co-occurrence is a fact about the catalogue and never about other Customers; no Follows but the reader's own are read. Remaining slots fall back to Activity — the count of discoverable upcoming Events carrying a Tag or run by an Organization, over exactly the subset the public explorer lists — which is the whole ranking for a Customer who Follows nothing at all. Activity measures supply and never audience: it counts Events, and no follower count is computed, stored or exposed. Two groups rather than one interleaved list, because a Tag's rank and an Organization's are not the same unit; subjects reuse the shapes the Follows listing publishes. Each entry carries the reason it was chosen, naming the producing Tag by canonical key so no language crosses the wire — null on anything ranked by Activity, which has no producing Tag. Subjects the Customer already Follows are excluded, a Custom Tag needs more than one upcoming Event to qualify, and an Organization with nothing upcoming never appears. Both orderings are total. An empty result is a 200 with empty groups, never an error. Requires a full Customer Session: a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because what a person is suggested is derived from what they Follow, which is private to them.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerFollowSuggestions"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/follows": {
         parameters: {
             query?: never;
@@ -6576,6 +6633,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerFollowSuggestions": {
+            data?: components["schemas"]["service.FollowSuggestionsView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeCustomerFollows": {
             data?: components["schemas"]["service.FollowsView"];
             error?: components["schemas"]["platform.APIError"];
@@ -7097,6 +7159,10 @@ export interface components {
             starts_at?: string;
             timezone?: string;
             venue_name?: string;
+        };
+        "service.FollowSuggestionsView": {
+            organizations?: components["schemas"]["service.SuggestedOrganizationView"][];
+            tags?: components["schemas"]["service.SuggestedTagView"][];
         };
         "service.FollowView": {
             followed_at?: string;
@@ -7958,6 +8024,17 @@ export interface components {
              */
             is_platform_operator?: boolean;
             memberships?: components["schemas"]["service.MembershipView"][];
+        };
+        "service.SuggestedOrganizationView": {
+            organization?: components["schemas"]["service.FollowedOrganizationView"];
+            reason?: components["schemas"]["service.SuggestionReason"];
+        };
+        "service.SuggestedTagView": {
+            reason?: components["schemas"]["service.SuggestionReason"];
+            tag?: components["schemas"]["service.FollowedTagView"];
+        };
+        "service.SuggestionReason": {
+            tag?: components["schemas"]["service.FollowedTagView"];
         };
         "service.TagView": {
             canonical_key?: string;
