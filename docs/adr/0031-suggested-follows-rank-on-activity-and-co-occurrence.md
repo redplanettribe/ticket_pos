@@ -94,6 +94,21 @@ tables answer every question it asks.
   discoverable-and-upcoming only. Showing what qualifies and hiding at zero is preferred to relaxing
   the guards: padding with unrelated subjects would produce Follows that yield irrelevant Digests,
   and the credibility lost would be the Digest's rather than the panel's.
+- **The ranking is two-tiered, and normalisation ranks rather than excludes.** Co-occurrence runs
+  first; Activity fills whatever slots it left, for *every* Customer and not only for one who
+  Follows nothing. A reader who has taken in the normalisation argument above and then meets a
+  ride-along Tag sitting in a panel will conclude the normalisation is broken and set about
+  repairing it — it misled a careful reviewer of this very branch — so: it is not broken, and there
+  are two ways such a Tag legitimately arrives. It can place *below* the genuinely related Tags,
+  because dividing by a candidate's own frequency reorders and has no power to drop anything; or it
+  can come through the Activity tier, which does not consider relatedness at all. Both were chosen.
+  Excluding ubiquitous Tags outright needs a threshold that is arbitrary at any catalogue size and
+  actively wrong at this one, where a Tag on most Events is likely to be the kind of Event the
+  platform mostly sells rather than noise. Dropping the Activity tier was the other alternative, and
+  it leaves a Customer who Follows one narrow Tag looking at a single chip. What the two tiers owe
+  the reader is honesty about which is which, which is why every suggestion states its reason and
+  why "there is a lot on under this" is written out rather than left as a blank line.
+
 - **No dismissal exists, deliberately.** The natural dismissal is Following the thing. A "not
   interested" control would need a table, and at current catalogue size it would permanently remove
   one of very few candidates from an already thin panel. The Follow tables can answer it whenever

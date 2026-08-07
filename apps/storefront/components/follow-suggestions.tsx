@@ -86,19 +86,38 @@ export async function FollowSuggestionsPanel({ suggestions }: FollowSuggestionsP
    * meets it as somebody's own word rather than as a sentence that failed to
    * translate.
    *
-   * Null only when there is no reason at all, which is every suggestion the
-   * Activity ranking made. NOTHING ELSE CAN SILENCE THIS LINE (#234): the reason
-   * carries the producing Tag whole, so it is worded from what arrived and from
-   * nothing else. It used to be looked up in the Follows listing by canonical
-   * key, which held while every producer was a Tag the Customer Follows
-   * DIRECTLY, and stopped holding the moment a producer could be a DERIVED Tag —
-   * one inferred from a followed Organization's upcoming Events, which ADR 0031
-   * keeps out of that listing by design (#233). A Customer who Follows only
-   * Organizations then met a full panel with every reason line missing, which is
-   * the reader that ticket exists for.
+   * EVERY SUGGESTION GETS A LINE, and the absent reason is a kind of reason
+   * rather than the lack of one. A null arrives on every subject the Activity
+   * ranking supplied — the tier that fills the panel behind Co-occurrence, and
+   * the whole of the panel for a Customer who Follows nothing yet — and what
+   * put those there is Activity: there is a lot on under them. That is as true
+   * and as sayable as "goes with Jazz", so it is said. Rendering silence
+   * instead, which this did, left the reader of a mixed panel to guess why half
+   * of it was there, and left a Customer with no Follows at all — the one least
+   * equipped to guess — with a row of chips and no explanation of any kind.
+   *
+   * The two tiers are told apart by this line alone and never by a heading. The
+   * boundary between them moves with the Customer and with the catalogue, so a
+   * heading would sometimes label a single chip, and it would have to re-order
+   * the entries — and the order is the ranking.
+   *
+   * NOTHING CAN SILENCE THIS LINE (#234): the Co-occurrence reason carries the
+   * producing Tag whole, so it is worded from what arrived and from nothing
+   * else. It used to be looked up in the Follows listing by canonical key, which
+   * held while every producer was a Tag the Customer Follows DIRECTLY, and
+   * stopped holding the moment a producer could be a DERIVED Tag — one inferred
+   * from a followed Organization's upcoming Events, which ADR 0031 keeps out of
+   * that listing by design (#233). A Customer who Follows only Organizations
+   * then met a full panel with every reason line missing, which is the reader
+   * that ticket exists for.
    */
-  function reasonLine(reason: SuggestionReason | null): string | null {
-    if (!reason) return null;
+  function reasonLine(reason: SuggestionReason | null): string {
+    // Activity, said plainly: supply and never audience. Nothing here is
+    // "popular" and no count of Followers exists to make it so (CONTEXT.md), and
+    // it deliberately avoids "New to You", which reads naturally in this slot
+    // and already means something else in this very feature — an Event never yet
+    // carried by a Follow Digest.
+    if (!reason) return t("suggestionActivityReason");
     return t("suggestionReason", { tag: tagName(reason.tag, tTags) });
   }
 
@@ -106,9 +125,12 @@ export async function FollowSuggestionsPanel({ suggestions }: FollowSuggestionsP
     <section className="space-y-4">
       <div>
         <h2 className="font-medium">{t("suggestionsTitle")}</h2>
-        {/* What the panel is FOR, in one line: these have events coming up. It
-            says supply and never audience — nothing here is "popular" and no
-            count of Followers exists to make it so (CONTEXT.md). */}
+        {/* What the panel IS, and no more than that. It used to say these have
+            events coming up, which was a claim on behalf of every entry and was
+            right while Activity was the only ranking; it now describes one tier
+            of two, so it moved down to the entries that own it. A heading that
+            asserts something true of half the list below it is worse than one
+            that asserts nothing. */}
         <p className="text-muted-foreground text-sm">{t("suggestionsDescription")}</p>
       </div>
 
@@ -160,7 +182,7 @@ export async function FollowSuggestionsPanel({ suggestions }: FollowSuggestionsP
                     className="rounded-full"
                   />
                 </span>
-                {why ? <span className="text-muted-foreground px-1 text-xs">{why}</span> : null}
+                <span className="text-muted-foreground px-1 text-xs">{why}</span>
               </span>
             );
           })}
@@ -182,7 +204,7 @@ export async function FollowSuggestionsPanel({ suggestions }: FollowSuggestionsP
                 // the Following list above shares. `kind` takes a node for
                 // exactly this: a suggested Organization has something more to
                 // say about itself than a followed one does, and only here.
-                kind={why ? `${t("organizationKind")} · ${why}` : t("organizationKind")}
+                kind={`${t("organizationKind")} · ${why}`}
                 control={
                   <FollowButton
                     endpoint={organizationFollowEndpoint(organization.slug)}

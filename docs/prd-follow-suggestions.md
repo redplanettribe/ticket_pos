@@ -124,8 +124,9 @@ other than addressing mail.
     are as discoverable as broad ones.
 26. As a Customer, I want a Custom Tag used by only one Event never suggested, so that I am not
     offered an Event's own name as if it were a category.
-27. As a Customer, I want Tags that appear on nearly everything not suggested to me, so that the
-    panel does not offer the same generic Tag to every person on the platform.
+27. As a Customer, I want a Tag that appears on nearly everything never to outrank one genuinely
+    related to my interests, so that the panel leads with what is about me rather than with the
+    same generic Tag it would show anyone.
 28. As a Customer, I want a Tag inferred from an Organization I Follow never offered back to me as a
     suggestion, so that the platform does not present my own Follow to me as a discovery.
 29. As a Customer, I want Tags I chose to count for more than Tags inferred from my Organizations, so
@@ -197,8 +198,15 @@ This works from a single Follow, which is the state of the Customer who most nee
 it improves on its own as the catalogue grows rather than needing a crowd to arrive first.
 
 Raw co-occurrence counts are normalised by each candidate Tag's own frequency, so a Tag that
-co-occurs with everything is not suggested to everyone. Without this, the broadest Tags in the pool
-would dominate every Customer's panel.
+co-occurs with everything does not lead everyone's panel. Without this, the broadest Tags in the pool
+would dominate every Customer's.
+
+Normalising RANKS and never EXCLUDES, and saying so is worth the sentence, because it is easy to
+read the stronger promise into it. A ride-along Tag can still be offered, below the Tags genuinely
+related to the Customer, and that is correct rather than a leak: "carried by much of the catalogue"
+and "irrelevant to this reader" are different claims, and on a small catalogue the busiest Tag is
+often just the kind of Event this platform mostly sells. A ubiquity threshold that dropped such Tags
+outright was considered and rejected for that reason.
 
 Deriving Organization suggestions through Co-occurrence also avoids inventing an Organization-to-Tag
 association. Tags attach to Events only; there is no Organization–Tag table and this feature does not
@@ -273,6 +281,13 @@ Both reuse the existing Follow control against the existing Follow endpoints. Th
 written specially for this panel: accepting a suggestion and following from an Event page are the
 same request, and the control's own refresh is what moves the accepted suggestion into the list
 above.
+
+The ranking is two-tiered: Co-occurrence first, then Activity behind it for the slots Co-occurrence
+did not fill — for every Customer, not only for one who Follows nothing. Each entry says which tier
+put it there, so a reader can tell the suggestions about their taste from the suggestions about what
+is on. Every suggestion carries a reason; "there is a lot on under this" is one, and rendering
+silence in its place left the Customer with no Follows at all — whose panel is entirely that tier —
+with no explanation of any kind.
 
 The panel shows whatever clears the bar rather than padding to a fixed count, and hides entirely
 when nothing does. When few Tags qualify, the remaining space goes to Organizations rather than to
