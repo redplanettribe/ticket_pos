@@ -645,8 +645,36 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		return nil, err
 	}
 
+	// The columns are the Event's LIVE catalog, in display order — not the Ticket
+	// Types the filtered rows happen to mention. That is what keeps the shape of
+	// the sheet stable: an export narrowed to one Ticket Type still carries every
+	// column, and a Ticket Type nobody bought still gets one. Reading the catalog
+	// cannot orphan a sale either, because ticket_sale_lines references
+	// ticket_types ON DELETE RESTRICT: a Ticket Type that has ever sold cannot be
+	// deleted, so the catalog is always a superset of what the rows reference.
+	//
+	// It is the same read the Sale Import template makes to build its dropdown,
+	// and for the same reason: both files describe the Event's catalog as it
+	// stands now.
+	catalog, err := s.repo.ListEventTicketTypes(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	types := make([]exportfile.TicketTypeColumn, 0, len(catalog))
+	for _, tt := range catalog {
+		types = append(types, exportfile.TicketTypeColumn{ID: tt.ID, Name: tt.Name})
+	}
+
 	exported := make([]exportfile.Sale, 0, len(rows))
 	for _, row := range rows {
+		// Keyed by Ticket Type id, so the quantity lands under the right column
+		// whatever the Ticket Type is called. Summed rather than assigned: a sale
+		// is free to carry more than one line of the same Ticket Type, and the
+		// column states how many of it the sale was for.
+		quantities := make(map[string]int, len(row.TicketTypes))
+		for _, line := range row.TicketTypes {
+			quantities[line.TicketTypeID] += line.Quantity
+		}
 		exported = append(exported, exportfile.Sale{
 			ConfirmationRef:   row.ConfirmationRef,
 			SoldAt:            row.SoldAt,
@@ -655,6 +683,7 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			CustomerEmail:     row.CustomerEmail,
 			TaxIDType:         row.CustomerTaxIDType,
 			TaxIDNumber:       row.CustomerTaxIDNumber,
+			Quantities:        quantities,
 			AmountCents:       row.AmountCents,
 			NetProceedsCents:  exportedNetProceeds(row),
 			Currency:          row.Currency,
@@ -665,7 +694,7 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		})
 	}
 
-	data, err := exportfile.Build(exported, loc)
+	data, err := exportfile.Build(exported, types, loc)
 	if err != nil {
 		return nil, err
 	}

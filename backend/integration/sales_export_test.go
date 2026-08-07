@@ -169,6 +169,45 @@ func (s *exportSheet) column(t *testing.T, header string) []string {
 	return out
 }
 
+// typeHeaders returns the headings of the per-Ticket-Type block: everything
+// between tax_id_number and total_quantity, which is where the spec fixes it.
+//
+// It is read positionally rather than by name because a Ticket Type is named by
+// an organizer and may be called anything at all — including "amount". The
+// header index is a map, so a name that collides with a fixed column would
+// resolve to whichever came last; the block's boundaries are what identify it.
+func (s *exportSheet) typeHeaders(t *testing.T) []string {
+	t.Helper()
+	from, ok := s.index["tax_id_number"]
+	if !ok {
+		t.Fatalf("no tax_id_number column in header %v", s.header)
+	}
+	to, ok := s.index["total_quantity"]
+	if !ok {
+		t.Fatalf("no total_quantity column in header %v", s.header)
+	}
+	if to < from {
+		t.Fatalf("header = %v, want the Ticket Type columns between tax_id_number and total_quantity", s.header)
+	}
+	return s.header[from+1 : to]
+}
+
+// rawAt reads a cell by its zero-based column position rather than its heading,
+// for the one case where a heading cannot identify a column: a Ticket Type whose
+// name is also a fixed column's.
+func (s *exportSheet) rawAt(t *testing.T, row, col int) string {
+	t.Helper()
+	ref, err := excelize.CoordinatesToCellName(col+1, row+2)
+	if err != nil {
+		t.Fatalf("cell name: %v", err)
+	}
+	v, err := s.f.GetCellValue(salesExportSheet, ref, excelize.Options{RawCellValue: true})
+	if err != nil {
+		t.Fatalf("get raw cell %s: %v", ref, err)
+	}
+	return v
+}
+
 // rowOf finds the data row for a customer email, so a test can name the sale it
 // means rather than counting rows.
 func (s *exportSheet) rowOf(t *testing.T, email string) int {
@@ -318,6 +357,8 @@ func TestSalesExportWorkbookShape(t *testing.T) {
 		"confirmation_ref", "sold_at",
 		"customer_first_name", "customer_last_name", "customer_email",
 		"tax_id_type", "tax_id_number",
+		// The Event's catalog, one column per Ticket Type, then the roll-up.
+		"GA", "total_quantity",
 		"amount", "net_proceeds", "currency",
 		"channel", "source", "payment_method", "status",
 	}
@@ -808,5 +849,262 @@ func TestSalesExportNeverItemisesThePlatformFee(t *testing.T) {
 	// the sale left the Organization, side by side where they are compared.
 	if sheet.index["net_proceeds"] != sheet.index["amount"]+1 {
 		t.Fatalf("header = %v, want net_proceeds immediately after amount", sheet.header)
+	}
+}
+
+// Per-Ticket-Type quantity columns (#238). The file gains one numeric column per
+// Ticket Type in the Event's catalog, plus a total_quantity roll-up, so an Event
+// Owner can pivot or SUMIF on ticket type instead of parsing "General x2, VIP x1"
+// out of a text cell.
+//
+// The columns come from the Event's LIVE catalog rather than from the Ticket
+// Types present in the rows, which is what keeps the shape of the sheet stable
+// under the filters. That is safe because ticket_sale_lines references
+// ticket_types ON DELETE RESTRICT: a Ticket Type that has ever sold cannot be
+// deleted, so the catalog is always a superset of what the rows reference.
+
+// renameTicketType renames a Ticket Type through the catalog PATCH the organizer
+// uses, so a rename in a test is the rename the product performs.
+func renameTicketType(t *testing.T, env *testEnv, sessionID, eventID, ticketTypeID, name string, priceCents, capacity int) {
+	t.Helper()
+	resp, body := env.patch(t, "/api/v1/staff/events/"+eventID+"/ticket-types/"+ticketTypeID, map[string]any{
+		"name":        name,
+		"price_cents": priceCents,
+		"capacity":    capacity,
+	}, authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rename ticket type status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+// TestSalesExportHasAColumnPerTicketType: the whole catalog in display order, a
+// quantity where the sale included the type, and a blank — never a zero — where
+// it did not.
+//
+// The blank follows the same absent-versus-zero rule the money columns do. A 0
+// would assert that this sale considered and bought none of that type; a blank
+// says the type is not part of this sale at all. A Ticket Type nobody bought
+// still gets its column: an empty column is information, while a missing one
+// makes a reader wonder whether they filtered something out.
+func TestSalesExportHasAColumnPerTicketType(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Catalog Fest", "catalog-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 50)
+	// Created third, and never sold: it must still get a column.
+	createTicketTypeWithCapacity(t, env, sessionID, eventID, "Balcony", 2000, 20)
+
+	commitBatch(t, env, sessionID, eventID, "catalog-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": vipID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	// The catalog, in the order the Event lists it — including the type nobody
+	// bought.
+	if got := sheet.typeHeaders(t); !equalStrings(got, []string{"GA", "VIP", "Balcony"}) {
+		t.Fatalf("Ticket Type columns = %v, want the whole catalog in display order; header = %v", got, sheet.header)
+	}
+
+	// The columns sit where the spec fixes them: after the Tax ID pair, with
+	// total_quantity immediately before amount.
+	if sheet.index["total_quantity"] != sheet.index["amount"]-1 {
+		t.Fatalf("header = %v, want total_quantity immediately before amount", sheet.header)
+	}
+
+	ana := sheet.rowOf(t, "ana@example.com")
+	if got := sheet.raw(t, ana, "GA"); got != "2" {
+		t.Fatalf("GA on Ana's row = %q, want the whole number 2", got)
+	}
+	// The types this sale did not include are blank, not zero.
+	sheet.blank(t, ana, "VIP")
+	sheet.blank(t, ana, "Balcony")
+	if got := sheet.number(t, ana, "total_quantity"); got != 2 {
+		t.Fatalf("total_quantity on Ana's row = %v, want 2", got)
+	}
+
+	bob := sheet.rowOf(t, "bob@example.com")
+	sheet.blank(t, bob, "GA")
+	if got := sheet.raw(t, bob, "VIP"); got != "3" {
+		t.Fatalf("VIP on Bob's row = %q, want the whole number 3", got)
+	}
+	sheet.blank(t, bob, "Balcony")
+	if got := sheet.number(t, bob, "total_quantity"); got != 3 {
+		t.Fatalf("total_quantity on Bob's row = %v, want 3", got)
+	}
+}
+
+// TestSalesExportMultiLineSaleIsOneRow: a sale of three Ticket Types is one row
+// with its quantities spread across three columns, not three rows.
+//
+// This is the whole reason the quantities became columns. Flattening a sale to
+// its Ticket Sale Lines would repeat the sale's amount on every line, and the
+// first thing anybody does with a spreadsheet is sum a column — so the amount
+// must appear exactly once per sale.
+func TestSalesExportMultiLineSaleIsOneRow(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Multi Line Fest", "multi-line-fest", 1000, 50)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 50)
+	balconyID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Balcony", 2000, 50)
+
+	begun := beginCheckoutOK(t, env, "test-org", "multi-line-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez",
+			map[string]any{"ticket_type_id": gaID, "quantity": 2},
+			map[string]any{"ticket_type_id": vipID, "quantity": 1},
+			map[string]any{"ticket_type_id": balconyID, "quantity": 4}))
+	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	// One Ticket Sale, one row — not one row per Ticket Sale Line.
+	if sheet.dataRows != 1 {
+		t.Fatalf("data rows = %d, want exactly 1: a three-type sale is one Ticket Sale", sheet.dataRows)
+	}
+	row := sheet.rowOf(t, "ana@example.com")
+
+	for header, want := range map[string]string{"GA": "2", "VIP": "1", "Balcony": "4"} {
+		if got := sheet.raw(t, row, header); got != want {
+			t.Fatalf("%s = %q, want %q", header, got, want)
+		}
+	}
+	if got := sheet.number(t, row, "total_quantity"); got != 7 {
+		t.Fatalf("total_quantity = %v, want 7 — the sum of the row's type quantities", got)
+	}
+
+	// The amount is the sale's, stated once: summing the column gives what the
+	// buyer paid rather than three times it.
+	wantAmount := float64(begun.AmountCents) / 100
+	if got := sheet.number(t, row, "amount"); got != wantAmount {
+		t.Fatalf("amount = %v, want the sale's %v", got, wantAmount)
+	}
+}
+
+// TestSalesExportTypeColumnsSurviveATicketTypeFilter: filtering the export to one
+// Ticket Type narrows the rows and nothing else. The columns cover the Event's
+// whole catalog either way, so two downloads of the same Event always have the
+// same shape and can be compared side by side.
+func TestSalesExportTypeColumnsSurviveATicketTypeFilter(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Narrow Fest", "narrow-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 50)
+	createTicketTypeWithCapacity(t, env, sessionID, eventID, "Balcony", 2000, 20)
+
+	commitBatch(t, env, sessionID, eventID, "narrow-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": vipID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "ticket_type_id="+vipID)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	if got := sheet.typeHeaders(t); !equalStrings(got, []string{"GA", "VIP", "Balcony"}) {
+		t.Fatalf("Ticket Type columns under a VIP filter = %v, want the whole catalog: only the rows respond to filters", got)
+	}
+	if got := sheet.column(t, "customer_email"); !equalStrings(got, []string{"bob@example.com"}) {
+		t.Fatalf("rows under a VIP filter = %v, want the VIP sale only", got)
+	}
+	row := sheet.rowOf(t, "bob@example.com")
+	if got := sheet.raw(t, row, "VIP"); got != "1" {
+		t.Fatalf("VIP = %q, want 1", got)
+	}
+	sheet.blank(t, row, "GA")
+	sheet.blank(t, row, "Balcony")
+}
+
+// TestSalesExportHeadingFollowsATicketTypeRename: a heading is the Ticket Type's
+// CURRENT name, joined live, so a rename changes the heading on the next export
+// — including over sales recorded before the rename.
+//
+// A renamed Ticket Type rewriting its own history is accepted deliberately.
+// ticket_sale_lines snapshots the unit price, because that is a fact of the sale,
+// and not the name, because that is a fact of the catalog. Snapshotting the name
+// here would make the export the only surface reporting historical names, and it
+// would then contradict the screen it was downloaded from.
+func TestSalesExportHeadingFollowsATicketTypeRename(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Rename Fest", "rename-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "rename-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+
+	_, before := downloadSalesExport(t, env, sessionID, eventID, "")
+	if got := openSalesExport(t, before).typeHeaders(t); !equalStrings(got, []string{"GA"}) {
+		t.Fatalf("Ticket Type columns = %v, want GA", got)
+	}
+
+	renameTicketType(t, env, sessionID, eventID, gaID, "General Admission", 1000, 100)
+
+	resp, after := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(after))
+	}
+	sheet := openSalesExport(t, after)
+	if got := sheet.typeHeaders(t); !equalStrings(got, []string{"General Admission"}) {
+		t.Fatalf("Ticket Type columns after the rename = %v, want the current name", got)
+	}
+	if _, ok := sheet.index["GA"]; ok {
+		t.Fatalf("header = %v, still carries the old name: no name is snapshotted onto a sale line", sheet.header)
+	}
+	// The sale recorded under the old name is still counted, under the new one.
+	if got := sheet.raw(t, sheet.rowOf(t, "ana@example.com"), "General Admission"); got != "2" {
+		t.Fatalf("General Admission = %q, want the 2 sold before the rename", got)
+	}
+}
+
+// TestSalesExportTicketTypeNamedLikeAFixedColumn: an organizer may call a Ticket
+// Type anything, including "amount". The builder addresses every column by
+// identity — a fixed column by its own key, a Ticket Type by its id — and never
+// by the heading it writes, so a collision costs the reader a repeated heading
+// and costs the data nothing.
+func TestSalesExportTicketTypeNamedLikeAFixedColumn(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Collision Fest", "collision-fest")
+	oddID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "amount", 1000, 100)
+
+	commitBatch(t, env, sessionID, eventID, "collision-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": oddID, "quantity": 3, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z", "amount_cents": 1500},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	// The Ticket Type gets its own column, headed with its name, in the block.
+	if got := sheet.typeHeaders(t); !equalStrings(got, []string{"amount"}) {
+		t.Fatalf("Ticket Type columns = %v, want the type's own name", got)
+	}
+	row := sheet.rowOf(t, "ana@example.com")
+	quantityCol := sheet.index["tax_id_number"] + 1
+	if got := sheet.rawAt(t, row, quantityCol); got != "3" {
+		t.Fatalf("the Ticket Type column = %q, want the quantity 3", got)
+	}
+	// And the money column of the same name still holds the money: 3 × $15.00.
+	if got := sheet.number(t, row, "amount"); got != 45 {
+		t.Fatalf("amount = %v, want the 45.00 the buyer paid", got)
+	}
+	if got := sheet.number(t, row, "total_quantity"); got != 3 {
+		t.Fatalf("total_quantity = %v, want 3", got)
 	}
 }

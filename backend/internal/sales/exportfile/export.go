@@ -33,6 +33,7 @@ const (
 	colCustomerEmail     = "customer_email"
 	colTaxIDType         = "tax_id_type"
 	colTaxIDNumber       = "tax_id_number"
+	colTotalQuantity     = "total_quantity"
 	colAmount            = "amount"
 	colNetProceeds       = "net_proceeds"
 	colCurrency          = "currency"
@@ -42,9 +43,11 @@ const (
 	colStatus            = "status"
 )
 
-// headers are the columns in order, left to right. This slice is the only place
-// the layout is decided: the header row is written from it and every column
-// letter is derived from it.
+// fixedColumns are the columns every export has, in order, left to right. The
+// Event's Ticket Type columns are spliced in immediately before
+// colTotalQuantity — see layoutFor, which is the only place the layout is
+// decided; the header row is written from it and every column letter is derived
+// from it.
 //
 // The order tells the sale's story in the order a reader needs it. The
 // confirmation ref leads because it is the sale's human-readable identity and
@@ -52,10 +55,11 @@ const (
 // Then when it happened, then who bought — including the Tax ID pair, which is
 // why this feature exists at all: a Tax ID is mandatory to record a sale on the
 // native Sales Channels expressly for the buyer's tax declarations, and until
-// this file there was no way to read it back out. Then the transaction facts,
-// with net_proceeds immediately after amount: what the buyer paid and what the
-// sale left the Organization, side by side, which is where they get compared.
-var headers = []string{
+// this file there was no way to read it back out. Then what was bought: the
+// per-Ticket-Type quantities and their total. Then the transaction facts, with
+// net_proceeds immediately after amount: what the buyer paid and what the sale
+// left the Organization, side by side, which is where they get compared.
+var fixedColumns = []string{
 	colConfirmationRef,
 	colSoldAt,
 	colCustomerFirstName,
@@ -63,6 +67,7 @@ var headers = []string{
 	colCustomerEmail,
 	colTaxIDType,
 	colTaxIDNumber,
+	colTotalQuantity,
 	colAmount,
 	colNetProceeds,
 	colCurrency,
@@ -70,6 +75,68 @@ var headers = []string{
 	colSource,
 	colPaymentMethod,
 	colStatus,
+}
+
+// TicketTypeColumn is one Ticket Type of the Event's catalog, and one column of
+// the sheet.
+//
+// The set comes from the Event's LIVE catalog rather than from the Ticket Types
+// the exported rows happen to mention, which is what keeps the shape of the
+// sheet stable under the filters: an export narrowed to one Ticket Type still
+// carries every column, and a Ticket Type nobody bought still gets one. An empty
+// column is information; a missing one makes a reader wonder whether they
+// filtered something out.
+//
+// Reading the catalog cannot orphan a sale into a column that does not exist:
+// ticket_sale_lines references ticket_types ON DELETE RESTRICT, so a Ticket Type
+// that has ever sold cannot be deleted and the catalog is always a superset of
+// what the rows reference.
+//
+// Name is the Ticket Type's CURRENT name, joined live and never snapshotted onto
+// a sale line — so renaming a Ticket Type changes the heading on the next
+// export, including over sales recorded under the old name. That is deliberate:
+// the file must not report a name that contradicts the screen it was downloaded
+// from. The schema's split holds — the unit price is a fact of the sale and is
+// frozen, the name is a fact of the catalog and is not.
+type TicketTypeColumn struct {
+	// ID is the Ticket Type's identity, and the key a Sale's quantities are
+	// addressed by. Nothing in this package resolves a Ticket Type column by its
+	// heading: an organizer may name two Ticket Types the same thing, or name one
+	// "amount", and a collision must cost the reader a repeated heading rather
+	// than cost the sheet a misplaced number.
+	ID   string
+	Name string
+}
+
+// layout is a built column layout: the columns in order, and the 1-based column
+// number each key sits at. A fixed column's key is its header constant; a Ticket
+// Type column's key is the Ticket Type's id, which no fixed key can collide with.
+type layout struct {
+	headers []string
+	index   map[string]int
+}
+
+// layoutFor splices the Event's Ticket Type columns into the fixed layout, in
+// catalog display order, immediately before total_quantity — so the sheet reads
+// left to right as the types bought, their total, and then the money.
+func layoutFor(types []TicketTypeColumn) layout {
+	out := layout{
+		headers: make([]string, 0, len(fixedColumns)+len(types)),
+		index:   make(map[string]int, len(fixedColumns)+len(types)),
+	}
+	add := func(key, header string) {
+		out.headers = append(out.headers, header)
+		out.index[key] = len(out.headers)
+	}
+	for _, col := range fixedColumns {
+		if col == colTotalQuantity {
+			for _, tt := range types {
+				add(tt.ID, tt.Name)
+			}
+		}
+		add(col, col)
+	}
+	return out
 }
 
 // dateFormat is how a sold-at cell renders. Real Excel date cells carry no
@@ -98,6 +165,18 @@ type Sale struct {
 	CustomerEmail     string
 	TaxIDType         *string
 	TaxIDNumber       *string
+	// Quantities is how many of each Ticket Type this sale was for, keyed by
+	// Ticket Type id — never by name, which is a label and not an identity.
+	//
+	// A sale of several Ticket Types stays ONE Sale here, and so one row: its
+	// quantities spread across its columns rather than its Ticket Sale Lines
+	// becoming rows. Flattening to lines would repeat the sale's amount on each
+	// one, and the first thing anybody does with a spreadsheet is sum a column.
+	//
+	// A Ticket Type absent from this map is absent from the sale, and its cell is
+	// left blank rather than written as 0 — the same absent-versus-zero rule the
+	// money columns follow.
+	Quantities map[string]int
 	// AmountCents is what the buyer paid, as the system stores it. The file
 	// writes it in major units: a column that sums to a hundred times too much
 	// is worse than no column.
@@ -123,19 +202,25 @@ type Sale struct {
 // and one row per Ticket Sale, with nothing above the header so select-all,
 // autofilter and pivot source ranges all work without deleting a preamble.
 //
+// types is the Event's catalog in display order, one column each — see
+// TicketTypeColumn for why it is the catalog rather than the types the rows
+// mention.
+//
 // Cells are really typed — dates as date cells, money as numbers in major units
 // — because the recipient's next move is to sort, subtract and SUM, and a
 // column of strings that look like numbers cannot be done arithmetic to. loc is
 // the Event's timezone, which every date is drawn in.
-func Build(sales []Sale, loc *time.Location) ([]byte, error) {
+func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location) ([]byte, error) {
 	f := excelize.NewFile()
 	defer func() { _ = f.Close() }()
+
+	cols := layoutFor(types)
 
 	if err := f.SetSheetName(f.GetSheetName(0), DataSheet); err != nil {
 		return nil, err
 	}
 
-	for i, h := range headers {
+	for i, h := range cols.headers {
 		cell, err := excelize.CoordinatesToCellName(i+1, 1)
 		if err != nil {
 			return nil, err
@@ -167,7 +252,7 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 			colStatus:            sale.Status,
 		}
 		for header, value := range text {
-			if err := setStr(f, header, row, value); err != nil {
+			if err := setStr(f, cols, header, row, value); err != nil {
 				return nil, err
 			}
 		}
@@ -182,15 +267,45 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 			if value == nil {
 				continue
 			}
-			if err := setStr(f, header, row, *value); err != nil {
+			if err := setStr(f, cols, header, row, *value); err != nil {
 				return nil, err
 			}
+		}
+
+		// One cell per Ticket Type of the catalog, holding how many of it this
+		// sale was for — and nothing at all where the sale included none. A 0
+		// would claim the buyer considered that type and took none of it, and a
+		// spreadsheet would then count that claim as a row in a pivot.
+		//
+		// The total is summed over the columns actually written, so it always
+		// equals what a reader adds up across the row.
+		total := 0
+		for _, tt := range types {
+			quantity, ok := sale.Quantities[tt.ID]
+			if !ok {
+				continue
+			}
+			total += quantity
+			cell, err := cellRef(cols, tt.ID, row)
+			if err != nil {
+				return nil, err
+			}
+			if err := f.SetCellInt(DataSheet, cell, int64(quantity)); err != nil {
+				return nil, err
+			}
+		}
+		totalCell, err := cellRef(cols, colTotalQuantity, row)
+		if err != nil {
+			return nil, err
+		}
+		if err := f.SetCellInt(DataSheet, totalCell, int64(total)); err != nil {
+			return nil, err
 		}
 
 		// A real date cell, drawn in the Event's timezone: excelize reads the
 		// value's zone offset off the time itself, so converting first is what
 		// puts the Event's wall clock in the cell.
-		soldAt, err := cellRef(colSoldAt, row)
+		soldAt, err := cellRef(cols, colSoldAt, row)
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +321,7 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 		// Money as a number in major units — 25.00, never 2500 and never
 		// "$25.00" — with the currency in its own column so the amounts stay
 		// arithmetic rather than becoming text.
-		amount, err := cellRef(colAmount, row)
+		amount, err := cellRef(cols, colAmount, row)
 		if err != nil {
 			return nil, err
 		}
@@ -223,7 +338,7 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 		// held, and that claim would then be summed. The cell is skipped
 		// entirely, style included, so nothing distinguishes it from empty.
 		if sale.NetProceedsCents != nil {
-			net, err := cellRef(colNetProceeds, row)
+			net, err := cellRef(cols, colNetProceeds, row)
 			if err != nil {
 				return nil, err
 			}
@@ -238,11 +353,11 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 
 	// Wide enough that an email or a confirmation ref is readable without the
 	// recipient having to widen every column first.
-	first, err := columnName(headers[0])
+	first, err := excelize.ColumnNumberToName(1)
 	if err != nil {
 		return nil, err
 	}
-	last, err := columnName(headers[len(headers)-1])
+	last, err := excelize.ColumnNumberToName(len(cols.headers))
 	if err != nil {
 		return nil, err
 	}
@@ -257,34 +372,21 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// setStr writes a text cell in the column with the given header.
-func setStr(f *excelize.File, header string, row int, value string) error {
-	cell, err := cellRef(header, row)
+// setStr writes a text cell in the column with the given key.
+func setStr(f *excelize.File, cols layout, key string, row int, value string) error {
+	cell, err := cellRef(cols, key, row)
 	if err != nil {
 		return err
 	}
 	return f.SetCellStr(DataSheet, cell, value)
 }
 
-// cellRef resolves a column header and a 1-based row to a cell reference, so
-// nothing in this file names a column letter.
-func cellRef(header string, row int) (string, error) {
-	return excelize.CoordinatesToCellName(columnNumber(header), row)
-}
-
-// columnName is a header's column letter, derived from the headers slice.
-func columnName(header string) (string, error) {
-	return excelize.ColumnNumberToName(columnNumber(header))
-}
-
-// columnNumber is a header's 1-based position in the layout.
-func columnNumber(header string) int {
-	for i, h := range headers {
-		if h == header {
-			return i + 1
-		}
-	}
-	return 0
+// cellRef resolves a column key and a 1-based row to a cell reference, so
+// nothing in this file names a column letter — and nothing resolves a column by
+// the heading a reader sees, which an organizer's Ticket Type name could
+// duplicate.
+func cellRef(cols layout, key string, row int) (string, error) {
+	return excelize.CoordinatesToCellName(cols.index[key], row)
 }
 
 func ptr[T any](v T) *T { return &v }

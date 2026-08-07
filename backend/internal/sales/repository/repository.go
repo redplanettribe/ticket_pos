@@ -1021,7 +1021,15 @@ func (r *Repository) ListImportBatches(ctx context.Context, orgID, eventID strin
 
 // SaleLineRollup is one Ticket Type and its quantity within a Ticket Sale, as
 // rolled up for the Sales list (one entry per Ticket Sale Line).
+//
+// TicketTypeID rides alongside the name because the Sales Export must place a
+// quantity under the right column of the Event's catalog, and the name cannot do
+// that: an organizer may give two Ticket Types the same name, and nothing stops
+// one being called "amount". The id is the identity; the name is what a reader
+// sees. Both are read live — no name is snapshotted onto a sale line, so a rename
+// moves every surface at once.
 type SaleLineRollup struct {
+	TicketTypeID   string `json:"ticket_type_id"`
 	TicketTypeName string `json:"ticket_type_name"`
 	Quantity       int    `json:"quantity"`
 }
@@ -1265,7 +1273,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 				COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
 				COALESCE(
 					json_agg(
-						json_build_object('ticket_type_name', tt.name, 'quantity', tsl.quantity)
+						json_build_object('ticket_type_id', tt.id, 'ticket_type_name', tt.name, 'quantity', tsl.quantity)
 						ORDER BY tt.sort_order, tt.name
 					),
 					'[]'::json
