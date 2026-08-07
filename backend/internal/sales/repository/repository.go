@@ -1037,7 +1037,19 @@ type SaleRow struct {
 	CustomerEmail     string
 	TicketTypes       []SaleLineRollup
 	AmountCents       int
-	Currency          string
+	// NetProceedsCents is what this sale's lines left the Organization once the
+	// Platform Fee and its Fee IVA were withheld, summed off the snapshots the
+	// lines froze at sale time — the same expression the Event's sales summary
+	// sums, grouped per sale rather than per Event (lineNetProceedsSQL, ADR 0014).
+	//
+	// It is the raw arithmetic and nothing more: it says nothing about whether
+	// the figure APPLIES to this sale. A sale on any channel but `online` carries
+	// fee snapshots of zero and so reads back as its full price, which would be a
+	// lie about money the platform never held; a reversed sale reads back as
+	// money that was given away again. Deciding which sales have a Net Proceeds
+	// figure at all is the caller's, and the Sales Export leaves both blank.
+	NetProceedsCents int
+	Currency         string
 	SoldAt            time.Time
 	Channel           string
 	Source            *string
@@ -1148,9 +1160,9 @@ func salesOrderBy(sort, dir string) string {
 // DESC) with an id tiebreaker so equal primary values do not reorder between
 // pages — see salesOrderBy. The Ticket Sale Lines are aggregated per sale in a
 // lateral subquery so a multi-line sale stays a single row (no join fan-out): its
-// amount is SUM(quantity × unit_price_cents) and its Ticket Types roll up into
-// one ordered list. total is the unpaginated match count via COUNT(*) OVER()
-// (ADR-0006).
+// amount is SUM(quantity × unit_price_cents), its Net Proceeds the same sum over
+// lineNetProceedsSQL, and its Ticket Types roll up into one ordered list. total
+// is the unpaginated match count via COUNT(*) OVER() (ADR-0006).
 //
 // Optional filters (ticket type, sold-at range, search, channel/source/payment
 // method) are appended to the WHERE clause; the ticket-type filter uses an
@@ -1230,6 +1242,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.customer_last_name,
 			ts.customer_email,
 			lines.amount_cents,
+			lines.net_proceeds_cents,
 			lines.ticket_types,
 			org.currency,
 			ts.sold_at,
@@ -1249,6 +1262,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		JOIN LATERAL (
 			SELECT
 				COALESCE(SUM(tsl.quantity * tsl.unit_price_cents), 0) AS amount_cents,
+				COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
 				COALESCE(
 					json_agg(
 						json_build_object('ticket_type_name', tt.name, 'quantity', tsl.quantity)
@@ -1284,6 +1298,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&s.CustomerLastName,
 			&s.CustomerEmail,
 			&s.AmountCents,
+			&s.NetProceedsCents,
 			&typesJSON,
 			&s.Currency,
 			&s.SoldAt,

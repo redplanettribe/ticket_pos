@@ -34,6 +34,7 @@ const (
 	colTaxIDType         = "tax_id_type"
 	colTaxIDNumber       = "tax_id_number"
 	colAmount            = "amount"
+	colNetProceeds       = "net_proceeds"
 	colCurrency          = "currency"
 	colChannel           = "channel"
 	colSource            = "source"
@@ -51,7 +52,9 @@ const (
 // Then when it happened, then who bought — including the Tax ID pair, which is
 // why this feature exists at all: a Tax ID is mandatory to record a sale on the
 // native Sales Channels expressly for the buyer's tax declarations, and until
-// this file there was no way to read it back out. Then the transaction facts.
+// this file there was no way to read it back out. Then the transaction facts,
+// with net_proceeds immediately after amount: what the buyer paid and what the
+// sale left the Organization, side by side, which is where they get compared.
 var headers = []string{
 	colConfirmationRef,
 	colSoldAt,
@@ -61,6 +64,7 @@ var headers = []string{
 	colTaxIDType,
 	colTaxIDNumber,
 	colAmount,
+	colNetProceeds,
 	colCurrency,
 	colChannel,
 	colSource,
@@ -97,8 +101,18 @@ type Sale struct {
 	// AmountCents is what the buyer paid, as the system stores it. The file
 	// writes it in major units: a column that sums to a hundred times too much
 	// is worse than no column.
-	AmountCents   int
-	Currency      string
+	AmountCents int
+	// NetProceedsCents is what this sale left the Organization once the Platform
+	// Fee and its Fee IVA were withheld, read off the per-line snapshots the sale
+	// froze. Like AmountCents it is written in major units.
+	//
+	// It is a POINTER, and nil is not zero. nil means the figure does not apply
+	// to this sale at all — it was not an Online Sale, so the platform never held
+	// the money and withheld nothing, or it was reversed and the money went back
+	// — and the cell is left blank. A 0 would be an assertion, and a spreadsheet
+	// would add that assertion into a SUM. See ADR 0032.
+	NetProceedsCents *int
+	Currency         string
 	Channel       string
 	Source        *string
 	PaymentMethod *string
@@ -201,6 +215,24 @@ func Build(sales []Sale, loc *time.Location) ([]byte, error) {
 		}
 		if err := f.SetCellStyle(DataSheet, amount, amount, moneyStyle); err != nil {
 			return nil, err
+		}
+
+		// Net Proceeds, beside it — but only where the figure applies. A sale
+		// with none leaves the cell untouched and so blank, never 0: writing a
+		// zero would claim the platform withheld nothing from money it never
+		// held, and that claim would then be summed. The cell is skipped
+		// entirely, style included, so nothing distinguishes it from empty.
+		if sale.NetProceedsCents != nil {
+			net, err := cellRef(colNetProceeds, row)
+			if err != nil {
+				return nil, err
+			}
+			if err := f.SetCellFloat(DataSheet, net, float64(*sale.NetProceedsCents)/100, 2, 64); err != nil {
+				return nil, err
+			}
+			if err := f.SetCellStyle(DataSheet, net, net, moneyStyle); err != nil {
+				return nil, err
+			}
 		}
 	}
 

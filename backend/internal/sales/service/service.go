@@ -656,6 +656,7 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			TaxIDType:         row.CustomerTaxIDType,
 			TaxIDNumber:       row.CustomerTaxIDNumber,
 			AmountCents:       row.AmountCents,
+			NetProceedsCents:  exportedNetProceeds(row),
 			Currency:          row.Currency,
 			Channel:           row.Channel,
 			Source:            row.Source,
@@ -670,6 +671,47 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 	}
 	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, s.now().In(loc))}, nil
 }
+
+// exportedNetProceeds is the Net Proceeds a Sales Export row states, or nil
+// where the figure does not apply to the sale at all.
+//
+// The number itself is the repository's, summed off the per-line fee snapshots
+// the sale froze — the same expression the Event's sales summary sums, so a sale
+// and the Event it belongs to can never disagree, and so a later rate change or
+// Fee Handling flip never rewrites what an old sale earned (ADR 0014). Nothing
+// here recomputes a fee or branches on the Event's mode.
+//
+// What this function decides is only WHETHER the sale has such a figure, and it
+// returns nil rather than zero in the two cases where it does not. That
+// distinction is the whole of ADR 0032: a blank cell and a 0 say different
+// things, and in a spreadsheet the difference becomes a SUM.
+//
+//   - Only an Online Sale produces Net Proceeds. On any other Sales Channel the
+//     money never passed through the platform, so nothing was withheld from it —
+//     and because those lines carry fee snapshots of zero, the raw sum reads back
+//     as the sale's full price, which would be a plain lie about money the
+//     platform never held.
+//   - A reversed sale drops out of the money as it does everywhere else. It keeps
+//     its row, because a Sale Reversal should be visible in the file rather than
+//     a row that silently vanished, but money given back was never proceeds.
+//
+// Both mirror ADR-0019's treatment of a free Online Sale's figures as absent
+// rather than zero. A blank here is deliberate; it is not a gap to be filled in.
+func exportedNetProceeds(row repository.SaleRow) *int {
+	if row.Channel != salesChannelOnline || row.Status == saleStatusReversed {
+		return nil
+	}
+	net := row.NetProceedsCents
+	return &net
+}
+
+// The two values exportedNetProceeds tests against, named so the rule above
+// reads as the sentence it is. Both are stored spellings enforced by database
+// CHECK constraints and shared with the Sales list's own filter allowlists.
+const (
+	salesChannelOnline = "online"
+	saleStatusReversed = "reversed"
+)
 
 // salesExportFilename names a Sales Export after its Event and the day it was
 // taken — "sales-summer-fest-2026-08-07.xlsx" — so a Downloads folder holding

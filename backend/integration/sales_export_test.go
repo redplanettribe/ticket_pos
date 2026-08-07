@@ -130,6 +130,34 @@ func (s *exportSheet) raw(t *testing.T, row int, header string) string {
 	return v
 }
 
+// blank asserts a cell is empty — not zero, not a placeholder, nothing at all.
+//
+// This is the assertion the whole absent-versus-zero rule rests on, and it is
+// deliberately not `== 0`: a zero in a money column is a claim (the platform
+// took nothing, this sale earned nothing) and it SUMs, while a blank says the
+// figure does not apply to this row. The check is on the RAW cell, because a
+// formatted read of an empty cell and a formatted read of a 0 under "0.00" are
+// not the same thing and only the raw value can tell them apart.
+func (s *exportSheet) blank(t *testing.T, row int, header string) {
+	t.Helper()
+	if got := s.raw(t, row, header); got != "" {
+		t.Fatalf("%s on row %d = %q, want a blank cell — a zero would assert a figure that does not apply", header, row, got)
+	}
+}
+
+// number reads a cell as the number it stores, failing if it holds text or
+// nothing. Money cells are read this way so "25.00, not '$25.00'" is asserted
+// rather than assumed.
+func (s *exportSheet) number(t *testing.T, row int, header string) float64 {
+	t.Helper()
+	raw := s.raw(t, row, header)
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		t.Fatalf("%s on row %d = %q, want a number", header, row, raw)
+	}
+	return v
+}
+
 // column returns every data row's value in a column, sorted, for set assertions.
 func (s *exportSheet) column(t *testing.T, header string) []string {
 	t.Helper()
@@ -290,7 +318,7 @@ func TestSalesExportWorkbookShape(t *testing.T) {
 		"confirmation_ref", "sold_at",
 		"customer_first_name", "customer_last_name", "customer_email",
 		"tax_id_type", "tax_id_number",
-		"amount", "currency",
+		"amount", "net_proceeds", "currency",
 		"channel", "source", "payment_method", "status",
 	}
 	if len(rows) < 1 || !equalStrings(rows[0], want) {
@@ -551,5 +579,234 @@ func TestSalesExportIsRejectedAsASaleImport(t *testing.T) {
 	}
 	if body.Error == nil || body.Error.Code != "IMPORT_FILE_INVALID" {
 		t.Fatalf("preview error = %+v, want IMPORT_FILE_INVALID", body.Error)
+	}
+}
+
+// Net Proceeds per row (#237). Each row states what the sale left the
+// Organization once the Platform Fee and its Fee IVA were withheld, read off the
+// per-line snapshots the sale froze — the same arithmetic the Event's Sales
+// summary already sums, grouped per sale instead of per Event.
+//
+// The figures below are the fee suite's: a $7.99 ticket withholds 80¢ of
+// Platform Fee and 12¢ of Fee IVA, so a pass-on buyer pays 891¢ and the
+// Organization nets the 799¢ it set, while an absorb buyer pays 799¢ and the
+// Organization nets 707¢. Prices are $7.99-shaped on purpose: every figure here
+// depends on the rounding rather than on round numbers.
+
+// moveSaleToTheDoor puts a recorded sale onto the in_person channel, staging in
+// SQL the state a POS would leave behind (there is no in-person recording
+// endpoint yet — see sale_paths_external_event_test.go).
+//
+// It deliberately moves a sale that WAS sold online, so the row keeps the
+// non-zero fee snapshot no in-person path could have produced. That is what
+// makes the blank below prove the rule rather than an accident of arithmetic: if
+// the export summed the snapshot without asking what channel the sale was on,
+// this row would carry a figure.
+func moveSaleToTheDoor(t *testing.T, env *testEnv, confirmationRef string) {
+	t.Helper()
+	res, err := env.db.Exec(`
+		UPDATE ticket_sales SET channel = 'in_person', payment_method = 'cash'
+		WHERE confirmation_ref = $1
+	`, confirmationRef)
+	if err != nil {
+		t.Fatalf("move the sale onto the in-person channel: %v", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("moving %s in-person affected %d rows, want 1", confirmationRef, n)
+	}
+}
+
+// TestSalesExportStatesNetProceeds: an Online Sale's row says what it left the
+// Organization, and a sale the platform's money never passed through leaves the
+// column blank rather than claiming a zero.
+//
+// The blank is the point. Only an Online Sale produces Net Proceeds; on any
+// other Sales Channel the platform held no money and withheld none, so a 0 would
+// assert something false — and in a spreadsheet that false assertion is silently
+// added into a SUM. This is ADR-0019's "absent rather than zero", applied to the
+// column an Organization will reconcile its bank deposit against.
+func TestSalesExportStatesNetProceeds(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Net Export Fest", "net-export-fest", feeTestBaseCents, 20)
+
+	// Sold online under the default pass_on: the buyer paid the all-in price and
+	// the Organization nets the price it set.
+	online := beginCheckoutOK(t, env, "test-org", "net-export-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+	confirmCheckoutOK(t, env, online.ClientTransactionID, "approved")
+
+	// A second Online Sale, then moved to the door: same frozen snapshot, but the
+	// platform never held this money.
+	door := beginCheckoutOK(t, env, "test-org", "net-export-fest",
+		checkoutBody("caro@example.com", "Caro", "Diaz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	doorConfirm := confirmCheckoutOK(t, env, door.ClientTransactionID, "approved")
+	moveSaleToTheDoor(t, env, doorConfirm.ConfirmationRef)
+
+	// Cash recorded through a Sale Import: never near the platform's money either.
+	commitBatch(t, env, sessionID, eventID, "net-export-batch", []map[string]any{
+		{"customer_email": "leo@example.com", "customer_first_name": "Leo", "customer_last_name": "Vera",
+			"ticket_type_id": gaID, "quantity": 4, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	// 2 × (891 paid − 80 fee − 12 IVA) = 2 × 799¢, stated in major units so a
+	// SUM of the column gives dollars rather than a figure a hundred times too
+	// large.
+	onlineRow := sheet.rowOf(t, "ana@example.com")
+	wantNet := float64(2*(feeTestAllInCents-feeTestFeeCents-feeTestIVACents)) / 100
+	if got := sheet.number(t, onlineRow, "net_proceeds"); got != wantNet {
+		t.Fatalf("online net_proceeds = %v, want %v", got, wantNet)
+	}
+	// And it is genuinely a different number from what the buyer paid — the
+	// column would be worthless if it just repeated the amount.
+	wantAmount := float64(2*feeTestAllInCents) / 100
+	if got := sheet.number(t, onlineRow, "amount"); got != wantAmount {
+		t.Fatalf("online amount = %v, want the all-in %v the buyer paid", got, wantAmount)
+	}
+
+	// The two rows the platform's money never touched: blank, never zero.
+	doorRow := sheet.rowOf(t, "caro@example.com")
+	sheet.blank(t, doorRow, "net_proceeds")
+	if got := sheet.value(t, doorRow, "channel"); got != "in_person" {
+		t.Fatalf("door channel = %q, want in_person", got)
+	}
+	// The row is otherwise whole: only the figure that does not apply is missing.
+	if got := sheet.number(t, doorRow, "amount"); got != float64(feeTestAllInCents)/100 {
+		t.Fatalf("door amount = %v, want the recorded %v", got, float64(feeTestAllInCents)/100)
+	}
+
+	importRow := sheet.rowOf(t, "leo@example.com")
+	sheet.blank(t, importRow, "net_proceeds")
+	if got := sheet.value(t, importRow, "channel"); got != "import" {
+		t.Fatalf("imported channel = %q, want import", got)
+	}
+	if sheet.number(t, importRow, "amount") == 0 {
+		t.Fatalf("imported amount is 0; the sale's own money is still its own")
+	}
+}
+
+// TestSalesExportNetProceedsReadsTheSnapshotNotTheMode: the figure is correct
+// under absorb as well as pass_on, and it stays correct after the Event's Fee
+// Handling is flipped.
+//
+// This is the reason the column exists at all. An Org Admin reconciling per sale
+// would otherwise have to recompute 10% plus 15% of that by hand and remember
+// which mode the Event was in at the time — and would get it wrong the moment
+// the mode had changed since. The export never branches on the mode: it reads
+// the snapshot the sale froze, which is the same subtraction either way.
+func TestSalesExportNetProceedsReadsTheSnapshotNotTheMode(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Absorb Export Fest", "absorb-export-fest", feeTestBaseCents, 20)
+	setFeeHandling(t, env, sessionID, eventID, "Absorb Export Fest", "absorb-export-fest", "absorb")
+
+	begin := beginCheckoutOK(t, env, "test-org", "absorb-export-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	// The organizer flips the Event afterwards. Nothing already recorded moves.
+	setFeeHandling(t, env, sessionID, eventID, "Absorb Export Fest", "absorb-export-fest", "pass_on")
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+	row := sheet.rowOf(t, "ana@example.com")
+
+	// Under absorb the buyer paid the set price and the withholding came out of
+	// it: 2 × (799 − 80 − 12) = 2 × 707¢.
+	wantNet := float64(2*(feeTestBaseCents-feeTestFeeCents-feeTestIVACents)) / 100
+	if got := sheet.number(t, row, "net_proceeds"); got != wantNet {
+		t.Fatalf("absorb net_proceeds = %v, want %v — the snapshot, not the Event's current mode", got, wantNet)
+	}
+	if got := sheet.number(t, row, "amount"); got != float64(2*feeTestBaseCents)/100 {
+		t.Fatalf("absorb amount = %v, want the set price %v", got, float64(2*feeTestBaseCents)/100)
+	}
+}
+
+// TestSalesExportReversedSaleHasBlankNetProceeds: a reversed sale keeps its row
+// — a Sale Reversal should be visible in the file rather than a row that
+// silently vanished — but drops out of the money, as it does on every other
+// surface. Money given back was never proceeds.
+func TestSalesExportReversedSaleHasBlankNetProceeds(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Undone Export Fest", "undone-export-fest", feeTestBaseCents, 20)
+
+	begin := beginCheckoutOK(t, env, "test-org", "undone-export-fest",
+		checkoutBody("bea@example.com", "Bea", "Ruiz", map[string]any{"ticket_type_id": gaID, "quantity": 3}))
+	confirmed := confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+	// Through the Customer's own endpoint, so the figure is measured against a
+	// reversal the system actually performed rather than an UPDATE.
+	undoOwnSale(t, env, "bea@example.com", confirmed.ConfirmationRef)
+
+	// Reversed sales are off the default file, exactly as they are off the
+	// default screen; the status filter is the lever that reaches them.
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "status=reversed")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+	row := sheet.rowOf(t, "bea@example.com")
+
+	if got := sheet.value(t, row, "status"); got != "reversed" {
+		t.Fatalf("status = %q, want reversed", got)
+	}
+	sheet.blank(t, row, "net_proceeds")
+	// The row is still a row: the sale happened, and the file says so.
+	if sheet.value(t, row, "confirmation_ref") == "" {
+		t.Fatalf("reversed row lost its confirmation_ref; a reversal must be visible, not vanished")
+	}
+	if got := sheet.number(t, row, "amount"); got != float64(3*feeTestAllInCents)/100 {
+		t.Fatalf("reversed amount = %v, want what the buyer paid %v", got, float64(3*feeTestAllInCents)/100)
+	}
+}
+
+// TestSalesExportNeverItemisesThePlatformFee: the file states what the
+// Organization nets and never what the platform took.
+//
+// This is the stance already recorded on the Sales summary handler — "the
+// platform's cut is never returned as a number" — held on the surface most
+// tempting to break it, because the per-line fee snapshots are sitting right
+// there and emitting them would be one more column. Somebody determined can
+// subtract net_proceeds from amount, but the product still does not state it.
+func TestSalesExportNeverItemisesThePlatformFee(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Quiet Export Fest", "quiet-export-fest", feeTestBaseCents, 20)
+	begin := beginCheckoutOK(t, env, "test-org", "quiet-export-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	if _, ok := sheet.index["net_proceeds"]; !ok {
+		t.Fatalf("header = %v, want a net_proceeds column", sheet.header)
+	}
+	for _, forbidden := range []string{
+		"platform_fee", "platform_fee_cents", "fee", "fee_cents",
+		"fee_iva", "fee_iva_cents", "fee_basis_points", "fee_iva_basis_points",
+		"base_price", "gross",
+	} {
+		if _, ok := sheet.index[forbidden]; ok {
+			t.Fatalf("header carries %q: %v — the Organization is told what it nets, never what the platform took", forbidden, sheet.header)
+		}
+	}
+
+	// net_proceeds sits immediately after amount: what the buyer paid, then what
+	// the sale left the Organization, side by side where they are compared.
+	if sheet.index["net_proceeds"] != sheet.index["amount"]+1 {
+		t.Fatalf("header = %v, want net_proceeds immediately after amount", sheet.header)
 	}
 }
