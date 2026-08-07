@@ -1109,10 +1109,10 @@ type ListSalesQuery struct {
 	// primary ORDER BY expression; Dir is "asc" or "desc".
 	Sort string
 	Dir  string
-	// Limit and Offset paginate the result, and Limit is always required: the
-	// Sales list passes its page size, the Sales Export the row cap plus one —
-	// one past the cap being how it learns it has been exceeded without reading
-	// an Event's whole history to find out.
+	// Limit and Offset paginate the result. Limit must be positive and ListSales
+	// refuses anything else: the Sales list passes its page size, the Sales
+	// Export the row cap plus one — one past the cap being how it learns it has
+	// been exceeded without reading an Event's whole history to find out.
 	Limit  int
 	Offset int
 }
@@ -1177,9 +1177,18 @@ func salesOrderBy(sort, dir string) string {
 // EXISTS sub-query so it narrows sales without touching the rollup or fanning
 // the row out.
 //
-// Limit is always applied; total still reports the true unpaginated match count,
-// which is what lets the Sales Export refuse an oversized request exactly.
+// Limit is always applied and must be positive. total carries COUNT(*) OVER(),
+// which rides on the returned rows — so it is the true unpaginated match count
+// whenever the page holds anything, and zero when the page is empty. The Sales
+// Export reads one row past its cap from offset zero, so a page it cares about
+// is never empty and its refusal count is exact.
 func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
+	// A non-positive Limit would mean LIMIT 0: Postgres returns no rows, total
+	// stays zero for want of a row to carry it, and the caller gets a confident
+	// empty answer instead of an error. Refuse it rather than serve it.
+	if q.Limit <= 0 {
+		return nil, 0, fmt.Errorf("sales: ListSales requires a positive Limit, got %d", q.Limit)
+	}
 	// $1..$3 are the always-present event/org/status scope; further filters
 	// append their own placeholders so the query only mentions active filters.
 	args := []any{q.EventID, q.OrganizationID, q.Status}

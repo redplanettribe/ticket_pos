@@ -206,7 +206,7 @@ export function SalesList({
           canExport={canExport}
         />
         {error ? (
-          <p className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
+          <p role="alert" className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
             Couldn&apos;t load sales: {error}
           </p>
         ) : loading ? (
