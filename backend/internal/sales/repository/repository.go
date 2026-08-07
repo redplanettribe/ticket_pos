@@ -1058,13 +1058,13 @@ type SaleRow struct {
 	// figure at all is the caller's, and the Sales Export leaves both blank.
 	NetProceedsCents int
 	Currency         string
-	SoldAt            time.Time
-	Channel           string
-	Source            *string
-	Status            string
-	ConfirmationRef   string
-	RecordedAt        time.Time
-	PaymentMethod     *string
+	SoldAt           time.Time
+	Channel          string
+	Source           *string
+	Status           string
+	ConfirmationRef  string
+	RecordedAt       time.Time
+	PaymentMethod    *string
 	// CustomerTaxIDType/Number are the Tax ID snapshot the sale was transacted
 	// under, nil together on sales recorded without one (legacy rows and
 	// imports that never collected it — ADR 0016).

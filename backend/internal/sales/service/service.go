@@ -661,8 +661,10 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		return nil, err
 	}
 	types := make([]exportfile.TicketTypeColumn, 0, len(catalog))
+	ticketTypeNames := make(map[string]string, len(catalog))
 	for _, tt := range catalog {
 		types = append(types, exportfile.TicketTypeColumn{ID: tt.ID, Name: tt.Name})
+		ticketTypeNames[tt.ID] = tt.Name
 	}
 
 	exported := make([]exportfile.Sale, 0, len(rows))
@@ -696,11 +698,38 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		})
 	}
 
-	data, err := exportfile.Build(exported, types, loc)
+	// What the Info sheet says about the file. The status handed over is the
+	// RESOLVED one, not the request's: it is the default that makes the honesty
+	// necessary — a person who filtered nothing still gets a file with every
+	// reversed sale missing from it, and the sheet has to say so.
+	generatedAt := s.now()
+	info := exportfile.Info{
+		EventName:   event.Name,
+		GeneratedAt: generatedAt,
+		Currency:    event.Currency,
+		Filters: exportfile.Filters{
+			Status: status,
+			// By NAME, resolved against the catalog just read. The reader never
+			// saw the id, and an unrecognised id names nothing rather than being
+			// printed at them.
+			TicketTypeName: ticketTypeNames[params.TicketTypeID],
+			SoldFrom:       params.SoldFrom,
+			SoldTo:         params.SoldTo,
+			Channel:        params.Channel,
+			Source:         params.Source,
+			PaymentMethod:  params.PaymentMethod,
+			// THAT a search happened, never what it was: the term is routinely a
+			// buyer's email or Tax ID, and this file is forwarded. Same call the
+			// export's log line makes.
+			Searched: strings.TrimSpace(params.Search) != "",
+		},
+	}
+
+	data, err := exportfile.Build(exported, types, loc, info)
 	if err != nil {
 		return nil, err
 	}
-	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, s.now().In(loc))}, nil
+	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, generatedAt.In(loc))}, nil
 }
 
 // exportedNetProceeds is the Net Proceeds a Sales Export row states, or nil

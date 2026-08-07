@@ -6464,14 +6464,25 @@ paths:
         Import undo) — and never the acting Platform Operator''s identity or their
         note, which are operator-facing and never reach this file (ADR-0019). The
         Tax ID pair carries the snapshot the sale was transacted under and is blank
-        — never a placeholder — on a sale recorded without one. The data sheet is
-        named `Ticket Sales` and deliberately not `Sales`: the Sale Import parser
-        selects its sheet by that name, so an export accidentally uploaded as an import
-        fails rather than duplicating every sale. The filename is set by Content-Disposition
-        as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Restricted to Org Admins and Event
-        Owners — the same guard as the sales summary, because this file concentrates
-        every buyer''s email and Tax ID for an Event into something that is forwarded
-        and retained; Event Staff are refused and keep the on-screen Sales list.'
+        — never a placeholder — on a sale recorded without one. The workbook has exactly
+        two sheets. `Info` comes first and is the active sheet on open: it states
+        the Event''s name, the generated-at timestamp (which also tells a reader which
+        moment''s Ticket Type catalog the headings reflect), the timezone named outright
+        as the Event''s, the row count, the currency, and the applied filters rendered
+        in words rather than as query parameters — including, plainly, that reversed
+        sales were excluded when the status filter left them out. The free-text search
+        is stated as having been applied but its term is never written into the file,
+        since it matches customer email and Tax ID number. The data sheet is named
+        `Ticket Sales` and deliberately not `Sales`: the Sale Import parser selects
+        its sheet by that name, so an export accidentally uploaded as an import fails
+        rather than duplicating every sale. It carries nothing above its header row,
+        so select-all, autofilter and pivot source ranges work without deleting a
+        preamble — which is why the stamp is a sheet of its own. The filename is set
+        by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Restricted
+        to Org Admins and Event Owners — the same guard as the sales summary, because
+        this file concentrates every buyer''s email and Tax ID for an Event into something
+        that is forwarded and retained; Event Staff are refused and keep the on-screen
+        Sales list.'
       parameters:
       - description: Event ID
         in: path

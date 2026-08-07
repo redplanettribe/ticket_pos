@@ -596,12 +596,17 @@ func TestSalesExportEmptyEventHasHeadersOnly(t *testing.T) {
 // time and re-email every buyer, so the file must fail the importer immediately
 // rather than parse.
 //
-// The assertion is on the refusal, not on the reason for it, because the reason
-// changes as the file grows: today the export is a single-sheet workbook, and
-// the parser falls back to the sole sheet of one of those, so the refusal comes
-// from the export's columns being nothing like an import's. Once the file gains
-// a second sheet the sheet-name catch is what bites first. Either way it is
-// refused, which is the whole of what this test is for.
+// Now that the file carries an Info sheet as well as its data sheet (#240), the
+// catch that bites is the intended one. The parser selects the sheet named
+// "Sales" and falls back to the sole sheet only of a single-sheet workbook; a
+// two-sheet export has no "Sales" and no fallback, so it is refused for the
+// reason the format was shaped around — the data sheet is deliberately called
+// "Ticket Sales" — rather than incidentally, for having the wrong columns.
+//
+// The reason is asserted here precisely because it moved. Renaming the data
+// sheet to "Sales", or collapsing the workbook back to one sheet, would each
+// leave the refusal working today (the columns are still wrong) while quietly
+// removing the guard the spec relies on. This test is what notices.
 func TestSalesExportIsRejectedAsASaleImport(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
@@ -623,6 +628,11 @@ func TestSalesExportIsRejectedAsASaleImport(t *testing.T) {
 	}
 	if body.Error == nil || body.Error.Code != "IMPORT_FILE_INVALID" {
 		t.Fatalf("preview error = %+v, want IMPORT_FILE_INVALID", body.Error)
+	}
+	// The sheet-name catch, not the column check: the organizer is told the
+	// 'Sales' sheet is missing, which is exactly what an export never has.
+	if !strings.Contains(body.Error.Message, "'Sales' sheet") {
+		t.Fatalf("preview message = %q, want the missing 'Sales' sheet — the catch the export's sheet name exists for", body.Error.Message)
 	}
 }
 
@@ -1369,4 +1379,334 @@ func TestSalesExportNeverNamesTheOperatorOrTheirNote(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The Info sheet (#240). The export mirrors whatever filters were on screen, so
+// the file is not canonical: two Owners can produce different files both called
+// "sales". The Info sheet is what makes that safe — it is the file explaining
+// itself to somebody who did not download it, the colleague it was forwarded to
+// or the same person three months later.
+//
+// It is a SEPARATE SHEET rather than a header block above the data, and that is
+// the load-bearing part of the shape: preamble rows above a header break
+// select-all, break autofilter, and hand a pivot table the wrong source range.
+// The data sheet keeps row 1 as its header, with nothing above it.
+
+// salesExportInfoSheet is the sheet that explains the file: first in the
+// workbook and active on open, mirroring how the Sale Import template greets the
+// organizer with its Instructions sheet.
+const salesExportInfoSheet = "Info"
+
+// infoSheet is a downloaded export's Info sheet, read as the prose it is.
+//
+// The assertions here are on MEANING rather than on cell addresses: the sheet is
+// sentences a person reads, not a grid anything parses, so a test that pinned
+// copy to A7 would break on every rewording while proving nothing about what the
+// reader is actually told.
+type infoSheet struct {
+	// lines is every non-empty line of the sheet, lowercased.
+	lines []string
+	// text is all of them joined, for "is this anywhere in the file" checks.
+	text string
+}
+
+// openSalesExportInfo opens a downloaded export and reads its Info sheet.
+func openSalesExportInfo(t *testing.T, data []byte) infoSheet {
+	t.Helper()
+	f, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("open .xlsx: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	rows, err := f.GetRows(salesExportInfoSheet)
+	if err != nil {
+		t.Fatalf("get rows from %q: %v", salesExportInfoSheet, err)
+	}
+	out := infoSheet{}
+	for _, cells := range rows {
+		line := strings.ToLower(strings.TrimSpace(strings.Join(cells, " ")))
+		if line == "" {
+			continue
+		}
+		out.lines = append(out.lines, line)
+	}
+	out.text = strings.Join(out.lines, "\n")
+	return out
+}
+
+// says asserts that one LINE of the sheet carries all the given fragments —
+// one line, so a claim is read as the sentence it is rather than assembled out
+// of words scattered across the sheet.
+func (i infoSheet) says(t *testing.T, fragments ...string) {
+	t.Helper()
+	for _, line := range i.lines {
+		found := true
+		for _, fragment := range fragments {
+			if !strings.Contains(line, strings.ToLower(fragment)) {
+				found = false
+				break
+			}
+		}
+		if found {
+			return
+		}
+	}
+	t.Fatalf("no line of the Info sheet says %v; it says:\n%s", fragments, i.text)
+}
+
+// silentAbout asserts a fragment appears nowhere on the sheet.
+func (i infoSheet) silentAbout(t *testing.T, fragment string) {
+	t.Helper()
+	if strings.Contains(i.text, strings.ToLower(fragment)) {
+		t.Fatalf("the Info sheet carries %q:\n%s", fragment, i.text)
+	}
+}
+
+// TestSalesExportInfoSheetExplainsTheFile: the workbook is exactly two sheets,
+// Info greets the reader, and the data sheet is untouched by its arrival.
+func TestSalesExportInfoSheetExplainsTheFile(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Info Fest", "info-fest")
+	setEventTimezone(t, env, eventID, "America/Guayaquil")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	commitBatch(t, env, sessionID, eventID, "info-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 2, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	f, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("open .xlsx: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	// Exactly two sheets, in this order. No hidden helper sheet and no leftover
+	// "Sheet1": everything in the file is something the reader was meant to get.
+	if got := f.GetSheetList(); !equalStrings(got, []string{salesExportInfoSheet, salesExportSheet}) {
+		t.Fatalf("sheets = %v, want exactly %q then %q", got, salesExportInfoSheet, salesExportSheet)
+	}
+	// And Info is the one that opens, so the file explains itself before it
+	// shows itself.
+	if got := f.GetSheetName(f.GetActiveSheetIndex()); got != salesExportInfoSheet {
+		t.Fatalf("active sheet = %q, want %q", got, salesExportInfoSheet)
+	}
+
+	// The data sheet is untouched by the stamp's arrival: row 1 is still the
+	// header. This is the whole reason the stamp is a sheet of its own — a
+	// preamble above the header would break select-all, autofilter and a pivot
+	// table's source range.
+	rows, err := f.GetRows(salesExportSheet)
+	if err != nil {
+		t.Fatalf("get rows: %v", err)
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 || rows[0][0] != "confirmation_ref" {
+		t.Fatalf("data sheet row 1 = %v, want the header row with nothing above it", rows)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("data sheet rows = %d, want a header and two sales", len(rows))
+	}
+
+	info := openSalesExportInfo(t, data)
+	// Which Event, and when the file was taken — the generated-at also tells the
+	// reader which moment's Ticket Type catalog the headings reflect. The suite's
+	// clock reads 2026-07-07 12:00 UTC, which is 07:00 in Guayaquil.
+	info.says(t, "Info Fest")
+	info.says(t, "2026-07-07 07:00")
+	// The timezone named outright and identified as the Event's. Excel date cells
+	// carry no timezone of their own, so this is the only place the file can say
+	// which clock its dates were drawn on.
+	info.says(t, "America/Guayaquil", "the Event's timezone")
+	// The row count, so a reader can check nothing was truncated...
+	info.says(t, "rows: 2")
+	// ...and the currency the amounts are denominated in.
+	info.says(t, "USD")
+}
+
+// TestSalesExportInfoSheetStatesTheStatusFilterPlainly is the point of the sheet.
+//
+// The Sales list's status filter defaults to `active`, so the DEFAULT download
+// silently omits every reversed sale — the most common file in the product
+// leaves out a whole category of sale. The Info sheet is what makes that honest
+// rather than a trap, and its wording matters more than it looks: naming a
+// filter value ("status: active") and leaving the reader to work out what it
+// excluded is exactly the failure this line exists to prevent. It must SAY that
+// reversed sales were excluded.
+func TestSalesExportInfoSheetStatesTheStatusFilterPlainly(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Status Info Fest", "status-info-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	commitBatch(t, env, sessionID, eventID, "status-info-kept", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	undone := commitBatch(t, env, sessionID, eventID, "status-info-undone", []map[string]any{
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-02T10:00:00Z"},
+	})
+	undoBatch(t, env, sessionID, eventID, undone)
+
+	// The default file: the reversed sale is missing from it, and the Info sheet
+	// says so in words rather than leaving it to be discovered.
+	_, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	def := openSalesExportInfo(t, data)
+	def.says(t, "reversed sales", "excluded")
+	// Not a query parameter echoed back at the reader, which would tell somebody
+	// who never saw the screen nothing at all.
+	def.silentAbout(t, "status=active")
+	def.silentAbout(t, "status: active")
+
+	// The other file says the other thing. An export that reaches the reversed
+	// sales must not carry a line claiming they were left out.
+	_, reversedData := downloadSalesExport(t, env, sessionID, eventID, "status=reversed")
+	rev := openSalesExportInfo(t, reversedData)
+	rev.says(t, "reversed sales only")
+	for _, line := range rev.lines {
+		if strings.Contains(line, "reversed sales") && strings.Contains(line, "excluded") {
+			t.Fatalf("the reversed export claims reversed sales were excluded: %q", line)
+		}
+	}
+	rev.silentAbout(t, "status=reversed")
+}
+
+// TestSalesExportInfoSheetRendersFiltersInProse: a reader who never saw the
+// screen understands what produced the file.
+//
+// In WORDS, not query parameters: a Ticket Type by its name rather than its id,
+// a date range as a range, a channel and a payment method as sentences. And the
+// free-text search is stated as having happened WITHOUT its term — the search
+// matches customer email and Tax ID number, so the term is very often one
+// particular buyer's PII, and it is the searcher's input rather than a fact
+// about any sale in the file. The spec makes the same call for the export's log
+// line, where the term is recorded as a boolean; this is that decision applied
+// to the artifact itself.
+func TestSalesExportInfoSheetRendersFiltersInProse(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Prose Fest", "prose-fest")
+	setEventTimezone(t, env, eventID, "America/Guayaquil")
+	createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", 5000, 50)
+	commitBatch(t, env, sessionID, eventID, "prose-batch", []map[string]any{
+		{"customer_email": "bob@example.com", "customer_first_name": "Bob", "customer_last_name": "Ng", "ticket_type_id": vipID, "quantity": 1, "payment_method": "transfer", "sold_at": "2026-07-03T15:00:00Z"},
+	})
+
+	const searchTerm = "bob@example.com"
+	query := "ticket_type_id=" + vipID +
+		"&sold_from=2026-07-01&sold_to=2026-07-05" +
+		"&channel=import&source=direct&payment_method=transfer" +
+		"&q=" + searchTerm
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, query)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	info := openSalesExportInfo(t, data)
+
+	// The Ticket Type by the name the reader sees on screen, never by the id
+	// that means nothing to them.
+	info.says(t, "VIP")
+	info.silentAbout(t, vipID)
+	// The date range as a range, and said to be in the Event's clock — the same
+	// zone the sold-at filter was interpreted in, so the stamp cannot contradict
+	// the rows it selected.
+	info.says(t, "2026-07-01", "2026-07-05")
+	// The rest of the dimensions, each as a sentence.
+	info.says(t, "import")
+	info.says(t, "transfer")
+	info.says(t, "direct")
+
+	// A search happened, and the reader is told so — otherwise a file narrower
+	// than its stated filters would be inexplicable.
+	info.says(t, "search")
+	// But not the term. It is very often a buyer's email or Tax ID, and the
+	// person who typed it is not the person the file gets forwarded to.
+	info.silentAbout(t, searchTerm)
+	info.silentAbout(t, "bob@")
+
+	// No query parameters anywhere: the sheet is prose, and the reader it is
+	// written for never saw the URL.
+	for _, raw := range []string{"ticket_type_id", "sold_from", "sold_to", "payment_method", "q="} {
+		info.silentAbout(t, raw)
+	}
+}
+
+// TestSalesExportInfoSheetWithNoFiltersIsCoherent: the plain download still
+// explains itself. Nothing is left dangling — no empty "Ticket Type:" label
+// under a "Filters applied" heading with nothing beneath it — and the status
+// line, which is a filter whether or not anybody chose it, is still stated.
+func TestSalesExportInfoSheetWithNoFiltersIsCoherent(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Plain Fest", "plain-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	commitBatch(t, env, sessionID, eventID, "plain-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	info := openSalesExportInfo(t, data)
+
+	info.says(t, "Plain Fest")
+	info.says(t, "USD")
+	info.says(t, "rows: 1")
+	// An Event with no timezone of its own is read in UTC, and the sheet still
+	// says whose clock that is rather than leaving the line out.
+	info.says(t, "UTC", "the Event's timezone")
+	// The one filter that is always in force is still stated.
+	info.says(t, "reversed sales", "excluded")
+	// And the ones nobody chose are absent rather than blank.
+	for _, dangling := range []string{"ticket type:", "sales channel:", "payment method:", "sales source:", "sold between", "search"} {
+		info.silentAbout(t, dangling)
+	}
+}
+
+// TestSalesExportInfoRowCountMatchesTheRows: the count is what a reader checks
+// nothing was truncated against, so it must be the number of rows the file
+// actually carries rather than a total from somewhere else.
+func TestSalesExportInfoRowCountMatchesTheRows(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Count Fest", "count-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	rows := []map[string]any{}
+	for _, name := range []string{"ana", "bob", "caro", "dan", "eve"} {
+		rows = append(rows, map[string]any{
+			"customer_email": name + "@example.com", "customer_first_name": name, "customer_last_name": "Test",
+			"ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z",
+		})
+	}
+	commitBatch(t, env, sessionID, eventID, "count-batch", rows)
+
+	// Filtered down, so the count cannot pass by accidentally matching the
+	// Event's total.
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "q=ana@example.com")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	if got := openSalesExport(t, data).dataRows; got != 1 {
+		t.Fatalf("data rows = %d, want the one searched sale", got)
+	}
+	openSalesExportInfo(t, data).says(t, "rows: 1")
+
+	// Unfiltered, it states the whole five.
+	_, all := downloadSalesExport(t, env, sessionID, eventID, "")
+	if got := openSalesExport(t, all).dataRows; got != 5 {
+		t.Fatalf("unfiltered data rows = %d, want 5", got)
+	}
+	openSalesExportInfo(t, all).says(t, "rows: 5")
+
+	// And a file that matched nothing says none, rather than leaving the reader
+	// to wonder whether the count was simply forgotten.
+	_, empty := downloadSalesExport(t, env, sessionID, eventID, "channel=online")
+	if got := openSalesExport(t, empty).dataRows; got != 0 {
+		t.Fatalf("online data rows = %d, want none", got)
+	}
+	openSalesExportInfo(t, empty).says(t, "rows: 0")
 }

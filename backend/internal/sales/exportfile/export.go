@@ -9,6 +9,7 @@
 package exportfile
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -22,6 +23,24 @@ import (
 // every buyer. Naming the sheet something else means an export can never be
 // mistaken for an import. Do not rename this to "Sales".
 const DataSheet = "Ticket Sales"
+
+// InfoSheet is where the file explains itself: which Event, when it was taken,
+// in whose timezone, how many rows, in what currency, and — in words — which
+// filters produced it.
+//
+// It exists because the export mirrors whatever filters were on screen, so the
+// file is not canonical: two Owners can produce different files both called
+// "sales", and the person who reads one is usually not the person who downloaded
+// it. This sheet is what makes that safe.
+//
+// It is a SEPARATE SHEET rather than a block of preamble above the header row,
+// and that is the load-bearing part of the choice: rows above a header break
+// select-all, break autofilter, and hand a pivot table the wrong source range.
+// The data sheet keeps row 1 as its header and nothing above it.
+//
+// Like the Sale Import template's Instructions sheet, it sits first and is
+// active on open — see addInfoSheet.
+const InfoSheet = "Info"
 
 // The export's columns. Named constants rather than bare strings so a rename is
 // a compile error rather than a silently mismatched header.
@@ -224,10 +243,10 @@ type Sale struct {
 	// would add that assertion into a SUM. See ADR 0032.
 	NetProceedsCents *int
 	Currency         string
-	Channel       string
-	Source        *string
-	PaymentMethod *string
-	Status        string
+	Channel          string
+	Source           *string
+	PaymentMethod    *string
+	Status           string
 	// ReversedAt is when the Sale Reversal happened, written as a real date cell
 	// in the Event's timezone exactly as SoldAt is — so a reader can sort by it
 	// and subtract it from the sale it undid.
@@ -254,9 +273,282 @@ type Sale struct {
 	ReversedBy *string
 }
 
-// Build produces the .xlsx: a single "Ticket Sales" sheet holding a header row
-// and one row per Ticket Sale, with nothing above the header so select-all,
-// autofilter and pivot source ranges all work without deleting a preamble.
+// Info is what the Info sheet says about the file: the facts a reader needs to
+// know what they are holding, when none of them can be read off the rows.
+type Info struct {
+	// EventName is the Event the sales belong to, as its organizer named it.
+	EventName string
+	// GeneratedAt is the moment the file was built, written in the Event's
+	// timezone like every other date in it.
+	//
+	// It is not decoration. The Ticket Type headings are the catalog's CURRENT
+	// names, joined live and never snapshotted, so two exports of the same period
+	// can carry different headings over identical numbers; this stamp is what
+	// lets a reader tell which moment's catalog they are looking at.
+	GeneratedAt time.Time
+	// Currency the amounts are denominated in — the Event's, stated once here as
+	// well as per row, so the reader knows before they reach the data.
+	Currency string
+	// Filters is what narrowed the rows, ready to be rendered in words.
+	Filters Filters
+}
+
+// Filters is the applied filter set as the Info sheet describes it: the values
+// the Sales list was filtered by, already resolved into what a reader would
+// recognise rather than what the query string carried.
+//
+// Every field is optional except Status, which always has a value because the
+// Sales list always filters by one.
+type Filters struct {
+	// Status is the resolved status filter — "active" or "reversed", never blank,
+	// because the list defaults to active rather than to unfiltered. This is the
+	// most important field on the struct: see statusLine.
+	Status string
+	// TicketTypeName is the NAME of the filtered Ticket Type, resolved by the
+	// caller against the Event's catalog. A name, never an id: an id is not
+	// something the reader ever saw, and the whole sheet is written for somebody
+	// who never saw the screen either.
+	TicketTypeName string
+	// SoldFrom and SoldTo are the sold-at range as calendar dates
+	// ("YYYY-MM-DD"), read in the Event's timezone exactly as the filter was.
+	SoldFrom string
+	SoldTo   string
+	Channel  string
+	Source   string
+	// PaymentMethod is the payment method filter.
+	PaymentMethod string
+	// Searched records only THAT a free-text search narrowed the rows, never what
+	// was typed.
+	//
+	// This is a boolean on purpose, and the type is the decision. The Sales list's
+	// search matches customer email and Tax ID number, so the term is routinely a
+	// named buyer's personal data — and it is the searcher's input, not a fact
+	// about any sale in the file. Writing it onto the cover sheet would restate
+	// somebody's identifier in the one part of the workbook that is there even
+	// when the search matched nothing at all. The spec makes the same call for the
+	// export's log line, where the term is logged as a boolean and never as its
+	// value; there is no reason the file should be more talkative than the log.
+	//
+	// The reader is still told a search happened, because a file narrower than its
+	// stated filters would otherwise be inexplicable.
+	Searched bool
+}
+
+// infoLines is the Info sheet's copy: one line per row, in the order a reader
+// needs them — what this is, then what produced it.
+//
+// rowCount is the number of data rows the file actually carries, so the reader
+// can check nothing was truncated between the screen and the file.
+func infoLines(info Info, loc *time.Location, rowCount int) []string {
+	lines := []string{
+		"Sales Export",
+		"",
+		"Event: " + info.EventName,
+		"Generated: " + info.GeneratedAt.In(loc).Format(infoStampFormat),
+		// Excel date cells carry no timezone of their own, so this line is the
+		// only place the file can say which clock its dates were drawn on — and
+		// naming it as the Event's is what ties it to the sold-at filter, which is
+		// read in the same zone.
+		"Times shown in " + loc.String() + " (the Event's timezone).",
+		rowCountLine(rowCount),
+		"Currency: " + info.Currency,
+		"",
+		"Filters applied",
+	}
+
+	// The status filter first, and always: it is the one the reader did not
+	// choose and the one most likely to mislead them.
+	applied := []string{statusLine(info.Filters.Status)}
+	applied = append(applied, otherFilterLines(info.Filters)...)
+	if len(applied) == 1 {
+		applied = append(applied, "No other filters were applied: this is every "+
+			statusNoun(info.Filters.Status)+" Ticket Sale on the Event.")
+	}
+	lines = append(lines, applied...)
+
+	return append(lines,
+		"",
+		"This file reflects the filters that were on screen when it was downloaded, so two "+
+			"downloads of the same Event can differ. The Ticket Type columns are the Event's "+
+			"catalog as it stood at the moment above.",
+	)
+}
+
+// rowCountLine states how many Ticket Sales the file carries, which is what a
+// reader checks nothing was truncated against. It counts the rows that were
+// actually written rather than any total from elsewhere, so the claim and the
+// sheet cannot disagree.
+func rowCountLine(rowCount int) string {
+	if rowCount == 1 {
+		return "Rows: 1 Ticket Sale"
+	}
+	return fmt.Sprintf("Rows: %d Ticket Sales", rowCount)
+}
+
+// infoStampFormat is how the generated-at moment reads. Deliberately the same
+// shape as the date cells on the data sheet, so the reader sees one clock and
+// one format throughout — but written as text, because nobody does arithmetic on
+// a stamp and a sentence should read as a sentence.
+const infoStampFormat = "2006-01-02 15:04"
+
+// statusLine states the status filter, and it is the reason this whole sheet
+// exists.
+//
+// The Sales list defaults to `active`, so the DEFAULT download — the one
+// somebody gets by pressing Download without touching anything — silently omits
+// every reversed sale. Naming the filter value ("status: active") would satisfy
+// a checklist and mislead the reader: it leaves them to infer what was left out,
+// and the inference is exactly the one nobody makes. So the line says what was
+// excluded, in the words the reader would use.
+//
+// The reversed export gets the opposite sentence rather than a missing one: a
+// file that reaches the reversed sales must never carry a line claiming they
+// were left out.
+func statusLine(status string) string {
+	switch status {
+	case statusReversed:
+		return "Reversed sales only: every Ticket Sale in this file was reversed, and active sales are not in it."
+	default:
+		return "Reversed sales are excluded. This file lists active Ticket Sales only."
+	}
+}
+
+// statusNoun names the sales a file holds, for the sentence that says nothing
+// else narrowed them.
+func statusNoun(status string) string {
+	if status == statusReversed {
+		return "reversed"
+	}
+	return "active"
+}
+
+// statusReversed is the stored spelling of the status filter that reaches
+// reversed sales; anything else is the active default.
+const statusReversed = "reversed"
+
+// otherFilterLines renders the filters the person actually chose, one sentence
+// each, and nothing at all for the dimensions they left alone — a blank
+// "Ticket Type:" label would make a reader hunt for a value that was never set.
+func otherFilterLines(f Filters) []string {
+	var lines []string
+
+	if line := soldRangeLine(f.SoldFrom, f.SoldTo); line != "" {
+		lines = append(lines, line)
+	}
+	if f.TicketTypeName != "" {
+		lines = append(lines, "Ticket Type: only sales that include "+f.TicketTypeName+".")
+	}
+	if f.Channel != "" {
+		lines = append(lines, "Sales Channel: "+phrase(channelPhrases, f.Channel)+".")
+	}
+	if f.Source != "" {
+		lines = append(lines, "Sales Source: "+phrase(sourcePhrases, f.Source)+".")
+	}
+	if f.PaymentMethod != "" {
+		lines = append(lines, "Payment Method: "+phrase(paymentMethodPhrases, f.PaymentMethod)+".")
+	}
+	if f.Searched {
+		// Said, but never quoted. See Filters.Searched.
+		lines = append(lines, "A search was applied, so these rows are narrower than the filters "+
+			"above alone would give. The term is not recorded here: the Sales list's search "+
+			"matches a buyer's email and Tax ID number, and that is what was typed rather than "+
+			"a fact about any sale in this file.")
+	}
+	return lines
+}
+
+// soldRangeLine renders the sold-at range, which may be open at either end. The
+// zone is named again because the range is a calendar range: whether a
+// late-night sale fell inside it was decided in the Event's clock, and a reader
+// checking a boundary row needs to know that.
+func soldRangeLine(from, to string) string {
+	switch {
+	case from != "" && to != "":
+		return "Sold between " + from + " and " + to + ", inclusive, in the Event's timezone."
+	case from != "":
+		return "Sold on or after " + from + ", in the Event's timezone."
+	case to != "":
+		return "Sold on or before " + to + ", in the Event's timezone."
+	default:
+		return ""
+	}
+}
+
+// The stored filter values, said the way a reader would say them. A value with
+// no phrase of its own falls back to itself, so a filter added to the Sales list
+// later reads awkwardly rather than silently vanishing off the stamp.
+var (
+	channelPhrases = map[string]string{
+		"online":    "online sales only",
+		"in_person": "in-person sales only",
+		"import":    "imported sales only",
+	}
+	sourcePhrases = map[string]string{
+		"direct":            "direct sales only",
+		"external_platform": "sales that came from an external platform only",
+	}
+	paymentMethodPhrases = map[string]string{
+		"cash":     "cash only",
+		"transfer": "transfer only",
+		"payphone": "Payphone only",
+		"free":     "free sales only, where no payment was taken",
+	}
+)
+
+func phrase(phrases map[string]string, value string) string {
+	if p, ok := phrases[value]; ok {
+		return p
+	}
+	return value + " only"
+}
+
+// addInfoSheet writes the Info sheet, places it FIRST and makes it active, so
+// the file explains itself before it shows itself.
+//
+// The ordering is safe for the Sale Import parser, which selects its sheet by
+// the name "Sales" and finds none here — and now cannot fall back to the sole
+// sheet of a single-sheet workbook either, because this second sheet is what
+// makes the workbook plural. The export's data sheet name has always been the
+// intended catch; from here it is the one that actually bites.
+func addInfoSheet(f *excelize.File, lines []string) error {
+	if _, err := f.NewSheet(InfoSheet); err != nil {
+		return err
+	}
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		if err := f.SetCellStr(InfoSheet, fmt.Sprintf("A%d", i+1), line); err != nil {
+			return err
+		}
+	}
+	// Wide enough that a sentence is a sentence rather than a column of clipped
+	// words, and wrapped so the long ones are readable without widening anything.
+	if err := f.SetColWidth(InfoSheet, "A", "A", 110); err != nil {
+		return err
+	}
+	wrapped, err := f.NewStyle(&excelize.Style{Alignment: &excelize.Alignment{WrapText: true, Vertical: "top"}})
+	if err != nil {
+		return err
+	}
+	if err := f.SetCellStyle(InfoSheet, "A1", fmt.Sprintf("A%d", len(lines)), wrapped); err != nil {
+		return err
+	}
+	if err := f.MoveSheet(InfoSheet, DataSheet); err != nil {
+		return err
+	}
+	idx, err := f.GetSheetIndex(InfoSheet)
+	if err != nil {
+		return err
+	}
+	f.SetActiveSheet(idx)
+	return nil
+}
+
+// Build produces the .xlsx: an "Info" sheet that explains the file, then a
+// "Ticket Sales" sheet holding a header row and one row per Ticket Sale, with
+// nothing above the header so select-all, autofilter and pivot source ranges all
+// work without deleting a preamble.
 //
 // types is the Event's catalog in display order, one column each — see
 // TicketTypeColumn for why it is the catalog rather than the types the rows
@@ -265,8 +557,9 @@ type Sale struct {
 // Cells are really typed — dates as date cells, money as numbers in major units
 // — because the recipient's next move is to sort, subtract and SUM, and a
 // column of strings that look like numbers cannot be done arithmetic to. loc is
-// the Event's timezone, which every date is drawn in.
-func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location) ([]byte, error) {
+// the Event's timezone, which every date is drawn in and which the Info sheet
+// names outright, since an Excel date cell carries no timezone of its own.
+func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location, info Info) ([]byte, error) {
 	f := excelize.NewFile()
 	defer func() { _ = f.Close() }()
 
@@ -435,6 +728,11 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location) ([]byte, 
 		return nil, err
 	}
 	if err := f.SetColWidth(DataSheet, first, last, 22); err != nil {
+		return nil, err
+	}
+
+	// Last, so the row count it states is the number of rows that were written.
+	if err := addInfoSheet(f, infoLines(info, loc, len(sales))); err != nil {
 		return nil, err
 	}
 
