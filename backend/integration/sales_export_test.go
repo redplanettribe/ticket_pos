@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
@@ -361,6 +362,8 @@ func TestSalesExportWorkbookShape(t *testing.T) {
 		"GA", "total_quantity",
 		"amount", "net_proceeds", "currency",
 		"channel", "source", "payment_method", "status",
+		// The reversal pair last, after the status it elaborates.
+		"reversed_at", "reversed_by",
 	}
 	if len(rows) < 1 || !equalStrings(rows[0], want) {
 		t.Fatalf("header = %v, want %v", rows[0], want)
@@ -1106,5 +1109,264 @@ func TestSalesExportTicketTypeNamedLikeAFixedColumn(t *testing.T) {
 	}
 	if got := sheet.number(t, row, "total_quantity"); got != 3 {
 		t.Fatalf("total_quantity = %v, want 3", got)
+	}
+}
+
+// Reversal columns (#239). A reversed Ticket Sale keeps its row — it is never
+// deleted, it keeps its Sale Confirmation reference, and it stays visible to the
+// Organization — so the file states the reversal rather than leaving a row with
+// a mysteriously empty money column.
+//
+// `reversed_by` names the ROUTE and nothing else: `customer`, `platform`, or
+// `import_undo`, the three ways a Sale Reversal is reachable. The stored column
+// speaks a different vocabulary (`customer`, `staff`, `operator`) and sits one
+// column away from the acting operator's email and their note, so this file is
+// exactly where ADR-0019's boundary — an Operator Reversal is invisible to the
+// Organization beyond the sale showing as reversed by the platform — would be
+// breached by a pass-through.
+
+// reversedSalesExport downloads the reversed sales and opens the sheet. Every
+// test below needs the status filter: the default file is the default screen,
+// and the default screen is active sales only.
+func reversedSalesExport(t *testing.T, env *testEnv, sessionID, eventID string) *exportSheet {
+	t.Helper()
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "status=reversed")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reversed export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	return openSalesExport(t, data)
+}
+
+// TestSalesExportReversalColumnsAreLastAndBlankOnAnActiveSale: the pair sits at
+// the end of the row, after status, and says nothing at all about a sale that
+// was never reversed.
+//
+// Blank rather than "active", "-", or "n/a": the columns describe an event that
+// did not happen, and a placeholder would have to be filtered out by anybody
+// counting reversals in the sheet.
+func TestSalesExportReversalColumnsAreLastAndBlankOnAnActiveSale(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Standing Fest", "standing-fest")
+	gaID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 1000, 100)
+	commitBatch(t, env, sessionID, eventID, "standing-batch", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+	sheet := openSalesExport(t, data)
+
+	// Last, and in this order: the sale's status, then when it was undone and by
+	// which route.
+	tail := sheet.header[len(sheet.header)-3:]
+	if !equalStrings(tail, []string{"status", "reversed_at", "reversed_by"}) {
+		t.Fatalf("header tail = %v, want status, reversed_at, reversed_by last", tail)
+	}
+
+	row := sheet.rowOf(t, "ana@example.com")
+	if got := sheet.value(t, row, "status"); got != "active" {
+		t.Fatalf("status = %q, want active", got)
+	}
+	sheet.blank(t, row, "reversed_at")
+	sheet.blank(t, row, "reversed_by")
+}
+
+// TestSalesExportNamesTheReversalRoute: all three routes into a Sale Reversal,
+// in one file, each named by the route and not by the actor behind it.
+//
+// The three are genuinely different mechanisms — a buyer pressing Undo inside
+// the Reversal Window, a Platform Operator recording an off-platform refund, and
+// staff undoing a whole Sale Import batch — and telling them apart is the whole
+// point of the column: an Org Admin reading the file can distinguish a buyer
+// changing their mind from the platform stepping in from their own import being
+// rolled back.
+func TestSalesExportNamesTheReversalRoute(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	// publishCheckoutEvent puts the Event in America/Guayaquil, five hours behind
+	// UTC — which is what makes the reversed_at rendering below an assertion
+	// about the Event's timezone rather than about UTC.
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Routes Fest", "routes-fest", feeTestBaseCents, 50)
+
+	// The Customer's own route: the buyer undoes their Online Sale from the
+	// Storefront, inside the Reversal Window.
+	customerBegin := beginCheckoutOK(t, env, "test-org", "routes-fest",
+		taxIDCheckoutBody("bea@example.com", "Bea", "Ruiz", "ruc", naturalRUC,
+			map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+	customerSale := confirmCheckoutOK(t, env, customerBegin.ClientTransactionID, "approved")
+	undoOwnSale(t, env, "bea@example.com", customerSale.ConfirmationRef)
+
+	// The platform's route: an Operator Reversal, recording a refund the platform
+	// made off-platform at the Organization's request.
+	operatorBegin := beginCheckoutOK(t, env, "test-org", "routes-fest",
+		checkoutBody("caro@example.com", "Caro", "Diaz", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	operatorSale := confirmCheckoutOK(t, env, operatorBegin.ClientTransactionID, "approved")
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	operatorReverseOK(t, env, operatorSessionID, operatorSale.ConfirmationRef, operatorReversalBody{
+		RefundedAmountCents: intPtr(paidRefund(1)),
+		PlatformFeeKept:     boolPtr(false),
+		Note:                strPtr("bank transfer, waived the fee as goodwill"),
+	})
+
+	// The Sale Import's route: staff undoing a whole committed batch.
+	batchID := commitBatch(t, env, sessionID, eventID, "routes-batch", []map[string]any{
+		{"customer_email": "leo@example.com", "customer_first_name": "Leo", "customer_last_name": "Vera", "ticket_type_id": gaID, "quantity": 1, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	undoBatch(t, env, sessionID, eventID, batchID)
+
+	sheet := reversedSalesExport(t, env, sessionID, eventID)
+	if sheet.dataRows != 3 {
+		t.Fatalf("reversed rows = %d, want the three routes", sheet.dataRows)
+	}
+	for email, want := range map[string]string{
+		"bea@example.com":  "customer",
+		"caro@example.com": "platform",
+		"leo@example.com":  "import_undo",
+	} {
+		row := sheet.rowOf(t, email)
+		if got := sheet.value(t, row, "reversed_by"); got != want {
+			t.Fatalf("%s reversed_by = %q, want %q", email, got, want)
+		}
+		if got := sheet.value(t, row, "status"); got != "reversed" {
+			t.Fatalf("%s status = %q, want reversed", email, got)
+		}
+	}
+
+	// reversed_at is a real date cell like sold_at — an Excel serial, sortable
+	// and subtractable — drawn in the Event's timezone. The suite's clock reads
+	// 2026-07-07 12:00 UTC, which is 07:00 in Guayaquil.
+	customerRow := sheet.rowOf(t, "bea@example.com")
+	rawReversed := sheet.raw(t, customerRow, "reversed_at")
+	if _, err := strconv.ParseFloat(rawReversed, 64); err != nil {
+		t.Fatalf("reversed_at = %q, want a date cell (an Excel serial), not text", rawReversed)
+	}
+	if got := sheet.value(t, customerRow, "reversed_at"); got != "2026-07-07 07:00" {
+		t.Fatalf("reversed_at renders %q, want 2026-07-07 07:00 in the Event's timezone", got)
+	}
+
+	// A reversed sale is a sale that happened. It keeps its Sale Confirmation
+	// reference — the value somebody pastes back into the product when the buyer
+	// emails about it — and every buyer column it was recorded with, including
+	// the Tax ID pair the Organization may still have to invoice against.
+	if got := sheet.value(t, customerRow, "confirmation_ref"); got != customerSale.ConfirmationRef {
+		t.Fatalf("reversed confirmation_ref = %q, want %q — a reversal must be visible, not vanished",
+			got, customerSale.ConfirmationRef)
+	}
+	for header, want := range map[string]string{
+		"customer_first_name": "Bea",
+		"customer_last_name":  "Ruiz",
+		"customer_email":      "bea@example.com",
+		"tax_id_type":         "ruc",
+		"tax_id_number":       naturalRUC,
+		"channel":             "online",
+	} {
+		if got := sheet.value(t, customerRow, header); got != want {
+			t.Fatalf("reversed row %s = %q, want %q", header, got, want)
+		}
+	}
+	// The money it collected is still its own; only the figure that no longer
+	// applies is blank (#237's rule, relied on here rather than restated).
+	if got := sheet.number(t, customerRow, "amount"); got != float64(2*feeTestAllInCents)/100 {
+		t.Fatalf("reversed amount = %v, want what the buyer paid %v", got, float64(2*feeTestAllInCents)/100)
+	}
+	sheet.blank(t, customerRow, "net_proceeds")
+}
+
+// TestSalesExportNeverNamesTheOperatorOrTheirNote is the ADR-0019 boundary, and
+// it is deliberately paranoid.
+//
+// An Operator Reversal is invisible to the Organization beyond the sale showing
+// as reversed by the platform. The operator's email and their free-text note are
+// stored on the ticket_sales row itself, a column away from reversed_by, so the
+// export is precisely where a pass-through happens by accident — a SELECT
+// widened, a struct field copied across, a "helpful" provenance column added.
+//
+// So the assertion is not on the reversal columns. It is on EVERY cell of EVERY
+// sheet of the workbook, read both formatted and raw, plus the sheet names: the
+// operator's identity and their words must not be anywhere in the file the
+// Organization receives, however they got there.
+func TestSalesExportNeverNamesTheOperatorOrTheirNote(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Boundary Fest", "boundary-fest", feeTestBaseCents, 20)
+
+	begin := beginCheckoutOK(t, env, "test-org", "boundary-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 1}))
+	sale := confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	const operatorEmail = "regina.silva@platform.example"
+	const note = "refunded by bank transfer after the chargeback thread; fee waived"
+	operatorSessionID := operatorSession(t, env, operatorEmail)
+	operatorReverseOK(t, env, operatorSessionID, sale.ConfirmationRef, operatorReversalBody{
+		RefundedAmountCents: intPtr(paidRefund(1)),
+		PlatformFeeKept:     boolPtr(true),
+		Note:                strPtr(note),
+	})
+
+	// The record itself exists — otherwise the sweep below would prove nothing,
+	// because there would be nothing available to leak.
+	storedOperator, storedNote, _, _ := operatorMemo(t, env, sale.ConfirmationRef)
+	if !storedOperator.Valid || storedOperator.String != operatorEmail {
+		t.Fatalf("stored operator = %+v, want %q — the leak test needs something to leak", storedOperator, operatorEmail)
+	}
+	if !storedNote.Valid || storedNote.String != note {
+		t.Fatalf("stored note = %+v, want the operator's own words", storedNote)
+	}
+
+	resp, data := downloadSalesExport(t, env, sessionID, eventID, "status=reversed")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", resp.StatusCode, string(data))
+	}
+
+	// What the Organization IS told: the sale is reversed, by the platform.
+	sheet := openSalesExport(t, data)
+	row := sheet.rowOf(t, "ana@example.com")
+	if got := sheet.value(t, row, "reversed_by"); got != "platform" {
+		t.Fatalf("reversed_by = %q, want platform — the route, never the operator", got)
+	}
+
+	// And what it is not. Every needle is checked whole and in the pieces a
+	// careless emission would leave behind: an email's local part, its domain, a
+	// distinctive word of the note.
+	needles := []string{
+		operatorEmail, "regina.silva", "regina", "platform.example",
+		note, "chargeback", "bank transfer", "waived",
+		// The operator-facing money memo travels with the identity and is just
+		// as far out of bounds.
+		"platform_fee_kept", "refunded_amount", "reversal_note", "reversed_by_operator",
+	}
+	f, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("open .xlsx: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	check := func(where, text string) {
+		t.Helper()
+		for _, needle := range needles {
+			if strings.Contains(strings.ToLower(text), strings.ToLower(needle)) {
+				t.Fatalf("%s carries %q in %q — ADR-0019: an Operator Reversal is invisible to the Organization beyond the sale showing as reversed by the platform",
+					where, needle, text)
+			}
+		}
+	}
+	for _, name := range f.GetSheetList() {
+		check("sheet name", name)
+		// Both readings of every cell: a value can hide in the stored form or in
+		// the rendered one, and only reading both rules out either.
+		for _, opts := range []excelize.Options{{}, {RawCellValue: true}} {
+			rows, err := f.GetRows(name, opts)
+			if err != nil {
+				t.Fatalf("get rows from %q: %v", name, err)
+			}
+			for r, cells := range rows {
+				for c, cell := range cells {
+					check(fmt.Sprintf("sheet %q cell r%dc%d", name, r+1, c+1), cell)
+				}
+			}
+		}
 	}
 }

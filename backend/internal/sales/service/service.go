@@ -691,6 +691,8 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			Source:            row.Source,
 			PaymentMethod:     row.PaymentMethod,
 			Status:            row.Status,
+			ReversedAt:        row.ReversedAt,
+			ReversedBy:        exportedReversalRoute(row),
 		})
 	}
 
@@ -732,6 +734,54 @@ func exportedNetProceeds(row repository.SaleRow) *int {
 	}
 	net := row.NetProceedsCents
 	return &net
+}
+
+// exportedReversalRoute is the route a Sales Export row names in reversed_by, or
+// nil where the sale has no Sale Reversal to describe.
+//
+// It is a TRANSLATION, and the fact that it is one is the whole point. The
+// stored column records the kind of ACTOR behind the reversal — `customer`,
+// `staff`, `operator` (see the sales package's ReversalActor constants) — and on
+// an Operator Reversal it sits on the same ticket_sales row as the acting
+// operator's email, their free-text note, and the money memo they asserted. The
+// export must state the route and only the route, so the two vocabularies are
+// mapped here rather than the stored value being handed through:
+//
+//   - `customer` stays `customer`: the buyer undid their own Online Sale.
+//   - `operator` becomes `platform`. ADR-0019 holds that an Operator Reversal is
+//     invisible to the Organization beyond the sale showing as reversed by the
+//     platform. The Organization is told an institution acted; which person, on
+//     whose say-so, and with what note are operator-facing and stop here.
+//   - `staff` becomes `import_undo`. On this side of the boundary "staff" is the
+//     reader's own Organization, which tells them nothing; the Sale Import undo
+//     is the lever that was actually pulled, and the only route that value has
+//     ever been written by.
+//
+// Anything else is dropped to nil rather than emitted. A value added to the
+// stored set later — a new reversal route, and the column's constraint is
+// explicitly designed to be extended — would otherwise ride out to every
+// Organization's spreadsheet the moment it was written, in whatever spelling the
+// schema happened to use and possibly naming somebody. A blank cell is a gap the
+// next reader can ask about; a leaked identity cannot be recalled from a file
+// that has already been emailed. Adding a route here is one line, and it should
+// be a deliberate one.
+//
+// nil is also the ordinary answer for every active sale, and for a sale reversed
+// before the platform recorded any provenance (#117) — those rows keep their
+// blank pair rather than being given a fabricated one.
+func exportedReversalRoute(row repository.SaleRow) *string {
+	if row.ReversedBy == nil {
+		return nil
+	}
+	route, ok := map[string]string{
+		sales.ReversalActorCustomer: exportfile.ReversedByCustomer,
+		sales.ReversalActorOperator: exportfile.ReversedByPlatform,
+		sales.ReversalActorStaff:    exportfile.ReversedByImportUndo,
+	}[*row.ReversedBy]
+	if !ok {
+		return nil
+	}
+	return &route
 }
 
 // The two values exportedNetProceeds tests against, named so the rule above

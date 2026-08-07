@@ -41,6 +41,31 @@ const (
 	colSource            = "source"
 	colPaymentMethod     = "payment_method"
 	colStatus            = "status"
+	colReversedAt        = "reversed_at"
+	colReversedBy        = "reversed_by"
+)
+
+// The whole value set of the reversed_by column: the ROUTE a Sale Reversal
+// arrived by, and nothing else about it.
+//
+// These are the export's own spellings, deliberately not the stored ones. The
+// database records the kind of ACTOR — `customer`, `staff`, `operator` — beside
+// the acting operator's email and their free-text note, and the mapping to these
+// three is where that record is narrowed to what the Organization may see. See
+// ReversedBy on Sale for why the narrowing is the point.
+const (
+	// ReversedByCustomer: the buyer undid their own Online Sale from the
+	// Storefront, inside the Reversal Window.
+	ReversedByCustomer = "customer"
+	// ReversedByPlatform: an Operator Reversal — the platform refunded the buyer
+	// off-platform and recorded it. The word is "platform" and not "operator"
+	// because the Organization is told an institution acted, never which person.
+	ReversedByPlatform = "platform"
+	// ReversedByImportUndo: staff undid the Sale Import batch this sale arrived
+	// in. Named after the operation rather than after the actor ("staff"),
+	// because the actor is the reader's own Organization and what they need to
+	// know is which lever was pulled.
+	ReversedByImportUndo = "import_undo"
 )
 
 // fixedColumns are the columns every export has, in order, left to right. The
@@ -59,6 +84,11 @@ const (
 // per-Ticket-Type quantities and their total. Then the transaction facts, with
 // net_proceeds immediately after amount: what the buyer paid and what the sale
 // left the Organization, side by side, which is where they get compared.
+//
+// The reversal pair comes last, after the status it elaborates: on the vast
+// majority of rows it says nothing at all, and a reader scanning left to right
+// should reach the whole of the sale before reaching the two columns that only
+// speak when it was undone.
 var fixedColumns = []string{
 	colConfirmationRef,
 	colSoldAt,
@@ -75,6 +105,8 @@ var fixedColumns = []string{
 	colSource,
 	colPaymentMethod,
 	colStatus,
+	colReversedAt,
+	colReversedBy,
 }
 
 // TicketTypeColumn is one Ticket Type of the Event's catalog, and one column of
@@ -196,6 +228,30 @@ type Sale struct {
 	Source        *string
 	PaymentMethod *string
 	Status        string
+	// ReversedAt is when the Sale Reversal happened, written as a real date cell
+	// in the Event's timezone exactly as SoldAt is — so a reader can sort by it
+	// and subtract it from the sale it undid.
+	//
+	// nil on every active sale, and also on a sale reversed before the platform
+	// recorded any provenance: those rows are shown as they are rather than
+	// backfilled with a fabricated moment.
+	ReversedAt *time.Time
+	// ReversedBy is the ROUTE the Sale Reversal arrived by, and one of the three
+	// constants above. It is never the person: not the Platform Operator who
+	// recorded an off-platform refund, not their note, not the Member who undid a
+	// Sale Import batch.
+	//
+	// This is a boundary, not a formatting choice. ADR-0019 holds that an
+	// Operator Reversal is invisible to the Organization beyond the sale showing
+	// as reversed by the platform, and the operator's email and free-text memo
+	// sit on the same database row as the value this column is derived from — so
+	// this is the field where that boundary is breached by an accidental
+	// pass-through. Nothing that is not one of the three routes reaches here;
+	// see the mapping in the service, which drops anything it cannot name rather
+	// than emitting it.
+	//
+	// nil leaves the cell blank, for the same rows ReversedAt does.
+	ReversedBy *string
 }
 
 // Build produces the .xlsx: a single "Ticket Sales" sheet holding a header row
@@ -263,6 +319,7 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location) ([]byte, 
 			colTaxIDNumber:   sale.TaxIDNumber,
 			colSource:        sale.Source,
 			colPaymentMethod: sale.PaymentMethod,
+			colReversedBy:    sale.ReversedBy,
 		} {
 			if value == nil {
 				continue
@@ -316,6 +373,22 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location) ([]byte, 
 		// when writing a time, and this replaces it.
 		if err := f.SetCellStyle(DataSheet, soldAt, soldAt, dateStyle); err != nil {
 			return nil, err
+		}
+
+		// When the sale was undone, in the same zone and the same format as when
+		// it was made — so the two can be read against each other, and subtracted.
+		// A sale that was never reversed leaves the cell untouched, and so blank.
+		if sale.ReversedAt != nil {
+			reversedAt, err := cellRef(cols, colReversedAt, row)
+			if err != nil {
+				return nil, err
+			}
+			if err := f.SetCellValue(DataSheet, reversedAt, sale.ReversedAt.In(loc)); err != nil {
+				return nil, err
+			}
+			if err := f.SetCellStyle(DataSheet, reversedAt, reversedAt, dateStyle); err != nil {
+				return nil, err
+			}
 		}
 
 		// Money as a number in major units — 25.00, never 2500 and never
