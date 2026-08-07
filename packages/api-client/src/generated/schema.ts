@@ -4640,6 +4640,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/sales/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export an Event's Ticket Sales as a spreadsheet
+         * @description Returns an .xlsx of the Event's Ticket Sales — one row per Ticket Sale — reflecting exactly the filters supplied, so the file matches the Sales list screen it was taken from. Accepts the SAME query parameters as the Sales list (status, ticket_type_id, sold_from/sold_to, q, channel, source, payment_method, sort, dir) and parses them with the list's own helper, so the two cannot drift; the pagination parameters are ignored, since a file is the whole answer. Status still defaults to `active`, so the default file omits reversed sales exactly as the default screen does, and the `status` filter reaches them in both places. The sold-at range is still interpreted in the Event timezone. Columns, left to right: confirmation_ref, sold_at, customer_first_name, customer_last_name, customer_email, tax_id_type, tax_id_number, amount, currency, channel, source, payment_method, status. Cells are really typed: sold_at is an Excel date cell formatted `yyyy-mm-dd hh:mm` drawn in the Event's timezone, and amount is a number in major units (25.00, never 2500 and never a currency-prefixed string) with the currency in its own column. The Tax ID pair carries the snapshot the sale was transacted under and is blank — never a placeholder — on a sale recorded without one. The data sheet is named `Ticket Sales` and deliberately not `Sales`: the Sale Import parser selects its sheet by that name, so an export accidentally uploaded as an import fails rather than duplicating every sale. The filename is set by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Restricted to Org Admins and Event Owners — the same guard as the sales summary, because this file concentrates every buyer's email and Tax ID for an Event into something that is forwarded and retained; Event Staff are refused and keep the on-screen Sales list.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Ticket Sale status (default active) */
+                    status?: "active" | "reversed";
+                    /** @description Keep only sales that include this Ticket Type */
+                    ticket_type_id?: string;
+                    /** @description Sold-at range start (YYYY-MM-DD, Event timezone, inclusive) */
+                    sold_from?: string;
+                    /** @description Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day) */
+                    sold_to?: string;
+                    /** @description Case-insensitive substring over customer email, name, confirmation_ref, and Tax ID number */
+                    q?: string;
+                    /** @description Sales Channel */
+                    channel?: "online" | "in_person" | "import";
+                    /** @description Sales Source */
+                    source?: "direct" | "external_platform";
+                    /** @description Payment Method */
+                    payment_method?: "cash" | "transfer" | "payphone" | "free";
+                    /** @description Sort column (default sold_at) */
+                    sort?: "sold_at" | "recorded_at" | "customer" | "amount";
+                    /** @description Sort direction (default desc) */
+                    dir?: "asc" | "desc";
+                };
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/sales/summary": {
         parameters: {
             query?: never;

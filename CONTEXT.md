@@ -368,6 +368,10 @@ _Avoid_: Manual sale entry, external sale upload
 The staff surface for exploring an Event's individual Ticket Sales — one row per Ticket Sale, filterable, sortable, and paginated. Visible to every Member of the Event (Org Admins, Event Owners, and Event Staff), unlike the owner-only Sale Import tool it shares a page with. It defaults to active sales and carries the Event's count of reversed ones, so a Sale Reversal is stated rather than a row that silently left the view; the count is the whole Event's, unmoved by the filters, and the reversed sales themselves are reached through the status filter. Distinct from the Import history, which lists Sale Import batches rather than individual sales, and from a Storefront listing, which lists Events to the public rather than sales to staff.
 _Avoid_: Sales ledger, orders list, transactions table, report
 
+**Sales Export**:
+A spreadsheet of an Event's Ticket Sales — one row per Ticket Sale — downloaded from the Sales list and reflecting exactly the filters that were on screen. Carries each sale's Confirmation reference, its buyer including the Tax ID the sale was transacted under, and its transaction facts, as real typed cells so the recipient can sort, sum and pivot without recomputing anything. Restricted to Org Admins and Event Owners, unlike the Sales list it is taken from: it is the largest concentration of buyer data the platform emits, in a form that gets forwarded and kept. Distinct from the Sales list, which is a screen rather than a file; from the Sale Import file, which is an artifact returning to the platform rather than leaving it — the two are deliberately shaped so an export cannot be uploaded as an import; and from the Import history, which lists Sale Import batches rather than sales.
+_Avoid_: Sales report, sales dump, data export, download, CSV
+
 ## Customer identity
 
 **Verified Customer**:

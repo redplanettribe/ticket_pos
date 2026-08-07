@@ -465,6 +465,11 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// The Event's money, though, is not for hired door staff: the Net Proceeds
 	// strip above that list is Org Admin and Event Owner only.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales/summary", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesSummary)))
+	// The Sales Export takes the summary's guard rather than the list's, though
+	// it carries the list's own rows: a file is forwarded, retained, and outlives
+	// an Event assignment in a way a paginated screen is not, and this one
+	// concentrates every buyer's email and Tax ID for the Event (#236).
+	mux.Handle("GET /api/v1/staff/events/{id}/sales/export", eventOwnerOrAdmin(http.HandlerFunc(sh.ExportSales)))
 
 	// Affiliate Links: the Event's promotion surface. Full-access only — an
 	// Event Staff hired for the door has no business minting links that credit

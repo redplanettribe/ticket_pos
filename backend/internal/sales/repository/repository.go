@@ -195,7 +195,12 @@ func (r *Repository) GetEventName(ctx context.Context, orgID, eventID string) (s
 // EventImportContext is the Event metadata a Sale Import needs: its name, the
 // timezone (nullable) used to interpret naive sold_at values, and its schedule.
 type EventImportContext struct {
-	Name     string
+	Name string
+	// Slug is the Event's URL-safe name, already unique within the Organization.
+	// It rides along because a file leaving the platform is named after the
+	// Event, and the slug is the one form of the name that is filename-safe by
+	// construction rather than by a reduction the download has to invent.
+	Slug     string
 	Timezone string
 	// Currency is the Organization's currency, which the Sale Confirmation's
 	// total is denominated in.
@@ -232,17 +237,17 @@ func (e *EventImportContext) End() time.Time {
 	}
 }
 
-// GetEventImportContext returns the Event's name, timezone, schedule, and
+// GetEventImportContext returns the Event's name, slug, timezone, schedule, and
 // registration mode, and whether it belongs to the Organization.
 func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID string) (*EventImportContext, bool, error) {
 	var out EventImportContext
 	var tz sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.name, e.timezone, o.currency, e.starts_at, e.ends_at, e.registration_mode
+		SELECT e.name, e.slug, e.timezone, o.currency, e.starts_at, e.ends_at, e.registration_mode
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE e.id = $1 AND e.organization_id = $2
-	`, eventID, orgID).Scan(&out.Name, &tz, &out.Currency, &out.StartsAt, &out.EndsAt, &out.RegistrationMode)
+	`, eventID, orgID).Scan(&out.Name, &out.Slug, &tz, &out.Currency, &out.StartsAt, &out.EndsAt, &out.RegistrationMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -1082,8 +1087,12 @@ type ListSalesQuery struct {
 	// Sort and Dir are the validated sort column and direction (the service
 	// guarantees they are allowlisted; see salesSortColumns). Sort selects the
 	// primary ORDER BY expression; Dir is "asc" or "desc".
-	Sort   string
-	Dir    string
+	Sort string
+	Dir  string
+	// Limit and Offset paginate the result. A Limit of zero or less means
+	// unpaginated: every matching sale, in one read. That is what the Sales
+	// Export takes — a file is the whole answer or it is misleading, and paging
+	// a download would be a way to hand somebody a partial one.
 	Limit  int
 	Offset int
 }
@@ -1147,6 +1156,8 @@ func salesOrderBy(sort, dir string) string {
 // method) are appended to the WHERE clause; the ticket-type filter uses an
 // EXISTS sub-query so it narrows sales without touching the rollup or fanning
 // the row out.
+//
+// A Limit of zero or less returns every match unpaginated — see ListSalesQuery.
 func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
 	// $1..$3 are the always-present event/org/status scope; further filters
 	// append their own placeholders so the query only mentions active filters.
@@ -1201,10 +1212,16 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	if len(conds) > 0 {
 		filterSQL = " AND " + strings.Join(conds, " AND ")
 	}
-	args = append(args, q.Limit)
-	limitP := len(args)
-	args = append(args, q.Offset)
-	offsetP := len(args)
+	// A non-positive Limit is the unpaginated read: no LIMIT/OFFSET clause at
+	// all, rather than a sentinel row count nobody would recognise later.
+	pageSQL := ""
+	if q.Limit > 0 {
+		args = append(args, q.Limit)
+		limitP := len(args)
+		args = append(args, q.Offset)
+		offsetP := len(args)
+		pageSQL = fmt.Sprintf("LIMIT $%d OFFSET $%d", limitP, offsetP)
+	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -1245,8 +1262,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		) lines ON TRUE
 		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = $3%s
 		`+salesOrderBy(q.Sort, q.Dir)+`
-		LIMIT $%d OFFSET $%d
-	`, filterSQL, limitP, offsetP)
+		%s
+	`, filterSQL, pageSQL)
 
 	rows, err := r.db.Pool.QueryContext(ctx, query, args...)
 	if err != nil {

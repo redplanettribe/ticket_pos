@@ -14,6 +14,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
+	"github.com/peter/ticket_pos/backend/internal/sales/exportfile"
 	"github.com/peter/ticket_pos/backend/internal/sales/importfile"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
@@ -587,6 +588,95 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 		},
 		ReversedCount: reversedCount,
 	}, nil
+}
+
+// SalesExport is a built Sales Export: the .xlsx bytes and the filename the
+// download carries. The filename is decided here rather than at the HTTP edge so
+// there is one answer to what an exported file is called.
+type SalesExport struct {
+	Data     []byte
+	Filename string
+}
+
+// ExportSales builds the Event's Ticket Sales into an .xlsx, narrowed by the
+// same filters as the Sales list.
+//
+// It takes ListSalesParams and honours every filter on it, ignoring only Page
+// and PageSize: pagination is a property of a screen, and a file that stopped at
+// row 50 would be a quietly wrong answer. Everything else — the status default
+// of active, the sold-at range read in the Event's timezone, the sort — behaves
+// exactly as it does on the list, because it is the same code path. The caller's
+// role is gated at the route (Org Admin and Event Owner only): this file
+// concentrates every buyer's email and Tax ID for an Event into something that
+// is forwarded and kept, so it takes the Sales summary's guard rather than the
+// Sales list's looser one.
+func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID string, params ListSalesParams) (*SalesExport, error) {
+	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, sales.ErrEventNotFound()
+	}
+
+	status := params.Status
+	if status == "" {
+		status = "active"
+	}
+	loc := resolveEventLocation(event.Timezone)
+	soldFrom, soldTo := dateRangeBounds(params.SoldFrom, params.SoldTo, loc)
+
+	// Limit 0 is the unpaginated read: the file is the whole answer.
+	rows, _, err := s.repo.ListSales(ctx, repository.ListSalesQuery{
+		OrganizationID: actor.OrganizationID,
+		EventID:        eventID,
+		Status:         status,
+		TicketTypeID:   params.TicketTypeID,
+		SoldFrom:       soldFrom,
+		SoldTo:         soldTo,
+		Search:         params.Search,
+		Channel:        params.Channel,
+		Source:         params.Source,
+		PaymentMethod:  params.PaymentMethod,
+		Sort:           params.Sort,
+		Dir:            params.Dir,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	exported := make([]exportfile.Sale, 0, len(rows))
+	for _, row := range rows {
+		exported = append(exported, exportfile.Sale{
+			ConfirmationRef:   row.ConfirmationRef,
+			SoldAt:            row.SoldAt,
+			CustomerFirstName: row.CustomerFirstName,
+			CustomerLastName:  row.CustomerLastName,
+			CustomerEmail:     row.CustomerEmail,
+			TaxIDType:         row.CustomerTaxIDType,
+			TaxIDNumber:       row.CustomerTaxIDNumber,
+			AmountCents:       row.AmountCents,
+			Currency:          row.Currency,
+			Channel:           row.Channel,
+			Source:            row.Source,
+			PaymentMethod:     row.PaymentMethod,
+			Status:            row.Status,
+		})
+	}
+
+	data, err := exportfile.Build(exported, loc)
+	if err != nil {
+		return nil, err
+	}
+	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, s.now().In(loc))}, nil
+}
+
+// salesExportFilename names a Sales Export after its Event and the day it was
+// taken — "sales-summer-fest-2026-08-07.xlsx" — so a Downloads folder holding
+// several stays navigable. The day is the Event's, drawn in the Event's own
+// timezone like every other date in the file.
+func salesExportFilename(slug string, generatedAt time.Time) string {
+	return "sales-" + slug + "-" + generatedAt.Format("2006-01-02") + ".xlsx"
 }
 
 // SalesSummary is the Sales tab's stat strip: what the Event has left the

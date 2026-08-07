@@ -298,6 +298,66 @@ func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
+// ExportSales returns the Event's Ticket Sales as an .xlsx, narrowed by the same
+// filters as the Sales list.
+//
+// @Summary      Export an Event's Ticket Sales as a spreadsheet
+// @Description  Returns an .xlsx of the Event's Ticket Sales — one row per Ticket Sale — reflecting exactly the filters supplied, so the file matches the Sales list screen it was taken from. Accepts the SAME query parameters as the Sales list (status, ticket_type_id, sold_from/sold_to, q, channel, source, payment_method, sort, dir) and parses them with the list's own helper, so the two cannot drift; the pagination parameters are ignored, since a file is the whole answer. Status still defaults to `active`, so the default file omits reversed sales exactly as the default screen does, and the `status` filter reaches them in both places. The sold-at range is still interpreted in the Event timezone. Columns, left to right: confirmation_ref, sold_at, customer_first_name, customer_last_name, customer_email, tax_id_type, tax_id_number, amount, currency, channel, source, payment_method, status. Cells are really typed: sold_at is an Excel date cell formatted `yyyy-mm-dd hh:mm` drawn in the Event's timezone, and amount is a number in major units (25.00, never 2500 and never a currency-prefixed string) with the currency in its own column. The Tax ID pair carries the snapshot the sale was transacted under and is blank — never a placeholder — on a sale recorded without one. The data sheet is named `Ticket Sales` and deliberately not `Sales`: the Sale Import parser selects its sheet by that name, so an export accidentally uploaded as an import fails rather than duplicating every sale. The filename is set by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Restricted to Org Admins and Event Owners — the same guard as the sales summary, because this file concentrates every buyer's email and Tax ID for an Event into something that is forwarded and retained; Event Staff are refused and keep the on-screen Sales list.
+// @Tags         staff
+// @Produce      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+// @Security     BearerAuth
+// @Param        id              path   string  true   "Event ID"
+// @Param        status          query  string  false  "Ticket Sale status (default active)"  Enums(active, reversed)
+// @Param        ticket_type_id  query  string  false  "Keep only sales that include this Ticket Type"
+// @Param        sold_from       query  string  false  "Sold-at range start (YYYY-MM-DD, Event timezone, inclusive)"
+// @Param        sold_to         query  string  false  "Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day)"
+// @Param        q               query  string  false  "Case-insensitive substring over customer email, name, confirmation_ref, and Tax ID number"
+// @Param        channel         query  string  false  "Sales Channel"  Enums(online, in_person, import)
+// @Param        source          query  string  false  "Sales Source"  Enums(direct, external_platform)
+// @Param        payment_method  query  string  false  "Payment Method"  Enums(cash, transfer, payphone, free)
+// @Param        sort            query  string  false  "Sort column (default sold_at)"  Enums(sold_at, recorded_at, customer, amount)
+// @Param        dir             query  string  false  "Sort direction (default desc)"  Enums(asc, desc)
+// @Success      200
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/export [get]
+func (h *Handler) ExportSales(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return
+	}
+
+	// The Sales list's own parser, verbatim: the export exists to hand back what
+	// the screen was showing, and two readings of the same query string would be
+	// two chances for the file and the screen to disagree. Pagination is the one
+	// thing not carried over — a file is the whole answer.
+	query := r.URL.Query()
+	params, fields := parseSalesFilters(query)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	params.Sort = sortParam(query.Get("sort"))
+	params.Dir = dirParam(query.Get("dir"))
+
+	export, err := h.svc.ExportSales(r.Context(), actorFromRequest(r), eventID, params)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+export.Filename+"\"")
+	w.Header().Set("X-Request-ID", reqID)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(export.Data)
+}
+
 // GetSalesSummary returns the Event's Net Proceeds and active sales count for
 // the Sales tab's stat strip.
 //

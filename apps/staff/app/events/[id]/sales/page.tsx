@@ -89,9 +89,11 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
   const role = session?.active_member?.role;
 
   // The Sales list is visible to every Member of the Event (Org Admin, Event
-  // Owner, Event Staff). The Net Proceeds strip above it and the Sale Import tool
-  // below it are for the owner: hired door staff see neither the Event's earnings
-  // (the API refuses them the summary too) nor the import controls.
+  // Owner, Event Staff). The Net Proceeds strip above it, the Sale Import tool
+  // below it, and the Sales Export button in its filter bar are for the owner:
+  // hired door staff see neither the Event's earnings (the API refuses them the
+  // summary too) nor the import controls, and get no downloadable copy of every
+  // buyer's email and Tax ID (the API refuses them that too).
   const isOwner = role === "org_admin" || role === "event_owner";
 
   const cookieStore = await cookies();
@@ -114,6 +116,7 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
           sort={parseSaleSort(resolvedSearchParams.sort)}
           dir={parseSaleDir(resolvedSearchParams.dir)}
           timezone={timezone}
+          canExport={isOwner}
         />
         {isOwner ? <ImportSalesSection eventId={id} /> : null}
       </div>
