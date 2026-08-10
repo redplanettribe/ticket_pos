@@ -8,12 +8,15 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
+	"github.com/peter/ticket_pos/backend/internal/sales/exportfile"
 	"github.com/peter/ticket_pos/backend/internal/sales/importfile"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
@@ -166,6 +169,9 @@ type Service struct {
 	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
 	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
 	drainBatch int
+	// exportRowCap is how many Ticket Sales one Sales Export may carry. Set by
+	// New to defaultExportRowCap; see WithExportRowCap.
+	exportRowCap int
 }
 
 // New returns a sales service. The customers service is required: every Ticket
@@ -183,12 +189,25 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 		fees:              fees,
 		logger:            logger,
 		now:               time.Now,
+		exportRowCap:      defaultExportRowCap,
 	}
 }
 
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithLogger swaps the structured logger.
+//
+// It exists for one kind of test: the Sales Export's log line is the only record
+// of who took a file of every buyer's email and Tax ID, and what it must NOT
+// contain — the free-text search term — can only be asserted by reading what was
+// logged. Nothing in production calls it; the deployed logger is the one New is
+// handed.
+func (s *Service) WithLogger(logger platform.Logger) *Service {
+	s.logger = logger
 	return s
 }
 
@@ -587,6 +606,382 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 		},
 		ReversedCount: reversedCount,
 	}, nil
+}
+
+// SalesExport is a built Sales Export: the .xlsx bytes and the filename the
+// download carries. The filename is decided here rather than at the HTTP edge so
+// there is one answer to what an exported file is called.
+type SalesExport struct {
+	Data     []byte
+	Filename string
+}
+
+// defaultExportRowCap is how many Ticket Sales one Sales Export may carry.
+//
+// It is the Sale Import's row limit, referenced rather than repeated. The same
+// number twice would be two numbers the day one of them moved, and the point of
+// the choice is that the system has ONE answer to how many sale rows travel in a
+// file: an export can never hand back more than the importer would accept.
+//
+// The cap exists because generation is synchronous and the workbook is buffered
+// in memory, so an unbounded Event would produce a request that hangs and then
+// either times out at the proxy or takes the process down — on the busiest day
+// of the Event, which is exactly when somebody reaches for this.
+const defaultExportRowCap = importfile.MaxRows
+
+// WithExportRowCap narrows how many Ticket Sales a Sales Export may carry.
+//
+// It exists so a test can prove the cap is a cap. Reaching the deployed ten
+// thousand would mean seeding ten thousand and one Ticket Sales, which takes
+// minutes and buys nothing: what has to hold is the behaviour AT the bound — the
+// refusal, its count, and that exactly the cap still succeeds — and none of that
+// is a property of the number. A value of zero or less keeps the default, so a
+// misapplied override can never quietly mean "export nothing".
+//
+// Nothing in production calls it; the deployed cap is defaultExportRowCap.
+func (s *Service) WithExportRowCap(rows int) *Service {
+	if rows > 0 {
+		s.exportRowCap = rows
+	}
+	return s
+}
+
+// ExportRowCap reports the export row cap currently in force.
+func (s *Service) ExportRowCap() int {
+	if s.exportRowCap > 0 {
+		return s.exportRowCap
+	}
+	return defaultExportRowCap
+}
+
+// ExportSales builds the Event's Ticket Sales into an .xlsx, narrowed by the
+// same filters as the Sales list.
+//
+// It takes ListSalesParams and honours every filter on it, ignoring only Page
+// and PageSize: pagination is a property of a screen, and a file that stopped at
+// row 50 would be a quietly wrong answer. Everything else — the status default
+// of active, the sold-at range read in the Event's timezone, the sort — behaves
+// exactly as it does on the list, because it is the same code path. The caller's
+// role is gated at the route (Org Admin and Event Owner only): this file
+// concentrates every buyer's email and Tax ID for an Event into something that
+// is forwarded and kept, so it takes the Sales summary's guard rather than the
+// Sales list's looser one.
+//
+// Above the row cap it builds nothing and returns field errors instead, which
+// the handler writes as the standard VALIDATION_FAILED envelope. That is the
+// same shape RequestPayout uses for a refusal the caller fixes by changing their
+// input, and it is the right one here for the same reason: the answer is not
+// "this failed" but "narrow your filters", and the filters are on screen beside
+// the button. The refusal names the matched count because that is how the person
+// knows how much narrower to go.
+func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID string, params ListSalesParams) (*SalesExport, []platform.FieldError, error) {
+	event, ok, err := s.repo.GetEventImportContext(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return nil, nil, sales.ErrEventNotFound()
+	}
+
+	status := params.Status
+	if status == "" {
+		status = "active"
+	}
+	loc := resolveEventLocation(event.Timezone)
+	soldFrom, soldTo := dateRangeBounds(params.SoldFrom, params.SoldTo, loc)
+
+	// One row past the cap is all that is ever read. The total the query reports
+	// is COUNT(*) OVER(), computed before the LIMIT, so the true matched count is
+	// exact however far over the cap the Event is — the refusal can name it
+	// without a second query, and an Event with a hundred thousand sales never
+	// pulls a hundred thousand rows into this process to be told so.
+	rowCap := s.ExportRowCap()
+	rows, total, err := s.repo.ListSales(ctx, repository.ListSalesQuery{
+		OrganizationID: actor.OrganizationID,
+		EventID:        eventID,
+		Status:         status,
+		TicketTypeID:   params.TicketTypeID,
+		SoldFrom:       soldFrom,
+		SoldTo:         soldTo,
+		Search:         params.Search,
+		Channel:        params.Channel,
+		Source:         params.Source,
+		PaymentMethod:  params.PaymentMethod,
+		Sort:           params.Sort,
+		Dir:            params.Dir,
+		Limit:          rowCap + 1,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if total > rowCap {
+		return nil, []platform.FieldError{exportTooManyRows(total, rowCap)}, nil
+	}
+
+	// The columns are the Event's LIVE catalog, in display order — not the Ticket
+	// Types the filtered rows happen to mention. That is what keeps the shape of
+	// the sheet stable: an export narrowed to one Ticket Type still carries every
+	// column, and a Ticket Type nobody bought still gets one. Reading the catalog
+	// cannot orphan a sale either, because ticket_sale_lines references
+	// ticket_types ON DELETE RESTRICT: a Ticket Type that has ever sold cannot be
+	// deleted, so the catalog is always a superset of what the rows reference.
+	//
+	// It is the same read the Sale Import template makes to build its dropdown,
+	// and for the same reason: both files describe the Event's catalog as it
+	// stands now.
+	catalog, err := s.repo.ListEventTicketTypes(ctx, actor.OrganizationID, eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	types := make([]exportfile.TicketTypeColumn, 0, len(catalog))
+	ticketTypeNames := make(map[string]string, len(catalog))
+	for _, tt := range catalog {
+		types = append(types, exportfile.TicketTypeColumn{ID: tt.ID, Name: tt.Name})
+		ticketTypeNames[tt.ID] = tt.Name
+	}
+
+	exported := make([]exportfile.Sale, 0, len(rows))
+	for _, row := range rows {
+		// Keyed by Ticket Type id, so the quantity lands under the right column
+		// whatever the Ticket Type is called. Summed rather than assigned: a sale
+		// is free to carry more than one line of the same Ticket Type, and the
+		// column states how many of it the sale was for.
+		quantities := make(map[string]int, len(row.TicketTypes))
+		for _, line := range row.TicketTypes {
+			quantities[line.TicketTypeID] += line.Quantity
+		}
+		exported = append(exported, exportfile.Sale{
+			ConfirmationRef:   row.ConfirmationRef,
+			SoldAt:            row.SoldAt,
+			CustomerFirstName: row.CustomerFirstName,
+			CustomerLastName:  row.CustomerLastName,
+			CustomerEmail:     row.CustomerEmail,
+			TaxIDType:         row.CustomerTaxIDType,
+			TaxIDNumber:       row.CustomerTaxIDNumber,
+			Quantities:        quantities,
+			AmountCents:       row.AmountCents,
+			NetProceedsCents:  exportedNetProceeds(row),
+			Currency:          row.Currency,
+			Channel:           row.Channel,
+			Source:            row.Source,
+			PaymentMethod:     row.PaymentMethod,
+			Status:            row.Status,
+			ReversedAt:        row.ReversedAt,
+			ReversedBy:        exportedReversalRoute(row),
+		})
+	}
+
+	// Whether a free-text search was applied, computed once and read twice: the
+	// Info sheet states it and the log line records it, and both must say THAT
+	// one happened without ever repeating what it was.
+	searched := strings.TrimSpace(params.Search) != ""
+
+	// What the Info sheet says about the file. The status handed over is the
+	// RESOLVED one, not the request's: it is the default that makes the honesty
+	// necessary — a person who filtered nothing still gets a file with every
+	// reversed sale missing from it, and the sheet has to say so.
+	generatedAt := s.now()
+	info := exportfile.Info{
+		EventName:   event.Name,
+		GeneratedAt: generatedAt,
+		Currency:    event.Currency,
+		Filters: exportfile.Filters{
+			Status: status,
+			// By NAME, resolved against the catalog just read. The reader never
+			// saw the id, and an unrecognised id names nothing rather than being
+			// printed at them.
+			TicketTypeName: ticketTypeNames[params.TicketTypeID],
+			SoldFrom:       params.SoldFrom,
+			SoldTo:         params.SoldTo,
+			Channel:        params.Channel,
+			Source:         params.Source,
+			PaymentMethod:  params.PaymentMethod,
+			// THAT a search happened, never what it was: the term is routinely a
+			// buyer's email or Tax ID, and this file is forwarded. Same call the
+			// export's log line makes, from the same value.
+			Searched: searched,
+		},
+	}
+
+	data, err := exportfile.Build(exported, types, loc, info)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// The one record that a copy of this Event's buyers left the building.
+	//
+	// There is no audit table behind it — that implies a reading surface, a
+	// retention policy and an access rule, and should be designed once across
+	// Payout Profile reads and Operator actions rather than growing out of this
+	// feature. So this line is the whole answer to "who pulled the customer
+	// list", and it is not a question that can be answered retroactively: it is
+	// written here or it is never written.
+	//
+	// It is logged AFTER the workbook exists, so the line claims a file that was
+	// actually handed over rather than one whose build then failed.
+	//
+	// The free-text search is a BOOLEAN and never its value. The search matches
+	// customer email and Tax ID number, so a support lookup for one buyer puts
+	// that buyer's PII into the filter — and a log aggregator typically has
+	// broader access and longer retention than the database it would be copied
+	// out of. The structural filters below say what was asked for without saying
+	// anything about any one person, which is exactly the line the Info sheet
+	// draws in the file itself.
+	s.logger.Info("sales export generated",
+		"member_id", actor.MemberID,
+		"organization_id", actor.OrganizationID,
+		"event_id", eventID,
+		"row_count", len(exported),
+		"status", status,
+		"ticket_type_id", params.TicketTypeID,
+		"sold_from", params.SoldFrom,
+		"sold_to", params.SoldTo,
+		"channel", params.Channel,
+		"source", params.Source,
+		"payment_method", params.PaymentMethod,
+		"search", searched,
+	)
+
+	return &SalesExport{Data: data, Filename: salesExportFilename(event.Slug, generatedAt.In(loc))}, nil, nil
+}
+
+// exportTooManyRows is the refusal a Sales Export over the row cap carries.
+//
+// It is a field error rather than a domain error because of what the reader is
+// meant to do next: the filters that produced this request are on screen beside
+// the button that sent it, and narrowing them is the fix. The staff app renders
+// the message inline there, so the message is the feature — it names how many
+// matched (which is how the person knows how much narrower to go), how many may
+// travel at once, and the lever to reach for.
+//
+// The field named is `filters` and not any one parameter: no single filter is at
+// fault, and blaming sold_from would be wrong for somebody whose lever is the
+// Ticket Type or the channel.
+func exportTooManyRows(matched, rowCap int) platform.FieldError {
+	return platform.FieldError{
+		Field: "filters",
+		Code:  platform.CodeTooManyItems,
+		Message: fmt.Sprintf(
+			"This Event has %s matching sales; up to %s can be downloaded at once. Narrow the date range and try again.",
+			groupDigits(matched), groupDigits(rowCap),
+		),
+	}
+}
+
+// groupDigits renders a count with thousands separators, because these numbers
+// are read by a person deciding how much to narrow a filter and "24,318" is
+// legible at a glance where "24318" is not.
+func groupDigits(n int) string {
+	digits := strconv.Itoa(n)
+	sign := ""
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	var b strings.Builder
+	for i, d := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(d)
+	}
+	return sign + b.String()
+}
+
+// exportedNetProceeds is the Net Proceeds a Sales Export row states, or nil
+// where the figure does not apply to the sale at all.
+//
+// The number itself is the repository's, summed off the per-line fee snapshots
+// the sale froze — the same expression the Event's sales summary sums, so a sale
+// and the Event it belongs to can never disagree, and so a later rate change or
+// Fee Handling flip never rewrites what an old sale earned (ADR 0014). Nothing
+// here recomputes a fee or branches on the Event's mode.
+//
+// What this function decides is only WHETHER the sale has such a figure, and it
+// returns nil rather than zero in the two cases where it does not. That
+// distinction is the whole of ADR 0032: a blank cell and a 0 say different
+// things, and in a spreadsheet the difference becomes a SUM.
+//
+//   - Only an Online Sale produces Net Proceeds. On any other Sales Channel the
+//     money never passed through the platform, so nothing was withheld from it —
+//     and because those lines carry fee snapshots of zero, the raw sum reads back
+//     as the sale's full price, which would be a plain lie about money the
+//     platform never held.
+//   - A reversed sale drops out of the money as it does everywhere else. It keeps
+//     its row, because a Sale Reversal should be visible in the file rather than
+//     a row that silently vanished, but money given back was never proceeds.
+//
+// Both mirror ADR-0019's treatment of a free Online Sale's figures as absent
+// rather than zero. A blank here is deliberate; it is not a gap to be filled in.
+func exportedNetProceeds(row repository.SaleRow) *int {
+	if row.Channel != salesChannelOnline || row.Status == saleStatusReversed {
+		return nil
+	}
+	net := row.NetProceedsCents
+	return &net
+}
+
+// exportedReversalRoute is the route a Sales Export row names in reversed_by, or
+// nil where the sale has no Sale Reversal to describe.
+//
+// It is a TRANSLATION, and the fact that it is one is the whole point. The
+// stored column records the kind of ACTOR behind the reversal — `customer`,
+// `staff`, `operator` (see the sales package's ReversalActor constants) — and on
+// an Operator Reversal it sits on the same ticket_sales row as the acting
+// operator's email, their free-text note, and the money memo they asserted. The
+// export must state the route and only the route, so the two vocabularies are
+// mapped here rather than the stored value being handed through:
+//
+//   - `customer` stays `customer`: the buyer undid their own Online Sale.
+//   - `operator` becomes `platform`. ADR-0019 holds that an Operator Reversal is
+//     invisible to the Organization beyond the sale showing as reversed by the
+//     platform. The Organization is told an institution acted; which person, on
+//     whose say-so, and with what note are operator-facing and stop here.
+//   - `staff` becomes `import_undo`. On this side of the boundary "staff" is the
+//     reader's own Organization, which tells them nothing; the Sale Import undo
+//     is the lever that was actually pulled, and the only route that value has
+//     ever been written by.
+//
+// Anything else is dropped to nil rather than emitted. A value added to the
+// stored set later — a new reversal route, and the column's constraint is
+// explicitly designed to be extended — would otherwise ride out to every
+// Organization's spreadsheet the moment it was written, in whatever spelling the
+// schema happened to use and possibly naming somebody. A blank cell is a gap the
+// next reader can ask about; a leaked identity cannot be recalled from a file
+// that has already been emailed. Adding a route here is one line, and it should
+// be a deliberate one.
+//
+// nil is also the ordinary answer for every active sale, and for a sale reversed
+// before the platform recorded any provenance (#117) — those rows keep their
+// blank pair rather than being given a fabricated one.
+func exportedReversalRoute(row repository.SaleRow) *string {
+	if row.ReversedBy == nil {
+		return nil
+	}
+	route, ok := map[string]string{
+		sales.ReversalActorCustomer: exportfile.ReversedByCustomer,
+		sales.ReversalActorOperator: exportfile.ReversedByPlatform,
+		sales.ReversalActorStaff:    exportfile.ReversedByImportUndo,
+	}[*row.ReversedBy]
+	if !ok {
+		return nil
+	}
+	return &route
+}
+
+// The two values exportedNetProceeds tests against, named so the rule above
+// reads as the sentence it is. Both are stored spellings enforced by database
+// CHECK constraints and shared with the Sales list's own filter allowlists.
+const (
+	salesChannelOnline = "online"
+	saleStatusReversed = "reversed"
+)
+
+// salesExportFilename names a Sales Export after its Event and the day it was
+// taken — "sales-summer-fest-2026-08-07.xlsx" — so a Downloads folder holding
+// several stays navigable. The day is the Event's, drawn in the Event's own
+// timezone like every other date in the file.
+func salesExportFilename(slug string, generatedAt time.Time) string {
+	return "sales-" + slug + "-" + generatedAt.Format("2006-01-02") + ".xlsx"
 }
 
 // SalesSummary is the Sales tab's stat strip: what the Event has left the

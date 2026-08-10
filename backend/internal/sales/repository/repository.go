@@ -195,7 +195,12 @@ func (r *Repository) GetEventName(ctx context.Context, orgID, eventID string) (s
 // EventImportContext is the Event metadata a Sale Import needs: its name, the
 // timezone (nullable) used to interpret naive sold_at values, and its schedule.
 type EventImportContext struct {
-	Name     string
+	Name string
+	// Slug is the Event's URL-safe name, already unique within the Organization.
+	// It rides along because a file leaving the platform is named after the
+	// Event, and the slug is the one form of the name that is filename-safe by
+	// construction rather than by a reduction the download has to invent.
+	Slug     string
 	Timezone string
 	// Currency is the Organization's currency, which the Sale Confirmation's
 	// total is denominated in.
@@ -232,17 +237,17 @@ func (e *EventImportContext) End() time.Time {
 	}
 }
 
-// GetEventImportContext returns the Event's name, timezone, schedule, and
+// GetEventImportContext returns the Event's name, slug, timezone, schedule, and
 // registration mode, and whether it belongs to the Organization.
 func (r *Repository) GetEventImportContext(ctx context.Context, orgID, eventID string) (*EventImportContext, bool, error) {
 	var out EventImportContext
 	var tz sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT e.name, e.timezone, o.currency, e.starts_at, e.ends_at, e.registration_mode
+		SELECT e.name, e.slug, e.timezone, o.currency, e.starts_at, e.ends_at, e.registration_mode
 		FROM events e
 		JOIN organizations o ON o.id = e.organization_id
 		WHERE e.id = $1 AND e.organization_id = $2
-	`, eventID, orgID).Scan(&out.Name, &tz, &out.Currency, &out.StartsAt, &out.EndsAt, &out.RegistrationMode)
+	`, eventID, orgID).Scan(&out.Name, &out.Slug, &tz, &out.Currency, &out.StartsAt, &out.EndsAt, &out.RegistrationMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -1016,7 +1021,15 @@ func (r *Repository) ListImportBatches(ctx context.Context, orgID, eventID strin
 
 // SaleLineRollup is one Ticket Type and its quantity within a Ticket Sale, as
 // rolled up for the Sales list (one entry per Ticket Sale Line).
+//
+// TicketTypeID rides alongside the name because the Sales Export must place a
+// quantity under the right column of the Event's catalog, and the name cannot do
+// that: an organizer may give two Ticket Types the same name, and nothing stops
+// one being called "amount". The id is the identity; the name is what a reader
+// sees. Both are read live — no name is snapshotted onto a sale line, so a rename
+// moves every surface at once.
 type SaleLineRollup struct {
+	TicketTypeID   string `json:"ticket_type_id"`
 	TicketTypeName string `json:"ticket_type_name"`
 	Quantity       int    `json:"quantity"`
 }
@@ -1032,14 +1045,26 @@ type SaleRow struct {
 	CustomerEmail     string
 	TicketTypes       []SaleLineRollup
 	AmountCents       int
-	Currency          string
-	SoldAt            time.Time
-	Channel           string
-	Source            *string
-	Status            string
-	ConfirmationRef   string
-	RecordedAt        time.Time
-	PaymentMethod     *string
+	// NetProceedsCents is what this sale's lines left the Organization once the
+	// Platform Fee and its Fee IVA were withheld, summed off the snapshots the
+	// lines froze at sale time — the same expression the Event's sales summary
+	// sums, grouped per sale rather than per Event (lineNetProceedsSQL, ADR 0014).
+	//
+	// It is the raw arithmetic and nothing more: it says nothing about whether
+	// the figure APPLIES to this sale. A sale on any channel but `online` carries
+	// fee snapshots of zero and so reads back as its full price, which would be a
+	// lie about money the platform never held; a reversed sale reads back as
+	// money that was given away again. Deciding which sales have a Net Proceeds
+	// figure at all is the caller's, and the Sales Export leaves both blank.
+	NetProceedsCents int
+	Currency         string
+	SoldAt           time.Time
+	Channel          string
+	Source           *string
+	Status           string
+	ConfirmationRef  string
+	RecordedAt       time.Time
+	PaymentMethod    *string
 	// CustomerTaxIDType/Number are the Tax ID snapshot the sale was transacted
 	// under, nil together on sales recorded without one (legacy rows and
 	// imports that never collected it — ADR 0016).
@@ -1082,8 +1107,12 @@ type ListSalesQuery struct {
 	// Sort and Dir are the validated sort column and direction (the service
 	// guarantees they are allowlisted; see salesSortColumns). Sort selects the
 	// primary ORDER BY expression; Dir is "asc" or "desc".
-	Sort   string
-	Dir    string
+	Sort string
+	Dir  string
+	// Limit and Offset paginate the result. Limit must be positive and ListSales
+	// refuses anything else: the Sales list passes its page size, the Sales
+	// Export the row cap plus one — one past the cap being how it learns it has
+	// been exceeded without reading an Event's whole history to find out.
 	Limit  int
 	Offset int
 }
@@ -1139,15 +1168,27 @@ func salesOrderBy(sort, dir string) string {
 // DESC) with an id tiebreaker so equal primary values do not reorder between
 // pages — see salesOrderBy. The Ticket Sale Lines are aggregated per sale in a
 // lateral subquery so a multi-line sale stays a single row (no join fan-out): its
-// amount is SUM(quantity × unit_price_cents) and its Ticket Types roll up into
-// one ordered list. total is the unpaginated match count via COUNT(*) OVER()
-// (ADR-0006).
+// amount is SUM(quantity × unit_price_cents), its Net Proceeds the same sum over
+// lineNetProceedsSQL, and its Ticket Types roll up into one ordered list. total
+// is the unpaginated match count via COUNT(*) OVER() (ADR-0006).
 //
 // Optional filters (ticket type, sold-at range, search, channel/source/payment
 // method) are appended to the WHERE clause; the ticket-type filter uses an
 // EXISTS sub-query so it narrows sales without touching the rollup or fanning
 // the row out.
+//
+// Limit is always applied and must be positive. total carries COUNT(*) OVER(),
+// which rides on the returned rows — so it is the true unpaginated match count
+// whenever the page holds anything, and zero when the page is empty. The Sales
+// Export reads one row past its cap from offset zero, so a page it cares about
+// is never empty and its refusal count is exact.
 func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow, int, error) {
+	// A non-positive Limit would mean LIMIT 0: Postgres returns no rows, total
+	// stays zero for want of a row to carry it, and the caller gets a confident
+	// empty answer instead of an error. Refuse it rather than serve it.
+	if q.Limit <= 0 {
+		return nil, 0, fmt.Errorf("sales: ListSales requires a positive Limit, got %d", q.Limit)
+	}
 	// $1..$3 are the always-present event/org/status scope; further filters
 	// append their own placeholders so the query only mentions active filters.
 	args := []any{q.EventID, q.OrganizationID, q.Status}
@@ -1201,10 +1242,15 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	if len(conds) > 0 {
 		filterSQL = " AND " + strings.Join(conds, " AND ")
 	}
+	// Every read is bounded. The Sales list passes its page size and the Sales
+	// Export the row cap plus one; there is deliberately no "fetch everything"
+	// path, because a caller that reached it by passing a zero would pull an
+	// Event's entire sales history into memory without saying so.
 	args = append(args, q.Limit)
 	limitP := len(args)
 	args = append(args, q.Offset)
 	offsetP := len(args)
+	pageSQL := fmt.Sprintf("LIMIT $%d OFFSET $%d", limitP, offsetP)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -1213,6 +1259,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.customer_last_name,
 			ts.customer_email,
 			lines.amount_cents,
+			lines.net_proceeds_cents,
 			lines.ticket_types,
 			org.currency,
 			ts.sold_at,
@@ -1232,9 +1279,10 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		JOIN LATERAL (
 			SELECT
 				COALESCE(SUM(tsl.quantity * tsl.unit_price_cents), 0) AS amount_cents,
+				COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
 				COALESCE(
 					json_agg(
-						json_build_object('ticket_type_name', tt.name, 'quantity', tsl.quantity)
+						json_build_object('ticket_type_id', tt.id, 'ticket_type_name', tt.name, 'quantity', tsl.quantity)
 						ORDER BY tt.sort_order, tt.name
 					),
 					'[]'::json
@@ -1245,8 +1293,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		) lines ON TRUE
 		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = $3%s
 		`+salesOrderBy(q.Sort, q.Dir)+`
-		LIMIT $%d OFFSET $%d
-	`, filterSQL, limitP, offsetP)
+		%s
+	`, filterSQL, pageSQL)
 
 	rows, err := r.db.Pool.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1267,6 +1315,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&s.CustomerLastName,
 			&s.CustomerEmail,
 			&s.AmountCents,
+			&s.NetProceedsCents,
 			&typesJSON,
 			&s.Currency,
 			&s.SoldAt,

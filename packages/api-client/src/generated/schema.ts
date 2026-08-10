@@ -4640,6 +4640,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/sales/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export an Event's Ticket Sales as a spreadsheet
+         * @description Returns an .xlsx of the Event's Ticket Sales — one row per Ticket Sale — reflecting exactly the filters supplied, so the file matches the Sales list screen it was taken from. Accepts the SAME query parameters as the Sales list (status, ticket_type_id, sold_from/sold_to, q, channel, source, payment_method, sort, dir) and parses them with the list's own helper, so the two cannot drift; the pagination parameters are ignored, since a file is the whole answer. Status still defaults to `active`, so the default file omits reversed sales exactly as the default screen does, and the `status` filter reaches them in both places. The sold-at range is still interpreted in the Event timezone. Columns, left to right: confirmation_ref, sold_at, customer_first_name, customer_last_name, customer_email, tax_id_type, tax_id_number, one column per Ticket Type in the Event's live catalog, total_quantity, amount, net_proceeds, currency, channel, source, payment_method, status, reversed_at, reversed_by. Cells are really typed: sold_at and reversed_at are Excel date cells formatted `yyyy-mm-dd hh:mm` drawn in the Event's timezone, quantities are whole numbers, and amount and net_proceeds are numbers in major units (25.00, never 2500 and never a currency-prefixed string) with the currency in its own column. `reversed_at`/`reversed_by` are the Sale Reversal's provenance and are blank together on an active sale. `reversed_by` names the ROUTE only — `customer` (the buyer undid their own Online Sale), `platform` (an Operator Reversal), or `import_undo` (a Sale Import undo) — and never the acting Platform Operator's identity or their note, which are operator-facing and never reach this file (ADR-0019). The Tax ID pair carries the snapshot the sale was transacted under and is blank — never a placeholder — on a sale recorded without one. The workbook has exactly two sheets. `Info` comes first and is the active sheet on open: it states the Event's name, the generated-at timestamp (which also tells a reader which moment's Ticket Type catalog the headings reflect), the timezone named outright as the Event's, the row count, the currency, and the applied filters rendered in words rather than as query parameters — including, plainly, that reversed sales were excluded when the status filter left them out. The free-text search is stated as having been applied but its term is never written into the file, since it matches customer email and Tax ID number. The data sheet is named `Ticket Sales` and deliberately not `Sales`: the Sale Import parser selects its sheet by that name, so an export accidentally uploaded as an import fails rather than duplicating every sale. It carries nothing above its header row, so select-all, autofilter and pivot source ranges work without deleting a preamble — which is why the stamp is a sheet of its own. The filename is set by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Generation is synchronous and the workbook is buffered in memory, so the file is CAPPED at 10,000 Ticket Sales — the same constant the Sale Import accepts, so an export can never exceed what the importer would take back. A request whose filters match MORE than the cap builds nothing and is refused with the standard VALIDATION_FAILED envelope, carrying one field error on `filters` whose message names how many sales matched and how many may be downloaded at once, so the caller knows how much narrower to go; exactly the cap succeeds. One structured log line is written per generated file — the acting Member, Organization, Event, the structural filters and the row count — because this is the largest concentration of buyer PII the product emits and "who pulled the customer list" cannot be answered retroactively. The free-text search is recorded in it as a boolean only: it matches customer email and Tax ID number, and logging the term would copy a buyer's PII into a log aggregator. Restricted to Org Admins and Event Owners — the same guard as the sales summary, because this file concentrates every buyer's email and Tax ID for an Event into something that is forwarded and retained; Event Staff are refused and keep the on-screen Sales list.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Ticket Sale status (default active) */
+                    status?: "active" | "reversed";
+                    /** @description Keep only sales that include this Ticket Type */
+                    ticket_type_id?: string;
+                    /** @description Sold-at range start (YYYY-MM-DD, Event timezone, inclusive) */
+                    sold_from?: string;
+                    /** @description Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day) */
+                    sold_to?: string;
+                    /** @description Case-insensitive substring over customer email, name, confirmation_ref, and Tax ID number */
+                    q?: string;
+                    /** @description Sales Channel */
+                    channel?: "online" | "in_person" | "import";
+                    /** @description Sales Source */
+                    source?: "direct" | "external_platform";
+                    /** @description Payment Method */
+                    payment_method?: "cash" | "transfer" | "payphone" | "free";
+                    /** @description Sort column (default sold_at) */
+                    sort?: "sold_at" | "recorded_at" | "customer" | "amount";
+                    /** @description Sort direction (default desc) */
+                    dir?: "asc" | "desc";
+                };
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/sales/summary": {
         parameters: {
             query?: never;

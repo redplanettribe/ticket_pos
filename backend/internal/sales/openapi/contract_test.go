@@ -38,6 +38,31 @@ func TestPublicCheckoutContract(t *testing.T) {
 	}
 }
 
+// TestSalesExportContract asserts the Sales Export endpoint is present in the
+// generated OpenAPI spec. The file leaves the platform, so the shape of the call
+// that produces it is part of the published contract like its neighbours.
+func TestSalesExportContract(t *testing.T) {
+	t.Parallel()
+
+	specPath := openAPISpecPath(t)
+	raw, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+
+	var doc struct {
+		Paths map[string]any `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	const path = "/api/v1/staff/events/{id}/sales/export"
+	if _, ok := doc.Paths[path]; !ok {
+		t.Fatalf("missing path %q in OpenAPI spec", path)
+	}
+}
+
 func openAPISpecPath(t *testing.T) string {
 	t.Helper()
 

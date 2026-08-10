@@ -1,6 +1,6 @@
 // Relative (not "@/lib") so the module graph resolves under `node --test` as
 // well as the bundler — the unit tests import this file directly.
-import { fetchEventsJSON } from "./events-api.ts";
+import { ApiError, fetchEventsJSON } from "./events-api.ts";
 
 // Types mirror the Go Sales list response (internal/sales). Field names match
 // the JSON the API emits so rows render verbatim.
@@ -200,6 +200,88 @@ export async function fetchSalesList(
   appendSalesFilters(params, filters);
   appendSalesSort(params, sort, dir);
   return fetchEventsJSON<SalesListResponse>(`/api/events/${eventId}/sales?${params.toString()}`);
+}
+
+// salesExportPath is the BFF path for the Sales Export under the given filters
+// and sort. It is built from the same helpers the list's own fetch uses, so the
+// file that arrives is the screen that was showing. Pagination is deliberately
+// absent: the file is the whole answer, not a page of it.
+export function salesExportPath(
+  eventId: string,
+  filters: SalesFilters,
+  sort: SaleSortField = DEFAULT_SALE_SORT,
+  dir: SaleSortDir = DEFAULT_SALE_DIR,
+): string {
+  const params = new URLSearchParams();
+  appendSalesFilters(params, filters);
+  appendSalesSort(params, sort, dir);
+  const query = params.toString();
+  return `/api/events/${eventId}/sales/export${query ? `?${query}` : ""}`;
+}
+
+// exportFilenameFrom reads the download's filename out of a Content-Disposition
+// header. The backend decides the name so it is decided in one place; this only
+// reads it back, falling back to a plain name if the header is missing.
+function exportFilenameFrom(disposition: string | null): string {
+  const match = disposition?.match(/filename="?([^"]+)"?/);
+  return match?.[1] ?? "sales-export.xlsx";
+}
+
+// downloadSalesExport fetches the Sales Export and saves it as a file.
+//
+// It fetches a blob rather than navigating to the URL, and that is required
+// rather than cosmetic: the endpoint returns a file on success and a JSON error
+// envelope on failure, so a plain link would navigate the browser to raw JSON
+// whenever the export was refused and the error we rely on would be invisible.
+// Fetching also lets the caller show a spinner while a large file is built.
+/** The error half of the envelope an export refusal arrives in. */
+type ExportErrorEnvelope = {
+  error?: {
+    message?: string;
+    code?: string;
+    details?: { fields?: { field?: string; message?: string }[] };
+  };
+} | null;
+
+// salesExportErrorMessage is what the person is shown when an export is refused.
+//
+// It prefers the FIELD error's message over the envelope's own. That is not a
+// cosmetic preference: the row-cap refusal is a VALIDATION_FAILED, whose
+// top-level message is the generic "Request validation failed", while the
+// sentence that actually helps — how many sales matched, how many may be
+// downloaded at once, and to narrow the filters — is the field error underneath
+// it. Reading only the top level would replace the one useful message in the
+// feature with boilerplate, and the cap is only survivable because the person is
+// told which lever to pull.
+export function salesExportErrorMessage(envelope: ExportErrorEnvelope): string {
+  const fieldMessage = envelope?.error?.details?.fields?.find((f) => f?.message)?.message;
+  return fieldMessage ?? envelope?.error?.message ?? "Failed to export sales";
+}
+
+export async function downloadSalesExport(
+  eventId: string,
+  filters: SalesFilters,
+  sort: SaleSortField = DEFAULT_SALE_SORT,
+  dir: SaleSortDir = DEFAULT_SALE_DIR,
+): Promise<void> {
+  const response = await fetch(salesExportPath(eventId, filters, sort, dir));
+  if (!response.ok) {
+    const envelope = (await response.json().catch(() => null)) as ExportErrorEnvelope;
+    throw new ApiError(salesExportErrorMessage(envelope), envelope?.error?.code);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportFilenameFrom(response.headers.get("Content-Disposition"));
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // fetchSalesSummary proxies the Event's sales summary via the BFF. The endpoint

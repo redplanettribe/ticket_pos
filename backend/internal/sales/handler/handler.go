@@ -298,6 +298,76 @@ func (h *Handler) ListSales(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
+// ExportSales returns the Event's Ticket Sales as an .xlsx, narrowed by the same
+// filters as the Sales list.
+//
+// @Summary      Export an Event's Ticket Sales as a spreadsheet
+// @Description  Returns an .xlsx of the Event's Ticket Sales — one row per Ticket Sale — reflecting exactly the filters supplied, so the file matches the Sales list screen it was taken from. Accepts the SAME query parameters as the Sales list (status, ticket_type_id, sold_from/sold_to, q, channel, source, payment_method, sort, dir) and parses them with the list's own helper, so the two cannot drift; the pagination parameters are ignored, since a file is the whole answer. Status still defaults to `active`, so the default file omits reversed sales exactly as the default screen does, and the `status` filter reaches them in both places. The sold-at range is still interpreted in the Event timezone. Columns, left to right: confirmation_ref, sold_at, customer_first_name, customer_last_name, customer_email, tax_id_type, tax_id_number, one column per Ticket Type in the Event's live catalog, total_quantity, amount, net_proceeds, currency, channel, source, payment_method, status, reversed_at, reversed_by. Cells are really typed: sold_at and reversed_at are Excel date cells formatted `yyyy-mm-dd hh:mm` drawn in the Event's timezone, quantities are whole numbers, and amount and net_proceeds are numbers in major units (25.00, never 2500 and never a currency-prefixed string) with the currency in its own column. `reversed_at`/`reversed_by` are the Sale Reversal's provenance and are blank together on an active sale. `reversed_by` names the ROUTE only — `customer` (the buyer undid their own Online Sale), `platform` (an Operator Reversal), or `import_undo` (a Sale Import undo) — and never the acting Platform Operator's identity or their note, which are operator-facing and never reach this file (ADR-0019). The Tax ID pair carries the snapshot the sale was transacted under and is blank — never a placeholder — on a sale recorded without one. The workbook has exactly two sheets. `Info` comes first and is the active sheet on open: it states the Event's name, the generated-at timestamp (which also tells a reader which moment's Ticket Type catalog the headings reflect), the timezone named outright as the Event's, the row count, the currency, and the applied filters rendered in words rather than as query parameters — including, plainly, that reversed sales were excluded when the status filter left them out. The free-text search is stated as having been applied but its term is never written into the file, since it matches customer email and Tax ID number. The data sheet is named `Ticket Sales` and deliberately not `Sales`: the Sale Import parser selects its sheet by that name, so an export accidentally uploaded as an import fails rather than duplicating every sale. It carries nothing above its header row, so select-all, autofilter and pivot source ranges work without deleting a preamble — which is why the stamp is a sheet of its own. The filename is set by Content-Disposition as `sales-{event-slug}-{YYYY-MM-DD}.xlsx`. Generation is synchronous and the workbook is buffered in memory, so the file is CAPPED at 10,000 Ticket Sales — the same constant the Sale Import accepts, so an export can never exceed what the importer would take back. A request whose filters match MORE than the cap builds nothing and is refused with the standard VALIDATION_FAILED envelope, carrying one field error on `filters` whose message names how many sales matched and how many may be downloaded at once, so the caller knows how much narrower to go; exactly the cap succeeds. One structured log line is written per generated file — the acting Member, Organization, Event, the structural filters and the row count — because this is the largest concentration of buyer PII the product emits and "who pulled the customer list" cannot be answered retroactively. The free-text search is recorded in it as a boolean only: it matches customer email and Tax ID number, and logging the term would copy a buyer's PII into a log aggregator. Restricted to Org Admins and Event Owners — the same guard as the sales summary, because this file concentrates every buyer's email and Tax ID for an Event into something that is forwarded and retained; Event Staff are refused and keep the on-screen Sales list.
+// @Tags         staff
+// @Produce      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+// @Security     BearerAuth
+// @Param        id              path   string  true   "Event ID"
+// @Param        status          query  string  false  "Ticket Sale status (default active)"  Enums(active, reversed)
+// @Param        ticket_type_id  query  string  false  "Keep only sales that include this Ticket Type"
+// @Param        sold_from       query  string  false  "Sold-at range start (YYYY-MM-DD, Event timezone, inclusive)"
+// @Param        sold_to         query  string  false  "Sold-at range end (YYYY-MM-DD, Event timezone, inclusive of the whole day)"
+// @Param        q               query  string  false  "Case-insensitive substring over customer email, name, confirmation_ref, and Tax ID number"
+// @Param        channel         query  string  false  "Sales Channel"  Enums(online, in_person, import)
+// @Param        source          query  string  false  "Sales Source"  Enums(direct, external_platform)
+// @Param        payment_method  query  string  false  "Payment Method"  Enums(cash, transfer, payphone, free)
+// @Param        sort            query  string  false  "Sort column (default sold_at)"  Enums(sold_at, recorded_at, customer, amount)
+// @Param        dir             query  string  false  "Sort direction (default desc)"  Enums(asc, desc)
+// @Success      200
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/export [get]
+func (h *Handler) ExportSales(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return
+	}
+
+	// The Sales list's own parser, verbatim: the export exists to hand back what
+	// the screen was showing, and two readings of the same query string would be
+	// two chances for the file and the screen to disagree. Pagination is the one
+	// thing not carried over — a file is the whole answer.
+	query := r.URL.Query()
+	params, fields := parseSalesFilters(query)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	params.Sort = sortParam(query.Get("sort"))
+	params.Dir = dirParam(query.Get("dir"))
+
+	export, fieldErrs, err := h.svc.ExportSales(r.Context(), actorFromRequest(r), eventID, params)
+	if len(fieldErrs) > 0 {
+		// More matching sales than one file may carry. It is VALIDATION_FAILED
+		// rather than a domain error because the answer is something the caller
+		// changes about their request — the filters, which the staff app has on
+		// screen beside the button — and the same envelope the invalid-filter
+		// refusal above uses means the client has one error path to render, not
+		// two.
+		_ = platform.WriteValidationError(w, reqID, fieldErrs)
+		return
+	}
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+export.Filename+"\"")
+	w.Header().Set("X-Request-ID", reqID)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(export.Data)
+}
+
 // GetSalesSummary returns the Event's Net Proceeds and active sales count for
 // the Sales tab's stat strip.
 //

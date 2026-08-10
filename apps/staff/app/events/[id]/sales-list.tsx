@@ -20,6 +20,7 @@ import {
 import { formatPriceCents } from "@/lib/events-api";
 import {
   channelSourceLabel,
+  downloadSalesExport,
   EMPTY_SALES_FILTERS,
   fetchSalesList,
   formatSaleTimestamp,
@@ -62,6 +63,10 @@ type SalesListProps = {
   dir: SaleSortDir;
   // The Event timezone, used to render sold-at (null falls back to the viewer's).
   timezone: string | null;
+  // Whether the viewer may take the Sales Export. Org Admins and Event Owners
+  // may; Event Staff may not, and are not shown the button rather than shown one
+  // that refuses them — the API refuses them too.
+  canExport: boolean;
 };
 
 // defaultDirFor is the direction a newly selected sort column starts in: newest
@@ -70,7 +75,16 @@ function defaultDirFor(field: SaleSortField): SaleSortDir {
   return field === "customer" ? "asc" : "desc";
 }
 
-export function SalesList({ eventId, page, filters, ticketTypes, sort, dir, timezone }: SalesListProps) {
+export function SalesList({
+  eventId,
+  page,
+  filters,
+  ticketTypes,
+  sort,
+  dir,
+  timezone,
+  canExport,
+}: SalesListProps) {
   const router = useRouter();
   const [result, setResult] = useState<SalesListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -182,13 +196,17 @@ export function SalesList({ eventId, page, filters, ticketTypes, sort, dir, time
           />
         ) : null}
         <SalesFilterBar
+          eventId={eventId}
           filters={filters}
           ticketTypes={ticketTypes}
           filtersActive={filtersActive}
           onApply={applyFilters}
+          sort={sort}
+          dir={dir}
+          canExport={canExport}
         />
         {error ? (
-          <p className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
+          <p role="alert" className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
             Couldn&apos;t load sales: {error}
           </p>
         ) : loading ? (
@@ -356,16 +374,32 @@ const SOURCE_OPTIONS = [
 const PAYMENT_METHOD_OPTIONS = PAYMENT_METHODS;
 
 type SalesFilterBarProps = {
+  eventId: string;
   filters: SalesFilters;
   ticketTypes: TicketTypeOption[];
   filtersActive: boolean;
   onApply: (patch: Partial<SalesFilters>) => void;
+  sort: SaleSortField;
+  dir: SaleSortDir;
+  canExport: boolean;
 };
 
 // SalesFilterBar renders the filter controls. Selects and dates apply on change
 // (each a URL/history step); the search box applies on submit so typing does not
 // flood the history. All changes flow up through onApply, which drives the URL.
-function SalesFilterBar({ filters, ticketTypes, filtersActive, onApply }: SalesFilterBarProps) {
+//
+// The Download button lives here, among the filters it obeys, so what pressing
+// it will produce is obvious before it is pressed.
+function SalesFilterBar({
+  eventId,
+  filters,
+  ticketTypes,
+  filtersActive,
+  onApply,
+  sort,
+  dir,
+  canExport,
+}: SalesFilterBarProps) {
   const [search, setSearch] = useState(filters.q);
 
   // Keep the search box in sync when the URL changes underneath us (e.g. the
@@ -505,14 +539,73 @@ function SalesFilterBar({ filters, ticketTypes, filtersActive, onApply }: SalesF
         </div>
       </div>
 
-      {filtersActive ? (
-        <div className="flex justify-end">
-          <Button type="button" variant="ghost" size="sm" onClick={() => onApply(EMPTY_SALES_FILTERS)}>
-            Clear filters
-          </Button>
+      {filtersActive || canExport ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {filtersActive ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => onApply(EMPTY_SALES_FILTERS)}>
+              Clear filters
+            </Button>
+          ) : null}
+          {canExport ? <SalesExportButton eventId={eventId} filters={filters} sort={sort} dir={dir} /> : null}
         </div>
       ) : null}
     </div>
+  );
+}
+
+type SalesExportButtonProps = {
+  eventId: string;
+  filters: SalesFilters;
+  sort: SaleSortField;
+  dir: SaleSortDir;
+};
+
+// SalesExportButton downloads the Sales Export for the filters currently on
+// screen. It fetches a blob rather than linking to the endpoint, because the
+// endpoint answers with a file on success and a JSON error envelope on failure:
+// a plain link would send the browser to raw JSON on a refusal, and the error
+// would go unseen. The spinner and the inline message both follow from that —
+// generation can take a moment, and the complaint belongs beside the filters
+// that are the way to fix it.
+function SalesExportButton({ eventId, filters, sort, dir }: SalesExportButtonProps) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDownload() {
+    setDownloading(true);
+    setError(null);
+    try {
+      await downloadSalesExport(eventId, filters, sort, dir);
+    } catch (downloadError: unknown) {
+      setError(downloadError instanceof Error ? downloadError.message : "Failed to export sales");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <>
+      {/* Its own full-width line inside the wrapping row: the refusal that
+          matters here is a whole sentence naming a count and pointing back at
+          the filters, and squeezed beside the button it would be a column of
+          two words. It stays in this row so it reads as an answer to the
+          button, right where the filters that caused it are. */}
+      {error ? (
+        <span role="alert" className="basis-full text-right text-sm text-destructive">
+          {error}
+        </span>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={downloading}
+        aria-busy={downloading}
+        onClick={handleDownload}
+      >
+        {downloading ? "Preparing…" : "Download .xlsx"}
+      </Button>
+    </>
   );
 }
 
