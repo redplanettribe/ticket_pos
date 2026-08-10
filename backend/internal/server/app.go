@@ -290,7 +290,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	if options.clock != nil {
 		digestService = digestService.WithClock(options.clock)
 	}
-	// Naming a Tag in the reader's Digest Locale is catalog's rule and not this
+	// Naming a Tag in the reader's Mail Locale is catalog's rule and not this
 	// module's — a Preset Tag from the catalogue, a Custom Tag exactly as coined
 	// (ADR 0027 as amended by ADR 0030). The digest module declares the narrow
 	// interface and catalog satisfies it, as customers does for Tag ids.

@@ -270,7 +270,7 @@ type digestCopy struct {
 
 // in picks the sentence for a Locale, falling back to English for anything this
 // platform does not write — which is the same fallback DefaultLocale states, and
-// is unreachable while ParseLocale and the digest_locale CHECK both hold.
+// is unreachable while ParseLocale and the mail_locale CHECK both hold.
 func (c digestCopy) in(locale Locale) string {
 	if locale == LocaleES {
 		return c.es

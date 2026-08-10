@@ -8,7 +8,7 @@ import "strings"
 // A Locale is a property of a page, and the API deliberately does not have one:
 // no read path takes an Accept-Language and no response is worded (ADR 0027).
 // This type exists for the one thing written outside a page — a Customer's
-// Digest Locale, which the Follow Digest is composed in (ADR 0030) — and it is
+// Mail Locale, which the Follow Digest is composed in (ADR 0030) — and it is
 // the language token alone, never a language-and-region tag. Region decides
 // number marks and month names, which only a page ever draws.
 type Locale string

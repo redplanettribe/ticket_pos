@@ -1,0 +1,38 @@
+-- customers.digest_locale becomes customers.mail_locale (#243, parent #240).
+--
+-- Nothing about the value changes: same column, same rows, same NOT NULL
+-- DEFAULT 'en', same CHECK on the two languages the Storefront serves. What
+-- changes is the scope its name claims. Migration 051 added it to answer one
+-- question — what language is a weekly Follow Digest written in? — and named it
+-- for that one email. ADR 0033 asks the same question of the other nine, and
+-- lands on the same stored fact: a Locale is a property of a page's address,
+-- mail has no address, so the language is remembered from the Storefront the
+-- Customer last signed in on. The concept generalized from digests to all mail,
+-- and a column called `digest_locale` read inside `sendSaleConfirmation` would
+-- be a lie about its own scope — the kind that leaves the next reader unable to
+-- tell whether the reuse was considered or careless. See ADR 0033 and the Mail
+-- Locale entry in CONTEXT.md.
+--
+-- A rename rather than an expand-contract pair. Migrations here are
+-- forward-only, so an add-backfill-drop sequence would buy the usual thing it
+-- buys — a window where old and new code both run — at the cost of three
+-- migrations and a live duplicated value. It is not worth it at this blast
+-- radius: the readers are the customer session repository's column list and
+-- scan, the sign-in upsert both doors converge on, and the digest's read at send
+-- time. They all move in this same change, and the tree is green at this commit.
+--
+-- The CHECK constraint follows the column automatically — its expression is
+-- stored against the column, not its name — but its generated name would still
+-- read `customers_digest_locale_check` and outlive the concept it was named for.
+-- It is renamed too, so that a constraint violation surfacing in a log names a
+-- column that exists.
+--
+-- customers.digest_enabled is deliberately NOT renamed. It gates the Follow
+-- Digest and only the Follow Digest — see the Unsubscribe entry in CONTEXT.md,
+-- which is emphatic that it reaches no transactional mail. The two columns
+-- arrived together and read alike, and that similarity now cuts the other way:
+-- one concept generalized to all mail and the other did not, and after this
+-- migration the names say so.
+ALTER TABLE customers RENAME COLUMN digest_locale TO mail_locale;
+
+ALTER TABLE customers RENAME CONSTRAINT customers_digest_locale_check TO customers_mail_locale_check;

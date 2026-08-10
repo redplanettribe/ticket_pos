@@ -273,7 +273,7 @@ func TestFollowDigestInvitesRegistrationOnAnExternallyRegisteredEvent(t *testing
 	}
 }
 
-// All three calls to action are written in the reader's Digest Locale.
+// All three calls to action are written in the reader's Mail Locale.
 //
 // The Digest is the platform's only mail that branches on language (ADR 0030),
 // and a sentence added later is exactly where that branch gets forgotten: an

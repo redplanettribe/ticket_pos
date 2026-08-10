@@ -9,7 +9,7 @@
 // HTTP endpoints a scheduler calls and a human can curl.
 //
 // It is also a module that OWNS ALMOST NOTHING. The Follows belong to customers,
-// the Events and Tags to catalog, the Customer's Digest Locale to customers, the
+// the Events and Tags to catalog, the Customer's Mail Locale to customers, the
 // delivery to platform. What lives here is the two tables nobody else could own
 // — the queue and the sent-ledger — and the decision about what one person is
 // told this week.

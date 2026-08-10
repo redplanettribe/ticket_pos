@@ -116,7 +116,7 @@ func (s *Service) ResolveTagIDByCanonicalKey(ctx context.Context, rawKey string)
 //
 // It exists for what a Storefront page cannot do for itself: mail carries no
 // address, so the Follow Digest is composed here and has to name a Tag in the
-// recipient's Digest Locale (ADR 0030). Every page keeps wording its own chips
+// recipient's Mail Locale (ADR 0030). Every page keeps wording its own chips
 // and badges from its message catalogue, and nothing on the API's wire gains a
 // language — this is called service-to-service and never rendered into a
 // response.

@@ -118,8 +118,9 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*C
 // must be identical either way.
 //
 // locale is the second thing both doors carry alike: the language of the
-// Storefront page the sign-in happened on, remembered as the Customer's Digest
-// Locale because mail has no address to carry a Locale of its own (ADR 0030).
+// Storefront page the sign-in happened on, remembered as the Customer's Mail
+// Locale because mail has no address to carry a Locale of its own (ADR 0030,
+// ADR 0033).
 // It is a preference and not a credential, so an unserved language is dropped
 // rather than refused — a sign-in is Proof of Email Ownership and must not fail
 // over the words a later email will be written in. A caller that names no
@@ -127,12 +128,12 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*C
 //
 // The email must already be normalised and proven by the caller.
 func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL, locale string) (*CustomerSessionView, string, error) {
-	digestLocale := ""
+	mailLocale := ""
 	if parsed, ok := platform.ParseLocale(locale); ok {
-		digestLocale = string(parsed)
+		mailLocale = string(parsed)
 	}
 
-	customer, err := s.repo.VerifyCustomer(ctx, email, now, digestLocale)
+	customer, err := s.repo.VerifyCustomer(ctx, email, now, mailLocale)
 	if err != nil {
 		return nil, "", err
 	}

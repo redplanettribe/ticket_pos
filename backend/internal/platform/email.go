@@ -191,7 +191,7 @@ type PayoutRequestTransferFailed struct {
 //
 // It is also the FIRST MESSAGE THAT BRANCHES ON LANGUAGE, which is why Locale is
 // a field here and on nothing else. A Locale is otherwise a property of a page's
-// address (ADR 0027) and mail has no address, so the Customer's Digest Locale is
+// address (ADR 0027) and mail has no address, so the Customer's Mail Locale is
 // remembered at sign-in (#216) and carried here.
 //
 // It is NEVER SENT EMPTY. A Digest with no Events is not composed into a message
@@ -204,7 +204,7 @@ type FollowDigest struct {
 	// record always has one — it is required on every path that creates one — so
 	// there is no absent case to render around.
 	CustomerName string
-	// Locale is the Customer's Digest Locale and decides which language every
+	// Locale is the Customer's Mail Locale and decides which language every
 	// word of this message is written in, including the Tag names already
 	// resolved into Events below. It is never empty: DefaultLocale is what a
 	// Customer who has never been on a localized surface reads in.
@@ -264,7 +264,7 @@ type FollowDigest struct {
 
 // FollowDigestEvent is one Event as a Follow Digest lists it.
 //
-// Every string here is ALREADY RENDERED in the reader's Digest Locale by the
+// Every string here is ALREADY RENDERED in the reader's Mail Locale by the
 // time it arrives. In particular the Tag names have already been resolved
 // through catalog's LocalizedTagNames, which is the one place the rule lives:
 // a Preset Tag is named in the reader's language, a Custom Tag exactly as the
