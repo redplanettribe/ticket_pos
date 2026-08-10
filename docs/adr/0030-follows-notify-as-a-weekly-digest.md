@@ -103,7 +103,10 @@ as `sale_reversals` does.
   untranslated, which ADR 0027 already holds correct. Twelve strings are duplicated in one
   direction; the decision is not reversed.
 - Customers now carry a remembered Locale, because a Locale is otherwise a property of a page's
-  address and mail has no address.
+  address and mail has no address. **Generalized by ADR 0033**: what was the Digest Locale is now
+  the Mail Locale, governing every mail rather than this one, and it sits behind a Sale Locale
+  recorded on the Ticket Sale. Nothing else in this ADR is affected — the digest still reads it,
+  and the split-sender reasoning below stands.
 - **Tags carry email for the first time.** `maxEventTags` stays at 20 and no anti-stuffing control
   ships: the per-reader cap bounds the harm to relevance rather than volume, and policing tags per
   Event would invent a moderation problem before we have one. Which Follow matched each Digest entry

@@ -208,7 +208,7 @@ _Avoid_: Shop, web store, e-commerce site
 The language-and-region identity a Storefront page is rendered under, carried explicitly in the URL (`/{locale}/...`) so that an address always says which language it serves.
 Decides words and the marks around numbers and dates. Decides nothing about time or money: an Event's times are drawn in the Event's own timezone and the Reversal Window's cutoff in Ecuador's, and a Ticket Type's currency is the Organization's — none of them follows the reader's language.
 A page's Locale comes from its address alone, never from the reader's browser or cookies; those only choose which Locale an address naming none redirects to.
-A property of a page, so it cannot reach anything written outside one: mail has no address to carry a Locale, and reads in the recipient's Digest Locale instead.
+A property of a page, so it cannot reach anything written outside one: mail has no address to carry a Locale, and is written in the recipient's Mail Locale instead.
 _Avoid_: Language (as the whole concept), region, translation, i18n, culture
 
 **Online Sale**:
@@ -447,10 +447,18 @@ Turning a Customer's Follow Digest off while leaving every Follow intact.
 Reversible from the Customer Area, reachable from any Digest without signing in, and never a way to lose a list: a Customer who wants quiet keeps what they Followed. Touches no transactional mail — Sale Confirmations and One-time Passcodes arrive either way.
 _Avoid_: Opt out, mute, disable notifications, delete follows
 
-**Digest Locale**:
-The language a Customer's Follow Digest is written in, remembered from the Storefront they last signed in on.
-Exists because a Locale is a property of a page's address and mail has no address to carry one. Names Preset Tags in the Customer's language as a Storefront page would, and leaves Custom Tags as coined.
-_Avoid_: Email language, preferred language, user locale
+**Mail Locale**:
+The language mail to a Customer is written in, remembered from the Storefront they last signed in on.
+Exists because a Locale is a property of a page's address and mail has no address to carry one. Stands behind the Sale Locale rather than beside it: consulted when the mail is about no sale, or about a sale that named no language. Names Preset Tags in the Customer's language as a Storefront page would, and leaves Custom Tags as coined.
+Belongs to the recipient, not to the reader of a page: switching the Storefront's language does not change it, and only a completed sign-in writes it.
+Reaches no Member and no Platform Operator — staff mail is written in English.
+_Avoid_: Digest Locale, email language, preferred language, user locale
+
+**Sale Locale**:
+The language of the Storefront page a Ticket Sale was completed on.
+Evidence of a language the buyer chose in the moment they bought, so it outranks what the Customer's Mail Locale remembers, and it governs every mail about that sale however long afterwards it is sent.
+Absent on a sale no page produced — a box office sale or an import — which is a different thing from a sale made in English.
+_Avoid_: Checkout language, buyer locale, sale language
 
 **Suggested Follow**:
 A Tag or an Organization a Customer does not Follow, offered to them as one they might.
