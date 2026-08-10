@@ -52,6 +52,22 @@ components:
             $ref: '#/components/schemas/handler.checkoutLineBody'
           type: array
           uniqueItems: false
+        locale:
+          description: |-
+            Locale is the language of the Storefront page this checkout was completed
+            on, recorded as the sale's Sale Locale and read back whenever mail about
+            this sale is written (ADR 0033).
+
+            It is a fact the page reports about itself — its language is in its own
+            address — and not a preference being negotiated: no read path takes an
+            Accept-Language and none is added here (ADR 0027).
+
+            OPTIONAL AND NEVER A REASON TO REFUSE. A caller with no page to name one
+            omits it, and a language this platform does not serve is dropped. Either
+            way the sale records no language and the receipt falls back to what the
+            Customer's record remembers, then to English. A locale must never fail a
+            purchase — the money is the point of this request and the words are not.
+          type: string
       type: object
     handler.checkoutLineBody:
       properties:
@@ -5196,10 +5212,16 @@ paths:
         this Event left behind, newest first: the first that matches one of this Event''s
         live links credits the Ticket Sale, and a history of unknown, mistyped or
         deactivated codes simply records the sale unattributed — it never refuses
-        a checkout. At most 5 codes are read; anything beyond is ignored. A Customer
-        Session presented in Authorization is optional and changes nothing about the
-        sale — it marks the buyer''s details as their own assertion, which is what
-        lets them replace the Tax ID and phone already stored on that Customer.'
+        a checkout. At most 5 codes are read; anything beyond is ignored. locale is
+        optional and names the language of the Storefront page the checkout was completed
+        on: it is recorded on the Ticket Sale and decides the language of the Sale
+        Confirmation and of every later mail about that sale (ADR 0033). A checkout
+        naming no locale, or one the platform does not serve, records none and still
+        completes — the receipt then falls back to the Customer''s remembered language,
+        and to English. A Customer Session presented in Authorization is optional
+        and changes nothing about the sale — it marks the buyer''s details as their
+        own assertion, which is what lets them replace the Tax ID and phone already
+        stored on that Customer.'
       parameters:
       - description: Organization slug
         in: path

@@ -17,39 +17,8 @@ import (
 // message — one composition, rendered identically by the provider in production
 // and by the integration suite asserting on a captured receipt.
 
-// Subject is the Sale Confirmation's subject line.
-func (c SaleConfirmation) Subject() string {
-	return fmt.Sprintf("Your tickets for %s", c.EventName)
-}
-
-// Text is the Sale Confirmation's plain-text body: what the Customer keeps as
-// their receipt.
-//
-// Two parts are conditional, and both are absent rather than blank when they do
-// not apply — an empty label on a receipt reads as a fault in the platform, and
-// there is nothing a Customer could do about it either way.
-func (c SaleConfirmation) Text() string {
-	// The total is the amount the Customer was charged, all in: the platform's
-	// fee is never itemized on a receipt (ADR 0014).
-	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s",
-		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
-
-	// The Tax ID sits with the reference and the total because it belongs to the
-	// same job those two do: this email is the document the buyer files for
-	// their own expense records (#99).
-	if taxID := c.TaxID.Display(); taxID != "" {
-		text += "\n" + taxID
-	}
-
-	text += "\n\nPresent this reference at the event."
-
-	// The Confirmation Link is the reason this email is worth keeping: it opens
-	// this purchase months later, at the gate, with one tap and no typing.
-	if c.ConfirmationLink != "" {
-		text += fmt.Sprintf("\n\nView your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.", c.ConfirmationLink)
-	}
-	return text
-}
+// The Sale Confirmation is no longer here: it is written in the reader's own
+// language and lives below the line that says so (#245, ADR 0033).
 
 // Subject is the void notice's subject line.
 func (v SaleVoided) Subject() string {
@@ -336,6 +305,79 @@ func (o OTPMessage) Subject() string {
 // needs to know about it.
 func (o OTPMessage) Text() string {
 	return fmt.Sprintf(otpTextCopy.in(o.Locale), o.Code)
+}
+
+// The Sale Confirmation (#245, ADR 0033) — the receipt, and the mail a Customer
+// is most certain to open.
+//
+// It is the message the whole Sale Locale exists for. A visitor can read a
+// Spanish Event page, check out in Spanish as a guest and never sign in, so the
+// only record of the language they chose is the one the sale itself keeps; the
+// language reaching Locale below has already been resolved from it (see
+// SaleConfirmation.Locale).
+//
+// WHAT DOES NOT CHANGE with the language is as decided as what does. The total
+// stays in the Organization's currency and the Tax ID keeps the label printed on
+// the document in the buyer's hand — "Cédula" is what an Ecuadorian buyer looks
+// for on an English receipt too — because this email is the paper trail they
+// file, and a translated number is a number they cannot reconcile (ADR 0016,
+// #99).
+var (
+	saleConfirmationSubjectCopy = translated(
+		"Your tickets for %s",
+		"Sus entradas para %s",
+	)
+	// The opening is one sentence and the three facts under it, declared whole
+	// rather than line by line: the greeting, what is confirmed, the reference
+	// and the total are one block of prose in either language, and splitting
+	// them would let a translator reorder half of it without the other half.
+	saleConfirmationOpeningCopy = translated(
+		"Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s",
+		"Hola %s:\n\nSu compra de %s está confirmada.\nReferencia: %s\nTotal pagado: %s",
+	)
+	saleConfirmationPresentCopy = translated(
+		"Present this reference at the event.",
+		"Presente esta referencia en el evento.",
+	)
+	saleConfirmationLinkCopy = translated(
+		"View your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
+		"Vea sus entradas:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
+	)
+)
+
+// Subject is the Sale Confirmation's subject line, in the language the sale was
+// made in.
+func (c SaleConfirmation) Subject() string {
+	return fmt.Sprintf(saleConfirmationSubjectCopy.in(c.Locale), c.EventName)
+}
+
+// Text is the Sale Confirmation's plain-text body: what the Customer keeps as
+// their receipt.
+//
+// Two parts are conditional, and both are absent rather than blank when they do
+// not apply — an empty label on a receipt reads as a fault in the platform, and
+// there is nothing a Customer could do about it either way.
+func (c SaleConfirmation) Text() string {
+	// The total is the amount the Customer was charged, all in: the platform's
+	// fee is never itemized on a receipt (ADR 0014).
+	text := fmt.Sprintf(saleConfirmationOpeningCopy.in(c.Locale),
+		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
+
+	// The Tax ID sits with the reference and the total because it belongs to the
+	// same job those two do: this email is the document the buyer files for
+	// their own expense records (#99).
+	if taxID := c.TaxID.Display(); taxID != "" {
+		text += "\n" + taxID
+	}
+
+	text += "\n\n" + saleConfirmationPresentCopy.in(c.Locale)
+
+	// The Confirmation Link is the reason this email is worth keeping: it opens
+	// this purchase months later, at the gate, with one tap and no typing.
+	if c.ConfirmationLink != "" {
+		text += "\n\n" + fmt.Sprintf(saleConfirmationLinkCopy.in(c.Locale), c.ConfirmationLink)
+	}
+	return text
 }
 
 // The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike every
@@ -628,14 +670,29 @@ func (e FollowDigestEvent) reasons() []string {
 	return reasons
 }
 
+// The localized calendar, which is SHARED BY EVERY MESSAGE THAT PRINTS A DATE
+// rather than the Digest's own (#245).
+//
+// It arrived with the Digest because the Digest was the first message that
+// branched on language at all, and it read as digest machinery for exactly as
+// long as the Digest was the only bilingual mail on the platform. It no longer
+// is: every Customer-facing message below the line above is written in the
+// reader's language, and an Event's date is the same date in whichever of them
+// prints it. A second copy scoped to receipts would be a second place for a
+// month to be spelled wrong.
+//
 // formatEventDate renders an Event's start in the Event's own zone, in the
 // reader's language — "Friday 10 July, 20:00" / "viernes 10 de julio, 20:00".
+// The EVENT's zone and not the reader's, always: localizing mail changes the
+// words and the marks around the numbers and never the numbers themselves
+// (ADR 0033), and a Spanish receipt showing a shifted time is the sort of thing
+// that gets reported as a bug.
 //
 // The month and weekday names are spelled out here rather than taken from
 // time.Format's English-only names, because Go's standard library carries no
 // localized calendar and pulling in one for twelve words would be a dependency
 // bigger than the feature. An unknown or unloadable timezone yields no date line
-// at all rather than one in the wrong zone: a Digest that tells somebody the
+// at all rather than one in the wrong zone: a message that tells somebody the
 // wrong day is worse than one that tells them to open the link.
 func formatEventDate(startsAt time.Time, timezone string, locale Locale) string {
 	if startsAt.IsZero() {

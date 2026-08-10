@@ -52,6 +52,19 @@ type SaleConfirmation struct {
 	// and on imported sales that never carried one, in which case the receipt
 	// simply has no such line.
 	TaxID SaleTaxID
+	// Locale is the language this receipt is written in, ALREADY RESOLVED by the
+	// caller through platform.ResolveMailLocale (#245, ADR 0033): the Sale
+	// Locale, then the Customer's Mail Locale, then English.
+	//
+	// It arrives resolved rather than as the two raw values because the chain is
+	// one decision and this type is not where it is made — a message that
+	// resolved its own language would be a second copy of the ordering, and the
+	// void notice and the digest would each need a third.
+	//
+	// The zero value renders English, which is what every sale recorded before
+	// this feature — box office, import, and every Online Sale that predates the
+	// column — is written in, exactly as before.
+	Locale Locale
 }
 
 // SaleVoided is the cancellation notice emailed to a Customer when a Ticket Sale

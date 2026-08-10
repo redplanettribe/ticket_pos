@@ -96,7 +96,14 @@ type CreatePaymentInput struct {
 	// redirect carrying nothing but a transaction id, so an attribution not on
 	// this row is an attribution lost.
 	AffiliateLinkID string
-	Now             time.Time
+	// Locale is the language of the Storefront page this checkout was completed
+	// on, already narrowed to one this platform writes in, and empty for a
+	// checkout that named none (ADR 0033). Snapshotted here for the third time
+	// the same reason applies: the confirm leg arrives on the provider's return
+	// redirect with a transaction id and nothing else, so a language not on this
+	// row is a language lost by the time there is a Ticket Sale to put it on.
+	Locale string
+	Now    time.Time
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -114,14 +121,14 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			event_id, organization_id, provider, client_transaction_id,
 			status, amount_cents, customer_email, customer_first_name, customer_last_name,
 			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
-			customer_phone, affiliate_link_id, created_at, updated_at
+			customer_phone, affiliate_link_id, locale, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $9, $9)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $15, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
 		nullString(in.Customer.TaxID.Type), nullString(in.Customer.TaxID.Number), in.Customer.SelfAsserted,
-		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID)).Scan(&paymentID)
+		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID), nullString(in.Locale)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -368,15 +375,20 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// transaction that records it: every Online Sale — paid or free — passes
 	// through this spine, so attribution needs no second path (ADR 0017, #146).
 	var affiliateLinkID sql.NullString
+	// The Sale Locale this checkout was begun under, NULL when the page named
+	// none or named a language this platform does not write (ADR 0033). Read here
+	// and copied onto the sale below, inside the one transaction that records it,
+	// exactly as the attribution above is.
+	var locale sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
 		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized,
-		       affiliate_link_id
+		       affiliate_link_id, locale
 		FROM payments
 		WHERE client_transaction_id = $1
 		FOR UPDATE
 	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
-		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID)
+		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID, &locale)
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +465,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 			SoldAt:          in.Now,
 			ConfirmationRef: in.ConfirmationRef,
 			AffiliateLinkID: affiliateLinkID.String,
+			Locale:          locale.String,
 			Lines:           lines,
 		}},
 		Now:            in.Now,

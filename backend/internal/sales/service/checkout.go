@@ -98,6 +98,22 @@ type BeginCheckoutInput struct {
 	// The order carries last-click attribution; liveness decides which click the
 	// buyer's last LIVE click was, and only this side can answer that (ADR 0022).
 	AffiliateCodes []string
+	// Locale is the language token of the Storefront page this checkout was
+	// completed on, exactly as the request body carried it, and it becomes the
+	// sale's Sale Locale (ADR 0033).
+	//
+	// Raw and untrusted, like the affiliate codes above and for the same reason:
+	// it is read through platform.ParseLocale and DROPPED when it names a
+	// language this platform does not write, leaving the sale with none. Nothing
+	// about it can refuse a checkout. A receipt in the wrong language is a
+	// disappointment; a purchase refused over one is a lost sale and a Customer
+	// who cannot get into an Event.
+	//
+	// Empty from every caller with no page to name one, which is the ordinary
+	// state of the other two Sales Channels: a box office sale and an import
+	// record no language at all, and that is a different thing from recording
+	// English (see migration 059).
+	Locale string
 }
 
 // BeginCheckoutResult is what the Storefront needs to finish the checkout: our
@@ -265,9 +281,19 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	// link afterwards — the same reasoning that freezes the prices above.
 	affiliateLinkID := s.resolveAffiliateLink(ctx, event.ID, in.AffiliateCodes)
 
+	// The page's language, kept only if it is one this platform writes in
+	// (ADR 0033). An unserved or malformed token leaves this empty, which records
+	// no Sale Locale at all rather than asserting English on the buyer's behalf —
+	// and the checkout carries on either way, which is the whole rule.
+	saleLocale := ""
+	if parsed, ok := platform.ParseLocale(in.Locale); ok {
+		saleLocale = string(parsed)
+	}
+
 	clientTransactionID := uuid.NewString()
 	if _, err := s.repo.CreatePayment(ctx, repository.CreatePaymentInput{
 		AffiliateLinkID:     affiliateLinkID,
+		Locale:              saleLocale,
 		EventID:             event.ID,
 		OrganizationID:      event.OrganizationID,
 		Provider:            provider,
@@ -579,7 +605,31 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		Currency:         event.Currency,
 		ConfirmationLink: s.confirmationLink(sale.ID, event.End()),
 		TaxID:            sale.CustomerTaxID,
+		Locale:           s.mailLocale(ctx, sale),
 	})
+}
+
+// mailLocale is the language one Ticket Sale's mail is written in, and it is
+// the only way this module answers that question (ADR 0033).
+//
+// It resolves nothing itself: platform.ResolveMailLocale owns the ordering —
+// the Sale Locale, then what the Customer's record remembers, then English —
+// and every send site in this package goes through here so that no second
+// spelling of that chain can appear beside it. An Online Sale made on a Spanish
+// page is written in Spanish; a box office sale or an import recorded no
+// language and falls through to the recipient's own.
+//
+// A failed read of the remembered language is logged and treated as "nothing
+// remembered". The sale is committed by the time this runs, so the worst this
+// can cost is a receipt in the wrong language, and the alternative — no receipt
+// — is far worse for the buyer.
+func (s *Service) mailLocale(ctx context.Context, sale *repository.RecordedSale) platform.Locale {
+	remembered, err := s.customers.MailLocale(ctx, sale.CustomerEmail)
+	if err != nil {
+		s.logger.Warn("sale confirmation: could not read the recipient's remembered language; falling back",
+			"ticket_sale_id", sale.ID, "error", err)
+	}
+	return platform.ResolveMailLocale(sale.Locale, remembered)
 }
 
 // ConfirmCheckoutResult is the settled outcome of a Payment: approved with the

@@ -70,7 +70,16 @@ type CommitSale struct {
 	// import channels — neither travels through a link, and neither has anywhere
 	// to have carried a code from (#146).
 	AffiliateLinkID string
-	Lines           []CommitLine
+	// Locale is the Sale Locale: the language of the Storefront page this sale
+	// was completed on, copied from the Payment that settled it (ADR 0033).
+	//
+	// EMPTY IS A REAL ANSWER AND NOT A GAP. A box office sale and an import were
+	// produced by no page, so there is nothing for them to record, and the column
+	// is nullable precisely so they can say so — 'en' there would be an assertion
+	// that the buyer chose English, and the Sale Locale outranks the Customer's
+	// remembered language (see migration 059).
+	Locale string
+	Lines  []CommitLine
 }
 
 // UpsertCustomer creates or reuses the Customer for one Ticket Sale inside the
@@ -141,6 +150,13 @@ type RecordedSale struct {
 	// rather than re-reading a Customer record that may already have moved on.
 	// Unset on the `import` channel when the file carried no Tax ID.
 	CustomerTaxID platform.SaleTaxID
+	// Locale is the Sale Locale just written onto the sale, echoed back so the
+	// Sale Confirmation can be written in it without re-reading the row it was
+	// this instant inserted from (ADR 0033). Empty on every sale no page produced
+	// — a box office sale, an import, and every sale recorded before the column
+	// existed — which is what sends the resolution on to the Customer's
+	// remembered language, and then to English.
+	Locale string
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -481,14 +497,14 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 				customer_id, customer_email, customer_first_name, customer_last_name,
 				customer_tax_id_type, customer_tax_id_number,
 				sold_at, confirmation_ref, status,
-				affiliate_link_id, created_at
+				affiliate_link_id, locale, created_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $15, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $15, $16, $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
 			customerID, s.Customer.Email, s.Customer.FirstName, s.Customer.LastName, s.SoldAt, s.ConfirmationRef, in.Now,
 			nullString(s.Customer.TaxID.Type), nullString(s.Customer.TaxID.Number),
-			nullString(s.AffiliateLinkID)).Scan(&saleID)
+			nullString(s.AffiliateLinkID), nullString(s.Locale)).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}
@@ -528,6 +544,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			CustomerLastName:  s.Customer.LastName,
 			AmountCents:       amountCents,
 			CustomerTaxID:     s.Customer.TaxID,
+			Locale:            s.Locale,
 		})
 	}
 

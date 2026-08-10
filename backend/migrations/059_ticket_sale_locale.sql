@@ -1,0 +1,58 @@
+-- The Sale Locale: the language of the page a sale was completed on (#245, ADR 0033).
+--
+-- A Locale is a property of a page's address and mail has no address, so
+-- migration 051 remembered a language on the Customer. That answers a weekly
+-- Digest well and a RECEIPT badly: most `customers` rows belong to people who
+-- have never signed in, so the remembered value sits at its default while the
+-- page the buyer just read a whole checkout on knew its own language and threw
+-- it away. This column keeps it. It is read at send time through
+-- platform.ResolveMailLocale, which puts it ABOVE the Customer's Mail Locale:
+-- the sale's is the same kind of evidence, collected at the moment of the act
+-- the mail is about.
+--
+-- NULLABLE, AND THAT IS THE POINT OF THIS MIGRATION. Migration 051 chose
+-- NOT NULL DEFAULT 'en' for customers.mail_locale and argued for it at length,
+-- so the divergence here is deliberate and is written down before somebody
+-- "fixes" it into consistency.
+--
+-- On the Customer, 'en' is a genuine answer: it is the terminal value of the
+-- chain, the language the platform would write in regardless, and defaulting
+-- there removes a case with an obvious resolution. On a sale, 'en' would be
+-- something else entirely — an ASSERTION THAT THIS BUYER CHOSE ENGLISH — and
+-- because the Sale Locale sits at the TOP of the chain, that assertion wins. A
+-- box office sale to a Spanish-speaking regular would pin their receipt to
+-- English and shadow the very memory that was built to catch that case. NULL
+-- carries real information here: no page produced this sale, ask the recipient
+-- instead.
+--
+-- So box office sales and imports record NULL, as does every sale recorded
+-- before this migration — all of which keep receiving their mail exactly as they
+-- did, through the fallback. An online checkout that names no language, or names
+-- one this platform does not serve, records NULL by the same rule: a missing or
+-- malformed locale must never fail a purchase (the service drops it through
+-- platform.ParseLocale rather than refusing the checkout).
+--
+-- The CHECK is the same guard mail_locale carries: the Storefront serves exactly
+-- two languages, and a value outside them is a receipt with no copy to render.
+-- The service never sends an unserved value here; this is the backstop for a
+-- write path added later that forgets to.
+--
+-- No index on either column. Both are read one row at a time while composing
+-- that row's own mail, and neither is ever selected on.
+ALTER TABLE ticket_sales ADD COLUMN locale TEXT NULL
+    CHECK (locale IN ('en', 'es'));
+
+-- The same value on the Payment, for the same reason the buyer's name, phone and
+-- Tax ID are snapshotted there (migrations 027 and 029, and the Affiliate Link
+-- in 036): an Online Sale is
+-- committed by the confirm leg, which runs on the Payment Provider's return
+-- redirect and carries nothing of the checkout form back. A language not stored
+-- at begin-checkout is a language lost by the time there is a sale to store it
+-- on. ApprovePaymentAndCommitSale copies it onto the Ticket Sale above, inside
+-- the one transaction that records the sale — the free-checkout settlement
+-- included, since it goes through the same spine.
+--
+-- Nullable and CHECKed identically, and for the identical reason: a Payment that
+-- names no language must not assert English on the sale it becomes.
+ALTER TABLE payments ADD COLUMN locale TEXT NULL
+    CHECK (locale IN ('en', 'es'));

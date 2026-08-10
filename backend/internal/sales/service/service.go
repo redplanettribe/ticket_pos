@@ -102,6 +102,16 @@ type CustomerService interface {
 	// Customer to point at: a pending Payment, which is the Purchase Limit's
 	// Capacity Hold arm.
 	ResolveByEmail(ctx context.Context, email string) (customerID, normalizedEmail string, err error)
+	// MailLocale is the language mail to this person is written in, as their
+	// record remembers it from the Storefront they last signed in on, and "" when
+	// the platform holds no record or no language for them (ADR 0033).
+	//
+	// It is asked for through this seam rather than read off a column here for
+	// the reason every other Customer fact is: what a Customer is, is that
+	// module's rule. Sales asks the question and hands the answer STRAIGHT to
+	// platform.ResolveMailLocale, which is the only place the ordering lives —
+	// this module must never decide that a remembered language beats the sale's.
+	MailLocale(ctx context.Context, email string) (string, error)
 	// ConfirmationLinkURL mints the Confirmation Link for one recorded Ticket
 	// Sale. eventEnd is the moment the sale's Event finishes, or the zero time
 	// when it has no schedule; how long the link then lives is the customers
@@ -359,6 +369,12 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 				Currency:         event.Currency,
 				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
 				TaxID:            rs.CustomerTaxID,
+				// An imported sale was produced by no page and records no Sale
+				// Locale, so this resolves to whatever the recipient's own record
+				// remembers, and to English for the great majority who have never
+				// signed in (ADR 0033). The same helper the online path uses, for
+				// the same reason: one chain, one place.
+				Locale: s.mailLocale(ctx, &rs),
 			})
 		}
 	}
