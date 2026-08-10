@@ -16,13 +16,14 @@ import (
 // English.
 //
 // It walks the values themselves rather than a list somebody maintains, because
-// translated() is the only way to make one and every call registers itself.
+// translated() is the only way to make copy this platform sends and every call
+// registers itself.
 func TestEveryMailCopyIsWrittenInBothLanguages(t *testing.T) {
-	if len(allMailCopy) == 0 {
+	if len(allMailCopy.all) == 0 {
 		t.Fatal("no mail copy was registered; translated() is the only way to declare a sentence and something has stopped calling it")
 	}
 
-	for _, sentence := range allMailCopy {
+	for _, sentence := range allMailCopy.all {
 		if strings.TrimSpace(sentence.en) == "" {
 			t.Errorf("mail copy with Spanish %q has no English", sentence.es)
 		}
@@ -37,7 +38,10 @@ func TestEveryMailCopyIsWrittenInBothLanguages(t *testing.T) {
 // two, which ParseLocale and the mail_locale CHECK both refuse. English is the
 // floor of the chain (ADR 0033), and an empty email is not.
 func TestMailCopyFallsBackToEnglishForALanguageNothingIsWrittenIn(t *testing.T) {
-	sentence := translated("English", "Español")
+	// Declared on a registry of this test's own, never through translated(): a
+	// fixture in allMailCopy would be walked by the parity test above forever
+	// after, which is a test asserting on its own furniture.
+	sentence := (&copyRegistry{}).declare("English", "Español")
 
 	if got := sentence.in(Locale("fr")); got != "English" {
 		t.Fatalf("in(fr) = %q, want the English", got)

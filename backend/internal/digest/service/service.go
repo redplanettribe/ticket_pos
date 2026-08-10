@@ -609,10 +609,9 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		return digestOutcomeEmpty, s.repo.MarkDigestEmpty(ctx, pending.ID)
 	}
 
-	locale := platform.DefaultLocale
-	if parsed, ok := platform.ParseLocale(recipient.Locale); ok {
-		locale = parsed
-	}
+	// The Digest is about no sale, so the chain starts one step down: the
+	// recipient's remembered Mail Locale, then English (ADR 0033).
+	locale := platform.ResolveMailLocale("", recipient.Locale)
 
 	message, err := s.compose(ctx, pending.CustomerID, *recipient, locale, sections)
 	if err != nil {

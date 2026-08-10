@@ -23,9 +23,18 @@ package platform
 // in past the CHECK constraints by any other route. Nothing here can fail: a
 // language is not worth refusing a purchase, a receipt or a sign-in over.
 //
-// Mail about no sale at all — the Follow Digest, the passcode — names "" for the
-// sale and falls through to the same chain, which is why this takes strings and
-// not a Ticket Sale.
+// Mail about no sale at all names "" for the sale and falls through the rest of
+// the chain, which is why this takes strings and not a Ticket Sale — the Follow
+// Digest resolves ("", the Customer's remembered Mail Locale) that way.
+//
+// THE PASSCODE NAMES "" FOR THE REMEMBERED ONE, not for the sale, and that
+// asymmetry is deliberate rather than an oversight to tidy up. RequestOTP passes
+// the language of the page the passcode was asked from and stops there: it never
+// reads the stored Mail Locale, because the request is anonymous, and mail
+// worded in a stranger's remembered language would be an oracle for whether the
+// platform holds a Customer for that address — the disclosure the identical
+// response body exists to prevent. Feeding the stored value in as a second
+// candidate would be a security bug wearing the shape of a consistency fix.
 func ResolveMailLocale(saleLocale, rememberedLocale string) Locale {
 	for _, candidate := range []string{saleLocale, rememberedLocale} {
 		if locale, ok := ParseLocale(candidate); ok {

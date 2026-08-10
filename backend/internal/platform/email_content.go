@@ -191,28 +191,44 @@ type mailCopy struct {
 	es string
 }
 
-// translated declares one sentence in both languages, ENGLISH FIRST, and is the
-// only way a mailCopy is made.
-//
-// It is a function rather than a struct literal for the guarantee in its
-// argument list: an unkeyed call with a missing translation does not compile, so
-// a sentence cannot reach a reader in a language nobody wrote. Every value it
-// makes is also registered below, which is what lets one test walk all of them.
-func translated(en, es string) mailCopy {
-	c := mailCopy{en: en, es: es}
-	allMailCopy = append(allMailCopy, c)
-	return c
-}
-
-// allMailCopy is every sentence this platform can put in an email, in
-// declaration order.
+// copyRegistry collects every sentence declared on it, in declaration order.
 //
 // It exists for one test (TestEveryMailCopyIsWrittenInBothLanguages), and it is
 // the backend's counterpart to the Storefront's messages parity test: an
 // explicit list would only record the copy somebody remembered to add to it,
 // where this one cannot be out of date because there is no other way to make a
 // mailCopy.
-var allMailCopy []mailCopy
+//
+// It is a TYPE rather than a bare package-level slice so that the registering is
+// something a caller does to a named thing it can see. A test needing a throwaway
+// sentence declares it on a registry of its own and the production one is
+// untouchable from outside this file — which matters, because a fixture that
+// landed in allMailCopy would be walked by the parity test forever after and
+// asserted on as if it were copy somebody ships.
+type copyRegistry struct {
+	all []mailCopy
+}
+
+// declare records one sentence in both languages, ENGLISH FIRST.
+//
+// It is a method rather than a struct literal for the guarantee in its argument
+// list: an unkeyed call with a missing translation does not compile, so a
+// sentence cannot reach a reader in a language nobody wrote.
+func (r *copyRegistry) declare(en, es string) mailCopy {
+	c := mailCopy{en: en, es: es}
+	r.all = append(r.all, c)
+	return c
+}
+
+// allMailCopy holds every sentence this platform can actually put in an email.
+var allMailCopy = &copyRegistry{}
+
+// translated declares one sentence of real, shipped copy, and is the only way a
+// mailCopy reaches a recipient. Every call registers itself in allMailCopy,
+// which is what lets one test walk all of them without a list to maintain.
+func translated(en, es string) mailCopy {
+	return allMailCopy.declare(en, es)
+}
 
 // in picks the sentence for a Locale, falling back to English for anything this
 // platform does not write — which is the same fallback DefaultLocale states, and

@@ -245,10 +245,11 @@ type PayoutRequestTransferFailed struct {
 // unbidden, which is why it is the only mail a Customer can turn off, and why
 // nothing in this system may ever send it to somebody who did not press Follow.
 //
-// It is also the FIRST MESSAGE THAT BRANCHES ON LANGUAGE, which is why Locale is
-// a field here and on nothing else. A Locale is otherwise a property of a page's
-// address (ADR 0027) and mail has no address, so the Customer's Mail Locale is
-// remembered at sign-in (#216) and carried here.
+// It WAS THE FIRST MESSAGE THAT BRANCHED ON LANGUAGE, and Locale was once a
+// field here and on nothing else; the passcode, the receipt and the two sale
+// notices all carry one now (ADR 0033). A Locale is otherwise a property of a
+// page's address (ADR 0027) and mail has no address, so this one is the
+// Customer's Mail Locale, remembered at sign-in (#216) and carried here.
 //
 // It is NEVER SENT EMPTY. A Digest with no Events is not composed into a message
 // at all — see digest/service.deliverDigest, which records the Digest as `empty`

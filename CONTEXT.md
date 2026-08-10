@@ -449,7 +449,8 @@ _Avoid_: Opt out, mute, disable notifications, delete follows
 
 **Mail Locale**:
 The language mail to a Customer is written in, remembered from the Storefront they last signed in on.
-Exists because a Locale is a property of a page's address and mail has no address to carry one. Stands behind the Sale Locale rather than beside it: consulted when the mail is about no sale, or about a sale that named no language. Names Preset Tags in the Customer's language as a Storefront page would, and leaves Custom Tags as coined.
+Exists because a Locale is a property of a page's address and mail has no address to carry one. Stands behind the Sale Locale rather than beside it: consulted when the mail is about no sale, or about a sale that named no language.
+Words the sentences of a message, not the names inside it: the Follow Digest is the one mail that names Tags, and it alone names Preset Tags in the Customer's language as a Storefront page would while leaving Custom Tags as coined.
 Belongs to the recipient, not to the reader of a page: switching the Storefront's language does not change it, and only a completed sign-in writes it.
 Reaches no Member and no Platform Operator — staff mail is written in English.
 _Avoid_: Digest Locale, email language, preferred language, user locale

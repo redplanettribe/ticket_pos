@@ -85,10 +85,9 @@ const requestOTPMessage = "If this email can be signed in to, a passcode has bee
 // on the sign-in doors, and the email goes out in English. A passcode is how a
 // person gets in; it must never fail over the words it is written in.
 func (s *Service) RequestOTP(ctx context.Context, email, clientIP, locale string) (*CustomerOTPRequestResult, error) {
-	mailLocale := platform.DefaultLocale
-	if parsed, ok := platform.ParseLocale(locale); ok {
-		mailLocale = parsed
-	}
+	// The requesting page's language, then English. The remembered Mail Locale is
+	// deliberately not a candidate here — see ResolveMailLocale.
+	mailLocale := platform.ResolveMailLocale(locale, "")
 
 	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP, mailLocale); err != nil {
 		return nil, err
