@@ -397,11 +397,11 @@ func (c SaleConfirmation) Text() string {
 var (
 	digestSubjectCopy = translated(
 		"What's on from the things you follow",
-		"Novedades de lo que sigues",
+		"Novedades de lo que usted sigue",
 	)
 	digestGreetingCopy = translated(
 		"Hi %s,\n\nHere is what's coming up from the things you follow.",
-		"Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
+		"Hola %s:\n\nEsto es lo que viene de las cosas que usted sigue.",
 	)
 	// The two section headings (#221). They are the whole difference between a
 	// list and a Digest: one answers "what is there that I did not know about",
@@ -428,7 +428,7 @@ var (
 	// not hold a ticket for.
 	digestGetTicketsCopy = translated(
 		"Get tickets: %s",
-		"Consigue entradas: %s",
+		"Consiga entradas: %s",
 	)
 	// digestRegisterCopy is an externally registered Event (ADR 0028), which has
 	// no Ticket Types to sell and whose only way in is to sign up. It still
@@ -438,14 +438,14 @@ var (
 	// Organization's traffic without ever recording it.
 	digestRegisterCopy = translated(
 		"Register: %s",
-		"Regístrate: %s",
+		"Regístrese: %s",
 	)
 	// digestYourTicketsCopy replaces the purchase line for a reader who already
 	// holds one, sending them to what they own instead of to a checkout they have
 	// already been through.
 	digestYourTicketsCopy = translated(
 		"Your tickets: %s",
-		"Tus entradas: %s",
+		"Sus entradas: %s",
 	)
 	// digestAttendingCopy is the mark itself, printed directly under the Event's
 	// name so it is read before the date rather than after the address. It is the
@@ -453,14 +453,14 @@ var (
 	// it: "is this the one I already booked?"
 	digestAttendingCopy = translated(
 		"You're going",
-		"Vas a ir",
+		"Va a asistir",
 	)
 	// The attribution line, which is the Digest answering "why am I being told
 	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
 	// recorded; this is the half of that the reader sees.
 	digestBecauseCopy = translated(
 		"Because you follow: %s",
-		"Porque sigues: %s",
+		"Porque usted sigue: %s",
 	)
 	// The overflow line of a capped section (#222), in its two forms.
 	//
@@ -481,7 +481,7 @@ var (
 	)
 	digestClosingCopy = translated(
 		"You are getting this because you follow organizers and topics on Multiticketing.",
-		"Recibes esto porque sigues organizadores y temas en Multiticketing.",
+		"Usted recibe esto porque sigue organizadores y temas en Multiticketing.",
 	)
 	// The unsubscribe line (#224, ADR 0030). It says what pressing the link does
 	// AND what it does not do, because those are two different acts with two
@@ -491,7 +491,7 @@ var (
 	// safest-looking answer available to them is to stop opening the mail.
 	digestUnsubscribeCopy = translated(
 		"Don't want these? Turn off the digest — you'll keep everything you follow: %s",
-		"¿No quieres recibirlos? Desactiva el resumen: seguirás siguiendo todo lo que sigues: %s",
+		"¿No quiere recibirlos? Desactive el resumen y conservará todo lo que sigue: %s",
 	)
 )
 

@@ -299,7 +299,7 @@ func TestFollowDigestWritesEveryCallToActionInTheReaderLocale(t *testing.T) {
 	if len(digests) != 1 {
 		t.Fatalf("ana received %d Digests, want exactly 1", len(digests))
 	}
-	for _, want := range []string{"Vas a ir", "Tus entradas:", "Regístrate:", "Consigue entradas:"} {
+	for _, want := range []string{"Va a asistir", "Sus entradas:", "Regístrese:", "Consiga entradas:"} {
 		if !strings.Contains(digests[0].Text, want) {
 			t.Fatalf("the Spanish Digest does not say %q; body:\n%s", want, digests[0].Text)
 		}
