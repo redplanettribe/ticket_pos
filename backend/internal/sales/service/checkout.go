@@ -605,31 +605,8 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		Currency:         event.Currency,
 		ConfirmationLink: s.confirmationLink(sale.ID, event.End()),
 		TaxID:            sale.CustomerTaxID,
-		Locale:           s.mailLocale(ctx, sale),
+		Locale:           s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
 	})
-}
-
-// mailLocale is the language one Ticket Sale's mail is written in, and it is
-// the only way this module answers that question (ADR 0033).
-//
-// It resolves nothing itself: platform.ResolveMailLocale owns the ordering —
-// the Sale Locale, then what the Customer's record remembers, then English —
-// and every send site in this package goes through here so that no second
-// spelling of that chain can appear beside it. An Online Sale made on a Spanish
-// page is written in Spanish; a box office sale or an import recorded no
-// language and falls through to the recipient's own.
-//
-// A failed read of the remembered language is logged and treated as "nothing
-// remembered". The sale is committed by the time this runs, so the worst this
-// can cost is a receipt in the wrong language, and the alternative — no receipt
-// — is far worse for the buyer.
-func (s *Service) mailLocale(ctx context.Context, sale *repository.RecordedSale) platform.Locale {
-	remembered, err := s.customers.MailLocale(ctx, sale.CustomerEmail)
-	if err != nil {
-		s.logger.Warn("sale confirmation: could not read the recipient's remembered language; falling back",
-			"ticket_sale_id", sale.ID, "error", err)
-	}
-	return platform.ResolveMailLocale(sale.Locale, remembered)
 }
 
 // ConfirmCheckoutResult is the settled outcome of a Payment: approved with the

@@ -17,57 +17,9 @@ import (
 // message — one composition, rendered identically by the provider in production
 // and by the integration suite asserting on a captured receipt.
 
-// The Sale Confirmation is no longer here: it is written in the reader's own
-// language and lives below the line that says so (#245, ADR 0033).
-
-// Subject is the void notice's subject line.
-func (v SaleVoided) Subject() string {
-	return fmt.Sprintf("Your %s purchase has been reversed", v.EventName)
-}
-
-// Text is the void notice's body. It quotes the original Sale Confirmation
-// reference so the Customer can reconcile it against the receipt they were given.
-//
-// The wording has to be true for both actors, because one notice serves both
-// Sale Reversal paths: the Customer who pressed Undo themselves, and the Sale
-// Import undo they had no part in. "Reversed" is the glossary's word — the
-// avoid list rules out cancelled, voided and refunded, and "cancelled" would
-// also read as the Event having been called off, which is a different thing
-// entirely. For the same reason the closing line asks whether they expected
-// this rather than whether it was a mistake: a buyer who just pressed Undo did
-// not make one.
-func (v SaleVoided) Text() string {
-	return fmt.Sprintf("Hi %s,\n\nYour purchase for %s (reference %s) has been reversed, and those tickets are no longer valid.\nIf you did not expect this, contact the organizer.",
-		v.CustomerName, v.EventName, v.Reference)
-}
-
-// Subject is the refused-reversal notice's subject line. It says what happened
-// in the subject itself, because a Customer who closed the tab may only ever
-// read this line.
-func (r SaleReversalRefused) Subject() string {
-	return fmt.Sprintf("We could not undo your %s purchase", r.EventName)
-}
-
-// Text is the refused-reversal notice's body: the correction to a promise the
-// platform made and could not keep.
-//
-// Three things are said and one is refused. What happened, that THE TICKETS ARE
-// STILL VALID — the sentence that decides whether this reader turns up at the
-// gate, and the reason it comes before anything else — and who to talk to, named
-// by the Sale Confirmation reference they can quote.
-//
-// What it refuses to say is WHY, for the reason ADR 0018 settled: there is no
-// provider answer that means "too late", so a refusal cannot be explained. It
-// offers no cause at all rather than a hedged one — "this can happen when…"
-// reads as a cause to the person it is guessed at.
-//
-// It also does not apologise for a delay or mention that anything was pending.
-// The reader may have pressed Undo a minute ago or a day ago, and the platform's
-// own timeline is not the thing they need from this email.
-func (r SaleReversalRefused) Text() string {
-	return fmt.Sprintf("Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid — nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
-		r.CustomerName, r.EventName, r.Reference)
-}
+// The Sale Confirmation is no longer here, and neither are the void and
+// refused-reversal notices: all three are written in the reader's own language
+// and live below the line that says so (#245 and #246, ADR 0033).
 
 // The five Payout Request notices (#179 and #188, ADR 0026). They are the
 // platform's first organizer-facing email, and they read differently from above
@@ -378,6 +330,109 @@ func (c SaleConfirmation) Text() string {
 		text += "\n\n" + fmt.Sprintf(saleConfirmationLinkCopy.in(c.Locale), c.ConfirmationLink)
 	}
 	return text
+}
+
+// The Sale Voided notice (#246, ADR 0033) — the mail that says a purchase is
+// gone.
+//
+// IT IS THE MESSAGE THE CHAIN'S ORDERING WAS DECIDED FOR. A receipt could
+// plausibly have read a language off the request that produced it; this one
+// cannot, because there is no such request. It is sent days later, by a Platform
+// Operator's button, by a Sale Import undo, or by the reversal drain, and at
+// none of those moments is there a page whose address states a language. The
+// sale carries its own, so this mail does not have to ask.
+//
+// The wording is the same in either language on the point that matters: it has
+// to be true for a buyer who pressed Undo themselves AND for one whose imported
+// sale was undone without their knowledge. The Spanish takes "anulada" from the
+// Storefront's own account of the same state (`sale.reversedTitle`, "Esta
+// compra fue anulada"), so a Customer who reads this mail and then opens their
+// tickets meets one word for one thing rather than two.
+var (
+	saleVoidedSubjectCopy = translated(
+		"Your %s purchase has been reversed",
+		"Su compra de %s fue anulada",
+	)
+	// The body is one block in both languages, greeting and all, for the reason
+	// the receipt's opening is: the closing sentence only makes sense after the
+	// one above it, and splitting them would let one be translated without the
+	// other.
+	//
+	// The closing line asks whether they EXPECTED this rather than whether it was
+	// a mistake — a buyer who just pressed Undo did not make one — and names the
+	// organizer as the person to talk to, which is who the Storefront sends them
+	// to about the same state.
+	saleVoidedTextCopy = translated(
+		"Hi %s,\n\nYour purchase for %s (reference %s) has been reversed, and those tickets are no longer valid.\nIf you did not expect this, contact the organizer.",
+		"Hola %s:\n\nSu compra de %s (referencia %s) fue anulada, y esas entradas ya no son válidas.\nSi no esperaba esto, contacte al organizador.",
+	)
+)
+
+// Subject is the void notice's subject line, in the language the sale was made
+// in.
+func (v SaleVoided) Subject() string {
+	return fmt.Sprintf(saleVoidedSubjectCopy.in(v.Locale), v.EventName)
+}
+
+// Text is the void notice's body. It quotes the original Sale Confirmation
+// reference so the Customer can reconcile it against the receipt they were given
+// — which is now a receipt in this same language, because both read the sale.
+//
+// "Reversed" is the glossary's word in English: the avoid list rules out
+// cancelled, voided and refunded, and "cancelled" would also read as the Event
+// having been called off, which is a different thing entirely.
+func (v SaleVoided) Text() string {
+	return fmt.Sprintf(saleVoidedTextCopy.in(v.Locale),
+		v.CustomerName, v.EventName, v.Reference)
+}
+
+// The Sale Reversal Refused notice (#246, ADR 0033), which corrects a promise
+// this platform made and could not keep.
+//
+// It has less context available to it than anything else here. It is raised by
+// the reversal drain — a Reconciler run, or another Customer's page draining a
+// stranger's request — long after the press it answers, so the only language
+// anywhere in reach is the one the sale recorded.
+//
+// THREE THINGS ARE SAID AND ONE IS REFUSED, in either language. What happened,
+// that THE TICKETS ARE STILL VALID — the sentence that decides whether this
+// reader turns up at the gate, and the reason it comes before anything else —
+// and who to talk to, named by the reference they can quote.
+//
+// What it refuses to say is WHY, for the reason ADR 0018 settled: there is no
+// provider answer that means "too late", so a refusal cannot be explained. It
+// offers no cause at all rather than a hedged one — "this can happen when…"
+// reads as a cause to the person it is guessed at. It also does not apologise
+// for a delay or mention that anything was pending: the reader may have pressed
+// Undo a minute ago or a day ago, and the platform's own timeline is not what
+// they need from this email.
+var (
+	saleReversalRefusedSubjectCopy = translated(
+		"We could not undo your %s purchase",
+		"No pudimos deshacer su compra de %s",
+	)
+	// The Spanish is the Storefront's own sentence for this exact outcome,
+	// lengthened into a mail. `sale.refundRefusedToast` says "Sus entradas siguen
+	// siendo válidas: no se pudo procesar su reembolso" to a Customer looking at
+	// the page; this says the same thing in the same words to the one who closed
+	// the tab, which is the only reader this message has.
+	saleReversalRefusedTextCopy = translated(
+		"Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid — nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
+		"Hola %s:\n\nNo pudimos deshacer su compra de %s (referencia %s).\n\nSus entradas siguen siendo válidas: no cambió nada en su compra y puede seguir usándolas.\n\nSi necesita ayuda con esta compra, contacte al organizador e indique la referencia anterior.",
+	)
+)
+
+// Subject is the refused-reversal notice's subject line. It says what happened
+// in the subject itself, because a Customer who closed the tab may only ever
+// read this line — and it says it in their language for the same reason.
+func (r SaleReversalRefused) Subject() string {
+	return fmt.Sprintf(saleReversalRefusedSubjectCopy.in(r.Locale), r.EventName)
+}
+
+// Text is the refused-reversal notice's body.
+func (r SaleReversalRefused) Text() string {
+	return fmt.Sprintf(saleReversalRefusedTextCopy.in(r.Locale),
+		r.CustomerName, r.EventName, r.Reference)
 }
 
 // The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike every

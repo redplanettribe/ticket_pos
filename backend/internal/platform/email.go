@@ -76,6 +76,20 @@ type SaleVoided struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// Locale is the language this notice is written in, ALREADY RESOLVED by the
+	// caller through platform.ResolveMailLocale (#246, ADR 0033): the Sale
+	// Locale, then the Customer's Mail Locale, then English.
+	//
+	// This is the message the ordering in ADR 0033 was decided for. A void notice
+	// is sent days after the sale, sometimes by a Platform Operator and sometimes
+	// by a drain nobody is watching, from NO PAGE AT ALL — so there is nothing at
+	// that moment to read a language off except the sale itself. The sale
+	// remembers, and this field is what it remembered.
+	//
+	// The zero value renders English, which is what every sale recorded before
+	// this feature — box office, import, and every Online Sale that predates the
+	// column — is voided in, exactly as before.
+	Locale Locale
 }
 
 // SaleReversalRefused is the notice emailed to a Customer whose Reversal Request
@@ -95,6 +109,15 @@ type SaleReversalRefused struct {
 	CustomerName string
 	EventName    string
 	Reference    string
+	// Locale is the language this correction is written in, resolved from the
+	// sale exactly as SaleVoided.Locale is (#246, ADR 0033).
+	//
+	// It is the message with the least context available to it of any this
+	// platform sends: it is raised by the reversal DRAIN rather than by a request
+	// in flight, so no page, no header and no session is anywhere near the code
+	// that composes it. That is precisely why the language has to be a property
+	// of the sale — the only fact still standing when this is written.
+	Locale Locale
 }
 
 // The five Payout Request notices (#179 and #188, ADR 0026), and the platform's
