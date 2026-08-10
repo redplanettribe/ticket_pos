@@ -119,12 +119,19 @@ func (s *Service) GlobalCeiling() int {
 	return s.globalCeiling
 }
 
-// Issue generates a passcode for the purpose, stores its hash, and delivers it.
+// Issue generates a passcode for the purpose, stores its hash, and delivers it
+// in the named language.
 //
 // Rate-limit counters are scoped per purpose, so traffic on one surface cannot
 // exhaust another surface's allowance. Issuing invalidates any earlier active
 // challenge for the same email and purpose only.
-func (s *Service) Issue(ctx context.Context, purpose Purpose, email, clientIP string) error {
+//
+// locale words THIS EMAIL AND NOTHING ELSE (ADR 0033). It is not stored on the
+// challenge, not remembered against the address, and never written to a
+// Customer's Mail Locale: only a completed sign-in does that, and asking for a
+// passcode is not proof you own the address. This package holds no opinion about
+// which language a caller names — it does not know what a Customer is.
+func (s *Service) Issue(ctx context.Context, purpose Purpose, email, clientIP string, locale platform.Locale) error {
 	if !purpose.Valid() {
 		return fmt.Errorf("otp: unknown purpose %q", purpose)
 	}
@@ -199,7 +206,7 @@ func (s *Service) Issue(ctx context.Context, purpose Purpose, email, clientIP st
 		return err
 	}
 
-	if err := s.email.SendOTP(ctx, email, code); err != nil {
+	if err := s.email.SendOTP(ctx, email, code, locale); err != nil {
 		s.logger.Error("send otp failed", "email", email, "purpose", string(purpose), "error", err)
 		return fmt.Errorf("send otp: %w", err)
 	}

@@ -242,63 +242,137 @@ func (p PayoutRequestTransferFailed) Text() string {
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
 }
 
-// The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike
-// everything above it for two reasons, and both are worth stating before the
-// code.
+// Everything below is written in the reader's own language, and everything
+// above is not.
 //
-// IT IS THE FIRST MESSAGE THAT BRANCHES ON LANGUAGE. Every other Text() here is
-// English because every other message answers something its reader just did on
-// a page, and the page was already worded. This one arrives unbidden, in
-// whatever language the reader last used the Storefront in (ADR 0030), so every
-// sentence exists twice. The branching is done with a small lookup per sentence
-// rather than by writing two whole methods: two methods drift, and the drift
-// shows up as a Spanish reader missing a line an English reader gets.
+// The line falls where it does by decision rather than by how far the work got
+// (ADR 0033): the messages above are read by Members and Platform Operators,
+// who have no language recorded anywhere and whose entire working surface is
+// English, and Spanish mail linking into an English application would be worse
+// than consistency. The messages below are read by Customers, who chose a
+// language on a page and were answered in it.
 //
-// IT NAMES TAGS IT DID NOT TRANSLATE. The Tag names arriving on each entry have
-// already been resolved by catalog's LocalizedTagNames — a Preset Tag in the
-// reader's language, a Custom Tag exactly as its Organization coined it. Nothing
-// below touches them. There is one localization rule for Tags in this system and
-// it lives in catalog; a second one here would only have to agree with it.
+// THE BRANCHING IS A LOOKUP PER SENTENCE, never two whole methods. Two methods
+// drift, and the drift shows up as a Spanish reader missing a line an English
+// reader gets.
 
-// digestCopy is one sentence in both languages. Every piece of Digest copy is
-// declared as one of these, so a line added in English cannot be shipped without
-// its Spanish, and the two are read side by side rather than a screen apart.
-type digestCopy struct {
+// mailCopy is one sentence in every language this platform writes. Every piece
+// of localized copy in this file is declared as one of these, so a line added in
+// English cannot be shipped without its Spanish, and the two are read side by
+// side rather than a screen apart.
+//
+// It began as the Digest's own type (ADR 0030) and is now the whole file's
+// (ADR 0033): the Digest is no longer the only message with a reader whose
+// language the platform knows, and a second copy of this machinery per message
+// would be a second place for a language to go missing.
+type mailCopy struct {
 	en string
 	es string
 }
 
+// translated declares one sentence in both languages, ENGLISH FIRST, and is the
+// only way a mailCopy is made.
+//
+// It is a function rather than a struct literal for the guarantee in its
+// argument list: an unkeyed call with a missing translation does not compile, so
+// a sentence cannot reach a reader in a language nobody wrote. Every value it
+// makes is also registered below, which is what lets one test walk all of them.
+func translated(en, es string) mailCopy {
+	c := mailCopy{en: en, es: es}
+	allMailCopy = append(allMailCopy, c)
+	return c
+}
+
+// allMailCopy is every sentence this platform can put in an email, in
+// declaration order.
+//
+// It exists for one test (TestEveryMailCopyIsWrittenInBothLanguages), and it is
+// the backend's counterpart to the Storefront's messages parity test: an
+// explicit list would only record the copy somebody remembered to add to it,
+// where this one cannot be out of date because there is no other way to make a
+// mailCopy.
+var allMailCopy []mailCopy
+
 // in picks the sentence for a Locale, falling back to English for anything this
 // platform does not write — which is the same fallback DefaultLocale states, and
 // is unreachable while ParseLocale and the mail_locale CHECK both hold.
-func (c digestCopy) in(locale Locale) string {
+func (c mailCopy) in(locale Locale) string {
 	if locale == LocaleES {
 		return c.es
 	}
 	return c.en
 }
 
+// The Customer and staff One-time Passcode (#244, ADR 0033), which is one
+// message read through two doors.
+//
+// It lived in the Resend provider until this file's reason for existing caught
+// up with it: copy is a property of the message and not of the transport, and
+// while it sat in the provider no test driving the API could assert on a word a
+// recipient reads. It is now the same two sentences either door sends, written
+// in whichever language the caller names — the Storefront page a visitor asked
+// from, and English, explicitly, for staff.
+//
+// The body says the code, that it expires, and what to do if it was not asked
+// for. It names no person: a passcode request proves nothing about who is
+// asking, so the platform will not greet an address it cannot yet claim to know.
 var (
-	digestSubjectCopy = digestCopy{
-		en: "What's on from the things you follow",
-		es: "Novedades de lo que sigues",
-	}
-	digestGreetingCopy = digestCopy{
-		en: "Hi %s,\n\nHere is what's coming up from the things you follow.",
-		es: "Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
-	}
+	otpSubjectCopy = translated(
+		"Your Multiticketing passcode",
+		"Su código de acceso de Multiticketing",
+	)
+	otpTextCopy = translated(
+		"Your one-time passcode is %s.\n\nIt expires shortly. If you did not request it, ignore this email.",
+		"Su código de acceso es %s.\n\nCaduca en breve. Si no lo solicitó, ignore este correo.",
+	)
+)
+
+// Subject is the passcode's subject line, in the recipient's language.
+func (o OTPMessage) Subject() string {
+	return otpSubjectCopy.in(o.Locale)
+}
+
+// Text is the passcode's body: the code itself and the two things a recipient
+// needs to know about it.
+func (o OTPMessage) Text() string {
+	return fmt.Sprintf(otpTextCopy.in(o.Locale), o.Code)
+}
+
+// The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike every
+// other message here for two reasons, and both are worth stating before the
+// code.
+//
+// IT WAS THE FIRST MESSAGE THAT BRANCHED ON LANGUAGE, and the copy machinery
+// above is the machinery it introduced. Every other message answers something
+// its reader just did on a page; this one arrives unbidden, in whatever language
+// the reader last used the Storefront in, so every sentence exists twice.
+//
+// IT NAMES TAGS IT DID NOT TRANSLATE. The Tag names arriving on each entry have
+// already been resolved by catalog's LocalizedTagNames — a Preset Tag in the
+// reader's language, a Custom Tag exactly as its Organization coined it. Nothing
+// below touches them. There is one localization rule for Tags in this system and
+// it lives in catalog; a second one here would only have to agree with it.
+var (
+	digestSubjectCopy = translated(
+		"What's on from the things you follow",
+		"Novedades de lo que sigues",
+	)
+	digestGreetingCopy = translated(
+		"Hi %s,\n\nHere is what's coming up from the things you follow.",
+		"Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
+	)
 	// The two section headings (#221). They are the whole difference between a
 	// list and a Digest: one answers "what is there that I did not know about",
 	// the other "what do I need to be ready for", and a reader who cannot tell
 	// which is which has to read every entry to find out.
-	digestNewHeadingCopy = digestCopy{
-		en: "New this week",
-		es: "Nuevo esta semana",
-	}
-	digestHappeningHeadingCopy = digestCopy{
-		en: "Happening this week",
-		es: "Esta semana",
-	}
+	digestNewHeadingCopy = translated(
+		"New this week",
+		"Nuevo esta semana",
+	)
+	digestHappeningHeadingCopy = translated(
+		"Happening this week",
+		"Esta semana",
+	)
 	// The three CALLS TO ACTION (#223), of which every entry carries exactly one.
 	//
 	// Before #223 an entry printed a bare URL and left the reader to work out
@@ -310,42 +384,42 @@ var (
 	//
 	// digestGetTicketsCopy is the ordinary one: a ticketed Event this reader does
 	// not hold a ticket for.
-	digestGetTicketsCopy = digestCopy{
-		en: "Get tickets: %s",
-		es: "Consigue entradas: %s",
-	}
+	digestGetTicketsCopy = translated(
+		"Get tickets: %s",
+		"Consigue entradas: %s",
+	)
 	// digestRegisterCopy is an externally registered Event (ADR 0028), which has
 	// no Ticket Types to sell and whose only way in is to sign up. It still
 	// points at the Storefront Event page rather than at the Registration Link
 	// itself: that page is where the Registration Link's clicks are counted, and
 	// a Digest that jumped straight to the third-party site would spend the
 	// Organization's traffic without ever recording it.
-	digestRegisterCopy = digestCopy{
-		en: "Register: %s",
-		es: "Regístrate: %s",
-	}
+	digestRegisterCopy = translated(
+		"Register: %s",
+		"Regístrate: %s",
+	)
 	// digestYourTicketsCopy replaces the purchase line for a reader who already
 	// holds one, sending them to what they own instead of to a checkout they have
 	// already been through.
-	digestYourTicketsCopy = digestCopy{
-		en: "Your tickets: %s",
-		es: "Tus entradas: %s",
-	}
+	digestYourTicketsCopy = translated(
+		"Your tickets: %s",
+		"Tus entradas: %s",
+	)
 	// digestAttendingCopy is the mark itself, printed directly under the Event's
 	// name so it is read before the date rather than after the address. It is the
 	// answer to the question the reader would otherwise ask of every line below
 	// it: "is this the one I already booked?"
-	digestAttendingCopy = digestCopy{
-		en: "You're going",
-		es: "Vas a ir",
-	}
+	digestAttendingCopy = translated(
+		"You're going",
+		"Vas a ir",
+	)
 	// The attribution line, which is the Digest answering "why am I being told
 	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
 	// recorded; this is the half of that the reader sees.
-	digestBecauseCopy = digestCopy{
-		en: "Because you follow: %s",
-		es: "Porque sigues: %s",
-	}
+	digestBecauseCopy = translated(
+		"Because you follow: %s",
+		"Porque sigues: %s",
+	)
 	// The overflow line of a capped section (#222), in its two forms.
 	//
 	// It says the NUMBER and then where to see them, in that order, because the
@@ -355,28 +429,28 @@ var (
 	// exists only for a deployment with no Storefront origin configured, where
 	// admitting to the cap without an address is still better than a truncation
 	// nobody can see.
-	digestMoreCopy = digestCopy{
-		en: "+%d more: %s",
-		es: "+%d más: %s",
-	}
-	digestMoreWithoutLinkCopy = digestCopy{
-		en: "+%d more",
-		es: "+%d más",
-	}
-	digestClosingCopy = digestCopy{
-		en: "You are getting this because you follow organizers and topics on Multiticketing.",
-		es: "Recibes esto porque sigues organizadores y temas en Multiticketing.",
-	}
+	digestMoreCopy = translated(
+		"+%d more: %s",
+		"+%d más: %s",
+	)
+	digestMoreWithoutLinkCopy = translated(
+		"+%d more",
+		"+%d más",
+	)
+	digestClosingCopy = translated(
+		"You are getting this because you follow organizers and topics on Multiticketing.",
+		"Recibes esto porque sigues organizadores y temas en Multiticketing.",
+	)
 	// The unsubscribe line (#224, ADR 0030). It says what pressing the link does
 	// AND what it does not do, because those are two different acts with two
 	// different names (CONTEXT.md): Unsubscribing silences the Digest,
 	// Unfollowing removes a Follow. A reader who wanted fewer emails and feared
 	// losing what they follow would otherwise have no way to tell, and the
 	// safest-looking answer available to them is to stop opening the mail.
-	digestUnsubscribeCopy = digestCopy{
-		en: "Don't want these? Turn off the digest — you'll keep everything you follow: %s",
-		es: "¿No quieres recibirlos? Desactiva el resumen: seguirás siguiendo todo lo que sigues: %s",
-	}
+	digestUnsubscribeCopy = translated(
+		"Don't want these? Turn off the digest — you'll keep everything you follow: %s",
+		"¿No quieres recibirlos? Desactiva el resumen: seguirás siguiendo todo lo que sigues: %s",
+	)
 )
 
 // Subject is the Follow Digest's subject line.

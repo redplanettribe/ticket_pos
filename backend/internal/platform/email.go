@@ -6,6 +6,26 @@ import (
 	"time"
 )
 
+// OTPMessage is the One-time Passcode email, as the recipient reads it (#244).
+//
+// It is a value rather than a pair of loose strings for the reason every other
+// message here is one: the copy lives on the message (email_content.go), so a
+// test holding one can render exactly what was delivered. The Locale is what
+// decides that rendering, and it is the ONLY per-message state a passcode has —
+// the same two sentences go through both doors, and which door was used is not
+// something this type records.
+type OTPMessage struct {
+	// Code is the passcode itself. It is never logged by anything that renders
+	// this message; the logging sender prints it deliberately, for local
+	// development where there is no mailbox to read.
+	Code string
+	// Locale is the language this passcode is written in: the Storefront page a
+	// visitor asked from, or DefaultLocale, which the staff caller passes
+	// explicitly (ADR 0033). It is a fact reported by the request and is never
+	// remembered — asking for a passcode does not write a Mail Locale.
+	Locale Locale
+}
+
 // SaleConfirmation is the receipt emailed to a Customer when a Ticket Sale is
 // recorded. It carries the reference code the customer can present, plus enough
 // context to render a human-readable confirmation.
@@ -380,7 +400,14 @@ type FollowDigestEvent struct {
 // the five Payout Request notices. A real provider is deferred; development and
 // tests use the logging and capture implementations below.
 type EmailSender interface {
-	SendOTP(ctx context.Context, to string, code string) error
+	// SendOTP delivers a One-time Passcode in the named language.
+	//
+	// One method serves both doors rather than two serving one each: the message
+	// is identical and only its language differs, and one argument states that
+	// policy more plainly than two copies of the same two sentences would. The
+	// staff caller passes DefaultLocale explicitly at its call site, where a
+	// reader can see that staff mail is English on purpose (ADR 0033).
+	SendOTP(ctx context.Context, to string, code string, locale Locale) error
 	SendSaleConfirmation(ctx context.Context, confirmation SaleConfirmation) error
 	SendSaleVoided(ctx context.Context, voided SaleVoided) error
 	SendSaleReversalRefused(ctx context.Context, refused SaleReversalRefused) error
@@ -400,9 +427,11 @@ type LoggingEmailSender struct {
 	Logger Logger
 }
 
-// SendOTP logs the OTP code for local development and testing.
-func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string) error {
-	s.Logger.Info("otp sent", "email", to, "code", code)
+// SendOTP logs the OTP code for local development and testing. The language is
+// logged beside it because it is the one thing about a passcode that can now be
+// wrong without the code being wrong.
+func (s *LoggingEmailSender) SendOTP(_ context.Context, to string, code string, locale Locale) error {
+	s.Logger.Info("otp sent", "email", to, "code", code, "locale", string(locale))
 	return nil
 }
 
@@ -478,7 +507,7 @@ func (s *LoggingEmailSender) SendFollowDigest(_ context.Context, d FollowDigest)
 type NoopEmailSender struct{}
 
 // SendOTP discards the OTP.
-func (NoopEmailSender) SendOTP(_ context.Context, _ string, _ string) error {
+func (NoopEmailSender) SendOTP(_ context.Context, _ string, _ string, _ Locale) error {
 	return nil
 }
 
@@ -530,10 +559,16 @@ func (NoopEmailSender) SendFollowDigest(_ context.Context, _ FollowDigest) error
 // CaptureEmailSender records delivered email for integration tests. It is safe
 // for concurrent use so tests can exercise concurrent sales.
 type CaptureEmailSender struct {
-	mu                sync.Mutex
-	LastTo            string
-	LastCode          string
-	otpSends          int
+	mu       sync.Mutex
+	LastTo   string
+	LastCode string
+	otpSends int
+	// The One-time Passcodes delivered (#244), kept whole so a test can render
+	// Subject() and Text() and assert on the words a recipient reads. LastTo and
+	// LastCode above answer "did a passcode go out, and what was it"; this
+	// answers "what did it say", which is the only way the language is visible
+	// at all.
+	OTPMessages       []OTPMessage
 	SaleConfirmations []SaleConfirmation
 	VoidedSales       []SaleVoided
 	RefusedReversals  []SaleReversalRefused
@@ -582,8 +617,8 @@ func (s *CaptureEmailSender) failed() error {
 	return s.failure
 }
 
-// SendOTP records the last OTP delivered.
-func (s *CaptureEmailSender) SendOTP(_ context.Context, to string, code string) error {
+// SendOTP records the last OTP delivered, and the message it was delivered in.
+func (s *CaptureEmailSender) SendOTP(_ context.Context, to string, code string, locale Locale) error {
 	if err := s.failed(); err != nil {
 		return err
 	}
@@ -592,6 +627,7 @@ func (s *CaptureEmailSender) SendOTP(_ context.Context, to string, code string) 
 	s.LastTo = to
 	s.LastCode = code
 	s.otpSends++
+	s.OTPMessages = append(s.OTPMessages, OTPMessage{Code: code, Locale: locale})
 	return nil
 }
 
@@ -790,6 +826,16 @@ func (s *CaptureEmailSender) FollowDigestsSent() []FollowDigest {
 	return out
 }
 
+// OTPsSent returns a copy of the captured passcode messages, so a test can
+// render one and assert on the language a recipient was written to in.
+func (s *CaptureEmailSender) OTPsSent() []OTPMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]OTPMessage, len(s.OTPMessages))
+	copy(out, s.OTPMessages)
+	return out
+}
+
 // OTPSendCount returns how many passcode emails were delivered. Tests that care
 // about a send being suppressed assert on this rather than on the last code,
 // which a refused request leaves untouched either way.
@@ -806,6 +852,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.LastTo = ""
 	s.LastCode = ""
 	s.otpSends = 0
+	s.OTPMessages = nil
 	s.SaleConfirmations = nil
 	s.VoidedSales = nil
 	s.RefusedReversals = nil

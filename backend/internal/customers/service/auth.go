@@ -72,8 +72,25 @@ const requestOTPMessage = "If this email can be signed in to, a passcode has bee
 // branch, or status code would turn it into an oracle for who the platform's
 // customers are. The passcode is therefore issued for any well-formed address,
 // and what it is worth is decided at verification.
-func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*CustomerOTPRequestResult, error) {
-	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP); err != nil {
+//
+// locale is the language of the Storefront page the passcode was asked from, or
+// empty from a caller with no page to name one. It WORDS THIS ONE EMAIL AND
+// NOTHING ELSE (ADR 0033): nothing here writes the Customer's Mail Locale, and
+// nothing may, because this request is anonymous — an unauthenticated caller
+// naming a stranger's address must not be able to rewrite a stored property of
+// their record and change what language their receipts arrive in. Only a
+// completed sign-in writes it (see signInProvenEmail).
+//
+// An unserved or malformed language is ignored rather than refused, exactly as
+// on the sign-in doors, and the email goes out in English. A passcode is how a
+// person gets in; it must never fail over the words it is written in.
+func (s *Service) RequestOTP(ctx context.Context, email, clientIP, locale string) (*CustomerOTPRequestResult, error) {
+	mailLocale := platform.DefaultLocale
+	if parsed, ok := platform.ParseLocale(locale); ok {
+		mailLocale = parsed
+	}
+
+	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP, mailLocale); err != nil {
 		return nil, err
 	}
 	return &CustomerOTPRequestResult{Message: requestOTPMessage}, nil

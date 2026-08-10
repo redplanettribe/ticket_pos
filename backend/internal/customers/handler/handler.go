@@ -29,6 +29,20 @@ func New(svc *service.Service) *Handler {
 
 type otpRequestBody struct {
 	Email string `json:"email"`
+	// Locale is the language of the Storefront page this passcode was asked
+	// from, and it words THAT ONE EMAIL AND NOTHING ELSE (ADR 0033).
+	//
+	// It is emphatically not the Mail Locale being set: this route is anonymous,
+	// so anybody could name anybody's address here, and letting that rewrite a
+	// stored property of a stranger's record would be a way to change what
+	// language their receipts arrive in. Only a completed sign-in remembers a
+	// language — see otpVerifyBody.
+	//
+	// Optional, and never a reason to refuse: a caller with no page to name one
+	// omits it, and a language this platform does not serve is dropped. The
+	// passcode goes out in English either way, because a person locked out of
+	// their tickets must not be kept there by a spelling.
+	Locale string `json:"locale"`
 }
 
 type otpVerifyBody struct {
@@ -36,7 +50,7 @@ type otpVerifyBody struct {
 	Code  string `json:"code"`
 	// Locale is the language of the Storefront page this sign-in happened on,
 	// and it is the one field here that is not part of proving anything. It is
-	// remembered as the Customer's Digest Locale (ADR 0030), because a Locale is
+	// remembered as the Customer's Mail Locale (ADR 0030), because a Locale is
 	// a property of a page's address and the Follow Digest is mail. Optional and
 	// never validated into a refusal: a caller with no page to name — anything
 	// but the Storefront — omits it and leaves what was remembered standing, and
@@ -72,7 +86,7 @@ type verifyOTPResponse struct {
 // RequestOTP sends a one-time passcode to a Customer's email.
 //
 // @Summary      Request Customer passcode
-// @Description  Sends a one-time passcode for Customer sign-in. The response is identical whether or not the email is known, so it does not reveal who the platform's Customers are.
+// @Description  Sends a one-time passcode for Customer sign-in. The response is identical whether or not the email is known, so it does not reveal who the platform's Customers are. An optional `locale` names the language of the Storefront page the passcode was asked from and words that one email only: it does not update the Customer's stored Mail Locale, which only a completed sign-in writes. A language the platform does not serve is ignored rather than refused, and the passcode is sent in English.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -97,7 +111,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 
 	// The client IP is derived by the platform, never taken from this handler's
 	// own reading of the request, so per-IP rate limiting counts one agreed value.
-	result, err := h.svc.RequestOTP(r.Context(), body.Email, platform.ClientIP(r))
+	result, err := h.svc.RequestOTP(r.Context(), body.Email, platform.ClientIP(r), body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -109,7 +123,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // VerifyOTP validates a passcode and issues a Customer Session.
 //
 // @Summary      Verify Customer passcode
-// @Description  Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused. An optional `follow` carries a Follow the visitor pressed before signing in, as `organization:<slug>`. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in `follow`, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and `follow` is null.
+// @Description  Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Mail Locale; a language the platform does not serve is ignored rather than refused. An optional `follow` carries a Follow the visitor pressed before signing in, as `organization:<slug>`. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in `follow`, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and `follow` is null.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
@@ -183,7 +197,7 @@ type googleVerifyBody struct {
 // credential rather than consuming one.
 //
 // @Summary      Verify a Google Sign-In
-// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. An optional `follow` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+// @Description  Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Mail Locale, exactly as on the passcode route. An optional `follow` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
 // @Tags         customer
 // @Accept       json
 // @Produce      json
