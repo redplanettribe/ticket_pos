@@ -377,7 +377,7 @@ export interface paths {
         put?: never;
         /**
          * Verify a Google Sign-In
-         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Digest Locale, exactly as on the passcode route. An optional `follow` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+         * @description Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional `locale` is remembered as the Customer's Mail Locale, exactly as on the passcode route. An optional `follow` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
          */
         post: {
             parameters: {
@@ -487,7 +487,7 @@ export interface paths {
         put?: never;
         /**
          * Request Customer passcode
-         * @description Sends a one-time passcode for Customer sign-in. The response is identical whether or not the email is known, so it does not reveal who the platform's Customers are.
+         * @description Sends a one-time passcode for Customer sign-in. The response is identical whether or not the email is known, so it does not reveal who the platform's Customers are. An optional `locale` names the language of the Storefront page the passcode was asked from and words that one email only: it does not update the Customer's stored Mail Locale, which only a completed sign-in writes. A language the platform does not serve is ignored rather than refused, and the passcode is sent in English.
          */
         post: {
             parameters: {
@@ -549,7 +549,7 @@ export interface paths {
         put?: never;
         /**
          * Verify Customer passcode
-         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Digest Locale; a language the platform does not serve is ignored rather than refused. An optional `follow` carries a Follow the visitor pressed before signing in, as `organization:<slug>`. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in `follow`, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and `follow` is null.
+         * @description Verifies a Customer one-time passcode, marks the Customer verified, and issues a Customer Session. An optional `locale` names the language of the Storefront the sign-in happened on and is remembered as the Customer's Mail Locale; a language the platform does not serve is ignored rather than refused. An optional `follow` carries a Follow the visitor pressed before signing in, as `organization:<slug>`. It is applied against the Customer Session this call mints and against nothing else, so an email in this request can never become the address that gets subscribed; the Follow that was made comes back in `follow`, or null. A malformed intent — an unknown kind, or a subject that is not a well-formed slug — is refused with 400 before the passcode is checked, so it does not spend it. A subject that resolves to nothing does not fail the sign-in: the session is issued and `follow` is null.
          */
         post: {
             parameters: {
@@ -1548,7 +1548,7 @@ export interface paths {
         put?: never;
         /**
          * Send due Follow Digests
-         * @description Claims a batch of pending Follow Digests, composes each one at send time, sends it, records everything it carried in the sent-ledger, and marks the row done (ADR 0030). Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Composition happens here rather than at enqueue, so a Digest delayed by a backlog or a retry still reflects the catalogue as it stands when it is sent. A Digest lists the Events matched by that Customer's Follows that they have not already been shown, filtered exactly as the public explorer filters — published, discoverable and not yet ended — so an Event an Organization chose not to list is never mailed out. It is written in the Customer's remembered Digest Locale, naming Preset Tags in that language and Custom Tags exactly as their Organization coined them. A Customer whose Follows matched nothing receives no email at all rather than an empty one, and that Digest is recorded as having had nothing to say. Every Event included is written to the sent-ledger and only those Events are, which is what stops a later Digest repeating them. Re-running after a completed send produces no second email for that Customer and week. A delivery failure leaves the Digest in the queue on a backoff and a later run sends exactly one email; after its attempts are spent the Digest is abandoned, because a Digest is about the week it names and one delivered days late is worse than none. Each run claims one Digest at a time and stops at a time budget of its own that expires before any deadline outside it, so a backlog can never wedge it; whatever it did not reach stays exactly as due as it was found. Safe to call by hand at any time and a no-op on an empty queue. The response tallies what the run did and reports the standing backlog, so two calls a minute apart say whether an incident is getting better or worse.
+         * @description Claims a batch of pending Follow Digests, composes each one at send time, sends it, records everything it carried in the sent-ledger, and marks the row done (ADR 0030). Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008). Composition happens here rather than at enqueue, so a Digest delayed by a backlog or a retry still reflects the catalogue as it stands when it is sent. A Digest lists the Events matched by that Customer's Follows that they have not already been shown, filtered exactly as the public explorer filters — published, discoverable and not yet ended — so an Event an Organization chose not to list is never mailed out. It is written in the Customer's remembered Mail Locale, naming Preset Tags in that language and Custom Tags exactly as their Organization coined them. A Customer whose Follows matched nothing receives no email at all rather than an empty one, and that Digest is recorded as having had nothing to say. Every Event included is written to the sent-ledger and only those Events are, which is what stops a later Digest repeating them. Re-running after a completed send produces no second email for that Customer and week. A delivery failure leaves the Digest in the queue on a backoff and a later run sends exactly one email; after its attempts are spent the Digest is abandoned, because a Digest is about the week it names and one delivered days late is worse than none. Each run claims one Digest at a time and stops at a time budget of its own that expires before any deadline outside it, so a backlog can never wedge it; whatever it did not reach stays exactly as due as it was found. Safe to call by hand at any time and a no-op on an empty queue. The response tallies what the run did and reports the standing backlog, so two calls a minute apart say whether an incident is getting better or worse.
          */
         post: {
             parameters: {
@@ -3025,7 +3025,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
          */
         post: {
             parameters: {
@@ -6378,6 +6378,22 @@ export interface components {
              */
             customer_tax_id_type?: string;
             lines?: components["schemas"]["handler.checkoutLineBody"][];
+            /**
+             * @description Locale is the language of the Storefront page this checkout was completed
+             *     on, recorded as the sale's Sale Locale and read back whenever mail about
+             *     this sale is written (ADR 0033).
+             *
+             *     It is a fact the page reports about itself — its language is in its own
+             *     address — and not a preference being negotiated: no read path takes an
+             *     Accept-Language and none is added here (ADR 0027).
+             *
+             *     OPTIONAL AND NEVER A REASON TO REFUSE. A caller with no page to name one
+             *     omits it, and a language this platform does not serve is dropped. Either
+             *     way the sale records no language and the receipt falls back to what the
+             *     Customer's record remembers, then to English. A locale must never fail a
+             *     purchase — the money is the point of this request and the words are not.
+             */
+            locale?: string;
         };
         "handler.checkoutLineBody": {
             quantity?: number;
@@ -6613,6 +6629,22 @@ export interface components {
         };
         "internal_customers_handler.otpRequestBody": {
             email?: string;
+            /**
+             * @description Locale is the language of the Storefront page this passcode was asked
+             *     from, and it words THAT ONE EMAIL AND NOTHING ELSE (ADR 0033).
+             *
+             *     It is emphatically not the Mail Locale being set: this route is anonymous,
+             *     so anybody could name anybody's address here, and letting that rewrite a
+             *     stored property of a stranger's record would be a way to change what
+             *     language their receipts arrive in. Only a completed sign-in remembers a
+             *     language — see otpVerifyBody.
+             *
+             *     Optional, and never a reason to refuse: a caller with no page to name one
+             *     omits it, and a language this platform does not serve is dropped. The
+             *     passcode goes out in English either way, because a person locked out of
+             *     their tickets must not be kept there by a spelling.
+             */
+            locale?: string;
         };
         "internal_customers_handler.otpVerifyBody": {
             code?: string;
@@ -6632,7 +6664,7 @@ export interface components {
             /**
              * @description Locale is the language of the Storefront page this sign-in happened on,
              *     and it is the one field here that is not part of proving anything. It is
-             *     remembered as the Customer's Digest Locale (ADR 0030), because a Locale is
+             *     remembered as the Customer's Mail Locale (ADR 0030), because a Locale is
              *     a property of a page's address and the Follow Digest is mail. Optional and
              *     never validated into a refusal: a caller with no page to name — anything
              *     but the Storefront — omits it and leaves what was remembered standing, and

@@ -215,3 +215,30 @@ func (s *Service) ResolveByEmail(ctx context.Context, email string) (customerID,
 	}
 	return customer.ID, normalizedEmail, nil
 }
+
+// MailLocale is the language mail to the Customer at this email is written in,
+// as remembered from the Storefront they last signed in on (ADR 0033).
+//
+// It is the SECOND link of the resolution chain and never the whole of it: the
+// caller passes what comes back to platform.ResolveMailLocale, which puts the
+// Sale Locale above it and English below it. This method deliberately does not
+// resolve anything itself — a module that answered "en" for a stranger would be
+// asserting a language nobody chose, and the caller could no longer tell that
+// answer apart from a Customer who really did sign in on an English page.
+//
+// So an email no Customer record exists for answers "", which is an ordinary
+// result and not an error: guest checkout is the common case, and the record is
+// upserted by the sale itself. A read that genuinely fails is reported as an
+// error and left for the caller to decide about — the one caller today is
+// composing a receipt for a sale that is already committed, so it writes the
+// mail in the language it has rather than not writing it at all.
+func (s *Service) MailLocale(ctx context.Context, email string) (string, error) {
+	customer, err := s.repo.GetCustomerByEmail(ctx, platform.NormalizeEmail(email))
+	if err != nil {
+		return "", err
+	}
+	if customer == nil {
+		return "", nil
+	}
+	return customer.MailLocale, nil
+}

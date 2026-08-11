@@ -55,6 +55,18 @@ type CustomerTicketSale struct {
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
+	// Locale is the Sale Locale: the language of the Storefront page this sale
+	// was completed on (#246, ADR 0033).
+	//
+	// It is on this row because of the ONE MESSAGE that has nothing else to read.
+	// The refused-reversal notice is raised by the drain — a Reconciler run, or
+	// another actor's request finishing this one — with no page, no session and
+	// no request of the buyer's own anywhere near it, and this is the sale it is
+	// about. Loading it here is what makes the notice answerable at all.
+	//
+	// Empty when the sale recorded no language, which sends the resolution on to
+	// the recipient's remembered Mail Locale and then to English.
+	Locale string
 }
 
 // ReversalFacts narrows this row to the reversal rule's inputs, so the endpoint
@@ -201,7 +213,8 @@ const ticketSaleForReversalSelect = `
 		ts.id, ts.event_id, ts.organization_id, e.name, ts.confirmation_ref,
 		ts.channel, ts.status, ts.payment_method, ts.sold_at, e.starts_at,
 		p.client_transaction_id,
-		ts.customer_email, ts.customer_first_name, ts.customer_last_name
+		ts.customer_email, ts.customer_first_name, ts.customer_last_name,
+		ts.locale
 	FROM ticket_sales ts
 	JOIN events e ON e.id = ts.event_id
 	-- One Payment, chosen rather than whichever the planner returned first: the
@@ -219,12 +232,13 @@ const ticketSaleForReversalSelect = `
 
 func (r *Repository) ticketSaleForReversal(ctx context.Context, query string, args ...any) (*CustomerTicketSale, error) {
 	var out CustomerTicketSale
-	var clientTransactionID sql.NullString
+	var clientTransactionID, locale sql.NullString
 	err := r.db.Pool.QueryRowContext(ctx, query, args...).Scan(
 		&out.ID, &out.EventID, &out.OrganizationID, &out.EventName, &out.ConfirmationRef,
 		&out.Channel, &out.Status, &out.PaymentMethod, &out.SoldAt, &out.EventStartsAt,
 		&clientTransactionID,
 		&out.CustomerEmail, &out.CustomerFirstName, &out.CustomerLastName,
+		&locale,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -233,6 +247,10 @@ func (r *Repository) ticketSaleForReversal(ctx context.Context, query string, ar
 		return nil, err
 	}
 	out.ClientTransactionID = clientTransactionID.String
+	// NULL is the ordinary state of this column — a sale no page produced, or one
+	// older than it — and the empty string it becomes is exactly what the
+	// resolution chain reads as "nothing recorded here" (ADR 0033).
+	out.Locale = locale.String
 	return &out, nil
 }
 

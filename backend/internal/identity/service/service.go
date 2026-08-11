@@ -106,8 +106,15 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 }
 
 // RequestOTP delivers a staff-purpose one-time passcode.
+//
+// The language is named here, explicitly, and it is always English. No Member
+// has a locale, apps/staff has no i18n at all, and Spanish mail linking into an
+// English application would be worse than consistency — so staff mail is
+// English by decision rather than by omission (ADR 0033). The argument is at
+// this call site precisely so a reader meets the decision instead of inferring
+// it from a default somewhere below.
 func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*OTPRequestResult, error) {
-	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP); err != nil {
+	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP, platform.DefaultLocale); err != nil {
 		return nil, err
 	}
 

@@ -540,6 +540,13 @@ func (s *Service) sendReversalRefusedNotice(ctx context.Context, sale *repositor
 		CustomerName: displayName(sale.CustomerFirstName, sale.CustomerLastName),
 		EventName:    sale.EventName,
 		Reference:    sale.ConfirmationRef,
+		// The one message with nothing else to read (#246, ADR 0033). Whoever is
+		// standing here is whoever performed the in_flight -> refused transition:
+		// a Reconciler run on a cron, or a stranger's page draining this request.
+		// Neither of them is this buyer, and neither is on a page in this buyer's
+		// language — so the language comes off the sale, which is the last thing
+		// still standing that knows it.
+		Locale: s.mailLocale(noticeCtx, sale.ID, sale.Locale, sale.CustomerEmail),
 	}); err != nil {
 		// Worth a line of its own rather than a discarded error: this is the only
 		// message that ever corrects the promise, so a Customer it never reaches is
@@ -1014,6 +1021,12 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 		CustomerName: displayName(reversed.CustomerFirstName, reversed.CustomerLastName),
 		EventName:    sale.EventName,
 		Reference:    reversed.ConfirmationRef,
+		// The language of the sale being voided (#246, ADR 0033), read off the
+		// row the reversal primitive just locked — and NOT off the press that got
+		// here. The buyer may have pressed Undo on a Spanish page, but a drain
+		// finishing their request hours later did not, and both must produce the
+		// same notice.
+		Locale: s.mailLocale(ctx, reversed.ID, reversed.Locale, reversed.CustomerEmail),
 	})
 
 	return &SaleReversalResult{

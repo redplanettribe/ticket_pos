@@ -51,9 +51,17 @@ function asTrimmedString(value: unknown): string {
 }
 
 /**
- * The language the buyer was reading in, for the checkout context cookie and
- * for nothing else — it is never sent on to the Go API, which stays
- * Locale-unaware.
+ * The language the buyer was reading in, which now has two readers: the
+ * checkout-context cookie the return leg redirects by, and the API itself,
+ * which records it on the Ticket Sale as its Sale Locale so that mail about
+ * the sale is written in it (ADR 0033).
+ *
+ * ONE VALUE ANSWERS BOTH. The page a buyer read and the language their receipt
+ * arrives in are the same fact, and resolving it twice would be a way for the
+ * return page and the email to disagree about a checkout that happened once.
+ * This is not content negotiation reaching the API: no read path takes an
+ * Accept-Language, and what travels is a page reporting the language in its own
+ * address (ADR 0027).
  *
  * The page that posted here states it, because it is the only party that knows
  * the answer for certain: it was rendered under a locale prefix. The Referer is
@@ -143,6 +151,10 @@ export async function POST(request: Request) {
     Date.now(),
   );
 
+  // Resolved once, before the checkout begins, because both the API request
+  // below and the cookie written after it are statements about the same page.
+  const locale = checkoutLocale(body.locale, request.headers.get("referer"));
+
   try {
     // The Customer Session token, when the visitor has one, rides along in
     // Authorization. It is never required — guest checkout is the baseline — and
@@ -161,6 +173,11 @@ export async function POST(request: Request) {
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
         ...(phone ? { customer_phone: phone } : {}),
         ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
+        // Dropped rather than sent null when nothing here can say which page
+        // this was: the API reads an absent language as "no page produced this
+        // sale", which is the truth, and the receipt then falls back to what
+        // the buyer's own record remembers (ADR 0033).
+        ...(locale ? { locale } : {}),
         lines,
       },
       await customerSessionToken(),
@@ -185,7 +202,7 @@ export async function POST(request: Request) {
       eventPath: `/${orgSlug}/events/${eventSlug}`,
       eventName: asTrimmedString(body.event_name).slice(0, 200),
       customerEmail: asTrimmedString(body.customer_email),
-      locale: checkoutLocale(body.locale, request.headers.get("referer")),
+      locale,
     });
 
     return NextResponse.json({ data: result, error: null, request_id: crypto.randomUUID() });

@@ -80,6 +80,20 @@ type beginCheckoutBody struct {
 	// browser sends at most three.
 	AffiliateCodes []string           `json:"affiliate_codes"`
 	Lines          []checkoutLineBody `json:"lines"`
+	// Locale is the language of the Storefront page this checkout was completed
+	// on, recorded as the sale's Sale Locale and read back whenever mail about
+	// this sale is written (ADR 0033).
+	//
+	// It is a fact the page reports about itself — its language is in its own
+	// address — and not a preference being negotiated: no read path takes an
+	// Accept-Language and none is added here (ADR 0027).
+	//
+	// OPTIONAL AND NEVER A REASON TO REFUSE. A caller with no page to name one
+	// omits it, and a language this platform does not serve is dropped. Either
+	// way the sale records no language and the receipt falls back to what the
+	// Customer's record remembers, then to English. A locale must never fail a
+	// purchase — the money is the point of this request and the words are not.
+	Locale string `json:"locale"`
 }
 
 type confirmCheckoutBody struct {
@@ -94,7 +108,7 @@ type confirmCheckoutBody struct {
 // Provider's redirect URL.
 //
 // @Summary      Begin an online checkout
-// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
+// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
 // @Tags         public
 // @Accept       json
 // @Produce      json
@@ -248,6 +262,12 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		// to — a live Affiliate Link or nobody — is a business rule, and either
 		// outcome is a successful checkout.
 		AffiliateCodes: affiliateCodes(body.AffiliateCodes),
+		// Passed through raw for the same reason, and never validated into a
+		// field error: the service drops a language it cannot write in. Nothing
+		// here restates platform.ParseLocale — one reader of a language token is
+		// what keeps the checkout and the sign-in doors agreeing about what "es-EC"
+		// means.
+		Locale: body.Locale,
 	}
 }
 

@@ -29,7 +29,7 @@ import (
 // person is a different Customer — deliberately, since the alternative rewrites
 // the identity key of every existing row.
 // locale is the Locale of the Storefront the sign-in started on, remembered as
-// the Customer's Digest Locale exactly as the passcode path remembers it.
+// the Customer's Mail Locale exactly as the passcode path remembers it.
 func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, locale string) (*CustomerSessionView, string, error) {
 	identity, err := s.google.VerifiedIdentity(ctx, googleauth.Exchange{
 		Code:         code,

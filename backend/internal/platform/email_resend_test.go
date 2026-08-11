@@ -61,7 +61,7 @@ func TestResendSendOTP_Success(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"abc"}`))
 	})
 
-	if err := sender.SendOTP(context.Background(), "user@example.com", "123456"); err != nil {
+	if err := sender.SendOTP(context.Background(), "user@example.com", "123456", DefaultLocale); err != nil {
 		t.Fatalf("SendOTP returned error: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestResendSendOTP_ProviderErrorIsReturned(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"domain not verified"}`))
 	})
 
-	err := sender.SendOTP(context.Background(), "user@example.com", "123456")
+	err := sender.SendOTP(context.Background(), "user@example.com", "123456", DefaultLocale)
 	if err == nil {
 		t.Fatal("SendOTP returned nil on a 422; a failed OTP send must surface so login fails")
 	}

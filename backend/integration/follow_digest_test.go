@@ -125,8 +125,8 @@ func discoverableEvent(t *testing.T, env *testEnv, sessionID, name, slug string,
 // Tests assert on its LENGTH as much as its contents: almost every rule in this
 // feature is a rule about how many emails somebody gets. And they assert on the
 // RENDERED text rather than on the struct wherever the rule is about what a
-// person reads — a Digest Locale that reaches a field and not the body is a
-// Digest Locale that does not work.
+// person reads — a Mail Locale that reaches a field and not the body is a
+// Mail Locale that does not work.
 func digestsFor(t *testing.T, env *testEnv, email string) []capturedFollowDigest {
 	t.Helper()
 	var out []capturedFollowDigest
@@ -650,8 +650,8 @@ func TestFollowDigestTellsOneCustomerAboutAnEventOnce(t *testing.T) {
 	}
 }
 
-// TestFollowDigestRendersInTheCustomerDigestLocale is the first email in this
-// system that branches on language (ADR 0030), and the Digest Locale is where
+// TestFollowDigestRendersInTheCustomerMailLocale is the first email in this
+// system that branches on language (ADR 0030), and the Mail Locale is where
 // that language comes from: mail has no address to carry one, so it is
 // remembered from the Storefront the Customer last signed in on (#216).
 //
@@ -659,7 +659,7 @@ func TestFollowDigestTellsOneCustomerAboutAnEventOnce(t *testing.T) {
 // because the backend cannot reach the Storefront's message catalogue, which is
 // the narrow amendment ADR 0030 made to ADR 0027 — so a Digest naming "Music" to
 // a Spanish reader means that amendment is not wired up.
-func TestFollowDigestRendersInTheCustomerDigestLocale(t *testing.T) {
+func TestFollowDigestRendersInTheCustomerMailLocale(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	eventID := discoverableEvent(t, env, sessionID, "Locale Fest", "locale-fest", env.fixedClock.Add(72*time.Hour))

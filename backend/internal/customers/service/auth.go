@@ -72,8 +72,24 @@ const requestOTPMessage = "If this email can be signed in to, a passcode has bee
 // branch, or status code would turn it into an oracle for who the platform's
 // customers are. The passcode is therefore issued for any well-formed address,
 // and what it is worth is decided at verification.
-func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*CustomerOTPRequestResult, error) {
-	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP); err != nil {
+//
+// locale is the language of the Storefront page the passcode was asked from, or
+// empty from a caller with no page to name one. It WORDS THIS ONE EMAIL AND
+// NOTHING ELSE (ADR 0033): nothing here writes the Customer's Mail Locale, and
+// nothing may, because this request is anonymous — an unauthenticated caller
+// naming a stranger's address must not be able to rewrite a stored property of
+// their record and change what language their receipts arrive in. Only a
+// completed sign-in writes it (see signInProvenEmail).
+//
+// An unserved or malformed language is ignored rather than refused, exactly as
+// on the sign-in doors, and the email goes out in English. A passcode is how a
+// person gets in; it must never fail over the words it is written in.
+func (s *Service) RequestOTP(ctx context.Context, email, clientIP, locale string) (*CustomerOTPRequestResult, error) {
+	// The requesting page's language, then English. The remembered Mail Locale is
+	// deliberately not a candidate here — see ResolveMailLocale.
+	mailLocale := platform.ResolveMailLocale(locale, "")
+
+	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP, mailLocale); err != nil {
 		return nil, err
 	}
 	return &CustomerOTPRequestResult{Message: requestOTPMessage}, nil
@@ -118,8 +134,9 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*C
 // must be identical either way.
 //
 // locale is the second thing both doors carry alike: the language of the
-// Storefront page the sign-in happened on, remembered as the Customer's Digest
-// Locale because mail has no address to carry a Locale of its own (ADR 0030).
+// Storefront page the sign-in happened on, remembered as the Customer's Mail
+// Locale because mail has no address to carry a Locale of its own (ADR 0030,
+// ADR 0033).
 // It is a preference and not a credential, so an unserved language is dropped
 // rather than refused — a sign-in is Proof of Email Ownership and must not fail
 // over the words a later email will be written in. A caller that names no
@@ -127,12 +144,12 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*C
 //
 // The email must already be normalised and proven by the caller.
 func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL, locale string) (*CustomerSessionView, string, error) {
-	digestLocale := ""
+	mailLocale := ""
 	if parsed, ok := platform.ParseLocale(locale); ok {
-		digestLocale = string(parsed)
+		mailLocale = string(parsed)
 	}
 
-	customer, err := s.repo.VerifyCustomer(ctx, email, now, digestLocale)
+	customer, err := s.repo.VerifyCustomer(ctx, email, now, mailLocale)
 	if err != nil {
 		return nil, "", err
 	}

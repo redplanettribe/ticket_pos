@@ -178,7 +178,13 @@ export function SignInForm({
       const response = await fetch("/api/customer/auth/request-passcode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: address }),
+        // The Locale rides along so the passcode email is written in the
+        // language of the page it was asked from (#244, ADR 0033). It words
+        // that one email and nothing else: unlike the verify below, this
+        // request proves nothing about who owns the address, so the API does
+        // not remember it as the Customer's Mail Locale. Read from the address,
+        // as every reading of a Locale in this app is — never the browser.
+        body: JSON.stringify({ email: address, locale }),
       });
       // The success payload carries a `message`, and it is deliberately not read.
       // It is one constant sentence for every address, known or not

@@ -547,6 +547,17 @@ export type BeginCheckoutRequest = {
    * which is why the order, not just the newest code, is what travels.
    */
   affiliate_codes?: string[];
+  /**
+   * The language of the page this checkout was completed on, recorded on the
+   * Ticket Sale as its Sale Locale and read back whenever mail about that sale
+   * is written (ADR 0033). It is why a guest who never signs in still gets a
+   * Spanish receipt: the page they bought on is the only thing that knows.
+   *
+   * Optional, and the key is dropped when this app cannot say — the API then
+   * records no language and falls back to what the Customer's record remembers,
+   * and to English. A locale never fails a purchase on either side.
+   */
+  locale?: string;
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

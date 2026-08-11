@@ -543,6 +543,12 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 		CustomerName: displayName(reversed.CustomerFirstName, reversed.CustomerLastName),
 		EventName:    row.EventName,
 		Reference:    reversed.ConfirmationRef,
+		// THE SALE'S LANGUAGE, not the operator's and not this request's (#246,
+		// ADR 0033). This is the site the ordering was decided for: a Spanish
+		// buyer's sale reversed three days later from the operator console, by
+		// somebody reading an English page, is still written to in Spanish —
+		// because the only thing consulted here is the sale.
+		Locale: s.mailLocale(ctx, reversed.ID, reversed.Locale, reversed.CustomerEmail),
 	})
 
 	return &OperatorReversalResult{

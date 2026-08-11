@@ -17,88 +17,9 @@ import (
 // message — one composition, rendered identically by the provider in production
 // and by the integration suite asserting on a captured receipt.
 
-// Subject is the Sale Confirmation's subject line.
-func (c SaleConfirmation) Subject() string {
-	return fmt.Sprintf("Your tickets for %s", c.EventName)
-}
-
-// Text is the Sale Confirmation's plain-text body: what the Customer keeps as
-// their receipt.
-//
-// Two parts are conditional, and both are absent rather than blank when they do
-// not apply — an empty label on a receipt reads as a fault in the platform, and
-// there is nothing a Customer could do about it either way.
-func (c SaleConfirmation) Text() string {
-	// The total is the amount the Customer was charged, all in: the platform's
-	// fee is never itemized on a receipt (ADR 0014).
-	text := fmt.Sprintf("Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s",
-		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
-
-	// The Tax ID sits with the reference and the total because it belongs to the
-	// same job those two do: this email is the document the buyer files for
-	// their own expense records (#99).
-	if taxID := c.TaxID.Display(); taxID != "" {
-		text += "\n" + taxID
-	}
-
-	text += "\n\nPresent this reference at the event."
-
-	// The Confirmation Link is the reason this email is worth keeping: it opens
-	// this purchase months later, at the gate, with one tap and no typing.
-	if c.ConfirmationLink != "" {
-		text += fmt.Sprintf("\n\nView your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.", c.ConfirmationLink)
-	}
-	return text
-}
-
-// Subject is the void notice's subject line.
-func (v SaleVoided) Subject() string {
-	return fmt.Sprintf("Your %s purchase has been reversed", v.EventName)
-}
-
-// Text is the void notice's body. It quotes the original Sale Confirmation
-// reference so the Customer can reconcile it against the receipt they were given.
-//
-// The wording has to be true for both actors, because one notice serves both
-// Sale Reversal paths: the Customer who pressed Undo themselves, and the Sale
-// Import undo they had no part in. "Reversed" is the glossary's word — the
-// avoid list rules out cancelled, voided and refunded, and "cancelled" would
-// also read as the Event having been called off, which is a different thing
-// entirely. For the same reason the closing line asks whether they expected
-// this rather than whether it was a mistake: a buyer who just pressed Undo did
-// not make one.
-func (v SaleVoided) Text() string {
-	return fmt.Sprintf("Hi %s,\n\nYour purchase for %s (reference %s) has been reversed, and those tickets are no longer valid.\nIf you did not expect this, contact the organizer.",
-		v.CustomerName, v.EventName, v.Reference)
-}
-
-// Subject is the refused-reversal notice's subject line. It says what happened
-// in the subject itself, because a Customer who closed the tab may only ever
-// read this line.
-func (r SaleReversalRefused) Subject() string {
-	return fmt.Sprintf("We could not undo your %s purchase", r.EventName)
-}
-
-// Text is the refused-reversal notice's body: the correction to a promise the
-// platform made and could not keep.
-//
-// Three things are said and one is refused. What happened, that THE TICKETS ARE
-// STILL VALID — the sentence that decides whether this reader turns up at the
-// gate, and the reason it comes before anything else — and who to talk to, named
-// by the Sale Confirmation reference they can quote.
-//
-// What it refuses to say is WHY, for the reason ADR 0018 settled: there is no
-// provider answer that means "too late", so a refusal cannot be explained. It
-// offers no cause at all rather than a hedged one — "this can happen when…"
-// reads as a cause to the person it is guessed at.
-//
-// It also does not apologise for a delay or mention that anything was pending.
-// The reader may have pressed Undo a minute ago or a day ago, and the platform's
-// own timeline is not the thing they need from this email.
-func (r SaleReversalRefused) Text() string {
-	return fmt.Sprintf("Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid — nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
-		r.CustomerName, r.EventName, r.Reference)
-}
+// The Sale Confirmation is no longer here, and neither are the void and
+// refused-reversal notices: all three are written in the reader's own language
+// and live below the line that says so (#245 and #246, ADR 0033).
 
 // The five Payout Request notices (#179 and #188, ADR 0026). They are the
 // platform's first organizer-facing email, and they read differently from above
@@ -242,63 +163,329 @@ func (p PayoutRequestTransferFailed) Text() string {
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
 }
 
-// The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike
-// everything above it for two reasons, and both are worth stating before the
-// code.
+// Everything below is written in the reader's own language, and everything
+// above is not.
 //
-// IT IS THE FIRST MESSAGE THAT BRANCHES ON LANGUAGE. Every other Text() here is
-// English because every other message answers something its reader just did on
-// a page, and the page was already worded. This one arrives unbidden, in
-// whatever language the reader last used the Storefront in (ADR 0030), so every
-// sentence exists twice. The branching is done with a small lookup per sentence
-// rather than by writing two whole methods: two methods drift, and the drift
-// shows up as a Spanish reader missing a line an English reader gets.
+// The line falls where it does by decision rather than by how far the work got
+// (ADR 0033): the messages above are read by Members and Platform Operators,
+// who have no language recorded anywhere and whose entire working surface is
+// English, and Spanish mail linking into an English application would be worse
+// than consistency. The messages below are read by Customers, who chose a
+// language on a page and were answered in it.
 //
-// IT NAMES TAGS IT DID NOT TRANSLATE. The Tag names arriving on each entry have
-// already been resolved by catalog's LocalizedTagNames — a Preset Tag in the
-// reader's language, a Custom Tag exactly as its Organization coined it. Nothing
-// below touches them. There is one localization rule for Tags in this system and
-// it lives in catalog; a second one here would only have to agree with it.
+// THE BRANCHING IS A LOOKUP PER SENTENCE, never two whole methods. Two methods
+// drift, and the drift shows up as a Spanish reader missing a line an English
+// reader gets.
 
-// digestCopy is one sentence in both languages. Every piece of Digest copy is
-// declared as one of these, so a line added in English cannot be shipped without
-// its Spanish, and the two are read side by side rather than a screen apart.
-type digestCopy struct {
+// mailCopy is one sentence in every language this platform writes. Every piece
+// of localized copy in this file is declared as one of these, so a line added in
+// English cannot be shipped without its Spanish, and the two are read side by
+// side rather than a screen apart.
+//
+// It began as the Digest's own type (ADR 0030) and is now the whole file's
+// (ADR 0033): the Digest is no longer the only message with a reader whose
+// language the platform knows, and a second copy of this machinery per message
+// would be a second place for a language to go missing.
+type mailCopy struct {
 	en string
 	es string
 }
 
+// copyRegistry collects every sentence declared on it, in declaration order.
+//
+// It exists for one test (TestEveryMailCopyIsWrittenInBothLanguages), and it is
+// the backend's counterpart to the Storefront's messages parity test: an
+// explicit list would only record the copy somebody remembered to add to it,
+// where this one cannot be out of date because there is no other way to make a
+// mailCopy.
+//
+// It is a TYPE rather than a bare package-level slice so that the registering is
+// something a caller does to a named thing it can see. A test needing a throwaway
+// sentence declares it on a registry of its own and the production one is
+// untouchable from outside this file — which matters, because a fixture that
+// landed in allMailCopy would be walked by the parity test forever after and
+// asserted on as if it were copy somebody ships.
+type copyRegistry struct {
+	all []mailCopy
+}
+
+// declare records one sentence in both languages, ENGLISH FIRST.
+//
+// It is a method rather than a struct literal for the guarantee in its argument
+// list: an unkeyed call with a missing translation does not compile, so a
+// sentence cannot reach a reader in a language nobody wrote.
+func (r *copyRegistry) declare(en, es string) mailCopy {
+	c := mailCopy{en: en, es: es}
+	r.all = append(r.all, c)
+	return c
+}
+
+// allMailCopy holds every sentence this platform can actually put in an email.
+var allMailCopy = &copyRegistry{}
+
+// translated declares one sentence of real, shipped copy, and is the only way a
+// mailCopy reaches a recipient. Every call registers itself in allMailCopy,
+// which is what lets one test walk all of them without a list to maintain.
+func translated(en, es string) mailCopy {
+	return allMailCopy.declare(en, es)
+}
+
 // in picks the sentence for a Locale, falling back to English for anything this
 // platform does not write — which is the same fallback DefaultLocale states, and
-// is unreachable while ParseLocale and the digest_locale CHECK both hold.
-func (c digestCopy) in(locale Locale) string {
+// is unreachable while ParseLocale and the mail_locale CHECK both hold.
+func (c mailCopy) in(locale Locale) string {
 	if locale == LocaleES {
 		return c.es
 	}
 	return c.en
 }
 
+// The Customer and staff One-time Passcode (#244, ADR 0033), which is one
+// message read through two doors.
+//
+// It lived in the Resend provider until this file's reason for existing caught
+// up with it: copy is a property of the message and not of the transport, and
+// while it sat in the provider no test driving the API could assert on a word a
+// recipient reads. It is now the same two sentences either door sends, written
+// in whichever language the caller names — the Storefront page a visitor asked
+// from, and English, explicitly, for staff.
+//
+// The body says the code, that it expires, and what to do if it was not asked
+// for. It names no person: a passcode request proves nothing about who is
+// asking, so the platform will not greet an address it cannot yet claim to know.
 var (
-	digestSubjectCopy = digestCopy{
-		en: "What's on from the things you follow",
-		es: "Novedades de lo que sigues",
+	otpSubjectCopy = translated(
+		"Your Multiticketing passcode",
+		"Su código de acceso de Multiticketing",
+	)
+	otpTextCopy = translated(
+		"Your one-time passcode is %s.\n\nIt expires shortly. If you did not request it, ignore this email.",
+		"Su código de acceso es %s.\n\nCaduca en breve. Si no lo solicitó, ignore este correo.",
+	)
+)
+
+// Subject is the passcode's subject line, in the recipient's language.
+func (o OTPMessage) Subject() string {
+	return otpSubjectCopy.in(o.Locale)
+}
+
+// Text is the passcode's body: the code itself and the two things a recipient
+// needs to know about it.
+func (o OTPMessage) Text() string {
+	return fmt.Sprintf(otpTextCopy.in(o.Locale), o.Code)
+}
+
+// The Sale Confirmation (#245, ADR 0033) — the receipt, and the mail a Customer
+// is most certain to open.
+//
+// It is the message the whole Sale Locale exists for. A visitor can read a
+// Spanish Event page, check out in Spanish as a guest and never sign in, so the
+// only record of the language they chose is the one the sale itself keeps; the
+// language reaching Locale below has already been resolved from it (see
+// SaleConfirmation.Locale).
+//
+// WHAT DOES NOT CHANGE with the language is as decided as what does. The total
+// stays in the Organization's currency and the Tax ID keeps the label printed on
+// the document in the buyer's hand — "Cédula" is what an Ecuadorian buyer looks
+// for on an English receipt too — because this email is the paper trail they
+// file, and a translated number is a number they cannot reconcile (ADR 0016,
+// #99).
+var (
+	saleConfirmationSubjectCopy = translated(
+		"Your tickets for %s",
+		"Sus entradas para %s",
+	)
+	// The opening is one sentence and the three facts under it, declared whole
+	// rather than line by line: the greeting, what is confirmed, the reference
+	// and the total are one block of prose in either language, and splitting
+	// them would let a translator reorder half of it without the other half.
+	saleConfirmationOpeningCopy = translated(
+		"Hi %s,\n\nYour purchase for %s is confirmed.\nReference: %s\nTotal paid: %s",
+		"Hola %s:\n\nSu compra de %s está confirmada.\nReferencia: %s\nTotal pagado: %s",
+	)
+	saleConfirmationPresentCopy = translated(
+		"Present this reference at the event.",
+		"Presente esta referencia en el evento.",
+	)
+	saleConfirmationLinkCopy = translated(
+		"View your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
+		"Vea sus entradas:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
+	)
+)
+
+// Subject is the Sale Confirmation's subject line, in the language the sale was
+// made in.
+func (c SaleConfirmation) Subject() string {
+	return fmt.Sprintf(saleConfirmationSubjectCopy.in(c.Locale), c.EventName)
+}
+
+// Text is the Sale Confirmation's plain-text body: what the Customer keeps as
+// their receipt.
+//
+// Two parts are conditional, and both are absent rather than blank when they do
+// not apply — an empty label on a receipt reads as a fault in the platform, and
+// there is nothing a Customer could do about it either way.
+func (c SaleConfirmation) Text() string {
+	// The total is the amount the Customer was charged, all in: the platform's
+	// fee is never itemized on a receipt (ADR 0014).
+	text := fmt.Sprintf(saleConfirmationOpeningCopy.in(c.Locale),
+		c.CustomerName, c.EventName, c.Reference, formatMoney(c.AmountCents, c.Currency))
+
+	// The Tax ID sits with the reference and the total because it belongs to the
+	// same job those two do: this email is the document the buyer files for
+	// their own expense records (#99).
+	if taxID := c.TaxID.Display(); taxID != "" {
+		text += "\n" + taxID
 	}
-	digestGreetingCopy = digestCopy{
-		en: "Hi %s,\n\nHere is what's coming up from the things you follow.",
-		es: "Hola %s:\n\nEsto es lo que viene de las cosas que sigues.",
+
+	text += "\n\n" + saleConfirmationPresentCopy.in(c.Locale)
+
+	// The Confirmation Link is the reason this email is worth keeping: it opens
+	// this purchase months later, at the gate, with one tap and no typing.
+	if c.ConfirmationLink != "" {
+		text += "\n\n" + fmt.Sprintf(saleConfirmationLinkCopy.in(c.Locale), c.ConfirmationLink)
 	}
+	return text
+}
+
+// The Sale Voided notice (#246, ADR 0033) — the mail that says a purchase is
+// gone.
+//
+// IT IS THE MESSAGE THE CHAIN'S ORDERING WAS DECIDED FOR. A receipt could
+// plausibly have read a language off the request that produced it; this one
+// cannot, because there is no such request. It is sent days later, by a Platform
+// Operator's button, by a Sale Import undo, or by the reversal drain, and at
+// none of those moments is there a page whose address states a language. The
+// sale carries its own, so this mail does not have to ask.
+//
+// The wording is the same in either language on the point that matters: it has
+// to be true for a buyer who pressed Undo themselves AND for one whose imported
+// sale was undone without their knowledge. The Spanish takes "anulada" from the
+// Storefront's own account of the same state (`sale.reversedTitle`, "Esta
+// compra fue anulada"), so a Customer who reads this mail and then opens their
+// tickets meets one word for one thing rather than two.
+var (
+	saleVoidedSubjectCopy = translated(
+		"Your %s purchase has been reversed",
+		"Su compra de %s fue anulada",
+	)
+	// The body is one block in both languages, greeting and all, for the reason
+	// the receipt's opening is: the closing sentence only makes sense after the
+	// one above it, and splitting them would let one be translated without the
+	// other.
+	//
+	// The closing line asks whether they EXPECTED this rather than whether it was
+	// a mistake — a buyer who just pressed Undo did not make one — and names the
+	// organizer as the person to talk to, which is who the Storefront sends them
+	// to about the same state.
+	saleVoidedTextCopy = translated(
+		"Hi %s,\n\nYour purchase for %s (reference %s) has been reversed, and those tickets are no longer valid.\nIf you did not expect this, contact the organizer.",
+		"Hola %s:\n\nSu compra de %s (referencia %s) fue anulada, y esas entradas ya no son válidas.\nSi no esperaba esto, contacte al organizador.",
+	)
+)
+
+// Subject is the void notice's subject line, in the language the sale was made
+// in.
+func (v SaleVoided) Subject() string {
+	return fmt.Sprintf(saleVoidedSubjectCopy.in(v.Locale), v.EventName)
+}
+
+// Text is the void notice's body. It quotes the original Sale Confirmation
+// reference so the Customer can reconcile it against the receipt they were given
+// — which is now a receipt in this same language, because both read the sale.
+//
+// "Reversed" is the glossary's word in English: the avoid list rules out
+// cancelled, voided and refunded, and "cancelled" would also read as the Event
+// having been called off, which is a different thing entirely.
+func (v SaleVoided) Text() string {
+	return fmt.Sprintf(saleVoidedTextCopy.in(v.Locale),
+		v.CustomerName, v.EventName, v.Reference)
+}
+
+// The Sale Reversal Refused notice (#246, ADR 0033), which corrects a promise
+// this platform made and could not keep.
+//
+// It has less context available to it than anything else here. It is raised by
+// the reversal drain — a Reconciler run, or another Customer's page draining a
+// stranger's request — long after the press it answers, so the only language
+// anywhere in reach is the one the sale recorded.
+//
+// THREE THINGS ARE SAID AND ONE IS REFUSED, in either language. What happened,
+// that THE TICKETS ARE STILL VALID — the sentence that decides whether this
+// reader turns up at the gate, and the reason it comes before anything else —
+// and who to talk to, named by the reference they can quote.
+//
+// What it refuses to say is WHY, for the reason ADR 0018 settled: there is no
+// provider answer that means "too late", so a refusal cannot be explained. It
+// offers no cause at all rather than a hedged one — "this can happen when…"
+// reads as a cause to the person it is guessed at. It also does not apologise
+// for a delay or mention that anything was pending: the reader may have pressed
+// Undo a minute ago or a day ago, and the platform's own timeline is not what
+// they need from this email.
+var (
+	saleReversalRefusedSubjectCopy = translated(
+		"We could not undo your %s purchase",
+		"No pudimos deshacer su compra de %s",
+	)
+	// The Spanish is the Storefront's own sentence for this exact outcome,
+	// lengthened into a mail. `sale.refundRefusedToast` says "Sus entradas siguen
+	// siendo válidas: no se pudo procesar su reembolso" to a Customer looking at
+	// the page; this says the same thing in the same words to the one who closed
+	// the tab, which is the only reader this message has.
+	saleReversalRefusedTextCopy = translated(
+		"Hi %s,\n\nWe could not undo your purchase for %s (reference %s).\n\nYour tickets are still valid — nothing has changed about your purchase, and you can still use them.\n\nIf you need help with this purchase, contact the organizer and quote the reference above.",
+		"Hola %s:\n\nNo pudimos deshacer su compra de %s (referencia %s).\n\nSus entradas siguen siendo válidas: no cambió nada en su compra y puede seguir usándolas.\n\nSi necesita ayuda con esta compra, contacte al organizador e indique la referencia anterior.",
+	)
+)
+
+// Subject is the refused-reversal notice's subject line. It says what happened
+// in the subject itself, because a Customer who closed the tab may only ever
+// read this line — and it says it in their language for the same reason.
+func (r SaleReversalRefused) Subject() string {
+	return fmt.Sprintf(saleReversalRefusedSubjectCopy.in(r.Locale), r.EventName)
+}
+
+// Text is the refused-reversal notice's body.
+func (r SaleReversalRefused) Text() string {
+	return fmt.Sprintf(saleReversalRefusedTextCopy.in(r.Locale),
+		r.CustomerName, r.EventName, r.Reference)
+}
+
+// The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike every
+// other message here for two reasons, and both are worth stating before the
+// code.
+//
+// IT WAS THE FIRST MESSAGE THAT BRANCHED ON LANGUAGE, and the copy machinery
+// above is the machinery it introduced. Every other message answers something
+// its reader just did on a page; this one arrives unbidden, in whatever language
+// the reader last used the Storefront in, so every sentence exists twice.
+//
+// IT NAMES TAGS IT DID NOT TRANSLATE. The Tag names arriving on each entry have
+// already been resolved by catalog's LocalizedTagNames — a Preset Tag in the
+// reader's language, a Custom Tag exactly as its Organization coined it. Nothing
+// below touches them. There is one localization rule for Tags in this system and
+// it lives in catalog; a second one here would only have to agree with it.
+var (
+	digestSubjectCopy = translated(
+		"What's on from the things you follow",
+		"Novedades de lo que usted sigue",
+	)
+	digestGreetingCopy = translated(
+		"Hi %s,\n\nHere is what's coming up from the things you follow.",
+		"Hola %s:\n\nEsto es lo que viene de las cosas que usted sigue.",
+	)
 	// The two section headings (#221). They are the whole difference between a
 	// list and a Digest: one answers "what is there that I did not know about",
 	// the other "what do I need to be ready for", and a reader who cannot tell
 	// which is which has to read every entry to find out.
-	digestNewHeadingCopy = digestCopy{
-		en: "New this week",
-		es: "Nuevo esta semana",
-	}
-	digestHappeningHeadingCopy = digestCopy{
-		en: "Happening this week",
-		es: "Esta semana",
-	}
+	digestNewHeadingCopy = translated(
+		"New this week",
+		"Nuevo esta semana",
+	)
+	digestHappeningHeadingCopy = translated(
+		"Happening this week",
+		"Esta semana",
+	)
 	// The three CALLS TO ACTION (#223), of which every entry carries exactly one.
 	//
 	// Before #223 an entry printed a bare URL and left the reader to work out
@@ -310,42 +497,42 @@ var (
 	//
 	// digestGetTicketsCopy is the ordinary one: a ticketed Event this reader does
 	// not hold a ticket for.
-	digestGetTicketsCopy = digestCopy{
-		en: "Get tickets: %s",
-		es: "Consigue entradas: %s",
-	}
+	digestGetTicketsCopy = translated(
+		"Get tickets: %s",
+		"Consiga entradas: %s",
+	)
 	// digestRegisterCopy is an externally registered Event (ADR 0028), which has
 	// no Ticket Types to sell and whose only way in is to sign up. It still
 	// points at the Storefront Event page rather than at the Registration Link
 	// itself: that page is where the Registration Link's clicks are counted, and
 	// a Digest that jumped straight to the third-party site would spend the
 	// Organization's traffic without ever recording it.
-	digestRegisterCopy = digestCopy{
-		en: "Register: %s",
-		es: "Regístrate: %s",
-	}
+	digestRegisterCopy = translated(
+		"Register: %s",
+		"Regístrese: %s",
+	)
 	// digestYourTicketsCopy replaces the purchase line for a reader who already
 	// holds one, sending them to what they own instead of to a checkout they have
 	// already been through.
-	digestYourTicketsCopy = digestCopy{
-		en: "Your tickets: %s",
-		es: "Tus entradas: %s",
-	}
+	digestYourTicketsCopy = translated(
+		"Your tickets: %s",
+		"Sus entradas: %s",
+	)
 	// digestAttendingCopy is the mark itself, printed directly under the Event's
 	// name so it is read before the date rather than after the address. It is the
 	// answer to the question the reader would otherwise ask of every line below
 	// it: "is this the one I already booked?"
-	digestAttendingCopy = digestCopy{
-		en: "You're going",
-		es: "Vas a ir",
-	}
+	digestAttendingCopy = translated(
+		"You're going",
+		"Va a asistir",
+	)
 	// The attribution line, which is the Digest answering "why am I being told
 	// this?" before the reader has to ask. ADR 0030 wants the matching Follow
 	// recorded; this is the half of that the reader sees.
-	digestBecauseCopy = digestCopy{
-		en: "Because you follow: %s",
-		es: "Porque sigues: %s",
-	}
+	digestBecauseCopy = translated(
+		"Because you follow: %s",
+		"Porque usted sigue: %s",
+	)
 	// The overflow line of a capped section (#222), in its two forms.
 	//
 	// It says the NUMBER and then where to see them, in that order, because the
@@ -355,28 +542,28 @@ var (
 	// exists only for a deployment with no Storefront origin configured, where
 	// admitting to the cap without an address is still better than a truncation
 	// nobody can see.
-	digestMoreCopy = digestCopy{
-		en: "+%d more: %s",
-		es: "+%d más: %s",
-	}
-	digestMoreWithoutLinkCopy = digestCopy{
-		en: "+%d more",
-		es: "+%d más",
-	}
-	digestClosingCopy = digestCopy{
-		en: "You are getting this because you follow organizers and topics on Multiticketing.",
-		es: "Recibes esto porque sigues organizadores y temas en Multiticketing.",
-	}
+	digestMoreCopy = translated(
+		"+%d more: %s",
+		"+%d más: %s",
+	)
+	digestMoreWithoutLinkCopy = translated(
+		"+%d more",
+		"+%d más",
+	)
+	digestClosingCopy = translated(
+		"You are getting this because you follow organizers and topics on Multiticketing.",
+		"Usted recibe esto porque sigue organizadores y temas en Multiticketing.",
+	)
 	// The unsubscribe line (#224, ADR 0030). It says what pressing the link does
 	// AND what it does not do, because those are two different acts with two
 	// different names (CONTEXT.md): Unsubscribing silences the Digest,
 	// Unfollowing removes a Follow. A reader who wanted fewer emails and feared
 	// losing what they follow would otherwise have no way to tell, and the
 	// safest-looking answer available to them is to stop opening the mail.
-	digestUnsubscribeCopy = digestCopy{
-		en: "Don't want these? Turn off the digest — you'll keep everything you follow: %s",
-		es: "¿No quieres recibirlos? Desactiva el resumen: seguirás siguiendo todo lo que sigues: %s",
-	}
+	digestUnsubscribeCopy = translated(
+		"Don't want these? Turn off the digest — you'll keep everything you follow: %s",
+		"¿No quiere recibirlos? Desactive el resumen y conservará todo lo que sigue: %s",
+	)
 )
 
 // Subject is the Follow Digest's subject line.
@@ -554,14 +741,29 @@ func (e FollowDigestEvent) reasons() []string {
 	return reasons
 }
 
+// The localized calendar, which is SHARED BY EVERY MESSAGE THAT PRINTS A DATE
+// rather than the Digest's own (#245).
+//
+// It arrived with the Digest because the Digest was the first message that
+// branched on language at all, and it read as digest machinery for exactly as
+// long as the Digest was the only bilingual mail on the platform. It no longer
+// is: every Customer-facing message below the line above is written in the
+// reader's language, and an Event's date is the same date in whichever of them
+// prints it. A second copy scoped to receipts would be a second place for a
+// month to be spelled wrong.
+//
 // formatEventDate renders an Event's start in the Event's own zone, in the
 // reader's language — "Friday 10 July, 20:00" / "viernes 10 de julio, 20:00".
+// The EVENT's zone and not the reader's, always: localizing mail changes the
+// words and the marks around the numbers and never the numbers themselves
+// (ADR 0033), and a Spanish receipt showing a shifted time is the sort of thing
+// that gets reported as a bug.
 //
 // The month and weekday names are spelled out here rather than taken from
 // time.Format's English-only names, because Go's standard library carries no
 // localized calendar and pulling in one for twelve words would be a dependency
 // bigger than the feature. An unknown or unloadable timezone yields no date line
-// at all rather than one in the wrong zone: a Digest that tells somebody the
+// at all rather than one in the wrong zone: a message that tells somebody the
 // wrong day is worse than one that tells them to open the link.
 func formatEventDate(startsAt time.Time, timezone string, locale Locale) string {
 	if startsAt.IsZero() {

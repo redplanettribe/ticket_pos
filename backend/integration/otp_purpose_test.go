@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/platform/apperror"
 	"github.com/peter/ticket_pos/backend/internal/platform/otp"
 )
@@ -52,7 +53,7 @@ func TestOTPCustomerPasscodeIsNotVerifiableForStaffPurpose(t *testing.T) {
 	ctx := context.Background()
 	email := "boundary@example.com"
 
-	if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "203.0.113.7"); err != nil {
+	if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "203.0.113.7", platform.DefaultLocale); err != nil {
 		t.Fatalf("issue customer otp: %v", err)
 	}
 	customerCode := env.email.LastCode
@@ -84,11 +85,11 @@ func TestOTPPerEmailRateLimitIsScopedByPurpose(t *testing.T) {
 
 	// Exhaust the customer allowance for this email: 3 per 15 minutes.
 	for i := 0; i < 3; i++ {
-		if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "203.0.113.20"); err != nil {
+		if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "203.0.113.20", platform.DefaultLocale); err != nil {
 			t.Fatalf("issue customer otp %d: %v", i, err)
 		}
 	}
-	err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "203.0.113.20")
+	err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "203.0.113.20", platform.DefaultLocale)
 	assertOTPErrorCode(t, err, "OTP_RATE_LIMITED")
 
 	// The staff allowance for the same email is untouched.
@@ -107,11 +108,11 @@ func TestOTPPerIPRateLimitIsScopedByPurpose(t *testing.T) {
 
 	// Exhaust the customer allowance for this IP: 10 per 15 minutes.
 	for i := 0; i < 10; i++ {
-		if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, fmt.Sprintf("customer%d@example.com", i), clientIP); err != nil {
+		if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, fmt.Sprintf("customer%d@example.com", i), clientIP, platform.DefaultLocale); err != nil {
 			t.Fatalf("issue customer otp %d: %v", i, err)
 		}
 	}
-	err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, "customer-over@example.com", clientIP)
+	err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, "customer-over@example.com", clientIP, platform.DefaultLocale)
 	assertOTPErrorCode(t, err, "OTP_RATE_LIMITED")
 
 	// A staff request from the same IP still has its full allowance.
@@ -143,7 +144,7 @@ func TestOTPStaffTrafficDoesNotExhaustCustomerAllowance(t *testing.T) {
 		t.Fatalf("expected staff allowance exhausted, got %d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "198.51.100.77"); err != nil {
+	if err := sharedApp.OTPService.Issue(ctx, otp.PurposeCustomer, email, "198.51.100.77", platform.DefaultLocale); err != nil {
 		t.Fatalf("customer otp issue after staff allowance exhausted: %v", err)
 	}
 }

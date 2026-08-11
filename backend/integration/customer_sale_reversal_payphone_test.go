@@ -27,8 +27,24 @@ import (
 // recorded. That id is what the reversal must present to PayPhone.
 func buyOnlineThroughPayPhone(t *testing.T, eventSlug, ticketTypeID, email string, quantity int) (ref, clientTransactionID string) {
 	t.Helper()
-	begun := beginCheckoutOK(t, payphoneEnv, testOrgSlug, eventSlug,
-		checkoutBody(email, "Ana", "Lopez", cartLine(ticketTypeID, quantity)))
+	return buyOnlineThroughPayPhoneInLocale(t, eventSlug, ticketTypeID, email, quantity, "")
+}
+
+// buyOnlineThroughPayPhoneInLocale is the same purchase made on a Storefront
+// page served in a named language, which the sale records as its Sale Locale
+// (#246, ADR 0033). An empty locale names none, which is what every caller above
+// wants and what the great majority of sales carry.
+//
+// It exists because the mail a reversal sends is written in the language of the
+// sale it is about, and that language can only get onto the sale here — at the
+// checkout, which is the last moment a page is anywhere near this story.
+func buyOnlineThroughPayPhoneInLocale(t *testing.T, eventSlug, ticketTypeID, email string, quantity int, locale string) (ref, clientTransactionID string) {
+	t.Helper()
+	checkout := checkoutBody(email, "Ana", "Lopez", cartLine(ticketTypeID, quantity))
+	if locale != "" {
+		checkout["locale"] = locale
+	}
+	begun := beginCheckoutOK(t, payphoneEnv, testOrgSlug, eventSlug, checkout)
 
 	resp, body := confirmCheckoutParams(t, payphoneEnv, begun.ClientTransactionID,
 		payphoneReturnParams(begun.ClientTransactionID))

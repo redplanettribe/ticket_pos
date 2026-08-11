@@ -9,7 +9,7 @@
 // HTTP endpoints a scheduler calls and a human can curl.
 //
 // It is also a module that OWNS ALMOST NOTHING. The Follows belong to customers,
-// the Events and Tags to catalog, the Customer's Digest Locale to customers, the
+// the Events and Tags to catalog, the Customer's Mail Locale to customers, the
 // delivery to platform. What lives here is the two tables nobody else could own
 // — the queue and the sent-ledger — and the decision about what one person is
 // told this week.
@@ -609,10 +609,9 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		return digestOutcomeEmpty, s.repo.MarkDigestEmpty(ctx, pending.ID)
 	}
 
-	locale := platform.DefaultLocale
-	if parsed, ok := platform.ParseLocale(recipient.Locale); ok {
-		locale = parsed
-	}
+	// The Digest is about no sale, so the chain starts one step down: the
+	// recipient's remembered Mail Locale, then English (ADR 0033).
+	locale := platform.ResolveMailLocale("", recipient.Locale)
 
 	message, err := s.compose(ctx, pending.CustomerID, *recipient, locale, sections)
 	if err != nil {

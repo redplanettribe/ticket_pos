@@ -101,13 +101,17 @@ func (s *ResendEmailSender) send(ctx context.Context, to, subject, text string) 
 	return nil
 }
 
-// SendOTP delivers a staff one-time passcode. A failure here is returned to the
-// caller, which fails the login request rather than pretending a code was sent.
-func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string) error {
-	subject := "Your Multiticketing passcode"
-	text := fmt.Sprintf("Your one-time passcode is %s.\n\nIt expires shortly. If you did not request it, ignore this email.", code)
-	if err := s.send(ctx, to, subject, text); err != nil {
-		s.logger.Error("resend send otp failed", "email", to, "error", err)
+// SendOTP delivers a One-time Passcode in the named language. A failure here is
+// returned to the caller, which fails the sign-in request rather than pretending
+// a code was sent.
+//
+// The copy is the message's own (email_content.go) and no longer this file's:
+// this was the last message whose words lived in the provider, which put them
+// out of reach of every test that drives the API (#244).
+func (s *ResendEmailSender) SendOTP(ctx context.Context, to string, code string, locale Locale) error {
+	message := OTPMessage{Code: code, Locale: locale}
+	if err := s.send(ctx, to, message.Subject(), message.Text()); err != nil {
+		s.logger.Error("resend send otp failed", "email", to, "locale", string(locale), "error", err)
 		return err
 	}
 	return nil

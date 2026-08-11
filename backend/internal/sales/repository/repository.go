@@ -70,7 +70,16 @@ type CommitSale struct {
 	// import channels — neither travels through a link, and neither has anywhere
 	// to have carried a code from (#146).
 	AffiliateLinkID string
-	Lines           []CommitLine
+	// Locale is the Sale Locale: the language of the Storefront page this sale
+	// was completed on, copied from the Payment that settled it (ADR 0033).
+	//
+	// EMPTY IS A REAL ANSWER AND NOT A GAP. A box office sale and an import were
+	// produced by no page, so there is nothing for them to record, and the column
+	// is nullable precisely so they can say so — 'en' there would be an assertion
+	// that the buyer chose English, and the Sale Locale outranks the Customer's
+	// remembered language (see migration 059).
+	Locale string
+	Lines  []CommitLine
 }
 
 // UpsertCustomer creates or reuses the Customer for one Ticket Sale inside the
@@ -141,6 +150,13 @@ type RecordedSale struct {
 	// rather than re-reading a Customer record that may already have moved on.
 	// Unset on the `import` channel when the file carried no Tax ID.
 	CustomerTaxID platform.SaleTaxID
+	// Locale is the Sale Locale just written onto the sale, echoed back so the
+	// Sale Confirmation can be written in it without re-reading the row it was
+	// this instant inserted from (ADR 0033). Empty on every sale no page produced
+	// — a box office sale, an import, and every sale recorded before the column
+	// existed — which is what sends the resolution on to the Customer's
+	// remembered language, and then to English.
+	Locale string
 }
 
 // CommittedBatch is the outcome of a committed (or replayed) Sale Import.
@@ -481,14 +497,14 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 				customer_id, customer_email, customer_first_name, customer_last_name,
 				customer_tax_id_type, customer_tax_id_number,
 				sold_at, confirmation_ref, status,
-				affiliate_link_id, created_at
+				affiliate_link_id, locale, created_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $15, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $13, $14, $10, $11, 'active', $15, $16, $12)
 			RETURNING id
 		`, in.EventID, in.OrganizationID, in.Channel, nullString(in.Source), nullString(s.PaymentMethod),
 			customerID, s.Customer.Email, s.Customer.FirstName, s.Customer.LastName, s.SoldAt, s.ConfirmationRef, in.Now,
 			nullString(s.Customer.TaxID.Type), nullString(s.Customer.TaxID.Number),
-			nullString(s.AffiliateLinkID)).Scan(&saleID)
+			nullString(s.AffiliateLinkID), nullString(s.Locale)).Scan(&saleID)
 		if err != nil {
 			return nil, err
 		}
@@ -528,6 +544,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			CustomerLastName:  s.Customer.LastName,
 			AmountCents:       amountCents,
 			CustomerTaxID:     s.Customer.TaxID,
+			Locale:            s.Locale,
 		})
 	}
 
@@ -649,10 +666,28 @@ type ReverseInput struct {
 // ReversedSale is one Ticket Sale that was reversed, carrying the fields needed
 // to email its Customer a void/cancellation notice.
 type ReversedSale struct {
+	// ID is the voided sale's own id. It identifies the sale in the log line the
+	// notice's language resolution writes when it cannot read the recipient's
+	// remembered one — a confirmation ref would name the purchase to a human but
+	// not the row to whoever goes looking.
+	ID                string
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string
 	ConfirmationRef   string
+	// Locale is the Sale Locale recorded on the sale being voided, read back here
+	// so the void notice can be written in the language the sale was made in
+	// (#246, ADR 0033).
+	//
+	// It is selected by the reversal primitive rather than looked up by each
+	// caller because every void notice this platform sends comes out of this one
+	// query — the operator's reversal, the buyer's own, and the Sale Import undo
+	// — and a locale fetched per caller would be three chances to forget it.
+	//
+	// Empty on every sale no page produced, and on every sale older than the
+	// column, which is what sends the resolution on to the recipient's remembered
+	// language and then to English.
+	Locale string
 }
 
 // ReversedBatch is the outcome of a reversed Sale Import batch.
@@ -759,8 +794,12 @@ func reverseSalesTx(ctx context.Context, tx *sql.Tx, in ReverseSalesInput) ([]Re
 	// Lock and read the sales that are still active. Everything below works off
 	// this set, so a sale reversed by a racing transaction is simply not in it.
 	// The ordered lock keeps concurrent reversals of overlapping sets deadlock-free.
+	// The locale rides along with the buyer's snapshot because it is one: it is
+	// the language the sale was made in, and the void notice below is written in
+	// it (#246, ADR 0033). NULL on every sale no page produced, which the scan
+	// turns into the empty string the resolution chain treats as "nothing here".
 	saleRows, err := tx.QueryContext(ctx, `
-		SELECT id, customer_email, customer_first_name, customer_last_name, confirmation_ref
+		SELECT id, customer_email, customer_first_name, customer_last_name, confirmation_ref, locale
 		FROM ticket_sales
 		WHERE id = ANY($1) AND event_id = $2 AND organization_id = $3 AND status = 'active'
 		ORDER BY id
@@ -772,13 +811,14 @@ func reverseSalesTx(ctx context.Context, tx *sql.Tx, in ReverseSalesInput) ([]Re
 	var reversed []ReversedSale
 	var activeIDs []string
 	for saleRows.Next() {
-		var id string
 		var s ReversedSale
-		if err := saleRows.Scan(&id, &s.CustomerEmail, &s.CustomerFirstName, &s.CustomerLastName, &s.ConfirmationRef); err != nil {
+		var locale sql.NullString
+		if err := saleRows.Scan(&s.ID, &s.CustomerEmail, &s.CustomerFirstName, &s.CustomerLastName, &s.ConfirmationRef, &locale); err != nil {
 			saleRows.Close()
 			return nil, err
 		}
-		activeIDs = append(activeIDs, id)
+		s.Locale = locale.String
+		activeIDs = append(activeIDs, s.ID)
 		reversed = append(reversed, s)
 	}
 	if err := saleRows.Err(); err != nil {

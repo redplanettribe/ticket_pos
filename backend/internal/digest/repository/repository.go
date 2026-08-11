@@ -42,8 +42,8 @@ type PendingDigest struct {
 type DigestRecipient struct {
 	Email     string
 	FirstName string
-	// Locale is the Customer's remembered Digest Locale (#216). Never empty: the
-	// column is NOT NULL DEFAULT 'en'.
+	// Locale is the Customer's remembered Mail Locale (#216, #243). Never empty:
+	// the column is NOT NULL DEFAULT 'en'.
 	Locale string
 	// DigestEnabled is whether this Customer still wants the Digest (#224).
 	//
@@ -117,7 +117,7 @@ type DigestCandidate struct {
 	MatchedOrganization bool
 	// MatchedTagKeys are the canonical keys of the Tags the Customer Follows that
 	// this Event carries. Canonical KEYS rather than display names, because the
-	// name a reader sees depends on their Digest Locale and resolving that is
+	// name a reader sees depends on their Mail Locale and resolving that is
 	// catalog's rule, not this query's (catalog/service.LocalizedTagNames).
 	MatchedTagKeys []string
 	// Attending is whether THIS Customer already holds a live Ticket Sale for
@@ -266,7 +266,7 @@ func (r *Repository) ClaimDueDigest(ctx context.Context, now, leaseUntil time.Ti
 func (r *Repository) LoadRecipient(ctx context.Context, customerID string) (*DigestRecipient, error) {
 	var out DigestRecipient
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT email, first_name, digest_locale, digest_enabled
+		SELECT email, first_name, mail_locale, digest_enabled
 		FROM customers
 		WHERE id = $1 AND deleted_at IS NULL
 	`, customerID).Scan(&out.Email, &out.FirstName, &out.Locale, &out.DigestEnabled)
