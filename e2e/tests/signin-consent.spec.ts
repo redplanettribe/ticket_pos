@@ -88,3 +88,24 @@ test("a first-time visitor is asked for consent before any session exists", asyn
   const cookies = await page.context().cookies();
   expect(cookies.some((cookie) => cookie.name === "ticket_pos_customer_session")).toBe(true);
 });
+
+// The Google door's own journey is deliberately absent (#252). It cannot be
+// driven without real Google credentials and a real account picker, which is
+// exactly the kind of dependency the e2e suite refuses (docs/testing.md) — and
+// the thing worth proving about that door is that it converges on the same gate
+// as this one, which backend/integration/customer_consent_google_test.go proves
+// against the API rather than through a browser.
+//
+// What IS reachable from here is the half of the Google path that lives on this
+// origin: the marker the callback redirects to.
+test("the consent marker alone is not a consent step", async ({ page }) => {
+  // `?consent=pending` says "look for a held sign-in" and carries nothing else.
+  // Anybody can type it; without the httpOnly cookie the callback writes, it is
+  // an ordinary visit to the sign-in page — which is what keeps the token out of
+  // the address in the first place.
+  await page.goto(`/${LOCALE}/signin?consent=pending&next=/tickets`);
+
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByText(SHORT_NOTICE_FRAGMENT)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Agree and sign in" })).toHaveCount(0);
+});

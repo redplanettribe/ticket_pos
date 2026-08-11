@@ -333,6 +333,40 @@ export function signInFailurePath(destination: string, followIntent?: string | n
   return `/signin?${params.toString()}`;
 }
 
+/**
+ * Where a Google Sign-In that was HELD FOR CONSENT lands: the same sign-in page,
+ * with a marker saying the step is waiting (#252).
+ *
+ * It is the twin of signInFailurePath above and deliberately not a use of it,
+ * because the two outcomes are opposite. A failure proved nothing and offers the
+ * passcode form; this proved the address and offers the consent step — so a
+ * visitor here must not be shown "we could not sign you in", which would be
+ * false, and must not be sent back through a passcode they no longer need.
+ *
+ * `consent=pending` is a MARKER AND NOT A CREDENTIAL. It says only "look for a
+ * held sign-in", and the thing worth holding travels in the httpOnly cookie
+ * beside it (lib/pending-consent.ts). Anybody can type this address; without the
+ * cookie it renders the ordinary email step, which is what somebody who did type
+ * it deserves.
+ *
+ * The destination and the Follow intent survive for the same reasons they
+ * survive a failure: the visitor still has somewhere to be going, and the Follow
+ * they pressed two minutes ago must not become the price of having been asked
+ * about consent. Both are re-guarded here, as everywhere.
+ */
+export function signInConsentPath(destination: string, followIntent?: string | null): string {
+  const safe = safeNext(destination);
+  const params = new URLSearchParams({ consent: "pending" });
+  if (safe !== DEFAULT_DESTINATION) {
+    params.set("next", safe);
+  }
+  const intent = safeFollowIntent(followIntent);
+  if (intent) {
+    params.set("follow", intent);
+  }
+  return `/signin?${params.toString()}`;
+}
+
 // --- base64url ------------------------------------------------------------
 //
 // btoa/atob rather than Buffer, matching lib/api.ts: both exist in every runtime

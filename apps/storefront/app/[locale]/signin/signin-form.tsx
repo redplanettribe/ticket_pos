@@ -126,6 +126,22 @@ type SignInFormProps = {
    * everything else.
    */
   policy: PrivacyPolicy | null;
+  /**
+   * The consent step a Google Sign-In was held at, carried across the callback
+   * redirect in an httpOnly cookie and read by the page (#252) — null for every
+   * other way of arriving here.
+   *
+   * It is THE SAME SHAPE the passcode verify answers with, and that sameness is
+   * the whole of this feature: past this prop there is no Google path in this
+   * component. The step renders from one piece of state, the submission goes to
+   * one endpoint, and neither can tell which door produced the token, exactly as
+   * the API cannot (ADR 0011).
+   *
+   * When it is set the form OPENS on the consent step. There is nothing before
+   * it to show: the address is already proven, so an email field would be asking
+   * for something this visitor has already given.
+   */
+  pendingConsent: ConsentRequired | null;
 };
 
 /** Google's four-colour G, inline so the button needs no network request. */
@@ -170,6 +186,7 @@ export function SignInForm({
   followIntent,
   googleSignInHref,
   policy,
+  pendingConsent,
 }: SignInFormProps) {
   const router = useRouter();
   const t = useTranslations("signin");
@@ -179,7 +196,12 @@ export function SignInForm({
   // Keyed by API codes rather than by message keys, so it is read as plain data
   // rather than through `t`.
   const errorCopy = useMessages().errors;
-  const [step, setStep] = useState<Step>("email");
+  // A held Google Sign-In opens on the consent step; everyone else opens on the
+  // email step. It is an initial value rather than an effect because the step is
+  // already decided by the time this renders — the page read the cookie
+  // server-side — and a flash of the email form before it corrected itself would
+  // invite somebody to start typing an address they have already proven.
+  const [step, setStep] = useState<Step>(pendingConsent ? "consent" : "email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   // Whether a passcode has just gone out — a fact, not a sentence. The words are
@@ -192,7 +214,11 @@ export function SignInForm({
   // and the token that finishes it. Held in component state and nowhere else —
   // it is spent within the minute, and a token in storage is a token that
   // outlives the tab.
-  const [consent, setConsent] = useState<ConsentRequired | null>(null);
+  //
+  // Seeded from the Google door's held sign-in when there is one (#252) and set
+  // by the passcode verify otherwise: one piece of state for both doors, so
+  // nothing downstream of here knows which produced it.
+  const [consent, setConsent] = useState<ConsentRequired | null>(pendingConsent);
   // The three answers. ALL START FALSE, always, and nothing in this component
   // ever sets them from anything but a person clicking: consent has to be
   // affirmative, so a pre-ticked box is not a shortcut but a lie about what
