@@ -585,15 +585,18 @@ func (s *Service) deliverDigest(ctx context.Context, pending repository.PendingD
 		// nobody to write to and nothing to retry.
 		return digestOutcomeEmpty, s.repo.MarkDigestEmpty(ctx, pending.ID)
 	}
-	// The unsubscribe check, and it is FIRST — before the candidates are queried,
-	// before anything is composed, and long before anything could be sent (#224).
+	// The consent check, and it is FIRST — before the candidates are queried,
+	// before anything is composed, and long before anything could be sent (#224,
+	// and #256 for the rule it now applies: Marketing Consent granted, or
+	// unanswered with the legacy flag on, and never denied or pending).
 	//
-	// The enqueue already refuses to queue an unsubscribed Customer, so this
-	// covers exactly one window: somebody who unsubscribed between the weekly
-	// enqueue and the minute their Digest was drained. That window is small and
-	// it is precisely when an opt-out matters most — the message is queued and
-	// addressed — and one press has to be enough to stop it.
-	if !recipient.DigestEnabled {
+	// The enqueue already refuses to queue a Customer the platform may not write
+	// to, so this covers exactly one window: somebody who unsubscribed, declined
+	// at a sign-in, or switched the toggle off between the weekly enqueue and the
+	// minute their Digest was drained. That window is small and it is precisely
+	// when an opt-out matters most — the message is queued and addressed — and one
+	// press has to be enough to stop it.
+	if !recipient.DigestPermitted {
 		return digestOutcomeSkipped, s.repo.MarkDigestSkipped(ctx, pending.ID)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers"
 )
 
@@ -29,9 +30,30 @@ import (
 //     because it is reached from inside the Area and reports what it did.
 //
 // TRANSACTIONAL MAIL IS NOT ON THIS SWITCH. Nothing that sends a One-time
-// Passcode or a Sale Confirmation reads the flag this file writes, and nothing
+// Passcode or a Sale Confirmation reads the state this file writes, and nothing
 // ever should: a passcode is how a person signs in and a confirmation is the
 // receipt for something they just paid for.
+//
+// BOTH ENTRY POINTS ARE CONSENT ACTS NOW (#256, parent #249, ADR 0034).
+// Marketing Consent and the Follow Digest are one switch, so switching the
+// Digest is answering the marketing box — and an answer is recorded as one:
+// each write below goes through the consent module's Capture, which writes the
+// state, the immutable Consent Record with the circumstances of the act, and
+// `digest_enabled` in lockstep, in one transaction. Neither entry point writes
+// `digest_enabled` itself any more, and nothing in this module does: a state
+// change with no evidence beside it is the thing this feature exists to make
+// impossible.
+//
+// THE SCOPE LINE, because a future reader will be tempted to cross it here of
+// all places. This is truthful state and evidence on the two surfaces that
+// already existed, and it is NOT the revocation feature (#249, Out of Scope).
+// Nothing here writes a revocatoria record, sends a confirmation of the
+// withdrawal to the titular, propagates anything to the networking application
+// or to an ally, revokes Networking Consent, or serves any other PDP right. A
+// Customer switching their weekly email off is not making a rights request, and
+// building half of one on the back of a toggle would leave the platform
+// claiming a guarantee it does not keep. Those land as their own tickets, on
+// their own surfaces.
 
 // unsubscribeLinkPath is the STOREFRONT route the link points at, never an API
 // one (ADR 0008), and it is a page rather than an endpoint for the reason the
@@ -98,24 +120,73 @@ func (s *Service) UnsubscribeLinkURL(customerID string) (string, error) {
 //
 // Pressing it twice is not an error: every Digest a person ever received carries
 // the same link, and a second press is the same request arriving twice with the
-// same meaning.
-func (s *Service) Unsubscribe(ctx context.Context, token string) (*DigestSubscriptionView, error) {
+// same meaning. It writes a second Consent Record, and that is right — the log
+// says what HAPPENED, and a repeated act is still an act (CONTEXT.md).
+//
+// WHY THIS ACT IS RECORDED AS EmailProven DESPITE THERE BEING NO SESSION, which
+// is the one genuinely debatable decision in #256:
+//
+//   - The token travelled in exactly one place: a Follow Digest addressed to
+//     this Customer's own stored address. Presenting it is evidence of access to
+//     that inbox, which is the same argument ADR 0035 makes for the confirmation
+//     link — "clicking from the inbox being itself proof of ownership". A signed
+//     link sent to a proven address is weaker than a passcode and much stronger
+//     than a typed-in claim, and it is the only proof this surface can have,
+//     since demanding a session here would be refusing to ship an opt-out at all
+//     (ADR 0030).
+//   - AND THE ANSWER IS ALWAYS NO. An unproven answer is written only over an
+//     unanswered state (consent/service.Capture), so recording this as unproven
+//     would leave the Digest running for every Customer who had granted Marketing
+//     Consent — the press would be silently ignored by exactly the people it is
+//     for. This surface can never grant anything, so treating it as proven can
+//     only ever silence mail, never authorize any. The worst a stolen or leaked
+//     token achieves is still what ADR 0030 priced in: a weekly email its owner
+//     can switch back on from their own Area, which is now also how they grant
+//     the consent again.
+//
+// A prefetching mail scanner is handled where it always was — the link points at
+// a Storefront page, this endpoint is POST-only, and a GET is answered 405 — so
+// nothing here rests on the proof being unforgeable.
+func (s *Service) Unsubscribe(ctx context.Context, token string, evidence consent.Evidence) (*DigestSubscriptionView, error) {
 	customerID, err := s.parseUnsubscribeLink(token)
 	if err != nil {
 		return nil, err
 	}
 
-	found, err := s.repo.SetDigestEnabled(ctx, customerID, false)
+	customer, err := s.repo.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
-	if !found {
+	if customer == nil {
 		// A validly signed token for a Customer who no longer exists is spent. It
 		// is reported as an invalid link rather than as a missing Customer: the
 		// holder is not entitled to learn which of the two it was, and an
 		// unauthenticated endpoint that distinguished them would be a way to test
 		// whether a Customer id exists.
 		return nil, customers.ErrUnsubscribeLinkInvalid()
+	}
+
+	declined := false
+	if _, err := s.consent.Capture(ctx, consent.Capture{
+		CustomerID: customer.ID,
+		// The Customer's own stored address, because that is the only address this
+		// surface could be about: the link was mailed to it, and nobody typed
+		// anything.
+		Email:   customer.Email,
+		Channel: consent.ChannelUnsubscribeLink,
+		// See the doc comment above for why this is true.
+		EmailProven: true,
+		// One box, and only one. Policy Acceptance and Networking Consent are nil
+		// — NOT SHOWN HERE — so this act neither accepts a policy nor touches a
+		// standing Networking Consent. Reading those nils as refusals would turn
+		// an unsubscribe into a withdrawal of everything, which is precisely the
+		// revocation feature this ticket does not build.
+		Answers: consent.Answers{MarketingConsent: &declined},
+		// No SessionID: this route is session-less by contract, and an empty
+		// evidence field is recorded as "not collected" rather than as a blank.
+		Evidence: evidence,
+	}); err != nil {
+		return nil, err
 	}
 	return &DigestSubscriptionView{DigestEnabled: false}, nil
 }
@@ -132,21 +203,43 @@ func (s *Service) Unsubscribe(ctx context.Context, token string) (*DigestSubscri
 // It sits behind a FULL Customer Session for the reason ListFollows does: a
 // Confirmation Link session is a forwarded receipt, and possession of a
 // forwarded email is not authority to subscribe that inbox to weekly mail.
-func (s *Service) SetDigestEnabled(ctx context.Context, sessionToken string, enabled bool) (*DigestSubscriptionView, error) {
-	customer, err := s.fullSessionCustomer(ctx, sessionToken)
+//
+// SWITCHING IT ON GRANTS MARKETING CONSENT AND SWITCHING IT OFF DENIES IT (ADR
+// 0034), both under the `account_settings` channel and both EmailProven, which
+// they are: this is the one surface here that runs behind a session established
+// by Proof of Email Ownership. Proven is what makes the answer stick — it
+// supersedes anything a guest left behind, and it is the only way an answer can
+// become `granted` at all.
+//
+// The Customer Area is therefore where a Pending Confirmation is resolved by the
+// owner simply using their own switch, and where a Customer whom the transition
+// clause was still mailing turns their legacy default into an actual answer.
+func (s *Service) SetDigestEnabled(ctx context.Context, sessionToken string, enabled bool, evidence consent.Evidence) (*DigestSubscriptionView, error) {
+	session, customer, err := s.fullSession(ctx, sessionToken)
 	if err != nil {
 		return nil, err
 	}
 
-	found, err := s.repo.SetDigestEnabled(ctx, customer.ID, enabled)
-	if err != nil {
+	answer := enabled
+	if _, err := s.consent.Capture(ctx, consent.Capture{
+		CustomerID:  customer.ID,
+		Email:       customer.Email,
+		Channel:     consent.ChannelAccountSettings,
+		EmailProven: true,
+		// Only the marketing box was shown, so only it is answered. A Customer
+		// switching their Digest does not re-accept a Policy Version and does not
+		// re-answer Networking Consent, and nil is what says so.
+		Answers: consent.Answers{MarketingConsent: &answer},
+		Evidence: consent.Evidence{
+			IP:        evidence.IP,
+			UserAgent: evidence.UserAgent,
+			// The session the act was made under — the same identifier the sign-in's
+			// own record carries, so the two rows in the log tie together.
+			SessionID: session.ID,
+			OriginURL: evidence.OriginURL,
+		},
+	}); err != nil {
 		return nil, err
-	}
-	if !found {
-		// The Customer was deleted between authenticating and this write. Their
-		// session is meaningless now, and saying so is more honest than reporting
-		// a switch nobody holds.
-		return nil, customers.ErrCustomerSessionNotFound()
 	}
 	return &DigestSubscriptionView{DigestEnabled: enabled}, nil
 }
