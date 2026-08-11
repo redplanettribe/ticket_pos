@@ -4,7 +4,8 @@
     "organizationLogoAlt": "Logo de {organization}",
     "breadcrumbLabel": "Ruta de navegación",
     "closeLabel": "Cerrar",
-    "languageSwitcherLabel": "Idioma"
+    "languageSwitcherLabel": "Idioma",
+    "privacyPolicy": "Política de Privacidad"
   },
   "explorer": {
     "metaTitle": "{brand} — Descubrir eventos",
@@ -292,6 +293,14 @@
     "photoSaveFailed": "No se pudo guardar su foto. Inténtelo de nuevo.",
     "photoRemoveFailed": "No se pudo quitar su foto. Inténtelo de nuevo.",
     "photoRemoveNetworkFailed": "No se pudo quitar su foto. Revise su conexión e inténtelo de nuevo."
+  },
+  "privacy": {
+    "metaTitle": "Política de Privacidad · {brand}",
+    "metaDescription": "Cómo {brand} trata sus datos personales, qué puede consentir y cómo ejercer sus derechos.",
+    "title": "Política de Privacidad",
+    "effectiveDate": "Vigente desde el {date}",
+    "version": "Versión {version}",
+    "contentHash": "Huella: {hash}"
   },
   "errors": {
     "envelope": {

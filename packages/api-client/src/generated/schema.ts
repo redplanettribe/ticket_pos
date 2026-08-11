@@ -3134,6 +3134,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/privacy-policy/{locale}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current Privacy Policy
+         * @description Serves the Policy Version currently in effect, rendered in the requested Locale: the version label, its effective date, the SHA-256 fingerprint of the edition, the full Privacy Policy (`body_markdown`), the Short Notice shown inline at consent capture moments (`short_notice`), and the three consent checkbox labels (`consent_labels`) — the required Policy Acceptance, the optional Marketing Consent which names the weekly Follow Digest, and the optional Networking Consent which names both audiences. All text is markdown, and all of it is what the fingerprint covers: the hash on the Policy Version is computed over exactly these strings in every published Locale, so a client can prove that what it rendered is what the platform recorded as accepted. Public and unauthenticated. The Locale is a path parameter and is answered strictly — a language the policy is not published in is a 404, never a silent fallback to English.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Locale the policy is read in */
+                    locale: "en" | "es";
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePrivacyPolicy"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/tags": {
         parameters: {
             query?: never;
@@ -6919,6 +6979,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopePrivacyPolicy": {
+            data?: components["schemas"]["service.PolicyView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePublicEventDetail": {
             data?: components["schemas"]["service.PublicEventDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -6997,6 +7062,30 @@ export interface components {
             data?: unknown;
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
+        };
+        /**
+         * @description Locale is the language everything below is written in.
+         * @enum {string}
+         */
+        "platform.Locale": "en" | "es" | "en";
+        /** @description ConsentLabels are the three checkbox labels, markdown. */
+        "policy.ConsentLabels": {
+            /**
+             * @description MarketingConsent is the optional marketing box, and it names the weekly
+             *     Follow Digest out loud because granting it turns the Digest on (ADR 0034).
+             */
+            marketing_consent?: string;
+            /**
+             * @description NetworkingConsent is the optional networking box, and it names both
+             *     audiences — other attendees of the same event, and that event's organizers
+             *     — because those are the two the authorization actually covers.
+             */
+            networking_consent?: string;
+            /**
+             * @description PolicyAcceptance is the required box. Without it no Customer Session is
+             *     established and no Online Sale completes.
+             */
+            policy_acceptance?: string;
         };
         "service.ActiveMemberView": {
             member_id?: string;
@@ -7775,6 +7864,29 @@ export interface components {
              *     that must stay on hand.
              */
             total_owed_cents?: number;
+        };
+        "service.PolicyView": {
+            /** @description BodyMarkdown is the full Privacy Policy, markdown. */
+            body_markdown?: string;
+            consent_labels?: components["schemas"]["policy.ConsentLabels"];
+            /**
+             * @description ContentHash is the fingerprint of the artifact set below, published so that
+             *     the page can show it and a reader can hold the platform to it.
+             */
+            content_hash?: string;
+            /**
+             * @description EffectiveDate is the day this edition took effect, YYYY-MM-DD, as the
+             *     document itself states it.
+             */
+            effective_date?: string;
+            locale?: components["schemas"]["platform.Locale"];
+            /**
+             * @description ShortNotice is the condensed notice shown inline at a capture moment,
+             *     markdown.
+             */
+            short_notice?: string;
+            /** @description Version is the label a human names this edition by ("0-placeholder"). */
+            version?: string;
         };
         /**
          * @description Promotion is the Ticket Type's one Promotion slot, or null when it is

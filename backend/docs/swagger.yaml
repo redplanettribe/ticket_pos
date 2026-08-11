@@ -931,6 +931,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopePrivacyPolicy:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.PolicyView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopePublicEventDetail:
       properties:
         data:
@@ -1075,6 +1084,37 @@ components:
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
+          type: string
+      type: object
+    platform.Locale:
+      description: Locale is the language everything below is written in.
+      enum:
+      - en
+      - es
+      - en
+      type: string
+      x-enum-varnames:
+      - LocaleEN
+      - LocaleES
+      - DefaultLocale
+    policy.ConsentLabels:
+      description: ConsentLabels are the three checkbox labels, markdown.
+      properties:
+        marketing_consent:
+          description: |-
+            MarketingConsent is the optional marketing box, and it names the weekly
+            Follow Digest out loud because granting it turns the Digest on (ADR 0034).
+          type: string
+        networking_consent:
+          description: |-
+            NetworkingConsent is the optional networking box, and it names both
+            audiences — other attendees of the same event, and that event's organizers
+            — because those are the two the authorization actually covers.
+          type: string
+        policy_acceptance:
+          description: |-
+            PolicyAcceptance is the required box. Without it no Customer Session is
+            established and no Online Sale completes.
           type: string
       type: object
     service.ActiveMemberView:
@@ -2146,6 +2186,34 @@ components:
             owes the platform instead, and netting that off would understate the cash
             that must stay on hand.
           type: integer
+      type: object
+    service.PolicyView:
+      properties:
+        body_markdown:
+          description: BodyMarkdown is the full Privacy Policy, markdown.
+          type: string
+        consent_labels:
+          $ref: '#/components/schemas/policy.ConsentLabels'
+        content_hash:
+          description: |-
+            ContentHash is the fingerprint of the artifact set below, published so that
+            the page can show it and a reader can hold the platform to it.
+          type: string
+        effective_date:
+          description: |-
+            EffectiveDate is the day this edition took effect, YYYY-MM-DD, as the
+            document itself states it.
+          type: string
+        locale:
+          $ref: '#/components/schemas/platform.Locale'
+        short_notice:
+          description: |-
+            ShortNotice is the condensed notice shown inline at a capture moment,
+            markdown.
+          type: string
+        version:
+          description: Version is the label a human names this edition by ("0-placeholder").
+          type: string
       type: object
     service.PromotionView:
       description: |-
@@ -5308,6 +5376,52 @@ paths:
                 $ref: '#/components/schemas/platform.Envelope'
           description: Accepted
       summary: Record registration link click
+      tags:
+      - public
+  /api/v1/public/privacy-policy/{locale}:
+    get:
+      description: 'Serves the Policy Version currently in effect, rendered in the
+        requested Locale: the version label, its effective date, the SHA-256 fingerprint
+        of the edition, the full Privacy Policy (`body_markdown`), the Short Notice
+        shown inline at consent capture moments (`short_notice`), and the three consent
+        checkbox labels (`consent_labels`) — the required Policy Acceptance, the optional
+        Marketing Consent which names the weekly Follow Digest, and the optional Networking
+        Consent which names both audiences. All text is markdown, and all of it is
+        what the fingerprint covers: the hash on the Policy Version is computed over
+        exactly these strings in every published Locale, so a client can prove that
+        what it rendered is what the platform recorded as accepted. Public and unauthenticated.
+        The Locale is a path parameter and is answered strictly — a language the policy
+        is not published in is a 404, never a silent fallback to English.'
+      parameters:
+      - description: Locale the policy is read in
+        in: path
+        name: locale
+        required: true
+        schema:
+          enum:
+          - en
+          - es
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopePrivacyPolicy'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      summary: Current Privacy Policy
       tags:
       - public
   /api/v1/public/tags:

@@ -217,6 +217,33 @@ export type PublicOrganization = {
   logo_url: string | null;
 };
 
+/**
+ * One published edition of the Privacy Policy, as the platform serves it
+ * (#250). Every string below is markdown, and every string below is covered by
+ * `content_hash` — see getPrivacyPolicy.
+ *
+ * `consent_labels` is unused by this page and is here because it arrives on the
+ * same read: the capture surfaces in #251 render the Short Notice and these
+ * three labels beside their checkboxes, and they must come from the same
+ * edition as the page they link to.
+ */
+export type PrivacyPolicy = {
+  /** The version label, as a human names this edition ("0-placeholder"). */
+  version: string;
+  /** The day this edition took effect, YYYY-MM-DD. */
+  effective_date: string;
+  /** Hex SHA-256 of this edition's text, in every published Locale. */
+  content_hash: string;
+  locale: string;
+  short_notice: string;
+  consent_labels: {
+    policy_acceptance: string;
+    marketing_consent: string;
+    networking_consent: string;
+  };
+  body_markdown: string;
+};
+
 export type PublicOrganizationSummary = {
   name: string;
   slug: string;
@@ -666,4 +693,30 @@ export async function getCheckoutReversal(
   return fetchData<ReversalOffer>(
     `/api/v1/public/checkout/${encodeURIComponent(clientTransactionId)}/reversal`,
   );
+}
+
+/**
+ * The current Policy Version, rendered in one Locale (#250, parent #249).
+ *
+ * THE POLICY TEXT IS NOT IN THIS APP, and that is deliberate rather than an
+ * oversight of the message catalogs. A Policy Version records the SHA-256 of
+ * the exact text a person was shown, and a hash is only evidence if it was
+ * taken over the bytes that reached the reader — so the Privacy Policy, its
+ * Short Notice and the three consent checkbox labels are embedded in the Go
+ * binary that hashes them, and travel over this read. What belongs in the
+ * catalog is the page's chrome: its heading, its "last updated" label, the
+ * words on the link in the footer. Legal text put in `messages/*.json` would be
+ * text no test could tie to the fingerprint.
+ *
+ * `locale` is a path segment on the API side, so the two languages are two
+ * addresses — cacheable apart, and each a 404 in its own right if the platform
+ * stops publishing it.
+ *
+ * Uncached, like every other read here. The policy changes only when a deploy
+ * changes it, so a `revalidate` would buy one query per reader against the risk
+ * of serving a superseded edition for its duration — and this is the one page
+ * where showing yesterday's text is the actual failure mode.
+ */
+export async function getPrivacyPolicy(locale: string): Promise<PrivacyPolicy | null> {
+  return fetchData<PrivacyPolicy>(`/api/v1/public/privacy-policy/${encodeURIComponent(locale)}`);
 }

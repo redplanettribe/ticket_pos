@@ -135,6 +135,16 @@ func domainHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND":
 		return http.StatusNotFound
+	// The Privacy Policy asked for in a language it is not published in (#250).
+	// 404 rather than a 400 about a bad parameter: the address named a document,
+	// and that document does not exist. Never a fallback to English — see
+	// consent.ErrPolicyLocaleNotPublished.
+	case "POLICY_LOCALE_NOT_PUBLISHED":
+		return http.StatusNotFound
+	// No Policy Version in effect. A deployment fault — migration 060 seeds one
+	// — so it is the platform's 500 and not the caller's 404.
+	case "NO_CURRENT_POLICY_VERSION":
+		return http.StatusInternalServerError
 	// The two Payout Request refusals (ADR 0026). Both 409: the request was well
 	// formed and the Org Admin was entitled to make it, and what stands in the way
 	// is a fact about the money or about the request's own state. Asking for more

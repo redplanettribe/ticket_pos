@@ -9,6 +9,7 @@ import {
   type SitemapEvent,
   type SitemapEventPage,
 } from "./sitemap-entries.ts";
+import { PRIVACY_POLICY_PATH } from "./privacy-policy.ts";
 
 const BASE = new URL("https://tickets.example.com");
 
@@ -37,6 +38,8 @@ test("every path is published in both Locales", () => {
   assert.deepEqual(urls, [
     "https://tickets.example.com/en",
     "https://tickets.example.com/es",
+    "https://tickets.example.com/en/privacy-policy",
+    "https://tickets.example.com/es/privacy-policy",
     "https://tickets.example.com/en/acme",
     "https://tickets.example.com/es/acme",
     "https://tickets.example.com/en/acme/events/gala",
@@ -71,6 +74,7 @@ test("an Organization with many Events is published once", () => {
   // First appearance wins, so the listing's soonest-first order survives.
   assert.deepEqual(paths, [
     "/",
+    PRIVACY_POLICY_PATH,
     "/acme",
     "/beta",
     "/acme/events/gala",
@@ -82,7 +86,17 @@ test("an Organization with many Events is published once", () => {
 
 test("a repeated Event is published once", () => {
   const paths = sitemapPaths([event("acme", "gala"), event("acme", "gala")]);
-  assert.deepEqual(paths, ["/", "/acme", "/acme/events/gala"]);
+  assert.deepEqual(paths, ["/", PRIVACY_POLICY_PATH, "/acme", "/acme/events/gala"]);
+});
+
+test("the Privacy Policy is published in both languages", () => {
+  // A legal notice is published so it can be found, and /es is reachable almost
+  // only through the language switcher — so if the Spanish policy is not in
+  // here, it is effectively unpublished (#250).
+  const urls = sitemapEntries([], BASE).map(({ url }) => url);
+
+  assert.ok(urls.includes(`${BASE.origin}/en${PRIVACY_POLICY_PATH}`));
+  assert.ok(urls.includes(`${BASE.origin}/es${PRIVACY_POLICY_PATH}`));
 });
 
 test("the noindex surfaces are absent", () => {
@@ -113,7 +127,7 @@ test("without an origin nothing is published", () => {
 test("an origin mounted under a path keeps it", () => {
   const entries = sitemapEntries([event("acme", "gala")], new URL("https://example.com/shop/"));
   assert.equal(entries[0]?.url, "https://example.com/shop/en");
-  assert.equal(entries[4]?.url, "https://example.com/shop/en/acme/events/gala");
+  assert.equal(entries[6]?.url, "https://example.com/shop/en/acme/events/gala");
 });
 
 test("the walk follows the cursor to the end of the listing", async () => {
@@ -180,8 +194,12 @@ test("an empty listing still publishes the explorer root in both Locales", async
   const walk = await collectSitemapEvents(async () => ({ events: [], nextCursor: null }));
   const entries = sitemapEntries(walk.events, BASE);
 
+  // The explorer root and the Privacy Policy: the two pages that exist whether
+  // or not anybody has published an Event.
   assert.deepEqual(entries.map((entry) => entry.url), [
     "https://tickets.example.com/en",
     "https://tickets.example.com/es",
+    "https://tickets.example.com/en/privacy-policy",
+    "https://tickets.example.com/es/privacy-policy",
   ]);
 });

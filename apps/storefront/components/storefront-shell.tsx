@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { BRAND_NAME } from "@/lib/brand";
 import { localizedPath, toAppLocale } from "@/lib/locale";
+import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
 
 type BaseProps = ComponentProps<typeof BaseStorefrontShell>;
 
@@ -37,7 +38,13 @@ type BaseProps = ComponentProps<typeof BaseStorefrontShell>;
 export async function StorefrontShell(
   props: Omit<
     BaseProps,
-    "homeHref" | "homeLinkLabel" | "poweredByLabel" | "organizationLogoAlt" | "languageSwitcher"
+    | "homeHref"
+    | "homeLinkLabel"
+    | "poweredByLabel"
+    | "organizationLogoAlt"
+    | "languageSwitcher"
+    | "privacyHref"
+    | "privacyLabel"
   >,
 ) {
   const locale = toAppLocale(await getLocale());
@@ -49,6 +56,14 @@ export async function StorefrontShell(
       homeLinkLabel={BRAND_NAME}
       languageSwitcher={<LanguageSwitcher />}
       poweredByLabel={t("poweredBy", { brand: BRAND_NAME })}
+      // The Privacy Policy link, on every page's footer and not a prop a page
+      // may pass — for the reason the language switcher is not one. A privacy
+      // notice has to be reachable from wherever a person happens to be when
+      // they wonder about it, and a page that could opt out would opt out
+      // silently. Localized here, like the mark's link home: this is the one
+      // place that knows which language is being read.
+      privacyHref={localizedPath(locale, PRIVACY_POLICY_PATH)}
+      privacyLabel={t("privacyPolicy")}
       // Only the header with an Organization in it draws a logo; without a name
       // there is nothing to interpolate and the package's own fallback is the
       // better answer.

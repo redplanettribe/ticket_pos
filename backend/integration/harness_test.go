@@ -193,6 +193,12 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
 
+	// `policy_versions` is deliberately absent from that list, for the reason
+	// Preset Tags are: the placeholder edition is seeded by migration 060 and is
+	// the current Policy Version every test runs under. Truncating it would leave
+	// the platform with no policy in effect, which is a state production cannot
+	// reach and no test should be written against.
+
 	// Preset Tags are seeded once by migration and must survive resets; only
 	// Custom Tags coined during a test are cleared for isolation.
 	if _, err := db.ExecContext(ctx, `DELETE FROM tags WHERE curated = FALSE`); err != nil {

@@ -26,6 +26,7 @@
 // Next resolves it identically.
 import { localeAlternates } from "./alternates.ts";
 import { LOCALES } from "./locale.ts";
+import { PRIVACY_POLICY_PATH } from "./privacy-policy.ts";
 
 /** One Event, reduced to the two slugs its address is built from. */
 export type SitemapEvent = {
@@ -140,7 +141,8 @@ export async function collectSitemapEvents(
 
 /**
  * The locale-independent paths worth advertising, in the order a crawler meets
- * them: the explorer root, then each Organization, then each Event.
+ * them: the explorer root, the Privacy Policy, then each Organization, then
+ * each Event.
  *
  * Organizations are derived from the Events, because no endpoint lists them —
  * and deduped, because a listing page of one Organization's ten Events would
@@ -149,7 +151,8 @@ export async function collectSitemapEvents(
  *
  * Nothing noindexed can arrive here. The Customer Area and the checkout
  * terminal pages are not built from Event data and have no way in; the only
- * paths this function can produce are "/", "/{org}" and "/{org}/events/{event}".
+ * paths this function can produce are "/", the Privacy Policy's, "/{org}" and
+ * "/{org}/events/{event}".
  */
 export function sitemapPaths(events: readonly SitemapEvent[]): string[] {
   const organizations: string[] = [];
@@ -171,7 +174,11 @@ export function sitemapPaths(events: readonly SitemapEvent[]): string[] {
     }
   }
 
-  return ["/", ...organizations, ...eventPaths];
+  // The Privacy Policy, declared in both languages like every other indexable
+  // page (#250). It is the one path here that comes from no Event and no
+  // Organization: a legal notice is published so that it can be found, and this
+  // sitemap is the only way the Spanish half of this site is discovered at all.
+  return ["/", PRIVACY_POLICY_PATH, ...organizations, ...eventPaths];
 }
 
 /**

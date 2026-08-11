@@ -4,7 +4,8 @@
     "organizationLogoAlt": "{organization} logo",
     "breadcrumbLabel": "Breadcrumb",
     "closeLabel": "Close",
-    "languageSwitcherLabel": "Language"
+    "languageSwitcherLabel": "Language",
+    "privacyPolicy": "Privacy Policy"
   },
   "explorer": {
     "metaTitle": "{brand} — Discover events",
@@ -292,6 +293,14 @@
     "photoSaveFailed": "Your photo could not be saved. Try again.",
     "photoRemoveFailed": "Your photo could not be removed. Try again.",
     "photoRemoveNetworkFailed": "Your photo could not be removed. Check your connection and try again."
+  },
+  "privacy": {
+    "metaTitle": "Privacy Policy · {brand}",
+    "metaDescription": "How {brand} processes your personal data, what you can consent to, and how to exercise your rights.",
+    "title": "Privacy Policy",
+    "effectiveDate": "In effect since {date}",
+    "version": "Version {version}",
+    "contentHash": "Fingerprint: {hash}"
   },
   "errors": {
     "envelope": {

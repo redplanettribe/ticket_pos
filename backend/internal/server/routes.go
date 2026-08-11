@@ -259,6 +259,22 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
 	ch := app.CatalogHandler
 	sh := app.SalesHandler
+	// The Privacy Policy (#250, parent #249). Public because a privacy notice
+	// that only a signed-up person could read would be the wrong way round, and
+	// it discloses nothing about anybody — the same bytes for every caller.
+	//
+	// THE ONLY LOCALIZED ROUTE IN THE API, and the exception is narrow and
+	// argued: ADR 0027 keeps the API Locale-unaware because words this product
+	// chooses for concepts the database owns belong in the Storefront catalog.
+	// This is not copy but evidence — the text a Policy Version's SHA-256 is
+	// taken over — so it has to be served from the same place it is hashed, or
+	// the hash proves nothing. See internal/consent/policy's package doc.
+	//
+	// The Locale is in the PATH rather than a query parameter or a header,
+	// because it names WHICH DOCUMENT this is rather than how to present one:
+	// the Spanish policy and the English policy are two texts, each with its own
+	// address, and each cacheable at that address by anything in front of this.
+	mux.HandleFunc("GET /api/v1/public/privacy-policy/{locale}", app.ConsentHandler.GetPrivacyPolicy)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}", h.GetPublicOrganization)
 	mux.HandleFunc("GET /api/v1/public/events", ch.ListPublicEvents)
 	mux.HandleFunc("GET /api/v1/public/tags", ch.ListPublicTags)

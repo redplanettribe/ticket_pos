@@ -18,6 +18,9 @@ import (
 	cataloghandler "github.com/peter/ticket_pos/backend/internal/catalog/handler"
 	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
+	consenthandler "github.com/peter/ticket_pos/backend/internal/consent/handler"
+	consentrepo "github.com/peter/ticket_pos/backend/internal/consent/repository"
+	consentsvc "github.com/peter/ticket_pos/backend/internal/consent/service"
 	customershandler "github.com/peter/ticket_pos/backend/internal/customers/handler"
 	customersrepo "github.com/peter/ticket_pos/backend/internal/customers/repository"
 	customerssvc "github.com/peter/ticket_pos/backend/internal/customers/service"
@@ -72,6 +75,11 @@ type App struct {
 	DigestRepo    *digestrepo.Repository
 	DigestService *digestsvc.Service
 	DigestHandler *digesthandler.Handler
+	// Consent (#250, parent #249): the Privacy Policy, its Policy Versions, and
+	// — from #251 — the evidence of what each Customer authorized.
+	ConsentRepo    *consentrepo.Repository
+	ConsentService *consentsvc.Service
+	ConsentHandler *consenthandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -308,6 +316,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	digestService = digestService.WithUnsubscribe(customersService)
 	digestHandler := digesthandler.New(digestService)
 
+	// Consent (#250, parent #249). It depends on nothing but the database and the
+	// Privacy Policy text embedded in this binary, and is wired early-late — here,
+	// beside the modules that will come to depend on IT. From #251 both identity
+	// and sales ask it whether a person has accepted the current Policy Version;
+	// it asks neither of them anything, and that direction is the point.
+	consentRepo := consentrepo.New(db)
+	consentService := consentsvc.New(consentRepo, platformLogger)
+	consentHandler := consenthandler.New(consentService)
+
 	// The Operator Dashboard is composed from the modules that own its data:
 	// identity for Organizations, catalog for Events, sales for money. It is
 	// wired last because it depends on all three and none of them on it.
@@ -340,6 +357,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		DigestRepo:        digestRepo,
 		DigestService:     digestService,
 		DigestHandler:     digestHandler,
+		ConsentRepo:       consentRepo,
+		ConsentService:    consentService,
+		ConsentHandler:    consentHandler,
 	}, nil
 }
 
