@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers"
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 	"github.com/peter/ticket_pos/backend/internal/platform"
@@ -53,6 +54,32 @@ type CustomerSessionView struct {
 	// TicketSaleID is null for a full Customer Session, which spans every Ticket
 	// Sale the Customer owns. A Confirmation Link session names one sale here.
 	TicketSaleID *string `json:"ticket_sale_id"`
+	// ConsentBoxes is which consent boxes a capture surface must show the person
+	// holding THIS session, in the same shape and with the same vocabulary the
+	// sign-in door's consent-required outcome uses (#254, parent #249).
+	//
+	// It rides on the session read rather than on an endpoint of its own for the
+	// reason the Tax ID and the phone above do: the Storefront checkout dialog
+	// asks this one question of the API when it opens, and the answer to "who is
+	// buying" and the answer to "what may I still ask them" have to come from ONE
+	// snapshot of ONE session. Two reads could disagree — a dialog prefilled with
+	// somebody's email while drawing boxes computed for nobody — and the box that
+	// gets drawn wrongly is one whose tick would churn a standing answer.
+	//
+	// IT IS NOT AN ORACLE. It is behind a Customer Session, so it only ever tells
+	// a Customer about themselves; nothing here is reachable before Proof of Email
+	// Ownership, which is the discipline ADR 0035 sets for every consent surface.
+	//
+	// A SALE-SCOPED SESSION IS SHOWN EVERY BOX. A Confirmation Link session is
+	// minted from a token in a forwarded email rather than from proof, so a
+	// checkout under one is captured as a guest's (selfAssertedCheckout refuses
+	// it) — and what is shown must be exactly what the write side will honour.
+	// Its answers cannot churn anything either: unproven answers are only ever
+	// written where the owner has not answered.
+	//
+	// Nothing here says what to PRE-TICK, and nothing ever should: stored state
+	// decides whether to ASK, never what to show as already agreed.
+	ConsentBoxes ConsentBoxesView `json:"consent_boxes"`
 }
 
 // CustomerOTPRequestResult is returned after requesting a Customer passcode.
@@ -175,7 +202,17 @@ func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.
 	}
 	customer = s.seedAvatarFromGoogle(ctx, customer, seedAvatarURL)
 
-	required, err := s.gateOnConsent(ctx, customer, now)
+	// Asked ONCE and used twice: it decides whether this proof earns a session at
+	// all, and — when it does — which boxes the session it earns still owes. Two
+	// reads could answer differently under a concurrent capture, and the door
+	// would then mint a session claiming a box was answered that it had just
+	// gated on.
+	outstanding, err := s.consent.Outstanding(ctx, customer.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	required, err := s.gateOnConsent(ctx, customer, outstanding, now)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +220,7 @@ func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.
 		return &SignInOutcome{ConsentRequired: required}, nil
 	}
 
-	session, view, err := s.mintSession(ctx, customer, now)
+	session, view, err := s.mintSession(ctx, customer, now, outstanding)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +239,13 @@ func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.
 //
 // A full Customer Session: no Ticket Sale scope, so it spans every sale this
 // Customer owns across every Organization.
-func (s *Service) mintSession(ctx context.Context, customer *repository.Customer, now time.Time) (repository.CustomerSession, *CustomerSessionView, error) {
+//
+// `outstanding` is what this Customer is still owed AT THE MOMENT THE SESSION
+// COMES INTO EXISTENCE, which each caller knows and this one does not: the
+// sign-in door has just read it to decide whether to mint at all, and the
+// consent step has just answered every box that was outstanding. Recomputing it
+// here would be a third read of a question already asked.
+func (s *Service) mintSession(ctx context.Context, customer *repository.Customer, now time.Time, outstanding consent.Outstanding) (repository.CustomerSession, *CustomerSessionView, error) {
 	token, err := newSessionToken()
 	if err != nil {
 		return repository.CustomerSession{}, nil, err
@@ -217,17 +260,29 @@ func (s *Service) mintSession(ctx context.Context, customer *repository.Customer
 	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return repository.CustomerSession{}, nil, err
 	}
-	return session, s.sessionView(customer, &session), nil
+	return session, s.sessionView(customer, &session, outstanding), nil
 }
 
 // GetSession loads a Customer Session — extending it if it is a full one —
-// returning which email the caller is signed in as.
+// returning which email the caller is signed in as and which consent boxes the
+// holder still owes an answer to.
 func (s *Service) GetSession(ctx context.Context, token string) (*CustomerSessionView, error) {
 	session, customer, err := s.authenticate(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	return s.sessionView(customer, session), nil
+
+	// Read only for a full session. A sale-scoped one is shown every box whatever
+	// the state says (see CustomerSessionView.ConsentBoxes), so asking would be a
+	// query whose answer is discarded — and one that could fail a session read
+	// over a question that session never gets to ask.
+	var outstanding consent.Outstanding
+	if !session.TicketSaleID.Valid {
+		if outstanding, err = s.consent.Outstanding(ctx, customer.ID); err != nil {
+			return nil, err
+		}
+	}
+	return s.sessionView(customer, session, outstanding), nil
 }
 
 // Logout destroys a Customer Session. Because sessions are server-side rows, the
@@ -323,12 +378,25 @@ func (s *Service) authenticate(ctx context.Context, token string) (*repository.C
 	return session, customer, nil
 }
 
-func (s *Service) sessionView(customer *repository.Customer, session *repository.CustomerSession) *CustomerSessionView {
+func (s *Service) sessionView(customer *repository.Customer, session *repository.CustomerSession, outstanding consent.Outstanding) *CustomerSessionView {
 	view := &CustomerSessionView{
 		Email:     customer.Email,
 		FirstName: customer.FirstName,
 		LastName:  customer.LastName,
 		AvatarURL: s.avatarURL(customer),
+		ConsentBoxes: ConsentBoxesView{
+			PolicyAcceptance:  outstanding.PolicyAcceptance,
+			MarketingConsent:  outstanding.MarketingConsent,
+			NetworkingConsent: outstanding.NetworkingConsent,
+		},
+	}
+	// A Confirmation Link session proves nothing about who is holding it, so a
+	// capture surface under one asks everything — the same verdict the checkout's
+	// write side reaches by refusing to treat a sale-scoped session as the
+	// buyer's own assertion. Applied HERE rather than at each caller so that no
+	// future caller can mint one of these views and forget it.
+	if session.TicketSaleID.Valid {
+		view.ConsentBoxes = ConsentBoxesView{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
 	}
 	if customer.TaxIDType.Valid && customer.TaxIDNumber.Valid {
 		taxIDType, taxIDNumber := customer.TaxIDType.String, customer.TaxIDNumber.String

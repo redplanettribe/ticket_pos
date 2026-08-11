@@ -345,7 +345,7 @@ func (h *Handler) RedeemConfirmationLink(w http.ResponseWriter, r *http.Request)
 // GetSession returns the current Customer Session.
 //
 // @Summary      Get Customer Session
-// @Description  Returns which email the caller is signed in as, and extends the sliding session window.
+// @Description  Returns which email the caller is signed in as, and extends the sliding session window. consent_boxes reports which consent checkboxes a capture surface must still show this Customer — the checkout dialog reads it here so that who is buying and what may still be asked of them come from one snapshot of one session (#254). A box is true when its answer is outstanding: policy_acceptance when there is no acceptance of the CURRENT Policy Version, and each optional consent when its state is unanswered, with a Pending Confirmation counting as unanswered because somebody else's tick is not the owner's answer (ADR 0035). It never says what to pre-tick; boxes are always drawn unticked. A Confirmation Link session (ticket_sale_id set) reports all three true whatever the stored state says: it is minted from a forwarded email rather than from Proof of Email Ownership, so a capture under it is treated as a guest's on the write side too.
 // @Tags         customer
 // @Produce      json
 // @Security     BearerAuth

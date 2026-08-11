@@ -135,8 +135,19 @@ type CustomerService interface {
 //
 // Implemented by the consent service, so the cross-module call goes through a
 // service exactly as CustomerService and AffiliateLinkResolver do.
+//
+// It gained a READ in #254, and the read is the same seam's other half: which
+// boxes this buyer is still owed. Sales asks it for exactly one purpose — to
+// know which of the answers in a checkout body were actually asked for — and it
+// still decides nothing. Whether a Policy Version bump has re-gated somebody,
+// whether a Pending Confirmation counts as an answer: all of that stays behind
+// the interface, in the module that owns the question.
 type ConsentCapturer interface {
 	CaptureInTx(ctx context.Context, tx *sql.Tx, capture consent.Capture) (consent.Receipt, error)
+	// Outstanding reports which boxes a Customer must still be shown. A checkout
+	// asks it only about the Customer whose own Customer Session the request
+	// carries: it is a fact about a known Customer, and nobody else may learn it.
+	Outstanding(ctx context.Context, customerID string) (consent.Outstanding, error)
 }
 
 // AffiliateLinkResolver is what sales needs from Affiliate Links: given the

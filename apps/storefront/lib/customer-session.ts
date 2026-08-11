@@ -20,6 +20,7 @@
 import { cookies } from "next/headers";
 
 import { APIError, callBackend } from "./api";
+import type { ConsentBoxes } from "./checkout-consent";
 
 /** Name of the httpOnly cookie holding the Customer Session token. */
 export const CUSTOMER_SESSION_COOKIE = "ticket_pos_customer_session";
@@ -108,6 +109,24 @@ export type CustomerSession = {
   avatar_url: string | null;
   verified_at: string | null;
   ticket_sale_id: string | null;
+  /**
+   * Which consent boxes a capture surface must still show this Customer (#254).
+   *
+   * True means OUTSTANDING — not answered, and therefore to be ASKED. It never
+   * means "already agreed": every box is drawn unticked, always, because consent
+   * has to be something the person actively gave.
+   *
+   * It rides on the session read rather than on a read of its own so that the
+   * checkout dialog gets it in the same response as the email and Tax ID it
+   * prefills from: who is buying and what may still be asked of them are one
+   * snapshot of one session, and two reads could disagree. Behind a session it
+   * is no oracle either — it only ever tells a Customer about themselves.
+   *
+   * A Confirmation Link session (`ticket_sale_id` set) reports all three true
+   * whatever is stored, because a forwarded email proves nothing about who is
+   * holding it and the checkout treats such a session as a guest's.
+   */
+  consent_boxes: ConsentBoxes;
 };
 
 /**

@@ -204,7 +204,14 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 	// session token is never handed to anybody — the row is an orphan that
 	// expires on its own schedule, which is the cheap side of this trade. The
 	// expensive side would have been a signed-in Customer with no evidence.
-	session, view, err := s.mintSession(ctx, customer, now)
+	//
+	// Nothing is outstanding on the far side of this submission, which is why the
+	// minted view says so: every box that WAS outstanding has just been answered
+	// above — the required one by the gate, the optional ones by the answers this
+	// submission carried — and a box that was not outstanding was already
+	// answered. So the session this call hands back is honestly one that owes
+	// nothing, without a second read of a Customer this request is mid-write on.
+	session, view, err := s.mintSession(ctx, customer, now, consent.Outstanding{})
 	if err != nil {
 		return nil, err
 	}
@@ -250,11 +257,11 @@ func (s *Service) SubmitConsent(ctx context.Context, submission ConsentSubmissio
 // is why the boxes below are computed from the same Outstanding — and the
 // surfaces that ask about optional consents in their own right are the checkout
 // and the Customer Area, not this door.
-func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Customer, now time.Time) (*ConsentRequiredView, error) {
-	outstanding, err := s.consent.Outstanding(ctx, customer.ID)
-	if err != nil {
-		return nil, err
-	}
+//
+// The outstanding set is the CALLER's, read once at the door and passed in, so
+// that the boxes named below and the session minted just after cannot come from
+// two different readings of the same Customer.
+func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Customer, outstanding consent.Outstanding, now time.Time) (*ConsentRequiredView, error) {
 	if !outstanding.PolicyAcceptance {
 		return nil, nil
 	}

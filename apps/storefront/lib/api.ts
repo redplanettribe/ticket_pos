@@ -587,24 +587,29 @@ export type BeginCheckoutRequest = {
   locale?: string;
   /**
    * The three consent boxes on the checkout dialog, as the buyer left them
-   * (#253, parent #249).
+   * (#253, #254, parent #249).
    *
-   * `policy_acceptance` is required to be `true`: the API refuses the checkout
-   * with POLICY_ACCEPTANCE_REQUIRED otherwise, and no Payment is created — the
-   * disabled button on the dialog is what a person sees, not what makes it so.
+   * ALL THREE ARE OMITTED WHEN THE BOX WAS NOT SHOWN, and that is a different
+   * fact from sending `false`. False is an explicit No, recorded as `denied`
+   * and, for marketing, switching the weekly Follow Digest off (ADR 0034);
+   * absent leaves any standing answer untouched and records a NULL in the
+   * evidence. A guest is shown all three and therefore sends all three; a
+   * signed-in Customer sends only what they were asked.
    *
-   * The optional two are OMITTED when the box was not shown, and that is a
-   * different fact from sending `false`. False is an explicit No, recorded as
-   * `denied` and, for marketing, switching the weekly Follow Digest off
-   * (ADR 0034); absent leaves any standing answer untouched. A guest is shown
-   * all three and therefore sends all three.
+   * `policy_acceptance` is required to be `true` FROM EVERYBODY WHO IS STILL
+   * OWED IT — every guest, and every signed-in Customer with no acceptance of
+   * the current Policy Version — or the API refuses the checkout with
+   * POLICY_ACCEPTANCE_REQUIRED and creates no Payment. The disabled button on
+   * the dialog is what a person sees, not what makes it so. Which boxes were
+   * owed is the API's own finding: an answer for one that was not is dropped,
+   * so nothing sent from here can churn a standing answer.
    *
    * A guest has not proven the address they typed, so an optional tick from one
    * enters Pending Confirmation and sends nothing until the owner confirms
    * (ADR 0035). Nothing here needs to know that — it is the API's finding — but
    * it is why this app must never tell a guest they are subscribed.
    */
-  policy_acceptance: boolean;
+  policy_acceptance?: boolean;
   marketing_consent?: boolean;
   networking_consent?: boolean;
   lines: { ticket_type_id: string; quantity: number }[];

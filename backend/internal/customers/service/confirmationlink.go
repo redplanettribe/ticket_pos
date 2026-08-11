@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers"
 	"github.com/peter/ticket_pos/backend/internal/customers/repository"
 )
@@ -123,7 +124,14 @@ func (s *Service) RedeemConfirmationLink(ctx context.Context, token, existingSes
 	// no-op that returns the credential the caller already has.
 	if existingSessionToken != "" {
 		if session, customer, err := s.authenticate(ctx, existingSessionToken); err == nil && !session.TicketSaleID.Valid {
-			return s.sessionView(customer, session), existingSessionToken, nil
+			// The full session is returned as it stands, boxes and all: this is a
+			// read of a session that already existed, so what it owes is whatever it
+			// owed a moment ago.
+			outstanding, err := s.consent.Outstanding(ctx, customer.ID)
+			if err != nil {
+				return nil, "", err
+			}
+			return s.sessionView(customer, session, outstanding), existingSessionToken, nil
 		}
 		// Anything else — expired, destroyed, or itself scoped to a single sale —
 		// is not wider than what this link grants, so the link is redeemed
@@ -177,7 +185,11 @@ func (s *Service) RedeemConfirmationLink(ctx context.Context, token, existingSes
 	// Property 1: the Customer is returned exactly as stored. Nothing above
 	// touched verified_at, and the view reports it honestly — an unverified
 	// Customer who arrives by link is still unverified afterwards.
-	return s.sessionView(customer, &session), sessionToken, nil
+	// The outstanding set is not read at all: a sale-scoped session is shown every
+	// consent box whatever the stored state says, because possession of a
+	// forwarded email proves nothing about who is holding it (see
+	// CustomerSessionView.ConsentBoxes, which applies that rule for every caller).
+	return s.sessionView(customer, &session, consent.Outstanding{}), sessionToken, nil
 }
 
 // signConfirmationLink produces the token: the payload the link asserts, plus an

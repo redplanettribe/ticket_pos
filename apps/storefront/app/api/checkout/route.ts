@@ -190,13 +190,22 @@ export async function POST(request: Request) {
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
         ...(phone ? { customer_phone: phone } : {}),
-        // The consent boxes (#253). The required one is relayed as whatever
-        // arrived — including `false`, and including absent, which becomes
-        // `false` here only because the field is required on the wire; the API
-        // refuses both identically with POLICY_ACCEPTANCE_REQUIRED. This hop
-        // deliberately does NOT enforce it: a second copy of a legal gate is a
-        // second place for it to be wrong, and the API is where it is true.
-        policy_acceptance: consentAnswer(body.policy_acceptance) ?? false,
+        // The consent boxes (#253, #254). All three are relayed on identical
+        // terms now, the required one included: present as sent — `false` and
+        // all — and ABSENT when the dialog drew no such box, which since #254 is
+        // what a Customer who has already accepted the current Policy Version
+        // sends. It used to be coerced to `false` here, on the grounds that the
+        // field was required on the wire; it is not required of everybody any
+        // more, and a `false` this hop invented would be this app answering a
+        // question nobody was asked.
+        //
+        // This hop deliberately enforces NOTHING: a second copy of a legal gate
+        // is a second place for it to be wrong. The API recomputes which boxes
+        // the buyer was owed and refuses with POLICY_ACCEPTANCE_REQUIRED where
+        // one was owed and not given.
+        ...(consentAnswer(body.policy_acceptance) !== undefined
+          ? { policy_acceptance: consentAnswer(body.policy_acceptance) }
+          : {}),
         ...(consentAnswer(body.marketing_consent) !== undefined
           ? { marketing_consent: consentAnswer(body.marketing_consent) }
           : {}),

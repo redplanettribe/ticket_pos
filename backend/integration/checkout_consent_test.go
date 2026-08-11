@@ -480,8 +480,15 @@ func TestSignedInCheckoutCapturesAProvenAnswer(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	// Signed in having declined everything optional, so the checkout's answer is
-	// visibly the thing that moved the state.
+	// Signed in with the two optional consents left UNANSWERED, so the checkout
+	// is genuinely the surface that asks them and its answer is visibly the thing
+	// that moved the state.
+	//
+	// It used to sign in DECLINING them, and #254 is why it cannot: a Customer
+	// who has answered a box is not shown it again, and an answer for a box they
+	// were not shown is dropped rather than applied
+	// (service.owedConsentAnswers). The old shape would now assert that a body
+	// can churn a standing answer, which is exactly what must not be true.
 	verify := startSignIn(t, env, "ana@example.com")
 	if verify.ConsentRequired == nil {
 		t.Fatal("expected a consent step")
@@ -495,6 +502,14 @@ func TestSignedInCheckoutCapturesAProvenAnswer(t *testing.T) {
 	token := decodeCustomerVerify(t, body).SessionID
 	if token == "" {
 		t.Fatal("expected a Customer Session after the consent step")
+	}
+	// Back to unanswered: no surface can UNanswer a consent, so this is written
+	// directly. It is a starting state — the one a Customer created by a box
+	// office sale or a Sale Import carries — and not a transition.
+	if _, err := env.db.Exec(
+		`UPDATE customers SET marketing_consent = NULL, networking_consent = NULL WHERE email = $1`,
+		"ana@example.com"); err != nil {
+		t.Fatalf("clear optional consents: %v", err)
 	}
 
 	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,

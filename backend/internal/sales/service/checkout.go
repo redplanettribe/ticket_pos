@@ -120,11 +120,30 @@ type BeginCheckoutInput struct {
 	// dialog (#253, parent #249).
 	//
 	// PolicyAcceptance must be present and true or this checkout is refused below
-	// — the required box is not a courtesy of the form. The optional two are
-	// recorded as given: ticked, unticked (an explicit No), or nil for a box this
-	// buyer was not shown, which #254 will use for a signed-in Customer who has
-	// already answered.
+	// — the required box is not a courtesy of the form — UNLESS this checkout is
+	// a signed-in Customer's own and they have already accepted the current
+	// Policy Version, in which case no such box was drawn and none is owed. The
+	// optional two are recorded as given: ticked, unticked (an explicit No), or
+	// nil for a box this buyer was not shown (#254).
+	//
+	// Every one of them is read only for a box the buyer was actually OWED, which
+	// BeginCheckout recomputes rather than trusting the body about.
 	Consent consent.Answers
+	// SessionCustomerID is the Customer whose own Customer Session this checkout
+	// is running under, and it is set ONLY where Customer.SelfAsserted is: a full
+	// session, presented for the very address being bought under.
+	//
+	// The two travel together because they are one fact — "the person at the
+	// keyboard is provably this Customer" — and the same fact decides both what a
+	// buyer may overwrite on their own profile and which consent boxes they were
+	// owed. A signed-in Customer buying for a friend supplies the friend's
+	// details and the friend's consent: nothing is self-asserted, no id is set,
+	// and the checkout is captured exactly as a guest's is.
+	//
+	// Empty on every guest checkout, on a Confirmation Link session (which proves
+	// nothing about who holds it), and on the box office and import channels,
+	// which never build one of these.
+	SessionCustomerID string
 	// ConsentEvidence is the prueba técnica of that act: the client IP as
 	// platform.ClientIP derived it, the user agent, and the page it happened on.
 	//
@@ -155,6 +174,75 @@ type BeginCheckoutResult struct {
 	Currency        string `json:"currency"`
 }
 
+// owedConsentAnswers narrows a checkout body's three answers to the boxes this
+// buyer was actually OWED, and refuses the checkout when the one that gates it
+// was owed and not given.
+//
+// WHO IS OWED WHAT. A guest is owed all three: nothing is known about who typed
+// that address, so the dialog draws every box and every answer counts as given.
+// A signed-in Customer buying under their own address is owed only what the
+// consent module says they have not answered — which is what lets a Customer
+// who accepted the current Policy Version and answered both optional boxes check
+// out with no consent UI at all, exactly as they did before this feature existed
+// (#254, parent spec user story 10).
+//
+// POLICY ACCEPTANCE GATES BEGIN, NOT CONFIRM, and the choice is the whole point
+// of putting it here (#253, parent spec user story 8).
+//
+// Begin is the leg that hands a buyer to a Payment Provider. Refusing at confirm
+// would mean the platform sent somebody's email, name, Tax ID and phone across a
+// third-party boundary — processing them, in the guidance's sense — under a
+// Privacy Policy nobody had accepted, and then declined the purchase after their
+// card had been charged. That is the PAYMENT_APPROVED_WITHOUT_SALE incident,
+// manufactured deliberately, over a checkbox. Nothing about consent may ever be a
+// reason to refuse a Payment the provider has already approved, exactly as the
+// Purchase Limit is checked once and never again (ADR 0025).
+//
+// It is refused in the SERVICE rather than as a handler-level field error,
+// because it is a rule about whether the platform may act at all and not about
+// whether the form is well-formed: a caller that is not the Storefront gets the
+// same refusal, with the same code, from the same place the sign-in door uses
+// (consent.ErrPolicyAcceptanceRequired). A free checkout is gated identically —
+// it settles inside the same request (ADR 0017), and a ticket that costs nothing
+// is still a Customer record created and a receipt emailed.
+//
+// RECOMPUTED, NEVER TRUSTED, which is the sign-in consent step's rule applied at
+// the other capture surface (#251, service.SubmitConsent). The body arrives from
+// a browser that was TOLD which boxes to draw, and this is the server asking the
+// same question again at the moment of the write. An answer for a box this buyer
+// was not owed is DROPPED rather than applied, so no crafted body can churn a
+// standing Marketing or Networking Consent, and no client can manufacture
+// evidence of a box it never showed. What that leaves, when a fully-answered
+// Customer checks out, is three nil answers — and a capture with nothing in it
+// writes no Consent Record at all (repository.ApprovePaymentAndCommitSale):
+// evidence exists where a capture act happened, and no box was shown here.
+func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput) (consent.Answers, error) {
+	// A guest owes every box, without asking anything: there is no Customer this
+	// request has proven itself to be, and the address in the form is a claim.
+	owed := consent.Outstanding{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
+	if in.SessionCustomerID != "" {
+		var err error
+		if owed, err = s.consent.Outstanding(ctx, in.SessionCustomerID); err != nil {
+			return consent.Answers{}, err
+		}
+	}
+
+	var answers consent.Answers
+	if owed.PolicyAcceptance {
+		if in.Consent.PolicyAcceptance == nil || !*in.Consent.PolicyAcceptance {
+			return consent.Answers{}, consent.ErrPolicyAcceptanceRequired()
+		}
+		answers.PolicyAcceptance = in.Consent.PolicyAcceptance
+	}
+	if owed.MarketingConsent {
+		answers.MarketingConsent = in.Consent.MarketingConsent
+	}
+	if owed.NetworkingConsent {
+		answers.NetworkingConsent = in.Consent.NetworkingConsent
+	}
+	return answers, nil
+}
+
 // BeginCheckout starts an online checkout: it validates the Event is published
 // and the requested Ticket Types exist with capacity to spare, snapshots the
 // current unit prices into a pending Payment, asks the Payment Provider to
@@ -167,38 +255,18 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		return nil, err
 	}
 
-	// POLICY ACCEPTANCE GATES BEGIN, NOT CONFIRM, and the choice is the whole
-	// point of putting it here (#253, parent spec user story 8).
-	//
-	// Begin is the leg that hands a buyer to a Payment Provider. Refusing at
-	// confirm would mean the platform sent somebody's email, name, Tax ID and
-	// phone across a third-party boundary — processing them, in the guidance's
-	// sense — under a Privacy Policy nobody had accepted, and then declined the
-	// purchase after their card had been charged. That is the
-	// PAYMENT_APPROVED_WITHOUT_SALE incident, manufactured deliberately, over a
-	// checkbox. Nothing about consent may ever be a reason to refuse a Payment the
-	// provider has already approved, exactly as the Purchase Limit is checked here
-	// and never again (ADR 0025).
-	//
-	// It is refused HERE, in the service, rather than as a handler-level field
-	// error, because it is a rule about whether the platform may act at all and
-	// not about whether the form is well-formed: a caller that is not the
-	// Storefront gets the same refusal, with the same code, from the same place
-	// the sign-in door uses (consent.ErrPolicyAcceptanceRequired).
-	//
-	// A free checkout is gated identically. It settles inside this same request
-	// (ADR 0017), so there is no second leg to gate even if one were wanted, and a
-	// ticket that costs nothing is still a Customer record created and a receipt
-	// emailed.
-	if in.Consent.PolicyAcceptance == nil || !*in.Consent.PolicyAcceptance {
-		return nil, consent.ErrPolicyAcceptanceRequired()
-	}
 	// Wired at construction; nil would mean a deployment that can capture answers
 	// and cannot record them. Refused rather than logged: a sale recorded without
-	// its evidence is worse than a sale not made.
+	// its evidence is worse than a sale not made. Checked before the gate below,
+	// which now needs it to ask what this buyer was owed.
 	if s.consent == nil {
 		return nil, fmt.Errorf("sales: no consent capturer wired; refusing to sell without an evidence log")
 	}
+	answers, err := s.owedConsentAnswers(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	in.Consent = answers
 	orgSlug := strings.ToLower(strings.TrimSpace(in.OrganizationSlug))
 	eventSlug := strings.ToLower(strings.TrimSpace(in.EventSlug))
 

@@ -47,6 +47,20 @@ type customerSessionView struct {
 	AvatarURL    *string `json:"avatar_url"`
 	VerifiedAt   *string `json:"verified_at"`
 	TicketSaleID *string `json:"ticket_sale_id"`
+	// Which consent boxes a capture surface must still show this session's holder
+	// (#254). The checkout dialog reads it here, beside the fields it prefills;
+	// checkout_consent_visibility_test.go is where the matrix it encodes is read.
+	ConsentBoxes consentBoxes `json:"consent_boxes"`
+}
+
+// decodeCustomerSession reads a session-read response.
+func decodeCustomerSession(t *testing.T, body envelope) customerSessionView {
+	t.Helper()
+	var view customerSessionView
+	if err := json.Unmarshal(body.Data, &view); err != nil {
+		t.Fatalf("decode customer session: %v", err)
+	}
+	return view
 }
 
 type customerAreaSale struct {
