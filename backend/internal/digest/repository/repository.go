@@ -24,6 +24,45 @@ func New(db *platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// digestConsentPredicate is ADR 0034's transition clause in SQL: may the
+// platform send this Customer a Follow Digest at all? It expects the `customers`
+// row to be aliased `c`, and it is interpolated into both queries that ask —
+// the enqueue and the send-time read — so the two can never come to disagree
+// about one person.
+//
+// MARKETING CONSENT AND THE FOLLOW DIGEST ARE ONE SWITCH (#256, parent #249).
+// The rule has three arms and each of them is a decision:
+//
+//   - GRANTED sends. Somebody was asked, on a surface whose copy names the
+//     Digest explicitly, and said yes. This arm is the only one that is consent.
+//   - UNANSWERED sends WHEN THE LEGACY FLAG IS ON, and this is the transition.
+//     `digest_enabled` defaulted to true on every Customer this platform has
+//     ever created (migration 056), so it is NOT CONSENT AND IS NEVER CLAIMED AS
+//     SUCH — nobody was shown anything, and silence was read as a yes. What
+//     keeps the Digest running for these people until somebody asks them is
+//     that pressing Follow is itself a request to be written to (CONTEXT.md),
+//     and that every issue carries an unsubscribe link one press from silence.
+//     The alternative was to go quiet on the entire existing Follower base the
+//     day this shipped, which would have punished precisely the Customers who
+//     subscribed to the thing. The population is self-liquidating: the next
+//     sign-in asks them, and their answer moves them to one of the other two
+//     arms permanently.
+//   - DENIED and PENDING CONFIRMATION never send. Denied is an explicit No,
+//     including the No of leaving an unticked box unticked at a capture moment.
+//     Pending is somebody else's tick on an address they never proved (ADR
+//     0035): denied for sending, and never promoted by the passage of time.
+//
+// The flag is deliberately NOT consulted on the granted arm, and denial is not
+// conditioned on it either. The write path keeps the two in lockstep —
+// consent/service.Capture is the only thing that writes either column — so they
+// agree in practice; where they could disagree, the answer the person actually
+// gave governs and a stale boolean does not. `digest_enabled` stays the
+// operational switch and never becomes an independent source of truth.
+const digestConsentPredicate = `(
+			  c.marketing_consent = 'granted'
+			  OR (c.marketing_consent IS NULL AND c.digest_enabled)
+			)`
+
 // PendingDigest is one claimed row of the queue: whose Digest it is, which week,
 // and how many times delivery has already been tried.
 //
@@ -45,15 +84,24 @@ type DigestRecipient struct {
 	// Locale is the Customer's remembered Mail Locale (#216, #243). Never empty:
 	// the column is NOT NULL DEFAULT 'en'.
 	Locale string
-	// DigestEnabled is whether this Customer still wants the Digest (#224).
+	// DigestPermitted is whether the platform may write to this Customer at all:
+	// digestConsentPredicate, asked a second time (#224, and #256 for what it now
+	// asks).
 	//
 	// It is read HERE, at send time, and not only at enqueue, because the enqueue
-	// filter cannot cover the window it does not span: somebody who unsubscribes
-	// between the weekly enqueue and the minute their Digest is drained already
-	// has a row in the queue addressed to them. That window is small and it is
-	// precisely when an opt-out matters most — the message is sitting there,
-	// ready to go — so one press has to be enough to stop it.
-	DigestEnabled bool
+	// filter cannot cover the window it does not span: somebody who unsubscribes —
+	// or declines Marketing Consent at a sign-in — between the weekly enqueue and
+	// the minute their Digest is drained already has a row in the queue addressed
+	// to them. That window is small and it is precisely when an opt-out matters
+	// most, the message sitting there ready to go, so one press has to be enough
+	// to stop it.
+	//
+	// It is the PREDICATE rather than the `digest_enabled` column it used to be,
+	// which is what keeps the two checks one rule: a send-time read that still
+	// asked about the bare flag would let a Customer whose consent went to denied
+	// with a stale flag left on receive the very message the enqueue would have
+	// refused to queue.
+	DigestPermitted bool
 }
 
 // DigestSections is what one Customer's Digest is about, split into the two
@@ -164,14 +212,18 @@ type DigestCandidate struct {
 // in practice — this is the guard for the write path that does not exist yet,
 // and it costs one predicate.
 //
-// THE UNSUBSCRIBE FILTER IS HERE, AT THE ENQUEUE, and that is where #224 asks
-// for it: a row in this queue is a promise that somebody is owed a Digest, and a
-// Customer who unsubscribed is owed nothing. Composing their week and discarding
-// it would cost a candidate query and a compose per unsubscribed follower every
-// week for a message that could never be sent, and it would leave the queue full
-// of rows an operator reading a backlog has to know to ignore. The drain checks
-// the same flag again for the one window this predicate cannot span — see
-// DigestRecipient.DigestEnabled.
+// THE CONSENT FILTER IS HERE, AT THE ENQUEUE, and that is where #224 asked for
+// its predecessor: a row in this queue is a promise that somebody is owed a
+// Digest, and a Customer the platform may not write to is owed nothing.
+// Composing their week and discarding it would cost a candidate query and a
+// compose per such follower every week for a message that could never be sent,
+// and it would leave the queue full of rows an operator reading a backlog has to
+// know to ignore. The drain asks the same question again for the one window this
+// predicate cannot span — see DigestRecipient.DigestPermitted.
+//
+// It is digestConsentPredicate rather than the bare `digest_enabled` #224 wrote
+// (#256, ADR 0034): the flag alone is not consent, and the question "may we send
+// this?" now has one answer, stated once, asked in both places.
 //
 // It drops such a Customer out of ELIGIBLE and not merely out of ENQUEUED, which
 // is the honest reading of that number: eligible counts the Customers this
@@ -199,7 +251,7 @@ func (r *Repository) EnqueueWeek(ctx context.Context, weekStart, now time.Time) 
 			JOIN following f ON f.customer_id = c.id
 			WHERE c.verified_at IS NOT NULL
 			  AND c.deleted_at IS NULL
-			  AND c.digest_enabled
+			  AND `+digestConsentPredicate+`
 		),
 		inserted AS (
 			INSERT INTO follow_digests (customer_id, week_start, status, next_attempt_at)
@@ -265,11 +317,17 @@ func (r *Repository) ClaimDueDigest(ctx context.Context, now, leaseUntil time.Ti
 // statements rather than an ordinary case.
 func (r *Repository) LoadRecipient(ctx context.Context, customerID string) (*DigestRecipient, error) {
 	var out DigestRecipient
+	// The Mail Locale and the send decision are read in the SAME statement, as
+	// they always were: they are two facts about one recipient at one moment, and
+	// two reads could straddle a change and compose a message in a language the
+	// Customer has just left, or send one they have just refused. What changed in
+	// #256 is only what the second fact IS — the consent rule rather than the
+	// bare flag (ADR 0034).
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT email, first_name, mail_locale, digest_enabled
-		FROM customers
-		WHERE id = $1 AND deleted_at IS NULL
-	`, customerID).Scan(&out.Email, &out.FirstName, &out.Locale, &out.DigestEnabled)
+		SELECT c.email, c.first_name, c.mail_locale, `+digestConsentPredicate+`
+		FROM customers c
+		WHERE c.id = $1 AND c.deleted_at IS NULL
+	`, customerID).Scan(&out.Email, &out.FirstName, &out.Locale, &out.DigestPermitted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

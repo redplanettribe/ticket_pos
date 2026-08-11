@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -97,18 +96,9 @@ func (h *Handler) SubmitConsent(w http.ResponseWriter, r *http.Request) {
 		PolicyAcceptance:  body.PolicyAcceptance,
 		MarketingConsent:  body.MarketingConsent,
 		NetworkingConsent: body.NetworkingConsent,
-		// The prueba técnica is derived from the REQUEST and never from the body.
-		// A body a client composes could say anything; these are what the platform
-		// observed, which is the only sense in which evidence of circumstances is
-		// worth keeping. The IP comes from the platform's one agreed derivation
-		// (never this handler's own reading of the forwarding chain), and the user
-		// agent and origin are the browser's own headers as the Storefront BFF
-		// relayed them — no browser reaches this process directly (ADR 0008).
-		Evidence: consent.Evidence{
-			IP:        platform.ClientIP(r),
-			UserAgent: r.UserAgent(),
-			OriginURL: r.Referer(),
-		},
+		// The prueba técnica is derived from the REQUEST and never from the body —
+		// see requestEvidence, which every capture surface in this package shares.
+		Evidence: requestEvidence(r),
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
