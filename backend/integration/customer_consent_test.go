@@ -138,6 +138,24 @@ func readConsentRecords(t *testing.T, env *testEnv, email string) []consentRecor
 	return records
 }
 
+// consentRecordsOn narrows one Customer's evidence log to the acts that
+// happened on one surface.
+//
+// Selected by CHANNEL rather than by position in the log: the harness runs on a
+// fixed clock, so two acts in one test share a captured_at and the tie falls to
+// a random uuid. Which surface an act happened on is a fact about it, and is
+// what these assertions are about anyway.
+func consentRecordsOn(t *testing.T, env *testEnv, email, channel string) []consentRecordRow {
+	t.Helper()
+	var on []consentRecordRow
+	for _, record := range readConsentRecords(t, env, email) {
+		if record.Channel == channel {
+			on = append(on, record)
+		}
+	}
+	return on
+}
+
 // readConsentState reads the current-state columns. SQL for the same reason.
 func readConsentState(t *testing.T, env *testEnv, email string) customerConsentState {
 	t.Helper()

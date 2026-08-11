@@ -130,23 +130,6 @@ func unsubscribeWithEvidence(t *testing.T, env *testEnv, token string) {
 	}
 }
 
-// consentRecordsOn returns one Customer's Consent Records made on one channel.
-//
-// Selected by CHANNEL rather than by position in the log, because the harness
-// stamps every act with the same fixed clock and the log's order is only as fine
-// as its timestamps. Which surface a record came from is the fact these tests
-// are about anyway.
-func consentRecordsOn(t *testing.T, env *testEnv, email, channel string) []consentRecordRow {
-	t.Helper()
-	var out []consentRecordRow
-	for _, r := range readConsentRecords(t, env, email) {
-		if r.Channel == channel {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // oneConsentRecordOn insists there is exactly one record on a channel and
 // returns it.
 func oneConsentRecordOn(t *testing.T, env *testEnv, email, channel string) consentRecordRow {

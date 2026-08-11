@@ -71,24 +71,6 @@ func beginCheckoutWithEvidenceOK(t *testing.T, env *testEnv, orgSlug, eventSlug,
 	return result
 }
 
-// consentRecordsOn narrows one Customer's evidence log to the acts that
-// happened on one surface.
-//
-// Position in the log is not a reliable way to name a record here: the harness
-// runs on a fixed clock, so two acts in one test share a `captured_at` and the
-// tie is broken by a random uuid. Which SURFACE an act happened on is a fact
-// about it, and that is what these assertions are about anyway.
-func consentRecordsOn(t *testing.T, env *testEnv, email, channel string) []consentRecordRow {
-	t.Helper()
-	var on []consentRecordRow
-	for _, record := range readConsentRecords(t, env, email) {
-		if record.Channel == channel {
-			on = append(on, record)
-		}
-	}
-	return on
-}
-
 // countConsentRecords counts the whole evidence log, for the assertions whose
 // point is that there is nothing in it at all.
 func countConsentRecords(t *testing.T, env *testEnv) int {
