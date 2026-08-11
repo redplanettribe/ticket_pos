@@ -115,6 +115,18 @@ func domainHTTPStatus(code string) int {
 	// same reason a bad passcode is: the caller failed to prove anything.
 	case "CONFIRMATION_LINK_INVALID", "CONFIRMATION_LINK_EXPIRED":
 		return http.StatusUnauthorized
+	// A pending-consent token that is unknown, spent or expired (#251). 401 with
+	// its Confirmation Link neighbour and for the same reason: it is a credential
+	// standing between proof of email ownership and a Customer Session, and the
+	// recovery is to sign in again.
+	case "PENDING_CONSENT_INVALID":
+		return http.StatusUnauthorized
+	// A consent submission with the required box unticked (#251, parent #249).
+	// 400: nothing about the caller is unauthorized and re-sending the request
+	// with the box ticked is exactly what fixes it. The refusal lives in the API
+	// and not only in the form — see consent.ErrPolicyAcceptanceRequired.
+	case "POLICY_ACCEPTANCE_REQUIRED":
+		return http.StatusBadRequest
 	// An unsubscribe token that does not verify is 400 and pointedly not the 401
 	// its Confirmation Link neighbour gets (#224, ADR 0030). A Confirmation Link
 	// mints a session, so a bad one is a failure to authenticate; unsubscribing

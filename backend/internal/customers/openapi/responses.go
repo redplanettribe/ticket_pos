@@ -14,10 +14,21 @@ type MessageData struct {
 	Message string `json:"message"`
 }
 
-// CustomerVerifyOTPData is returned after a successful Customer passcode verification.
+// CustomerVerifyOTPData is returned after a successful Customer passcode
+// verification — and after a consent submission, which produces the same thing.
+//
+// It has TWO SHAPES and a client must handle both (#251): a session and its
+// token, or `consent_required` with the two of them null. Proof of email
+// ownership succeeded either way; what differs is whether the Customer has
+// accepted the Policy Version that is current. A client that reads `session_id`
+// and treats its absence as a failure will report a consent step as a broken
+// sign-in.
 type CustomerVerifyOTPData struct {
 	Session   *service.CustomerSessionView `json:"session"`
 	SessionID string                       `json:"session_id"`
+	// ConsentRequired carries the short-lived, single-use pending-consent token
+	// and the boxes to show. Null on an ordinary sign-in.
+	ConsentRequired *service.ConsentRequiredView `json:"consent_required"`
 }
 
 // EnvelopeCustomerOTPRequest documents POST /api/v1/customer/auth/otp/request success responses.

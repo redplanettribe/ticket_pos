@@ -6,6 +6,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/mail"
@@ -81,6 +82,37 @@ type verifyOTPResponse struct {
 	Session   *service.CustomerSessionView `json:"session"`
 	SessionID string                       `json:"session_id"`
 	Follow    *service.FollowView          `json:"follow"`
+	// ConsentRequired is the other shape this response has (#251): proof of email
+	// ownership succeeded and NO session was minted, because the Customer has not
+	// accepted the Policy Version that is current. It carries a short-lived,
+	// single-use pending-consent token and the boxes to show; `session`,
+	// `session_id` and `follow` are all null beside it, and the sign-in is
+	// finished — or abandoned — at the consent submission endpoint.
+	//
+	// Null on every ordinary sign-in, so an existing client reading `session_id`
+	// sees the same field it always did. What it must NOT do is treat a missing
+	// `session_id` as a transport failure; the BFF checks this field.
+	ConsentRequired *service.ConsentRequiredView `json:"consent_required"`
+}
+
+// signInResponse renders whichever of the two outcomes a proven email produced,
+// and applies the Follow intent to the session — when there is one.
+//
+// A held sign-in applies no Follow: there is no session to write it against,
+// and the intent's whole security property is that it is written against the
+// session verification produced and against no identifier a request could name.
+// The Storefront relays the intent again on the consent submission, which is
+// where a session finally exists (#219, #251).
+func (h *Handler) signInResponse(ctx context.Context, outcome *service.SignInOutcome, intent *service.FollowIntent) verifyOTPResponse {
+	response := verifyOTPResponse{
+		Session:         outcome.Session,
+		SessionID:       outcome.SessionID,
+		ConsentRequired: outcome.ConsentRequired,
+	}
+	if outcome.SessionID != "" {
+		response.Follow = h.svc.ApplyFollowIntent(ctx, outcome.SessionID, intent)
+	}
+	return response
 }
 
 // RequestOTP sends a one-time passcode to a Customer's email.
@@ -155,7 +187,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
+	outcome, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -165,11 +197,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	// other identifier in this request. That is the whole security property of
 	// the feature, and it is a property of this line: nothing else here could
 	// name a Customer even if it wanted to.
-	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
-		Session:   session,
-		SessionID: sessionID,
-		Follow:    h.svc.ApplyFollowIntent(r.Context(), sessionID, intent),
-	})
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, h.signInResponse(r.Context(), outcome, intent))
 }
 
 type googleVerifyBody struct {
@@ -235,17 +263,13 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
+	outcome, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
 	}
 
-	_ = platform.WriteSuccess(w, reqID, http.StatusOK, verifyOTPResponse{
-		Session:   session,
-		SessionID: sessionID,
-		Follow:    h.svc.ApplyFollowIntent(r.Context(), sessionID, intent),
-	})
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, h.signInResponse(r.Context(), outcome, intent))
 }
 
 type confirmationLinkBody struct {

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/consent/policy"
@@ -16,11 +17,23 @@ import (
 type Service struct {
 	repo   *repository.Repository
 	logger platform.Logger
+	// now stamps every Consent Record. It is the SERVER's clock and never a
+	// client's — a timestamp a browser could name is a timestamp an audit cannot
+	// use — and it is a field rather than a call to time.Now so the integration
+	// harness can capture evidence at a time it chose.
+	now func() time.Time
 }
 
 // New builds the consent Service.
 func New(repo *repository.Repository, logger platform.Logger) *Service {
-	return &Service{repo: repo, logger: logger}
+	return &Service{repo: repo, logger: logger, now: time.Now}
+}
+
+// WithClock replaces the clock every Consent Record is stamped with. Same
+// chaining shape as the other services'; used by tests.
+func (s *Service) WithClock(now func() time.Time) *Service {
+	s.now = now
+	return s
 }
 
 // PolicyView is the current Policy Version as one reader sees it: which edition

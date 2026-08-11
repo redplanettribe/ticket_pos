@@ -163,6 +163,14 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// the identical Customer Session the passcode above does, on an email Google
 	// vouched for instead of one a passcode did (ADR 0011).
 	mux.HandleFunc("POST /api/v1/customer/auth/google/verify", h.VerifyGoogle)
+	// The far side of the consent gate (#251, parent #249). Both doors above can
+	// answer with a consent-required outcome instead of a session, and this is
+	// the only route that turns one back into a session: it records the Consent
+	// Record and mints the credential the verify withheld. Unauthenticated for
+	// the same reason they are — the pending-consent token IS the credential —
+	// and it names no email, so it cannot be pointed at anybody but the address
+	// the token was minted for.
+	mux.HandleFunc("POST /api/v1/customer/auth/consent", h.SubmitConsent)
 	// The Confirmation Link's token is itself the credential, so this route is
 	// unauthenticated too. It reads Authorization when present, but only to
 	// notice that the caller already holds something wider than a link.

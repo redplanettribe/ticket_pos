@@ -105,12 +105,17 @@ func (s *Service) RequestOTP(ctx context.Context, email, clientIP, locale string
 // locale is the Locale of the Storefront page the passcode was redeemed on, or
 // empty from any caller that has no page to name one from. It is remembered on
 // the Customer, never checked: see signInProvenEmail.
-func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*CustomerSessionView, string, error) {
+//
+// The outcome is a session OR a consent step (#251): a Customer with no Policy
+// Acceptance of the current Policy Version has proven their address and earned
+// nothing else yet. Failing the passcode still looks exactly as it did — the
+// consent-required outcome is only ever reached past a correct code.
+func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*SignInOutcome, error) {
 	email = platform.NormalizeEmail(email)
 	now := s.now()
 
 	if err := s.otp.Verify(ctx, otpPurpose, email, code); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	return s.signInProvenEmail(ctx, email, now, "", locale)
@@ -142,8 +147,23 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code, locale string) (*C
 // over the words a later email will be written in. A caller that names no
 // Locale at all leaves what was remembered exactly as it was.
 //
+// THE CONSENT GATE LIVES HERE, at the convergence, and that placement is the
+// point of it (#251, parent #249). Both doors prove the same fact, so both owe
+// the same question afterwards: has this Customer accepted the Policy Version
+// that is current now? A gate written into VerifyOTP would have left Google
+// Sign-In as an unguarded way past it, and the two doors drifting apart is
+// exactly the failure a shared convergence exists to prevent. The check runs
+// AFTER the proof and never before it — see RequestOTP on why nothing about a
+// known Customer may be observable earlier.
+//
+// A Customer with consent outstanding is minted NO SESSION and gets a
+// consent-required outcome instead. Everything upstream of the session still
+// happens: the record is created or reused, verified_at is stamped, the Mail
+// Locale is remembered, an Avatar is seeded. Only the credential is withheld,
+// which is what makes abandoning the step cost the person nothing they had.
+//
 // The email must already be normalised and proven by the caller.
-func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL, locale string) (*CustomerSessionView, string, error) {
+func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time, seedAvatarURL, locale string) (*SignInOutcome, error) {
 	mailLocale := ""
 	if parsed, ok := platform.ParseLocale(locale); ok {
 		mailLocale = string(parsed)
@@ -151,17 +171,43 @@ func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.
 
 	customer, err := s.repo.VerifyCustomer(ctx, email, now, mailLocale)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	customer = s.seedAvatarFromGoogle(ctx, customer, seedAvatarURL)
 
-	token, err := newSessionToken()
+	required, err := s.gateOnConsent(ctx, customer, now)
 	if err != nil {
-		return nil, "", err
+		return nil, err
+	}
+	if required != nil {
+		return &SignInOutcome{ConsentRequired: required}, nil
 	}
 
-	// A full Customer Session: no Ticket Sale scope, so it spans every sale this
-	// Customer owns across every Organization.
+	session, view, err := s.mintSession(ctx, customer, now)
+	if err != nil {
+		return nil, err
+	}
+	return &SignInOutcome{Session: view, SessionID: session.ID}, nil
+}
+
+// mintSession issues the full Customer Session a proven email earns, and is the
+// one place that does.
+//
+// Both doors reach it through signInProvenEmail, and the consent step reaches
+// it directly when a submission finishes a sign-in that was held. That is
+// deliberate: the session a consent submission produces must be THE SAME
+// session the sign-in would have produced — same scope, same window, same view
+// on the wire — and the only way to guarantee that is for there to be one
+// statement that mints it.
+//
+// A full Customer Session: no Ticket Sale scope, so it spans every sale this
+// Customer owns across every Organization.
+func (s *Service) mintSession(ctx context.Context, customer *repository.Customer, now time.Time) (repository.CustomerSession, *CustomerSessionView, error) {
+	token, err := newSessionToken()
+	if err != nil {
+		return repository.CustomerSession{}, nil, err
+	}
+
 	session := repository.CustomerSession{
 		ID:         token,
 		CustomerID: customer.ID,
@@ -169,10 +215,9 @@ func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.
 		CreatedAt:  now,
 	}
 	if err := s.repo.CreateSession(ctx, session); err != nil {
-		return nil, "", err
+		return repository.CustomerSession{}, nil, err
 	}
-
-	return s.sessionView(customer, &session), token, nil
+	return session, s.sessionView(customer, &session), nil
 }
 
 // GetSession loads a Customer Session — extending it if it is a full one —

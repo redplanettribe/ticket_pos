@@ -179,12 +179,22 @@ func customerGoogleSignIn(t *testing.T, env *testEnv, email string) string {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("google verify status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	return decodeCustomerVerify(t, body).SessionID
+	// The consent step, where this Customer has one, exactly as customerSignIn
+	// absorbs it on the passcode door: every test in this package that wants a
+	// signed-in Customer wants the ordinary end state, and the gate itself is
+	// asserted in customer_consent_test.go rather than in each of them.
+	return finishSignIn(t, env, decodeCustomerVerify(t, body))
 }
 
+// customerVerifyData is what either sign-in door answers with, and it has two
+// shapes since #251: a session and its token, or a consent step with both of
+// them null. Session is a POINTER so a test can tell "no session was minted"
+// from "a session with empty fields" — which is the whole assertion the consent
+// gate rests on.
 type customerVerifyData struct {
-	Session   customerSessionView `json:"session"`
-	SessionID string              `json:"session_id"`
+	Session         *customerSessionView    `json:"session"`
+	SessionID       string                  `json:"session_id"`
+	ConsentRequired *consentRequiredOutcome `json:"consent_required"`
 }
 
 func decodeCustomerVerify(t *testing.T, body envelope) customerVerifyData {
@@ -228,7 +238,10 @@ func TestCustomerGoogleSignInMintsSessionAndVerifiesCustomer(t *testing.T) {
 		}
 	}
 
-	data := decodeCustomerVerify(t, body)
+	// The session is earned on the far side of the consent step this Customer has
+	// never answered (#251), on this door exactly as on the passcode one. What
+	// the session IS, once minted, is what the rest of this test asserts.
+	data := completeConsentStep(t, env, decodeCustomerVerify(t, body))
 	if data.SessionID == "" {
 		t.Fatal("expected a Customer Session token")
 	}

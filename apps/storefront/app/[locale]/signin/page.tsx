@@ -4,6 +4,7 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { redirect } from "@/i18n/navigation";
 import { localeAlternates } from "@/lib/alternates";
+import { getPrivacyPolicy } from "@/lib/api";
 import { BRAND_NAME } from "@/lib/brand";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
@@ -144,6 +145,21 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
           // must not silently lose it — it goes into the state cookie the start
           // route mints and comes back out at the callback.
           followIntent={intent}
+          // The Short Notice and the three checkbox labels, fetched from the
+          // SAME public endpoint the Privacy Policy page renders (#250, ADR
+          // 0036). One read, one edition: the page a visitor follows the link to
+          // and the notice they accept beside the boxes cannot come from
+          // different editions, because they are literally the same payload.
+          //
+          // Fetched on every render of this page rather than only when a consent
+          // step turns up, because whether one will is not knowable here — it is
+          // disclosed only after a passcode is proved, and asking earlier would
+          // be asking the API about an address nobody has proven (ADR 0035).
+          //
+          // Null when the API cannot be reached, which the form renders as a
+          // consent step it cannot complete rather than as boxes with no notice
+          // beside them: consent to text nobody was shown is not consent.
+          policy={await getPrivacyPolicy(locale)}
           googleSignInHref={
             isGoogleSignInConfigured() ? googleSignInStartPath(destination, intent) : null
           }

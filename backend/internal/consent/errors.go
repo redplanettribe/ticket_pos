@@ -27,6 +27,28 @@ func ErrPolicyLocaleNotPublished() apperror.DomainError {
 	)
 }
 
+// ErrPolicyAcceptanceRequired is returned when a capture surface submits
+// without accepting the current Policy Version.
+//
+// THE BACKEND REFUSES THIS, not merely a disabled button on a form. A checkbox
+// the Storefront declines to enable is a good way to tell somebody what is
+// required and no way at all to guarantee it: the API is public, the sign-in
+// consent endpoint is unauthenticated by construction, and a required consent
+// that only the UI enforces is a required consent that a curl command does not
+// have. Every surface that can create a Customer Session or complete an Online
+// Sale checks it here.
+//
+// 400 rather than 403: nothing about the caller is unauthorized — the request
+// is simply not one the platform may act on, and restating it with the box
+// ticked is exactly what fixes it.
+func ErrPolicyAcceptanceRequired() apperror.DomainError {
+	return apperror.New(
+		"POLICY_ACCEPTANCE_REQUIRED",
+		"The Privacy Policy must be accepted to continue.",
+		nil,
+	)
+}
+
 // ErrNoCurrentPolicyVersion is returned when no Policy Version is in effect.
 //
 // It should be unreachable: migration 060 seeds one, and a version is never

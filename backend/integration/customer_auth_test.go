@@ -104,7 +104,12 @@ func requestCustomerPasscode(t *testing.T, env *testEnv, email, clientIP string)
 }
 
 // customerSignIn completes a Customer sign-in and returns the Customer Session
-// token: request a passcode, read the captured code, redeem it.
+// token: request a passcode, read the captured code, redeem it — and answer the
+// consent step where the Customer is stopped for one (#251).
+//
+// The consent step is folded in here rather than repeated in seventy tests
+// because those tests are about what a signed-in Customer can do, and the gate
+// itself is asserted in customer_consent_test.go.
 func customerSignIn(t *testing.T, env *testEnv, email string) string {
 	t.Helper()
 	resp, body := requestCustomerPasscode(t, env, email, "")
@@ -120,17 +125,54 @@ func customerSignIn(t *testing.T, env *testEnv, email string) string {
 		t.Fatalf("verify customer passcode status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	var data struct {
-		Session   customerSessionView `json:"session"`
-		SessionID string              `json:"session_id"`
+	return finishSignIn(t, env, decodeCustomerVerify(t, body))
+}
+
+// finishSignIn turns whichever outcome a verify produced into a Customer
+// Session token, answering the consent step when there is one.
+//
+// Both doors use it, which is the point: a helper that only the passcode path
+// knew about would let the Google tests drift into a different flow than the
+// one production runs.
+func finishSignIn(t *testing.T, env *testEnv, data customerVerifyData) string {
+	t.Helper()
+	return completeConsentStep(t, env, data).SessionID
+}
+
+// completeConsentStep answers the consent step, when there is one, and returns
+// the outcome that carries the session — the verify's own when the Customer
+// sailed through, the submission's when they did not.
+//
+// Tests that need the SESSION VIEW rather than the token use this: what a
+// session says about the Customer is unchanged by the gate, but which response
+// carries it is not.
+func completeConsentStep(t *testing.T, env *testEnv, data customerVerifyData) customerVerifyData {
+	t.Helper()
+	if data.SessionID != "" {
+		return data
 	}
-	if err := json.Unmarshal(body.Data, &data); err != nil {
-		t.Fatalf("decode customer verify data: %v", err)
+	if data.ConsentRequired == nil {
+		t.Fatal("verify returned neither a Customer Session nor a consent step")
 	}
-	if data.SessionID == "" {
-		t.Fatal("expected a Customer Session token")
+
+	// Accepts the Privacy Policy and GRANTS both optional consents, which is what
+	// makes this the ordinary signed-in Customer the rest of the suite means: one
+	// who agreed to what they were asked. It matters most for the Follow Digest,
+	// whose whole population is Customers with Marketing Consent (ADR 0034) — a
+	// helper that declined it would silently unsubscribe every Customer every
+	// digest test ever created. A test about a DECLINED consent builds its
+	// Customer itself, in customer_consent_test.go, rather than inheriting one.
+	resp, body := env.post(t, customerConsentPath,
+		consentAnswers(data.ConsentRequired.PendingConsentToken, true, true, true),
+		consentEvidenceHeaders())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("consent submission status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	return data.SessionID
+	submitted := decodeCustomerVerify(t, body)
+	if submitted.SessionID == "" || submitted.Session == nil {
+		t.Fatal("expected a Customer Session after the consent step")
+	}
+	return submitted
 }
 
 // readCustomerArea reads the Customer Area for a session, optionally with a raw
@@ -274,12 +316,22 @@ func TestCustomerVerifyIssuesSessionAndMarksCustomerVerified(t *testing.T) {
 		t.Fatalf("error=%+v, want none", body.Error)
 	}
 
-	var data struct {
-		Session   customerSessionView `json:"session"`
-		SessionID string              `json:"session_id"`
+	// The passcode proves the address; the session is earned on the far side of
+	// the consent step this Customer has never answered (#251). What the session
+	// IS, once minted, is unchanged — which is what the rest of this test asserts.
+	verified := decodeCustomerVerify(t, body)
+	if verified.ConsentRequired == nil {
+		t.Fatal("expected a consent step for a Customer who has accepted nothing")
 	}
-	if err := json.Unmarshal(body.Data, &data); err != nil {
-		t.Fatalf("decode verify data: %v", err)
+	resp, body = env.post(t, customerConsentPath,
+		consentAnswers(verified.ConsentRequired.PendingConsentToken, true, false, false),
+		consentEvidenceHeaders())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("consent submission status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	data := decodeCustomerVerify(t, body)
+	if data.Session == nil {
+		t.Fatal("expected a session from the consent submission")
 	}
 	if data.Session.Email != "ana@example.com" {
 		t.Fatalf("session email = %q, want ana@example.com", data.Session.Email)

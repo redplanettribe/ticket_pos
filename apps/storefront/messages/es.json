@@ -206,7 +206,16 @@
     "sendFailed": "No se pudo enviar el código. Inténtelo de nuevo.",
     "sendNetworkFailed": "No se pudo enviar el código. Revise su conexión e inténtelo de nuevo.",
     "verifyFailed": "Ese código no fue aceptado.",
-    "verifyNetworkFailed": "No se pudo verificar ese código. Revise su conexión e inténtelo de nuevo."
+    "verifyNetworkFailed": "No se pudo verificar ese código. Revise su conexión e inténtelo de nuevo.",
+    "consent": {
+      "description": "Antes de iniciar tu sesión, lee cómo tratamos tus datos e indícanos qué autorizas.",
+      "readPolicy": "Leer la Política de Privacidad completa",
+      "optional": "Opcional",
+      "submit": "Aceptar e iniciar sesión",
+      "unavailable": "Ahora mismo no podemos mostrarte el aviso de privacidad, así que no podemos terminar de iniciar tu sesión. Inténtalo de nuevo en un momento."
+    },
+    "consentFailed": "No pudimos registrar tus decisiones.",
+    "consentNetworkFailed": "No pudimos registrar tus decisiones. Revisa tu conexión e inténtalo de nuevo."
   },
   "customerArea": {
     "metaTitle": "Sus entradas · {brand}",

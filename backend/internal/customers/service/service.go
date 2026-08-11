@@ -58,6 +58,14 @@ type Service struct {
 	// Follow is stored against (#217). Declared as an interface on this side and
 	// implemented by identity, exactly as reversals is by sales; see follows.go.
 	organizations OrganizationResolver
+	// consent answers what this module is not allowed to decide for itself: has
+	// this Customer accepted the Policy Version that is current, and what did
+	// they just authorize (#251). It is a constructor argument and not one of
+	// the optional WithX dependencies below, because a sign-in door with no gate
+	// behind it is not a degraded deployment — it is the feature silently absent,
+	// and every Customer Session it mints is one the platform cannot evidence.
+	// See consentgate.go.
+	consent ConsentGate
 	// tags turns the canonical key of a Tag into the id a Follow is stored
 	// against (#218), and is catalog's to answer for the same reason
 	// organizations is identity's: this module owns who Follows what, not what a
@@ -88,7 +96,12 @@ type ReversalRequestResolver interface {
 // deployment holding no Google credentials still gets a client, which refuses
 // every exchange with the ordinary generic error. Google Sign-In is one of two
 // doors, so its absence must not stop the other from opening.
-func New(repo *repository.Repository, otpService *otp.Service, logger platform.Logger, links ConfirmationLinkConfig, google *googleauth.Client) *Service {
+//
+// consentGate is required for a third reason, sharper than either: it decides
+// whether a Customer Session may be minted at all. A deployment that could
+// start without one would sign people in with no Policy Acceptance and no
+// evidence, which is the state this platform is not permitted to be in.
+func New(repo *repository.Repository, otpService *otp.Service, logger platform.Logger, links ConfirmationLinkConfig, google *googleauth.Client, consentGate ConsentGate) *Service {
 	return &Service{
 		repo:       repo,
 		otp:        otpService,
@@ -96,6 +109,7 @@ func New(repo *repository.Repository, otpService *otp.Service, logger platform.L
 		now:        time.Now,
 		links:      links,
 		google:     google,
+		consent:    consentGate,
 		avatarHTTP: &http.Client{Timeout: avatarFetchTimeout},
 	}
 }

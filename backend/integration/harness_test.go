@@ -166,6 +166,11 @@ func setupTest(t *testing.T) *testEnv {
 	// Customer identity has its own clock: Customer Session lifetime is measured
 	// in months, so its tests move time far further than any staff test does.
 	sharedApp.CustomersService.WithClock(func() time.Time { return fixedClock })
+	// Consent Records are stamped with the server clock and the consent gate's
+	// pending token expires against it, so the module that writes the evidence
+	// gets the same fixed clock the door does. Two clocks that could drift apart
+	// would make "the token expired" and "the record says when" disagree.
+	sharedApp.ConsentService.WithClock(func() time.Time { return fixedClock })
 	// Sales and catalog share the Capacity Hold window (ADR 0013): hold tests
 	// move both clocks past it together, so both are reset together.
 	sharedApp.SalesService.WithClock(func() time.Time { return fixedClock })
@@ -188,7 +193,7 @@ func setupTest(t *testing.T) *testEnv {
 func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// Update this list when new application tables are added via migrations.
 	if _, err := db.ExecContext(ctx, `
-		TRUNCATE TABLE follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, customer_sessions, sale_reversals, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_type_promotions, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
+		TRUNCATE TABLE follow_digests, follow_digest_sent_events, affiliate_links, platform_operators, payout_requests, payouts, organization_payout_profiles, payment_lines, payments, customer_organization_follows, customer_tag_follows, consent_records, pending_consents, customer_sessions, sale_reversals, ticket_sale_lines, ticket_sales, customers, sale_import_batches, event_tags, event_assignments, ticket_type_promotions, ticket_types, events, otp_challenges, sessions, members, organizations RESTART IDENTITY CASCADE
 	`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
@@ -198,6 +203,14 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 	// the current Policy Version every test runs under. Truncating it would leave
 	// the platform with no policy in effect, which is a state production cannot
 	// reach and no test should be written against.
+	//
+	// EDITIONS PUBLISHED BY A TEST ARE cleared, though: the re-gating test inserts
+	// a second row to prove that publishing one re-gates the customer base, and a
+	// row left behind would silently become the current edition for every test
+	// that ran afterwards.
+	if _, err := db.ExecContext(ctx, `DELETE FROM policy_versions WHERE label <> '0-placeholder'`); err != nil {
+		return fmt.Errorf("clear published policy versions: %w", err)
+	}
 
 	// Preset Tags are seeded once by migration and must survive resets; only
 	// Custom Tags coined during a test are cleared for isolation.

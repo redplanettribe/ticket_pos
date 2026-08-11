@@ -208,11 +208,27 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		platformLogger.Warn("storefront base url: falling back to the development origin (no STOREFRONT_BASE_URL set); Confirmation Links will point at localhost")
 	}
 
+	// Consent (#250, #251, parent #249). It depends on nothing but the database
+	// and the Privacy Policy text embedded in this binary, so it is built FIRST
+	// among the domain modules — before customers, which depends on it. The
+	// direction is the whole design: customers may depend on consent, consent may
+	// never depend on customers, and the module that decides whether a Customer
+	// Session may be minted must not be the one that owns Customer Sessions.
+	consentRepo := consentrepo.New(db)
+	consentService := consentsvc.New(consentRepo, platformLogger)
+	consentHandler := consenthandler.New(consentService)
+	if options.clock != nil {
+		// Consent Records are stamped with the server clock, so the harness's
+		// fixed clock has to reach it like it reaches every other service that
+		// writes a timestamp anybody asserts on.
+		consentService = consentService.WithClock(options.clock)
+	}
+
 	customersRepo := customersrepo.New(db)
 	customersService := customerssvc.New(customersRepo, otpService, platformLogger, customerssvc.ConfirmationLinkConfig{
 		Secret:            confirmationLinkSecret,
 		StorefrontBaseURL: cfg.StorefrontBaseURL,
-	}, storefrontGoogle).WithObjectStorage(objectStorage)
+	}, storefrontGoogle, consentService).WithObjectStorage(objectStorage)
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}
@@ -315,15 +331,6 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// change in here can reach a Follow.
 	digestService = digestService.WithUnsubscribe(customersService)
 	digestHandler := digesthandler.New(digestService)
-
-	// Consent (#250, parent #249). It depends on nothing but the database and the
-	// Privacy Policy text embedded in this binary, and is wired early-late — here,
-	// beside the modules that will come to depend on IT. From #251 both identity
-	// and sales ask it whether a person has accepted the current Policy Version;
-	// it asks neither of them anything, and that direction is the point.
-	consentRepo := consentrepo.New(db)
-	consentService := consentsvc.New(consentRepo, platformLogger)
-	consentHandler := consenthandler.New(consentService)
 
 	// The Operator Dashboard is composed from the modules that own its data:
 	// identity for Organizations, catalog for Events, sales for money. It is

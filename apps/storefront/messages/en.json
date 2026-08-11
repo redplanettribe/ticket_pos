@@ -206,7 +206,16 @@
     "sendFailed": "Could not send a passcode. Please try again.",
     "sendNetworkFailed": "Could not send a passcode. Please check your connection and try again.",
     "verifyFailed": "That passcode was not accepted.",
-    "verifyNetworkFailed": "Could not check that passcode. Please check your connection and try again."
+    "verifyNetworkFailed": "Could not check that passcode. Please check your connection and try again.",
+    "consent": {
+      "description": "Before we sign you in, please read how we handle your data and tell us what you agree to.",
+      "readPolicy": "Read the full Privacy Policy",
+      "optional": "Optional",
+      "submit": "Agree and sign in",
+      "unavailable": "We can't show the privacy notice right now, so we can't finish signing you in. Please try again in a moment."
+    },
+    "consentFailed": "We couldn't record your choices.",
+    "consentNetworkFailed": "We couldn't record your choices. Please check your connection and try again."
   },
   "customerArea": {
     "metaTitle": "Your tickets · {brand}",

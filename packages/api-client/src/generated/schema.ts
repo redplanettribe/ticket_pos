@@ -366,6 +366,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/auth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit sign-in consent
+         * @description Finishes a sign-in that was held for consent: exchanges the short-lived, single-use `pending_consent_token` from a verify response for the Customer Session that verification withheld. Writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized. `policy_acceptance` is required: a submission without it is refused by the API with POLICY_ACCEPTANCE_REQUIRED, not merely disabled in a form. The optional `marketing_consent` and `networking_consent` default to false, and false is an explicit No — it records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034). Answers for boxes the Customer was not shown are ignored: standing optional answers are never churned. The Policy Version is resolved server-side and is never accepted from the request. An optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step leaves no session at all.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Pending consent token and answers */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.consentSubmitBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyOTP"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/auth/google/verify": {
         parameters: {
             query?: never;
@@ -6492,6 +6554,38 @@ export interface components {
             follow?: string;
             token?: string;
         };
+        "handler.consentSubmitBody": {
+            /**
+             * @description Follow is the Follow intent, relayed here for the same reason it is
+             *     relayed on the verify: this is now the request that produces a session, and
+             *     a Follow is written against the session a sign-in produced and against
+             *     nothing a body could name (#219). A visitor who pressed Follow and was
+             *     then stopped for consent must not silently lose it.
+             */
+            follow?: string;
+            /**
+             * @description MarketingConsent and NetworkingConsent are the optional boxes. ABSENT IS
+             *     FALSE AND FALSE IS AN EXPLICIT NO — an unticked box that was shown is a
+             *     refusal, recorded as `denied`, and for Marketing that turns the Follow
+             *     Digest off (ADR 0034). This is the one place in the API where a missing
+             *     JSON field means something, and it means it because that is what the
+             *     surface means: the boxes are rendered unticked and a person who submits
+             *     without touching them has answered.
+             *
+             *     An answer for a box this Customer was not shown is ignored by the service,
+             *     which recomputes what they were owed rather than trusting this body.
+             */
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            /** @description PendingConsentToken is the credential from the consent-required outcome. */
+            pending_consent_token?: string;
+            /**
+             * @description PolicyAcceptance is the required box. Absent is false, and false is
+             *     refused: the API is the guarantee, the disabled submit button is a
+             *     courtesy.
+             */
+            policy_acceptance?: boolean;
+        };
         "handler.coverUploadURLBody": {
             content_type?: string;
             file_name?: string;
@@ -6771,6 +6865,7 @@ export interface components {
             paid_at?: string;
         };
         "openapi.CustomerVerifyOTPData": {
+            consent_required?: components["schemas"]["service.ConsentRequiredView"];
             session?: components["schemas"]["service.CustomerSessionView"];
             session_id?: string;
         };
@@ -7155,6 +7250,30 @@ export interface components {
             confirmation_ref?: string;
             /** @description Status is "approved" or "failed". */
             status?: string;
+        };
+        /** @description Boxes is what to show. */
+        "service.ConsentBoxesView": {
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            policy_acceptance?: boolean;
+        };
+        /**
+         * @description ConsentRequired carries the short-lived, single-use pending-consent token
+         *     and the boxes to show. Null on an ordinary sign-in.
+         */
+        "service.ConsentRequiredView": {
+            boxes?: components["schemas"]["service.ConsentBoxesView"];
+            /**
+             * @description ExpiresAt is when that token stops working, RFC 3339. Published so a client
+             *     can say "start again" rather than discovering it by being refused.
+             */
+            expires_at?: string;
+            /**
+             * @description PendingConsentToken is the single-use, short-lived credential that
+             *     exchanges answers for the session this sign-in did not mint. It is a
+             *     server-side row (migration 063), so spending it destroys it.
+             */
+            pending_consent_token?: string;
         };
         "service.CustomerAreaView": {
             past?: components["schemas"]["service.TicketSaleView"][];

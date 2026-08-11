@@ -109,6 +109,15 @@ export async function GET(request: Request) {
     );
 
     const result = envelope.data;
+    // The consent step (#251) can come back here too — the gate is at the
+    // convergence both doors reach, so a Google Sign-In by a Customer who has
+    // not accepted the current Policy Version mints no session either. CARRYING
+    // IT THROUGH THIS REDIRECT IS #252's WORK: the pending-consent token would
+    // have to survive a navigation, which the passcode door does not have to
+    // solve. Until then such a visitor lands back on the sign-in page with the
+    // generic message and can finish through the passcode form, which is a poor
+    // experience and a correct outcome — no session is minted, and nothing is
+    // recorded that nobody agreed to.
     if (!result?.session_id) {
       return redirectTo(signInFailurePath(destination, followIntent));
     }
