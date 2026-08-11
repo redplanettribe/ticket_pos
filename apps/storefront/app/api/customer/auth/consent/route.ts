@@ -9,6 +9,10 @@ import {
   customerSessionCookieOptions,
   type CustomerVerifyResult,
 } from "@/lib/customer-session";
+import {
+  PENDING_CONSENT_COOKIE,
+  clearedPendingConsentCookieOptions,
+} from "@/lib/pending-consent";
 
 /**
  * Finishes a sign-in that was held for consent: relays the answers and takes
@@ -37,6 +41,20 @@ import {
  * consent rules to live.
  */
 export async function POST(request: Request) {
+  const store = await cookies();
+  // The held Google Sign-In's transport, spent the moment a submission is made
+  // (#252). It is erased before the API is called and on every branch below,
+  // because what makes it worthless is the submission being ATTEMPTED, not the
+  // submission succeeding: the API consumes the pending-consent token before it
+  // judges the answers, so a refused submission leaves a token that will never
+  // work again. Leaving the cookie behind would offer that dead token to the
+  // next render of the sign-in page.
+  //
+  // The passcode door sets no such cookie and this deletes nothing for it — a
+  // request with no cookie is deleted just as cheaply, and one branch for both
+  // doors is the point of them sharing this endpoint.
+  store.set(PENDING_CONSENT_COOKIE, "", clearedPendingConsentCookieOptions());
+
   try {
     const body = await request.json();
     const envelope = await callBackend<CustomerVerifyResult>("/api/v1/customer/auth/consent", {
@@ -61,7 +79,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const store = await cookies();
     store.set(CUSTOMER_SESSION_COOKIE, result.session_id, customerSessionCookieOptions());
 
     return NextResponse.json({
