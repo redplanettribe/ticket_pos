@@ -151,7 +151,34 @@ func (r *Repository) Append(ctx context.Context, record Record, state StateWrite
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	recordID, resulting, err := r.AppendTx(ctx, tx, record, state)
+	if err != nil {
+		return "", CustomerConsentState{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", CustomerConsentState{}, fmt.Errorf("commit consent capture: %w", err)
+	}
+	return recordID, resulting, nil
+}
+
+// AppendTx is Append's two writes inside a transaction the CALLER owns, for the
+// surface where the capture act is not the whole of what is being committed.
+//
+// The online checkout is that surface and, so far, the only one (#253). Its
+// Consent Record has to land in the same transaction that upserts the Customer
+// and inserts the Ticket Sale, because the record REFERENCES that Customer and
+// the Customer exists only if the sale commits: a Payment the provider declined
+// must leave no evidence, exactly as it leaves no Customer. A capture on its own
+// transaction could commit while the sale rolled back, which is evidence of a
+// purchase that never happened.
+//
+// It takes *sql.Tx rather than an interface for the same reason the sale-commit
+// spine's UpsertCustomer seam does: this is a transaction handed across a module
+// boundary, and the type is the statement that it really is one.
+func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, state StateWrite) (string, CustomerConsentState, error) {
 	var recordID string
+	var err error
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO consent_records (
 			customer_id, email, channel, captured_at, policy_version_id,
@@ -216,8 +243,5 @@ func (r *Repository) Append(ctx context.Context, record Record, state StateWrite
 	resulting.MarketingConsent = consent.State(marketing.String)
 	resulting.NetworkingConsent = consent.State(networking.String)
 
-	if err := tx.Commit(); err != nil {
-		return "", CustomerConsentState{}, fmt.Errorf("commit consent capture: %w", err)
-	}
 	return recordID, resulting, nil
 }

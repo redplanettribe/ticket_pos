@@ -144,6 +144,12 @@
     "phoneLabel": "Teléfono (opcional)",
     "submit": "Continuar al pago",
     "submitting": "Iniciando el pago…",
+    "consent": {
+      "notice": "Cómo tratamos sus datos",
+      "readPolicy": "Leer la Política de Privacidad completa",
+      "optional": "Opcional",
+      "unavailable": "Ahora mismo no podemos mostrarle el aviso de privacidad, así que no podemos procesar su compra. Inténtelo de nuevo en un momento."
+    },
     "undoUntil": "Puede deshacer esta compra hasta el <when>{deadline}</when>, hora de Ecuador.",
     "undoInTickets": "Deshacerla en sus entradas",
     "signInToUndo": "Iniciar sesión para deshacer",

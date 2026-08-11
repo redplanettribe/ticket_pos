@@ -585,6 +585,28 @@ export type BeginCheckoutRequest = {
    * and to English. A locale never fails a purchase on either side.
    */
   locale?: string;
+  /**
+   * The three consent boxes on the checkout dialog, as the buyer left them
+   * (#253, parent #249).
+   *
+   * `policy_acceptance` is required to be `true`: the API refuses the checkout
+   * with POLICY_ACCEPTANCE_REQUIRED otherwise, and no Payment is created — the
+   * disabled button on the dialog is what a person sees, not what makes it so.
+   *
+   * The optional two are OMITTED when the box was not shown, and that is a
+   * different fact from sending `false`. False is an explicit No, recorded as
+   * `denied` and, for marketing, switching the weekly Follow Digest off
+   * (ADR 0034); absent leaves any standing answer untouched. A guest is shown
+   * all three and therefore sends all three.
+   *
+   * A guest has not proven the address they typed, so an optional tick from one
+   * enters Pending Confirmation and sends nothing until the owner confirms
+   * (ADR 0035). Nothing here needs to know that — it is the API's finding — but
+   * it is why this app must never tell a guest they are subscribed.
+   */
+  policy_acceptance: boolean;
+  marketing_consent?: boolean;
+  networking_consent?: boolean;
   lines: { ticket_type_id: string; quantity: number }[];
 };
 
@@ -626,16 +648,25 @@ export type ConfirmCheckoutResult = {
  * only tells the API that the buyer has proven they own the address they are
  * buying under, which is what lets a Tax ID typed here replace the one stored on
  * their profile instead of merely landing on this sale (ADR 0016).
+ *
+ * `evidence` carries the three headers the API records as the circumstances of
+ * the consent captured on this dialog (#253): the client IP as this app derived
+ * it, and the browser's own user agent and referring page. The API cannot
+ * observe any of them — no browser reaches it directly (ADR 0008), so what it
+ * would otherwise record is this process — and they are relayed exactly as the
+ * sign-in consent route relays them, because it is the same evidence about the
+ * same kind of act.
  */
 export async function beginCheckout(
   orgSlug: string,
   eventSlug: string,
   request: BeginCheckoutRequest,
   sessionToken?: string,
+  evidence?: Record<string, string>,
 ): Promise<BeginCheckoutResult> {
   const envelope = await callBackend<BeginCheckoutResult>(
     `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
-    { method: "POST", body: JSON.stringify(request), sessionToken },
+    { method: "POST", body: JSON.stringify(request), sessionToken, headers: evidence },
   );
   if (!envelope.data) {
     throw new APIError(

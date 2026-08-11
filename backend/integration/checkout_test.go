@@ -43,6 +43,13 @@ func publishCheckoutEvent(t *testing.T, env *testEnv, sessionID, name, slug stri
 // The Tax ID is as required as the email (#98, ADR 0016), so it carries a valid
 // cédula by default: a checkout without one is rejected, and the tests that care
 // which Tax ID was typed override it (checkout_tax_id_test.go).
+//
+// Policy Acceptance is here for the same reason and on the same terms (#253): a
+// checkout without it is refused outright, so every journey in this package that
+// is about something else has to carry it. It is the ONLY box set by default —
+// the two optional consents are absent, which is how a dialog nobody touched
+// reports itself and is deliberately not the same as a `false`. The tests about
+// consent itself (checkout_consent_test.go) set all three explicitly.
 func checkoutBody(email, firstName, lastName string, lines ...map[string]any) map[string]any {
 	return map[string]any{
 		"customer_email":         email,
@@ -50,6 +57,7 @@ func checkoutBody(email, firstName, lastName string, lines ...map[string]any) ma
 		"customer_last_name":     lastName,
 		"customer_tax_id_type":   "cedula",
 		"customer_tax_id_number": validCedula,
+		"policy_acceptance":      true,
 		"lines":                  lines,
 	}
 }

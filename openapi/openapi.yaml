@@ -68,6 +68,30 @@ components:
             Customer's record remembers, then to English. A locale must never fail a
             purchase — the money is the point of this request and the words are not.
           type: string
+        marketing_consent:
+          type: boolean
+        networking_consent:
+          type: boolean
+        policy_acceptance:
+          description: |-
+            The three consent boxes on the checkout dialog (#253, parent #249), named
+            identically to the sign-in consent submission's: one vocabulary for one set
+            of answers, so a client that learned the shape on one surface knows it on
+            the other.
+
+            POINTERS, AND THE NIL IS LOAD-BEARING. Absent means THE BOX WAS NOT SHOWN,
+            which is a different fact from `false`; false means it was shown and left
+            unticked, which is an explicit No and is recorded as `denied` (ADR 0034).
+            The guest checkout this ticket builds always shows all three and therefore
+            always sends all three; a signed-in Customer is shown only what they have
+            not answered (#254), and reading their absent boxes as refusals would turn
+            their purchase into a marketing opt-out.
+
+            PolicyAcceptance is REQUIRED to be present and true. It is not a field error
+            but a domain refusal — POLICY_ACCEPTANCE_REQUIRED from the service — because
+            what is wrong is not the shape of the request but that the platform may not
+            act on it (ADR 0035, consent.ErrPolicyAcceptanceRequired).
+          type: boolean
       type: object
     handler.checkoutLineBody:
       properties:
@@ -5407,7 +5431,26 @@ paths:
         and to English. A Customer Session presented in Authorization is optional
         and changes nothing about the sale — it marks the buyer''s details as their
         own assertion, which is what lets them replace the Tax ID and phone already
-        stored on that Customer.'
+        stored on that Customer. Consent is captured here and refused here: policy_acceptance
+        must be present and true, or the checkout is refused with 400 POLICY_ACCEPTANCE_REQUIRED
+        and no Payment is created — the disabled button on the dialog is a courtesy,
+        this is the guarantee. It is enforced at BEGIN and never at confirm, so nobody
+        is ever handed to a Payment Provider under a Privacy Policy they have not
+        accepted, and no Payment the provider approved is ever refused over a checkbox.
+        marketing_consent and networking_consent are optional and never blocking:
+        sent true they are a grant, sent false they are an explicit No (which switches
+        the weekly Follow Digest off, ADR 0034), and OMITTED means the box was not
+        shown — which is not a No, and leaves any standing answer untouched. The answers
+        are held on the Payment across the Payment Provider redirect, exactly as the
+        Tax ID, phone and locale are, and the immutable Consent Record plus the consent
+        state are written only when the sale commits: an abandoned, declined or expired
+        Payment records no consent at all, just as it records no Customer. A guest
+        has not proven the address they typed, so an optional tick from one enters
+        Pending Confirmation — recorded as evidence, denied for sending, and never
+        overwriting an answer given under a proven Customer Session (ADR 0035). The
+        technical proof stored with the record (IP, user agent, origin URL) is taken
+        from the request, never from this body. The Policy Version accepted is resolved
+        server-side and is never accepted from a client.'
       parameters:
       - description: Organization slug
         in: path

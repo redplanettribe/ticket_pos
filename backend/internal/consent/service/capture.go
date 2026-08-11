@@ -67,7 +67,38 @@ import (
 // Which edition somebody accepted is the platform's finding about the moment,
 // not the client's assertion about it — which is why the public policy endpoint
 // publishes the label and the fingerprint but not the row's id.
+//
+// It opens its own transaction. CaptureInTx below is the same act inside one the
+// caller already holds, for the checkout, where the record, the Customer it
+// names and the sale it evidences must commit together.
 func (s *Service) Capture(ctx context.Context, capture consent.Capture) (consent.Receipt, error) {
+	return s.capture(ctx, nil, capture)
+}
+
+// CaptureInTx is Capture inside a transaction the caller already holds, for the
+// surface whose capture act is one clause of a larger sentence.
+//
+// The online checkout is that surface (#253): its Consent Record, the Customer
+// upsert it references and the Ticket Sale it evidences are three writes of one
+// act, and they commit together or not at all. Everything else about the capture
+// — the rules above, the resolved Policy Version, the granted/pending decision —
+// is identical, because it is literally the same code: only who owns the
+// transaction differs, and a second implementation of these rules is exactly
+// what this method exists to avoid.
+//
+// The caller must not have written anything the capture depends on outside this
+// transaction: the Customer named by CustomerID is read and updated here, so a
+// checkout hands over the id its own upsert produced moments earlier in the very
+// same tx.
+func (s *Service) CaptureInTx(ctx context.Context, tx *sql.Tx, capture consent.Capture) (consent.Receipt, error) {
+	if tx == nil {
+		return consent.Receipt{}, errors.New("consent capture: no transaction")
+	}
+	return s.capture(ctx, tx, capture)
+}
+
+// capture is the whole of both: tx nil means "open one of your own".
+func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Capture) (consent.Receipt, error) {
 	if capture.CustomerID == "" {
 		return consent.Receipt{}, errors.New("consent capture: no customer")
 	}
@@ -110,7 +141,13 @@ func (s *Service) Capture(ctx context.Context, capture consent.Capture) (consent
 		DigestEnabled: digestLockstep(capture.Answers.MarketingConsent, capture.EmailProven),
 	}
 
-	recordID, resulting, err := s.repo.Append(ctx, record, state)
+	var recordID string
+	var resulting repository.CustomerConsentState
+	if tx != nil {
+		recordID, resulting, err = s.repo.AppendTx(ctx, tx, record, state)
+	} else {
+		recordID, resulting, err = s.repo.Append(ctx, record, state)
+	}
 	if err != nil {
 		return consent.Receipt{}, err
 	}

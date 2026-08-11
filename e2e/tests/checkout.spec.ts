@@ -53,7 +53,21 @@ async function fillCheckoutForm(page: Page, email: string) {
   // arbitrary ten digits would fail this journey at begin-checkout.
   await page.getByLabel("ID type").selectOption("cedula");
   await page.getByLabel("ID number").fill(GA_TAX_ID);
-  await page.getByRole("button", { name: "Continue to payment" }).click();
+
+  // Policy Acceptance is as required as the Tax ID (#253): the pay button is
+  // disabled until it is ticked, and the API refuses the checkout regardless of
+  // what this form does. The two optional boxes are left alone — declining them
+  // must cost the buyer nothing, and this journey proves it by completing.
+  //
+  // The label's words come from the API rather than from the message catalogs
+  // (ADR 0036), so the box is addressed by its stable id and not by its text:
+  // publishing a new Policy Version rewords every label, and a spec keyed on the
+  // wording would fail on a legal-text drop that broke nothing.
+  const pay = page.getByRole("button", { name: "Continue to payment" });
+  await expect(pay).toBeDisabled();
+  await page.locator("#consent-policy-acceptance").check();
+  await expect(pay).toBeEnabled();
+  await pay.click();
 
   // The stub Payment Provider's interstitial: a top-level page showing the
   // amount, exactly where a real provider's hosted payment page would be.

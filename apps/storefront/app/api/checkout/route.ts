@@ -6,6 +6,7 @@ import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
 import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
+import { clientIpHeaders } from "@/lib/client-ip";
 import { customerSessionToken } from "@/lib/customer-session";
 import { isAppLocale, type AppLocale } from "@/lib/locale";
 
@@ -42,9 +43,26 @@ type CheckoutRequestBody = {
   customer_tax_id_type?: unknown;
   customer_tax_id_number?: unknown;
   customer_phone?: unknown;
+  policy_acceptance?: unknown;
+  marketing_consent?: unknown;
+  networking_consent?: unknown;
   lines?: unknown;
   locale?: unknown;
 };
+
+/**
+ * One consent box, relayed only when the dialog actually drew it.
+ *
+ * `undefined` and `false` mean different things all the way down to the column
+ * (migration 064): absent is "this box was not shown", false is a person who was
+ * shown it and left it unticked, which is an explicit No. So anything that is
+ * not a boolean is dropped rather than coerced — this hop is shape-only, and a
+ * `null` from a client turning into a refusal would be this app answering on the
+ * buyer's behalf.
+ */
+function consentAnswer(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
 
 function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -172,6 +190,19 @@ export async function POST(request: Request) {
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
         ...(phone ? { customer_phone: phone } : {}),
+        // The consent boxes (#253). The required one is relayed as whatever
+        // arrived — including `false`, and including absent, which becomes
+        // `false` here only because the field is required on the wire; the API
+        // refuses both identically with POLICY_ACCEPTANCE_REQUIRED. This hop
+        // deliberately does NOT enforce it: a second copy of a legal gate is a
+        // second place for it to be wrong, and the API is where it is true.
+        policy_acceptance: consentAnswer(body.policy_acceptance) ?? false,
+        ...(consentAnswer(body.marketing_consent) !== undefined
+          ? { marketing_consent: consentAnswer(body.marketing_consent) }
+          : {}),
+        ...(consentAnswer(body.networking_consent) !== undefined
+          ? { networking_consent: consentAnswer(body.networking_consent) }
+          : {}),
         ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
         // Dropped rather than sent null when nothing here can say which page
         // this was: the API reads an absent language as "no page produced this
@@ -181,6 +212,19 @@ export async function POST(request: Request) {
         lines,
       },
       await customerSessionToken(),
+      // The prueba técnica of the consent captured on the dialog, forwarded the
+      // way the sign-in consent route forwards it and for the same reason: the
+      // API records the circumstances of a capture act and can observe none of
+      // them from behind this hop. The IP comes from the forwarding chain and
+      // never from a copy the browser could set; the other two are the browser's
+      // own headers, verbatim. None of them proves anything — proof is a
+      // Customer Session or nothing — and all of them are what ties a Consent
+      // Record to a moment (#253).
+      {
+        ...clientIpHeaders(request.headers),
+        "User-Agent": request.headers.get("user-agent") ?? "",
+        Referer: request.headers.get("referer") ?? "",
+      },
     );
 
     // Remembered only once the API accepted the checkout: the slugs were just

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
@@ -114,6 +116,22 @@ type BeginCheckoutInput struct {
 	// record no language at all, and that is a different thing from recording
 	// English (see migration 059).
 	Locale string
+	// Consent is what the buyer did with the three consent boxes on the checkout
+	// dialog (#253, parent #249).
+	//
+	// PolicyAcceptance must be present and true or this checkout is refused below
+	// — the required box is not a courtesy of the form. The optional two are
+	// recorded as given: ticked, unticked (an explicit No), or nil for a box this
+	// buyer was not shown, which #254 will use for a signed-in Customer who has
+	// already answered.
+	Consent consent.Answers
+	// ConsentEvidence is the prueba técnica of that act: the client IP as
+	// platform.ClientIP derived it, the user agent, and the page it happened on.
+	//
+	// It comes from the REQUEST and never from the body, and the handler is what
+	// enforces that — this service takes what it is given, exactly as it takes
+	// Customer.SelfAsserted.
+	ConsentEvidence consent.Evidence
 }
 
 // BeginCheckoutResult is what the Storefront needs to finish the checkout: our
@@ -147,6 +165,39 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	// of the ADR 0016 requirement, so no caller can begin a checkout without one.
 	if err := sales.RequireTaxID("online", in.Customer.TaxID); err != nil {
 		return nil, err
+	}
+
+	// POLICY ACCEPTANCE GATES BEGIN, NOT CONFIRM, and the choice is the whole
+	// point of putting it here (#253, parent spec user story 8).
+	//
+	// Begin is the leg that hands a buyer to a Payment Provider. Refusing at
+	// confirm would mean the platform sent somebody's email, name, Tax ID and
+	// phone across a third-party boundary — processing them, in the guidance's
+	// sense — under a Privacy Policy nobody had accepted, and then declined the
+	// purchase after their card had been charged. That is the
+	// PAYMENT_APPROVED_WITHOUT_SALE incident, manufactured deliberately, over a
+	// checkbox. Nothing about consent may ever be a reason to refuse a Payment the
+	// provider has already approved, exactly as the Purchase Limit is checked here
+	// and never again (ADR 0025).
+	//
+	// It is refused HERE, in the service, rather than as a handler-level field
+	// error, because it is a rule about whether the platform may act at all and
+	// not about whether the form is well-formed: a caller that is not the
+	// Storefront gets the same refusal, with the same code, from the same place
+	// the sign-in door uses (consent.ErrPolicyAcceptanceRequired).
+	//
+	// A free checkout is gated identically. It settles inside this same request
+	// (ADR 0017), so there is no second leg to gate even if one were wanted, and a
+	// ticket that costs nothing is still a Customer record created and a receipt
+	// emailed.
+	if in.Consent.PolicyAcceptance == nil || !*in.Consent.PolicyAcceptance {
+		return nil, consent.ErrPolicyAcceptanceRequired()
+	}
+	// Wired at construction; nil would mean a deployment that can capture answers
+	// and cannot record them. Refused rather than logged: a sale recorded without
+	// its evidence is worse than a sale not made.
+	if s.consent == nil {
+		return nil, fmt.Errorf("sales: no consent capturer wired; refusing to sell without an evidence log")
 	}
 	orgSlug := strings.ToLower(strings.TrimSpace(in.OrganizationSlug))
 	eventSlug := strings.ToLower(strings.TrimSpace(in.EventSlug))
@@ -301,7 +352,12 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		AmountCents:         amountCents,
 		Customer:            customer,
 		Lines:               paymentLines,
-		Now:                 now,
+		// Held, not recorded: the Consent Record is written when the sale commits,
+		// so an abandoned or declined Payment leaves no evidence — the same rule
+		// that leaves it no Customer (migration 064, ADR 0035).
+		Consent:         in.Consent,
+		ConsentEvidence: in.ConsentEvidence,
+		Now:             now,
 	}); err != nil {
 		return nil, err
 	}
@@ -542,6 +598,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		ConfirmationRef: ref,
 		Now:             now,
 		UpsertCustomer:  s.customers.UpsertForSale,
+		CaptureConsent:  s.captureCheckoutConsent,
 	})
 	if err != nil {
 		// Nothing was collected, so there is no incident here — only a checkout
@@ -582,6 +639,22 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		AmountCents:         approved.Sale.AmountCents,
 		Currency:            event.Currency,
 	}, nil
+}
+
+// captureCheckoutConsent is the sale-commit spine's consent seam, bound to the
+// consent service (#253).
+//
+// It is a method on the service rather than a closure at each call site so that
+// both settlements — the provider confirm and the free checkout, which are the
+// two places an Online Sale is recorded — reach the same write path with no
+// chance of one being wired and the other forgotten. It adds nothing of its own:
+// the sales module states what happened and discards the receipt, because what
+// the answers MADE TRUE is the consent module's finding and nothing here has a
+// use for it. The Sale Confirmation's own line about a Pending Confirmation is
+// #255's, read from state at send time.
+func (s *Service) captureCheckoutConsent(ctx context.Context, tx *sql.Tx, capture consent.Capture) error {
+	_, err := s.consent.CaptureInTx(ctx, tx, capture)
+	return err
 }
 
 // sendSaleConfirmation emails the receipt for a Ticket Sale that has just been
@@ -682,6 +755,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		ConfirmationRef:       ref,
 		Now:                   s.now(),
 		UpsertCustomer:        s.customers.UpsertForSale,
+		CaptureConsent:        s.captureCheckoutConsent,
 	})
 	if err != nil {
 		// The provider has the money and the sale could not be recorded — the one

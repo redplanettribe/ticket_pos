@@ -249,7 +249,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// Undo, the reversal endpoint to decide whether to go ahead (ADR 0018). One
 	// value, handed to both, is what keeps the offer honest.
 	customersService = customersService.WithPaymentReversal(platform.NewPaymentReversal(paymentProvider))
-	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, platformLogger)
+	// Consent is a constructor argument and not a knot tied afterwards (#253): an
+	// Online Sale may not complete without Policy Acceptance, and the evidence of
+	// it is written inside the transaction that records the sale, so a sales
+	// service built without one would be a service that sells tickets and keeps no
+	// consent log. It is built above, and the dependency runs one way only —
+	// consent knows nothing of sales.
+	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, consentService, platformLogger)
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)
 	}

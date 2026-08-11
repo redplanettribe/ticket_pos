@@ -144,6 +144,12 @@
     "phoneLabel": "Phone (optional)",
     "submit": "Continue to payment",
     "submitting": "Starting payment…",
+    "consent": {
+      "notice": "How we handle your data",
+      "readPolicy": "Read the full Privacy Policy",
+      "optional": "Optional",
+      "unavailable": "We can't show the privacy notice right now, so we can't take your purchase. Please try again in a moment."
+    },
     "undoUntil": "You can undo this purchase until <when>{deadline}</when> Ecuador time.",
     "undoInTickets": "Undo it in your tickets",
     "signInToUndo": "Sign in to undo",

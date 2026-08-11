@@ -136,7 +136,17 @@ type CommitInput struct {
 // The id is what makes a Confirmation Link possible: the link names one Ticket
 // Sale, and until the batch commits there is no sale to name.
 type RecordedSale struct {
-	ID                string
+	ID string
+	// CustomerID is the Customer this sale was recorded against, as the upsert
+	// resolved them inside this very transaction.
+	//
+	// It is here for the online checkout's Consent Record (#253), which names a
+	// Customer and can only be written once there IS one — the record and the
+	// Customer are created in the same transaction, in that order, and the id is
+	// the only thing that connects them. Nothing else reads it: the Sale
+	// Confirmation addresses the email snapshotted on the sale, never the
+	// Customer's current one.
+	CustomerID        string
 	ConfirmationRef   string
 	CustomerEmail     string
 	CustomerFirstName string
@@ -538,6 +548,7 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 
 		recorded = append(recorded, RecordedSale{
 			ID:                saleID,
+			CustomerID:        customerID,
 			ConfirmationRef:   s.ConfirmationRef,
 			CustomerEmail:     s.Customer.Email,
 			CustomerFirstName: s.Customer.FirstName,
@@ -1506,6 +1517,17 @@ func nullString(s string) any {
 		return nil
 	}
 	return s
+}
+
+// nullBool passes a *bool to the driver with nil intact, for the columns where
+// SQL NULL is a third answer rather than a missing one — the consent boxes a
+// surface did not show (migration 064). Dereferencing into a plain bool here
+// would silently turn "not shown" into "No".
+func nullBool(b *bool) any {
+	if b == nil {
+		return nil
+	}
+	return *b
 }
 
 func isUniqueViolation(err error) bool {
