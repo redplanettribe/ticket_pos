@@ -126,7 +126,7 @@ type CreatePaymentInput struct {
 	//
 	// Each answer is a *bool: nil is "the box was not shown", which is not a No.
 	Consent consent.Answers
-	// ConsentEvidence is the prueba técnica of that same act, derived from the
+	// ConsentEvidence is the technical proof of that same act, derived from the
 	// request and never from its body. Empty fields are stored NULL, because
 	// "not collected" and "collected as blank" are different answers.
 	ConsentEvidence consent.Evidence

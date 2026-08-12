@@ -86,7 +86,7 @@ type Answers struct {
 	NetworkingConsent *bool
 }
 
-// Evidence is the prueba técnica of one capture act: the circumstances, as the
+// Evidence is the technical proof of one capture act: the circumstances, as the
 // platform observed them.
 //
 // None of it proves anything on its own — an IP arrives through proxies, a user
@@ -252,7 +252,7 @@ type Confirmation struct {
 	// was offering to confirm, and a Pending Confirmation created afterwards by
 	// some other checkout was never on the page the person read.
 	Scope Pending
-	// Evidence is the prueba técnica of the press.
+	// Evidence is the technical proof of the press.
 	Evidence Evidence
 }
 

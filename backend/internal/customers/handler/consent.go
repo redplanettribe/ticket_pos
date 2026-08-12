@@ -97,7 +97,7 @@ func (h *Handler) SubmitConsent(w http.ResponseWriter, r *http.Request) {
 		PolicyAcceptance:  body.PolicyAcceptance,
 		MarketingConsent:  body.MarketingConsent,
 		NetworkingConsent: body.NetworkingConsent,
-		// The prueba técnica is derived from the REQUEST and never from the body —
+		// The technical proof is derived from the REQUEST and never from the body —
 		// see consent.EvidenceFromRequest, which every capture surface shares.
 		Evidence: consent.EvidenceFromRequest(r),
 	})

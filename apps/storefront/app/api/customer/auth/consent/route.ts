@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
-import { clientIpHeaders } from "@/lib/client-ip";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import {
   CUSTOMER_SESSION_COOKIE,
   customerSessionCookieOptions,
@@ -61,9 +61,7 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify(body),
       headers: {
-        ...clientIpHeaders(request.headers),
-        "User-Agent": request.headers.get("user-agent") ?? "",
-        Referer: request.headers.get("referer") ?? "",
+        ...consentEvidenceHeaders(request.headers),
       },
     });
 

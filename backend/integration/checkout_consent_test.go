@@ -259,11 +259,11 @@ func TestCheckoutConsentSurvivesTheProviderRedirect(t *testing.T) {
 		t.Fatalf("networking_consent = %q, want pending_confirmation from a guest tick", state.NetworkingConsent.String)
 	}
 	// A pending marketing consent must not switch the Follow Digest on. The flag
-	// is left exactly as it was — the legacy default on a Customer this sale just
-	// created — and the sender's rule (never send on pending) is what stops the
-	// mail (ADR 0034, ADR 0035).
-	if !state.DigestEnabled {
-		t.Fatal("digest_enabled = false; a pending tick must neither enable nor disable it")
+	// is left exactly as it was — off, since migration 065 starts a Customer born
+	// after consent unsubscribed — and the sender's rule (never send on pending)
+	// is the second lock on the same door (ADR 0034, ADR 0035).
+	if state.DigestEnabled {
+		t.Fatal("digest_enabled = true; a tick nobody has proven must not switch the Digest on")
 	}
 }
 
@@ -304,11 +304,48 @@ func TestGuestUntickedOptionalBoxesAnswerNothing(t *testing.T) {
 	if state.NetworkingConsent.Valid {
 		t.Fatalf("networking_consent = %q, want unanswered", state.NetworkingConsent.String)
 	}
-	// The flag does not move on an UNPROVEN answer, in either direction. A
-	// stranger typing a legacy subscriber's address into a checkout must not be
-	// able to silence their Digest (see service.Capture's digest lockstep).
+	// The flag does not move on an UNPROVEN answer, in either direction. Here
+	// there was nothing to move — migration 065 starts a Customer born after
+	// consent unsubscribed — so this says only that the No did not reach it. The
+	// case where the flag has something to lose is the next test.
+	if state.DigestEnabled {
+		t.Fatal("digest_enabled = true after an unproven No; only a proven answer moves it")
+	}
+}
+
+// TestUnprovenNoCannotSilenceALegacySubscriber is the harm the rule above exists
+// to prevent, with a victim who has something to lose.
+//
+// Ana predates consent: she Follows, she has been receiving the Digest on the
+// legacy flag, and nobody has asked her anything. A stranger then types her
+// address into a checkout and leaves the marketing box unticked. Recorded as her
+// No, that press would have ended a subscription she chose and never withdrawn —
+// and taken away the prompt that could have restored it, since a denial reads as
+// answered. Her Digest keeps arriving, and she is still the one who gets to say.
+func TestUnprovenNoCannotSilenceALegacySubscriber(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
+
+	followingCustomer(t, env, "ana@example.com")
+	forgetConsentAnswers(t, env, "ana@example.com", true)
+
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
+		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	state := readConsentState(t, env, "ana@example.com")
+	if state.MarketingConsent.Valid {
+		t.Fatalf("marketing_consent = %q, want the unanswered state a stranger cannot change", state.MarketingConsent.String)
+	}
 	if !state.DigestEnabled {
-		t.Fatal("digest_enabled = false after an unproven No; only a proven answer moves it")
+		t.Fatal("digest_enabled = false: a stranger's silence ended a subscription she never withdrew")
+	}
+
+	digestWeek(t, env, sessionID, "Still Subscribed Fest", "still-subscribed-fest")
+	if got := len(digestsFor(t, env, "ana@example.com")); got != 1 {
+		t.Fatalf("ana received %d Digests after a stranger declined on her behalf, want 1", got)
 	}
 }
 
@@ -656,7 +693,7 @@ func TestCheckoutAcceptanceStampsTheEditionInEffect(t *testing.T) {
 }
 
 // TestCheckoutConsentEvidenceIsNotTakenFromTheBody: a client composes the body
-// and can make it say anything, so the prueba técnica comes from the request the
+// and can make it say anything, so the technical proof comes from the request the
 // platform observed and nowhere else.
 func TestCheckoutConsentEvidenceIsNotTakenFromTheBody(t *testing.T) {
 	env := setupTest(t)

@@ -31,7 +31,7 @@ type Record struct {
 	MarketingConsent  sql.NullBool
 	NetworkingConsent sql.NullBool
 	EmailProven       bool
-	// The prueba técnica. Invalid where the surface collected nothing, so that
+	// The technical proof. Invalid where the surface collected nothing, so that
 	// "not collected" stays distinguishable from "collected as blank".
 	IP        sql.NullString
 	UserAgent sql.NullString

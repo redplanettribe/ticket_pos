@@ -387,7 +387,7 @@ _Avoid_: Session, login, token, cookie
 
 **Confirmation Link**:
 A signed link carried in a Sale Confirmation, granting access to that one Ticket Sale without signing in.
-Distinct from a Customer Session, which spans every Ticket Sale the Customer owns.
+Distinct from a Customer Session, which spans every Ticket Sale the Customer owns, and from a Consent Confirmation Link, which may travel in the same email and confirms an optional consent rather than opening a sale.
 _Avoid_: Magic link, access token, deep link
 
 **Customer Area**:
@@ -456,8 +456,13 @@ _Avoid_: Consent log, audit trail, consent table
 
 **Pending Confirmation**:
 The state of an optional consent ticked by someone who had not proven the email they typed: denied for sending, unanswered for prompting (ADR 0035).
-Resolved when the proven owner answers at a later capture moment or clicks the confirmation link in their Sale Confirmation; unresolved, it sends nothing forever and never expires.
+Resolved when the proven owner answers at a later capture moment or presses the Consent Confirmation Link in their Sale Confirmation; unresolved, it sends nothing forever and never expires.
 _Avoid_: Unconfirmed opt-in, double opt-in (as the state's name), limbo
+
+**Consent Confirmation Link**:
+The signed link carried in a Sale Confirmation that resolves a Pending Confirmation, pressing it being itself the proof of the address that the checkout lacked.
+Named apart from the Confirmation Link, which grants access to one Ticket Sale: the two are different tokens with different purposes and neither opens what the other does. It confirms only the boxes the mail it travelled in offered, and only where they are still pending — a decision the owner has made since always outranks it.
+_Avoid_: Confirmation Link (unqualified), opt-in link, verification link, double opt-in link
 
 ## Following
 

@@ -144,7 +144,7 @@ type BeginCheckoutInput struct {
 	// nothing about who holds it), and on the box office and import channels,
 	// which never build one of these.
 	SessionCustomerID string
-	// ConsentEvidence is the prueba técnica of that act: the client IP as
+	// ConsentEvidence is the technical proof of that act: the client IP as
 	// platform.ClientIP derived it, the user agent, and the page it happened on.
 	//
 	// It comes from the REQUEST and never from the body, and the handler is what

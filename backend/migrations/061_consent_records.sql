@@ -113,7 +113,10 @@ CREATE TABLE consent_records (
     -- row and nothing else. When that write path lands it will be its own
     -- narrow repository method, not a general update.
     confirmed_at TIMESTAMPTZ,
-    -- The prueba técnica the guidance's evidence template requires: the
+    -- The technical proof the guidance's evidence template requires, where it is
+    -- the row headed "Prueba técnica" — named here once so the column can be
+    -- traced back to the document, and called technical proof everywhere else,
+    -- because one concept gets one spelling (CONTEXT.md, Consent Record). The
     -- circumstances of the act, so that a record can be tied to a session and a
     -- device rather than only to an address.
     --

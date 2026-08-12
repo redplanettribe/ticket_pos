@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse, notSignedInResponse } from "@/lib/bff";
-import { clientIpHeaders } from "@/lib/client-ip";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import { customerSessionToken } from "@/lib/customer-session";
 
 // Reads the session cookie and writes through it; never cached.
@@ -38,7 +38,7 @@ type DigestSubscription = { digest_enabled: boolean };
  * so pressing this toggle is a consent act and the API records the
  * circumstances of it. The API can observe none of them for itself — no browser
  * reaches it directly (ADR 0008) — so a relay that dropped them would leave a
- * Consent Record with an empty prueba técnica. The IP is derived from the
+ * Consent Record with an empty technical proof. The IP is derived from the
  * forwarding chain and never from the browser's own copy of it.
  */
 export async function PUT(request: Request) {
@@ -81,9 +81,7 @@ export async function PUT(request: Request) {
       body: JSON.stringify({ enabled }),
       sessionToken: token,
       headers: {
-        ...clientIpHeaders(request.headers),
-        "User-Agent": request.headers.get("user-agent") ?? "",
-        Referer: request.headers.get("referer") ?? "",
+        ...consentEvidenceHeaders(request.headers),
       },
     });
     return NextResponse.json(

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
-import { clientIpHeaders } from "@/lib/client-ip";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 
 // Acts on a request; never cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -42,7 +42,7 @@ type ConsentConfirmation = {
  * does: a press is a capture act and the API records it as a Consent Record with
  * the circumstances. It cannot observe them itself — no browser reaches it
  * directly (ADR 0008) — so a relay that dropped them would leave the record with
- * an empty prueba técnica.
+ * an empty technical proof.
  */
 export async function POST(request: Request) {
   let token: unknown;
@@ -72,9 +72,7 @@ export async function POST(request: Request) {
         method: "POST",
         body: JSON.stringify({ token }),
         headers: {
-          ...clientIpHeaders(request.headers),
-          "User-Agent": request.headers.get("user-agent") ?? "",
-          Referer: request.headers.get("referer") ?? "",
+          ...consentEvidenceHeaders(request.headers),
         },
       },
     );

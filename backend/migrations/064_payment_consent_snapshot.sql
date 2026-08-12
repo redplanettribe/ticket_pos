@@ -44,7 +44,7 @@ ALTER TABLE payments ADD COLUMN consent_policy_acceptance BOOLEAN NULL;
 ALTER TABLE payments ADD COLUMN consent_marketing BOOLEAN NULL;
 ALTER TABLE payments ADD COLUMN consent_networking BOOLEAN NULL;
 
--- The prueba técnica of the capture act, held the same way and for the same
+-- The technical proof of the capture act, held the same way and for the same
 -- reason: it describes the request the buyer answered the boxes IN, and the
 -- confirm request is a different one — a redirect back from a third party,
 -- possibly minutes later, possibly from another network. Deriving the evidence

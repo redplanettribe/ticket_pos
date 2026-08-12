@@ -6,7 +6,7 @@ import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
 import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
-import { clientIpHeaders } from "@/lib/client-ip";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import { customerSessionToken } from "@/lib/customer-session";
 import { isAppLocale, type AppLocale } from "@/lib/locale";
 
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
         lines,
       },
       await customerSessionToken(),
-      // The prueba técnica of the consent captured on the dialog, forwarded the
+      // The technical proof of the consent captured on the dialog, forwarded the
       // way the sign-in consent route forwards it and for the same reason: the
       // API records the circumstances of a capture act and can observe none of
       // them from behind this hop. The IP comes from the forwarding chain and
@@ -230,9 +230,7 @@ export async function POST(request: Request) {
       // Customer Session or nothing — and all of them are what ties a Consent
       // Record to a moment (#253).
       {
-        ...clientIpHeaders(request.headers),
-        "User-Agent": request.headers.get("user-agent") ?? "",
-        Referer: request.headers.get("referer") ?? "",
+        ...consentEvidenceHeaders(request.headers),
       },
     );
 

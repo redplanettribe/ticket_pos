@@ -200,7 +200,7 @@ func TestGoogleConsentSubmissionRecordsEvidenceAndMintsTheSession(t *testing.T) 
 	if record.ConfirmedAt.Valid {
 		t.Fatalf("confirmed_at = %v, want null — nothing here is pending", record.ConfirmedAt.Time)
 	}
-	// The prueba técnica comes from the request the BROWSER made to the consent
+	// The technical proof comes from the request the BROWSER made to the consent
 	// submission, which on this door is a request the Storefront made after a
 	// redirect — so it must be present all the same.
 	if record.IP.String != "198.51.100.24" {

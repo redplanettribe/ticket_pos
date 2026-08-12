@@ -181,7 +181,7 @@ func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
 	// the write side then treats as a stranger's would collect nothing and refuse
 	// the sale.
 	input.SessionCustomerID, input.Customer.SelfAsserted = selfAssertedCheckout(r, input.Customer.Email)
-	// The prueba técnica of the consent act, derived here and never taken from the
+	// The technical proof of the consent act, derived here and never taken from the
 	// body — a body a client composes could claim any address and any browser, and
 	// evidence of circumstances is worth keeping only in the sense that the
 	// platform observed it. The IP comes from the platform's one agreed

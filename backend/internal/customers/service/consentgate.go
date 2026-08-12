@@ -133,7 +133,7 @@ type ConsentSubmission struct {
 	// whoever is holding a sign-in token.
 	MarketingConsent  bool
 	NetworkingConsent bool
-	// Evidence is the prueba técnica of this act, derived by the handler from the
+	// Evidence is the technical proof of this act, derived by the handler from the
 	// request itself and never from the body.
 	Evidence consent.Evidence
 }

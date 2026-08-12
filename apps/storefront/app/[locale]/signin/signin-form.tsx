@@ -18,6 +18,7 @@ import {
 import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { Link, useRouter } from "@/i18n/navigation";
 import type { PrivacyPolicy } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -169,58 +170,15 @@ function GoogleMark() {
 }
 
 /**
- * One consent checkbox, drawn unticked, with its label as the API worded it.
+ * Three steps, one page, no navigation between them: entering an email swaps the
+ * form for the passcode field with the email still in component state, and
+ * proving the address swaps it again for the consent step when the Policy
+ * Version in effect has not been accepted (#251).
  *
- * The label is markdown from the Policy Version, so it is rendered rather than
- * interpolated: it is part of the text the edition's fingerprint covers, and
- * this component may not reword it. Only the "Optional" chip beside it belongs
- * to this app, and it is there because the guidance requires an optional
- * consent to LOOK optional — a box that reads like the required one beside it
- * is not freely given.
- *
- * AT MODULE SCOPE, and it matters. Declared inside SignInForm it would be a new
- * component type on every render, so React would unmount the subtree and mount
- * a fresh one each time — throwing away the checkbox's DOM node, and with it
- * the focus, mid-interaction. The chip's words arrive as a prop rather than
- * from the translator in the enclosing scope, which is the whole reason it was
- * nested in the first place.
+ * Every request this component makes is to a relative /api/customer/... route on
+ * this same origin. It never addresses the Go API, and it never sees a session
+ * token — the token lives in an httpOnly cookie the verify route sets (ADR 0008).
  */
-function ConsentCheckbox({
-  id,
-  checked,
-  onChange,
-  label,
-  optionalLabel,
-}: {
-  id: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  label: string;
-  /** The "Optional" chip's words, or null on the required box. */
-  optionalLabel: string | null;
-}) {
-  return (
-    <label htmlFor={id} className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-      <input
-        id={id}
-        name={id}
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span className="space-y-1">
-        {optionalLabel ? (
-          <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {optionalLabel}
-          </span>
-        ) : null}
-        <Markdown className="text-sm [&>p]:mt-0">{label}</Markdown>
-      </span>
-    </label>
-  );
-}
-
 export function SignInForm({
   next,
   initialEmail,

@@ -22,6 +22,7 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
+import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType } from "@/lib/api";
@@ -206,62 +207,6 @@ type CheckoutError = {
 /** Matches the Input component's height, border and mobile font size so the select reads as a peer. */
 const SELECT_CLASS =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
-
-/**
- * One consent box: the label exactly as the API worded it, and — on the two
- * optional ones — the platform's own word for "this is optional" above it.
- *
- * The label is Markdown because the labels are Markdown; they carry the link the
- * guidance requires inside their own sentence, and rendering rather than
- * interpolating them is what makes what is shown byte-for-byte what was hashed
- * (ADR 0036). `optionalLabel` is null on the required box: the copy comes in as
- * a prop so this stays outside the dialog's own component, where it would be
- * redefined — and its inputs remounted — on every keystroke in the form above.
- *
- * It is a local component rather than one shared with the sign-in consent step,
- * which draws the same three boxes. The two surfaces are being built in parallel
- * by different tickets, and a shared component would couple them at the moment
- * both are moving; what must not diverge is the WORDS, and those come from one
- * API read on both. A third surface wanting these boxes is the moment to lift
- * them out.
- */
-function ConsentCheckbox({
-  id,
-  checked,
-  onChange,
-  label,
-  optionalLabel,
-}: {
-  id: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  label: string;
-  optionalLabel: string | null;
-}) {
-  return (
-    <label
-      htmlFor={id}
-      className="flex items-start gap-3 rounded-lg border bg-background p-3 text-sm"
-    >
-      <input
-        id={id}
-        name={id}
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span className="space-y-1">
-        {optionalLabel ? (
-          <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {optionalLabel}
-          </span>
-        ) : null}
-        <Markdown className="text-sm [&>p]:mt-0">{label}</Markdown>
-      </span>
-    </label>
-  );
-}
 
 export function TicketSelection({
   orgSlug,
@@ -971,6 +916,7 @@ export function TicketSelection({
                       onChange={setPolicyAccepted}
                       label={policy.consent_labels.policy_acceptance}
                       optionalLabel={null}
+                      className="bg-background"
                     />
                   ) : null}
                   {consentBoxes.marketing_consent ? (
@@ -980,6 +926,7 @@ export function TicketSelection({
                       onChange={setMarketingConsent}
                       label={policy.consent_labels.marketing_consent}
                       optionalLabel={t("consent.optional")}
+                      className="bg-background"
                     />
                   ) : null}
                   {consentBoxes.networking_consent ? (
@@ -989,6 +936,7 @@ export function TicketSelection({
                       onChange={setNetworkingConsent}
                       label={policy.consent_labels.networking_consent}
                       optionalLabel={t("consent.optional")}
+                      className="bg-background"
                     />
                   ) : null}
                 </div>

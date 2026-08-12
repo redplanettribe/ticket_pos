@@ -375,7 +375,7 @@ func TestConsentSubmissionRecordsEvidenceAndMintsTheSession(t *testing.T) {
 	if record.ConfirmedAt.Valid {
 		t.Fatalf("confirmed_at = %v, want null — nothing here is pending", record.ConfirmedAt.Time)
 	}
-	// The prueba técnica, all four fields.
+	// The technical proof, all four fields.
 	if record.IP.String != "198.51.100.24" {
 		t.Fatalf("ip = %q, want the address the BFF derived", record.IP.String)
 	}
@@ -546,12 +546,12 @@ func TestMarketingBoxUntickedRecordsDeniedAndSwitchesTheDigestOff(t *testing.T) 
 	env := setupTest(t)
 
 	data := startSignIn(t, env, "ana@example.com")
-	// The legacy default every Customer ever created carries. It is not consent
-	// and is never claimed as such — but until somebody answers, it is operative,
-	// which is what makes turning it off below cost this Customer something.
-	if !readConsentState(t, env, "ana@example.com").DigestEnabled {
-		t.Fatal("expected the legacy digest default to be on before anybody answered")
-	}
+	// A legacy subscriber, made by hand: the flag on and nothing answered, which
+	// is what every Customer row carried before migration 065 and what the rows
+	// that predate consent carry still. It is not consent and is never claimed as
+	// such — but until somebody answers it is operative, and that is what makes
+	// skipping the box below cost this Customer something rather than nothing.
+	forgetConsentAnswers(t, env, "ana@example.com", true)
 	resp, body := env.post(t, customerConsentPath,
 		consentAnswers(data.ConsentRequired.PendingConsentToken, true, false, false), consentEvidenceHeaders())
 	if resp.StatusCode != http.StatusOK {

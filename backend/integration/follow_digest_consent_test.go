@@ -189,6 +189,41 @@ func TestDigestSendsToUnansweredCustomerWithLegacyFlag(t *testing.T) {
 	}
 }
 
+// TestDigestSilentForACustomerBornDeclining is the other side of the transition
+// clause, and the reason the legacy default had to stop applying to new rows
+// (migration 065).
+//
+// A guest reads the notice, deliberately leaves the marketing box unticked, and
+// buys a ticket. Their No is unproven — a stranger could have typed the address
+// — so it is kept as evidence and writes no state, which is what stops it
+// silencing somebody else's standing subscription. But the Customer that sale
+// creates must not then be enrolled by the transition arm: it exists for people
+// who were subscribed under the old opt-out regime, and this person has no
+// history at all. Were `digest_enabled` still to default TRUE, unanswered plus
+// the default would read exactly like a legacy subscriber, and the first thing
+// they Followed would start sending them the mail they declined.
+func TestDigestSilentForACustomerBornDeclining(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
+
+	// The decline, on the surface that cannot prove who is typing.
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
+		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	// She Follows something, which is the only way a Digest is ever about
+	// anything — and the moment the transition arm would have caught her.
+	followingCustomer(t, env, "ana@example.com")
+
+	digestWeek(t, env, sessionID, "Born Declining Fest", "born-declining-fest")
+
+	if got := len(digestsFor(t, env, "ana@example.com")); got != 0 {
+		t.Fatalf("ana received %d Digests after declining marketing at the checkout that created her, want 0", got)
+	}
+}
+
 // TestDigestSilentForUnansweredCustomerWithLegacyFlagOff: the legacy flag still
 // means what it always meant. Somebody who unsubscribed before consent existed
 // stays unsubscribed, and is not resubscribed by the merge.

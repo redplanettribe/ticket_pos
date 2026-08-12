@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
-import { clientIpHeaders } from "@/lib/client-ip";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 
 // Acts on a request; never cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ type DigestSubscription = { digest_enabled: boolean };
  * is declining Marketing Consent, which the API records as a Consent Record with
  * the circumstances of the act. It cannot observe them itself — no browser
  * reaches it directly (ADR 0008) — so a relay that dropped them would leave the
- * record with an empty prueba técnica. They evidence the act; what makes the
+ * record with an empty technical proof. They evidence the act; what makes the
  * answer credible is the signed token that only ever travelled to the
  * Customer's own inbox.
  */
@@ -61,9 +61,7 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({ token }),
       headers: {
-        ...clientIpHeaders(request.headers),
-        "User-Agent": request.headers.get("user-agent") ?? "",
-        Referer: request.headers.get("referer") ?? "",
+        ...consentEvidenceHeaders(request.headers),
       },
     });
     return NextResponse.json(
