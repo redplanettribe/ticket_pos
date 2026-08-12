@@ -1,1 +1,1 @@
-Autorizo a **[DENOMINACIÓN SOCIAL]** a enviarme correo de mercadeo — promociones, campañas y contenido de socios — incluido el resumen semanal (Follow Digest) sobre las organizaciones y etiquetas que sigo. Es opcional y puedo revocarlo en cualquier momento.
+Autorizo a **REDPLANETTRIBE** a enviarme correo de mercadeo — promociones, campañas y contenido de socios — incluido el resumen semanal (Follow Digest) sobre las organizaciones y etiquetas que sigo. Es opcional y puedo revocarlo en cualquier momento.

@@ -84,8 +84,9 @@ CREATE TABLE policy_versions (
 -- version is NULL has no defined behaviour worth writing.
 --
 -- `0-placeholder` says out loud what it is. The text it fingerprints is
--- deliberate placeholder prose carrying visible `[DENOMINACIÓN SOCIAL]`,
--- `[RUC]` and `[correo PDP]` markers, and it is not legal advice and has not
+-- deliberate placeholder prose carrying visible `[RUC]` and `[correo PDP]`
+-- markers — the controller is named, the rest is not — and it is not legal
+-- advice and has not
 -- been reviewed by counsel. The real legal text is a content drop before
 -- go-live; publishing it means adding a SECOND row here — label `1`, its own
 -- effective date, the fingerprint of the real artifacts — in the same commit
@@ -107,5 +108,5 @@ INSERT INTO policy_versions (label, effective_date, content_hash)
 VALUES (
     '0-placeholder',
     DATE '2026-08-01',
-    '42d9c2c79c523359033bac14abcfea0c28a808e980e496e7b2d66979d55f0a2b'
+    'afb5b3dfc8b5915987a193e682c886380bd2f733f5d79322b7ecc9139d49eba0'
 );

@@ -1,8 +1,8 @@
-> **PLACEHOLDER EDITION.** This text is not legal advice and has not been reviewed by counsel. Every bracketed placeholder below — `[DENOMINACIÓN SOCIAL]`, `[RUC]`, `[correo PDP]`, `[DIRECCIÓN]` — is filled in by the real legal drop before go-live, and only then is the first real Policy Version published.
+> **PLACEHOLDER EDITION.** This text is not legal advice and has not been reviewed by counsel. Every bracketed placeholder below — `[RUC]`, `[correo PDP]`, `[DIRECCIÓN]` — is filled in by the real legal drop before go-live, and only then is the first real Policy Version published.
 
 ## Who processes your data
 
-The controller of the personal data described here is **[DENOMINACIÓN SOCIAL]**, RUC **[RUC]**, with its registered address at **[DIRECCIÓN]**, which operates this ticketing platform (the "platform").
+The controller of the personal data described here is **REDPLANETTRIBE**, RUC **[RUC]**, with its registered address at **[DIRECCIÓN]**, which operates this ticketing platform (the "platform").
 
 Questions about this policy, and every request to exercise the rights listed below, go to the data protection contact at **[correo PDP]**.
 

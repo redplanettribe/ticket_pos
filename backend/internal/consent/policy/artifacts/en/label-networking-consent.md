@@ -1,1 +1,1 @@
-I authorize **[DENOMINACIÓN SOCIAL]** to show my profile data, through its complementary networking application, to other attendees of the same event and to that event's organizers. Optional, and I can withdraw it at any time.
+I authorize **REDPLANETTRIBE** to show my profile data, through its complementary networking application, to other attendees of the same event and to that event's organizers. Optional, and I can withdraw it at any time.
