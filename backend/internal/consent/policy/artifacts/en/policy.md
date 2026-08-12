@@ -1,10 +1,10 @@
-> **PLACEHOLDER EDITION.** This text is not legal advice and has not been reviewed by counsel. Every bracketed placeholder below — `[correo PDP]`, `[DIRECCIÓN]` — is filled in by the real legal drop before go-live, and only then is the first real Policy Version published.
+> **PLACEHOLDER EDITION.** This text is not legal advice and has not been reviewed by counsel. Every bracketed placeholder still left below is filled in by the real legal drop before go-live, and only then is the first real Policy Version published.
 
 ## Who processes your data
 
 The controller of the personal data described here is **REDPLANETTRIBE**, RUC **1793228468001**, with its registered address at **[DIRECCIÓN]**, which operates this ticketing platform (the "platform").
 
-Questions about this policy, and every request to exercise the rights listed below, go to the data protection contact at **[correo PDP]**.
+Questions about this policy, and every request to exercise the rights listed below, go to the data protection contact at **info@redplanettribe.org**.
 
 ## What data we process
 
@@ -55,7 +55,7 @@ You may ask us, at any time and free of charge, to:
 - stop or limit a particular use of it;
 - **withdraw either optional consent**, which we will honour without asking you why and without any effect on your purchases.
 
-Write to **[correo PDP]** and we will answer within **[PLAZO DE RESPUESTA]**. Marketing email additionally carries a one-click unsubscribe link in every message, and you can turn the digest off yourself from your account at any time. If you believe we have handled your data badly, you may complain to **[AUTORIDAD DE PROTECCIÓN DE DATOS]**.
+Write to **info@redplanettribe.org** and we will answer within **[PLAZO DE RESPUESTA]**. Marketing email additionally carries a one-click unsubscribe link in every message, and you can turn the digest off yourself from your account at any time. If you believe we have handled your data badly, you may complain to **[AUTORIDAD DE PROTECCIÓN DE DATOS]**.
 
 ## Children
 

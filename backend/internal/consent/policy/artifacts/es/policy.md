@@ -1,10 +1,10 @@
-> **EDICIÓN PROVISIONAL.** Este texto no es asesoría legal y no ha sido revisado por un abogado. Cada marcador entre corchetes — `[correo PDP]`, `[DIRECCIÓN]` — se completa con el texto legal definitivo antes de la salida a producción, y solo entonces se publica la primera Versión de la Política real.
+> **EDICIÓN PROVISIONAL.** Este texto no es asesoría legal y no ha sido revisado por un abogado. Cada marcador entre corchetes que quede abajo se completa con el texto legal definitivo antes de la salida a producción, y solo entonces se publica la primera Versión de la Política real.
 
 ## Quién trata sus datos
 
 El responsable del tratamiento de los datos personales descritos aquí es **REDPLANETTRIBE**, RUC **1793228468001**, con domicilio en **[DIRECCIÓN]**, que opera esta plataforma de venta de entradas (la "plataforma").
 
-Las consultas sobre esta política, y toda solicitud para ejercer los derechos enumerados más abajo, se dirigen al contacto de protección de datos en **[correo PDP]**.
+Las consultas sobre esta política, y toda solicitud para ejercer los derechos enumerados más abajo, se dirigen al contacto de protección de datos en **info@redplanettribe.org**.
 
 ## Qué datos tratamos
 
@@ -55,7 +55,7 @@ Puede pedirnos, en cualquier momento y de forma gratuita, que:
 - detengamos o limitemos un uso concreto de ellos;
 - **revoquemos cualquiera de los consentimientos opcionales**, lo que haremos sin preguntarle por qué y sin efecto alguno sobre sus compras.
 
-Escriba a **[correo PDP]** y le responderemos en **[PLAZO DE RESPUESTA]**. Además, todo correo de mercadeo lleva un enlace de baja de un solo clic, y usted puede desactivar el resumen semanal desde su cuenta cuando quiera. Si considera que hemos tratado mal sus datos, puede reclamar ante **[AUTORIDAD DE PROTECCIÓN DE DATOS]**.
+Escriba a **info@redplanettribe.org** y le responderemos en **[PLAZO DE RESPUESTA]**. Además, todo correo de mercadeo lleva un enlace de baja de un solo clic, y usted puede desactivar el resumen semanal desde su cuenta cuando quiera. Si considera que hemos tratado mal sus datos, puede reclamar ante **[AUTORIDAD DE PROTECCIÓN DE DATOS]**.
 
 ## Menores de edad
 

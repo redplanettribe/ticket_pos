@@ -163,7 +163,7 @@ func TestPrivacyPolicyStillShowsItsPlaceholders(t *testing.T) {
 
 	for _, locale := range []string{"en", "es"} {
 		_, _, payload := getPrivacyPolicy(t, env, locale)
-		for _, marker := range []string{"[correo PDP]", "[DIRECCIÓN]"} {
+		for _, marker := range []string{"[DIRECCIÓN]", "[AUTORIDAD DE PROTECCIÓN DE DATOS]"} {
 			if !strings.Contains(payload.BodyMarkdown, marker) {
 				t.Errorf("locale %s: the %s placeholder is gone from the published body", locale, marker)
 			}
