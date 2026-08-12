@@ -187,6 +187,21 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// silence everybody it protects. Registering the method alone is what makes
 	// the router answer a bare GET of this path with 405 rather than with an act.
 	mux.HandleFunc("POST /api/v1/customer/unsubscribe", h.Unsubscribe)
+	// Confirming a Pending Confirmation from the link in a Sale Confirmation
+	// (#255, ADR 0035) — the unsubscribe route's mirror image, and the second
+	// unauthenticated write in this namespace. A guest checkout creates a
+	// Customer nobody has ever signed in as, so the owner of an address somebody
+	// else typed may have no account to sign in to; the signed token is the whole
+	// authority, and pressing a link that only ever travelled to that inbox is
+	// itself the proof of ownership the guest's tick lacked.
+	//
+	// POST AND ONLY POST, and here the scanner argument is sharper than it is
+	// above. A prefetch of an unsubscribe GET would silence somebody's mail; a
+	// prefetch of a confirmation GET would GRANT a marketing opt-in nobody ever
+	// confirmed, and leave an evidence row saying an inbox confirmed itself when
+	// what confirmed it was a robot. Registering the method alone is what makes
+	// the router answer a bare GET with 405 rather than with an act.
+	mux.HandleFunc("POST /api/v1/customer/consent/confirm", h.ConfirmConsent)
 
 	// signedIn gates a route on a valid Customer Session and extends its sliding
 	// window. Everything behind it is scoped to the Customer on that session.

@@ -118,6 +118,25 @@ type CustomerService interface {
 	// when it has no schedule; how long the link then lives is the customers
 	// module's decision, not this one's.
 	ConfirmationLinkURL(ticketSaleID string, eventEnd time.Time) (string, error)
+	// ConsentConfirmationLinkURL mints the link that resolves whatever optional
+	// consents this Customer has sitting in Pending Confirmation, and returns ""
+	// when they have none (#255, ADR 0035).
+	//
+	// THE EMPTY ANSWER IS THE INTERESTING ONE, because it is what keeps every
+	// other receipt exactly as it was. This module asks the question for every
+	// Online Sale it confirms and gets "" for the great majority — the signed-in
+	// buyer, the guest who ticked nothing — and renders no line. Whether anything
+	// pends, and what a link may therefore be minted for, is decided entirely on
+	// the far side: sales knows that a receipt may carry a link, and nothing at
+	// all about Pending Confirmation.
+	//
+	// It takes a CUSTOMER and not a sale, unlike the Confirmation Link above,
+	// which is the honest shape of the thing. A Pending Confirmation is a fact
+	// about an address rather than about a purchase — the same one may have been
+	// left by an earlier checkout — so a per-sale answer would be a fiction, and a
+	// receipt offering to confirm one pending while an identical one stood beside
+	// it would resolve half of somebody's inbox.
+	ConsentConfirmationLinkURL(ctx context.Context, customerID string) (string, error)
 }
 
 // ConsentCapturer is what sales needs from consent: the one write path every

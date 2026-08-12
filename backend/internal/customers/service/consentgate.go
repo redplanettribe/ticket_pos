@@ -29,17 +29,32 @@ const pendingConsentDuration = 15 * time.Minute
 // owns Customer Sessions, or the two point at each other and the gate ends up
 // being defined by the thing it gates.
 //
-// The interface is deliberately these two methods and no more. It cannot read
-// the Consent Record log, cannot write state without evidence — Capture does
-// both or neither — and cannot name a Policy Version, because which edition
-// somebody accepted is the consent module's finding and not this one's
-// assertion.
+// The interface stays as narrow as the acts on this side need. It cannot read
+// the Consent Record log, cannot write state without evidence — Capture and
+// ConfirmPending each do both or neither — and cannot name a Policy Version,
+// because which edition somebody accepted is the consent module's finding and
+// not this one's assertion.
+//
+// The second pair arrived with the confirmation link (#255). That link is this
+// module's because it holds the signing key and the Customer is its subject,
+// while what a press MEANS stays on the far side. Note what is deliberately NOT
+// here: no way to ask for a state to be SET. The caller says "this link was
+// pressed, here is the scope it was minted for" and learns what that did; it
+// cannot ask for `granted`, which is what stops the staleness rule from being
+// restated over here.
 type ConsentGate interface {
 	// Outstanding reports which boxes this Customer must still be shown.
 	Outstanding(ctx context.Context, customerID string) (consent.Outstanding, error)
 	// Capture records one act — the immutable Consent Record, the state it makes
 	// true, and the Follow Digest flag in lockstep — in one transaction.
 	Capture(ctx context.Context, capture consent.Capture) (consent.Receipt, error)
+	// PendingConfirmations reports which optional consents sit in Pending
+	// Confirmation, which is what decides whether a Sale Confirmation carries a
+	// confirmation line at all.
+	PendingConfirmations(ctx context.Context, customerID string) (consent.Pending, error)
+	// ConfirmPending resolves whatever of a pressed link's scope is still
+	// pending, and reports what that press actually did.
+	ConfirmPending(ctx context.Context, confirmation consent.Confirmation) (consent.ConfirmationResult, error)
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces, and it

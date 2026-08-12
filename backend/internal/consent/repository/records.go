@@ -99,20 +99,42 @@ type CustomerConsentState struct {
 // before it captures — so the service maps it to a plain failure.
 var ErrCustomerNotFound = errors.New("customer not found")
 
+// consentStateQuery reads the four current-state columns off one Customer row.
+// One string, read two ways below, so the locking read and the ordinary one
+// cannot answer differently.
+const consentStateQuery = `
+	SELECT policy_accepted_at, policy_version_id, marketing_consent, networking_consent
+	FROM customers
+	WHERE id = $1
+`
+
 // ConsentState reads one Customer's current consent state.
 func (r *Repository) ConsentState(ctx context.Context, customerID string) (CustomerConsentState, error) {
-	const query = `
-		SELECT policy_accepted_at, policy_version_id, marketing_consent, networking_consent
-		FROM customers
-		WHERE id = $1
-	`
+	return scanConsentState(r.db.Pool.QueryRowContext(ctx, consentStateQuery, customerID))
+}
 
+// ConsentStateForUpdateTx is the same read inside a transaction the caller
+// owns, taking the Customer row's lock.
+//
+// FOR UPDATE, and only here. Every other read of this state answers a question
+// about now and is allowed to be a moment stale — which boxes to show, whether
+// to gate a sign-in. This one is a read the CALLER THEN DECIDES FROM: the
+// confirmation link computes what a press may flip from the state it sees and
+// then writes it (service.ConfirmPending), so an unlocked read would leave a
+// window in which the owner declines from their Customer Area between the two
+// and the press reinstates what they just refused. The lock closes it: the
+// decline waits, and the press then sees `denied` and confirms nothing.
+func (r *Repository) ConsentStateForUpdateTx(ctx context.Context, tx *sql.Tx, customerID string) (CustomerConsentState, error) {
+	return scanConsentState(tx.QueryRowContext(ctx, consentStateQuery+" FOR UPDATE", customerID))
+}
+
+func scanConsentState(row *sql.Row) (CustomerConsentState, error) {
 	var (
 		state      CustomerConsentState
 		marketing  sql.NullString
 		networking sql.NullString
 	)
-	err := r.db.Pool.QueryRowContext(ctx, query, customerID).Scan(
+	err := row.Scan(
 		&state.PolicyAcceptedAt,
 		&state.PolicyVersionID,
 		&marketing,
@@ -127,6 +149,100 @@ func (r *Repository) ConsentState(ctx context.Context, customerID string) (Custo
 	state.MarketingConsent = consent.State(marketing.String)
 	state.NetworkingConsent = consent.State(networking.String)
 	return state, nil
+}
+
+// Begin opens a transaction for a consent act the module itself composes from
+// more than one write.
+//
+// It exists for ConfirmPending (#255), which reads the state under a lock,
+// captures, and stamps `confirmed_at` — three statements of one act. AppendTx's
+// own caller (the checkout) brings a transaction from outside; this one has
+// nobody to bring it, and a service that reached for the pool itself would be a
+// second place that knows what the pool is.
+func (r *Repository) Begin(ctx context.Context) (*sql.Tx, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin consent transaction: %w", err)
+	}
+	return tx, nil
+}
+
+// ConfirmedBox names which of the two optional answers a `confirmed_at` stamp
+// is about. A closed vocabulary of two, so that the column name below is a
+// literal in this file and never a string a caller composed.
+type ConfirmedBox string
+
+const (
+	// BoxMarketing is `consent_records.marketing_consent`.
+	BoxMarketing ConfirmedBox = "marketing"
+	// BoxNetworking is `consent_records.networking_consent`.
+	BoxNetworking ConfirmedBox = "networking"
+)
+
+// StampConfirmedTx records that the Pending Confirmation one earlier act
+// created has now been confirmed from the address itself.
+//
+// THIS IS THE ONLY WRITE IN THIS PACKAGE THAT TOUCHES AN EXISTING
+// consent_records ROW, and it is the single one-way exception migration 061
+// reserved: null to a timestamp, once, on one column. It does not alter what
+// the row says happened — the tick, the channel, the circumstances and the
+// answers are exactly as they were — it records that the act the row describes
+// was later corroborated. Nothing else may ever be updated here, which is why
+// this is a narrow method naming one column rather than a general update.
+//
+// IT STAMPS THE MOST RECENT UNCONFIRMED TICK AND NOT ALL OF THEM. A person
+// whose address three separate guests typed has three rows, each a tick nobody
+// proved; only the last of them is the Pending Confirmation actually standing
+// when the link is pressed, because each later tick was written over the state
+// the earlier one left. Stamping the older ones would claim they were
+// corroborated when what was corroborated was the state their successor
+// produced.
+//
+// A press that finds nothing to stamp — a pending written before this column
+// had a writer, or a state set by a route that leaves no ticked row — is not an
+// error. The state flip and its fresh Consent Record are the act; this is
+// annotation on the older evidence, and evidence that cannot be found is not a
+// reason to refuse somebody's confirmation.
+func (r *Repository) StampConfirmedTx(ctx context.Context, tx *sql.Tx, customerID string, box ConfirmedBox, at time.Time) error {
+	const marketingStamp = `
+		UPDATE consent_records SET confirmed_at = $2
+		WHERE id = (
+			SELECT id FROM consent_records
+			WHERE customer_id = $1
+			  AND marketing_consent IS TRUE
+			  AND email_proven = FALSE
+			  AND confirmed_at IS NULL
+			ORDER BY captured_at DESC, id DESC
+			LIMIT 1
+		)
+	`
+	const networkingStamp = `
+		UPDATE consent_records SET confirmed_at = $2
+		WHERE id = (
+			SELECT id FROM consent_records
+			WHERE customer_id = $1
+			  AND networking_consent IS TRUE
+			  AND email_proven = FALSE
+			  AND confirmed_at IS NULL
+			ORDER BY captured_at DESC, id DESC
+			LIMIT 1
+		)
+	`
+
+	var query string
+	switch box {
+	case BoxMarketing:
+		query = marketingStamp
+	case BoxNetworking:
+		query = networkingStamp
+	default:
+		return fmt.Errorf("stamp confirmed: unknown box %q", box)
+	}
+
+	if _, err := tx.ExecContext(ctx, query, customerID, at); err != nil {
+		return fmt.Errorf("stamp confirmed %s: %w", box, err)
+	}
+	return nil
 }
 
 // Append writes the Consent Record and applies the state it makes true, in ONE

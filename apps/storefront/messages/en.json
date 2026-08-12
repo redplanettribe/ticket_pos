@@ -93,6 +93,22 @@
     "missingTokenTitle": "This link is incomplete",
     "missingTokenDescription": "Open the link from your email again, or turn the digest off from your account."
   },
+  "confirmConsent": {
+    "metaTitle": "Confirm your preferences · {brand}",
+    "title": "Confirm your preferences",
+    "description": "You, or someone using your address, ticked one or more optional boxes at checkout. Nothing happens until it's confirmed here, from the inbox the message arrived in.",
+    "confirm": "Confirm",
+    "doneTitle": "Confirmed",
+    "doneDescription": "Your choices are saved. You can change them from your account whenever you like, and every marketing email carries an unsubscribe link.",
+    "nothingTitle": "There was nothing left to confirm",
+    "nothingDescription": "This is already settled — either it was confirmed before, or you've since answered from your account. Nothing changed just now, and the preferences you have are the ones that stand.",
+    "manageLink": "Manage your preferences",
+    "failedTitle": "We couldn't confirm it",
+    "failed": "That didn't work. Try again.",
+    "networkFailed": "That didn't work. Check your connection and try again.",
+    "missingTokenTitle": "This link is incomplete",
+    "missingTokenDescription": "Open the link from your email again, or set your preferences from your account."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Get tickets for {event}.",
@@ -342,7 +358,8 @@
       "REVERSAL_WINDOW_CLOSED": "The time to undo this purchase has passed. Contact the organizer for help.",
       "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
       "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference.",
-      "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead."
+      "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead.",
+      "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead."
     },
     "field": {
       "REQUIRED": "is required",

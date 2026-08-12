@@ -126,6 +126,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.consentConfirmationBody": {
+                "properties": {
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.consentSubmitBody": {
                 "properties": {
                     "follow": {
@@ -833,6 +841,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/storage.CoverUploadResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerConsentConfirmation": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ConsentConfirmationView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1700,6 +1722,26 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "policy_acceptance": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ConsentConfirmationView": {
+                "properties": {
+                    "already_resolved": {
+                        "description": "AlreadyResolved is true when there was nothing left for this link to\nconfirm — a second press, or an answer the owner has since given\nthemselves. Not an error, and deliberately not distinguished further: the\npage has nothing useful to say about WHICH of those it was, and the person\ncan see their own answers in their Customer Area.",
+                        "type": "boolean"
+                    },
+                    "digest_enabled": {
+                        "description": "DigestEnabled is the Follow Digest as it now stands, so a person who has\njust confirmed a marketing opt-in is told what they will actually receive\n(ADR 0034 — one switch).",
+                        "type": "boolean"
+                    },
+                    "marketing_consent": {
+                        "description": "MarketingConsent and NetworkingConsent are true where this press flipped\nthat box from Pending Confirmation to granted.",
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
                         "type": "boolean"
                     }
                 },
@@ -4160,6 +4202,57 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get Customer Session",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/consent/confirm": {
+            "post": {
+                "description": "Confirms the optional consents (Marketing, Networking) that a guest checkout left in Pending Confirmation, for the Customer named by a signed, non-expiring confirmation token carried in their Sale Confirmation email. Requires no sign-in and accepts no credential: pressing a link sent to that address is itself the proof of ownership the guest's tick lacked (ADR 0035), and a guest buyer may have no account to sign in to. It flips only what the token was minted for AND is still pending, so a press cannot resurrect an answer the owner has since given themselves — a later proven answer outranks an older pending. Idempotent and never an error when there is nothing left to confirm: a second press, or a press against state the owner has already resolved, answers 200 with already_resolved. Granting Marketing Consent turns the weekly Follow Digest on in lockstep (ADR 0034), and every press that changes something writes an immutable Consent Record on the email_confirmation channel. Deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link cannot grant consent nobody gave; a GET is answered 405. A malformed, forged, or wrong-purpose token is CONSENT_CONFIRMATION_LINK_INVALID.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.consentConfirmationBody",
+                                        "summary": "body",
+                                        "description": "Signed consent confirmation token"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Signed consent confirmation token",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerConsentConfirmation"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Confirm a pending consent from a Sale Confirmation link",
                 "tags": [
                     "customer"
                 ]

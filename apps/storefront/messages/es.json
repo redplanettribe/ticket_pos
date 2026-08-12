@@ -93,6 +93,22 @@
     "missingTokenTitle": "Este enlace está incompleto",
     "missingTokenDescription": "Abra de nuevo el enlace de su correo, o desactive el resumen desde su cuenta."
   },
+  "confirmConsent": {
+    "metaTitle": "Confirme sus preferencias · {brand}",
+    "title": "Confirme sus preferencias",
+    "description": "Usted, o alguien que usó su dirección, marcó una o más casillas opcionales al finalizar la compra. No ocurre nada hasta que se confirme aquí, desde el buzón al que llegó el mensaje.",
+    "confirm": "Confirmar",
+    "doneTitle": "Confirmado",
+    "doneDescription": "Sus elecciones quedaron guardadas. Puede cambiarlas desde su cuenta cuando quiera, y todo correo de marketing lleva un enlace para cancelar la suscripción.",
+    "nothingTitle": "No quedaba nada por confirmar",
+    "nothingDescription": "Esto ya estaba resuelto: o se confirmó antes, o usted ya respondió desde su cuenta. Ahora no cambió nada, y las preferencias que tiene son las que valen.",
+    "manageLink": "Gestionar sus preferencias",
+    "failedTitle": "No pudimos confirmarlo",
+    "failed": "No funcionó. Inténtelo de nuevo.",
+    "networkFailed": "No funcionó. Revise su conexión e inténtelo de nuevo.",
+    "missingTokenTitle": "Este enlace está incompleto",
+    "missingTokenDescription": "Abra de nuevo el enlace de su correo, o configure sus preferencias desde su cuenta."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Obtenga entradas para {event}.",
@@ -342,7 +358,8 @@
       "REVERSAL_WINDOW_CLOSED": "El plazo para deshacer esta compra ya terminó. Contacte al organizador para que lo ayude.",
       "SALE_REVERSAL_FAILED": "No pudimos deshacer esta compra. No cambió nada; contacte al organizador con su referencia de confirmación.",
       "REVERSAL_UNRESOLVED": "Estamos revisando con el proveedor de pagos qué pasó con este reembolso. Aquí no cambió nada; contacte al organizador con su referencia de confirmación.",
-      "UNSUBSCRIBE_LINK_INVALID": "Este enlace para cancelar no es válido. Puede desactivar el resumen semanal desde su cuenta."
+      "UNSUBSCRIBE_LINK_INVALID": "Este enlace para cancelar no es válido. Puede desactivar el resumen semanal desde su cuenta.",
+      "CONSENT_CONFIRMATION_LINK_INVALID": "Este enlace de confirmación no es válido. Puede configurar sus preferencias desde su cuenta."
     },
     "field": {
       "REQUIRED": "Campo obligatorio",

@@ -677,9 +677,52 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		AmountCents:      sale.AmountCents,
 		Currency:         event.Currency,
 		ConfirmationLink: s.confirmationLink(sale.ID, event.End()),
-		TaxID:            sale.CustomerTaxID,
-		Locale:           s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
+		// Read from STATE, here, after the commit — which is the only place it
+		// could be read. #253's capture discards its receipt deliberately (the
+		// sales module states what happened and has no use for what it made true),
+		// and the transaction that wrote the pending has to have committed before
+		// anything outside it can observe one anyway.
+		ConsentConfirmationLink: s.consentConfirmationLink(ctx, sale.CustomerID),
+		TaxID:                   sale.CustomerTaxID,
+		Locale:                  s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
 	})
+}
+
+// consentConfirmationLink is the link the receipt carries when this buyer's
+// address has an optional consent waiting to be confirmed, and "" when it does
+// not — which is the great majority of receipts, and every receipt this platform
+// sent before #255.
+//
+// IT IS ASKED ONLY BY THE ONLINE CHECKOUT, which is the only channel that
+// captures consent at all. A box office sale and a Sale Import attest nothing on
+// anybody's behalf (#249), so their receipts do not carry an offer to confirm
+// something their buyer was never asked — even where that person happens to have
+// a pending from some other checkout. Being prompted is the Storefront's job,
+// and it happens at their next capture moment or on the receipt of the sale that
+// actually asked.
+//
+// It degrades to "" on failure rather than propagating, exactly as
+// confirmationLink does and for the same reason: the Ticket Sale is committed by
+// the time this runs, and a receipt without a consent line is worth immeasurably
+// more to the buyer than no receipt. The consequence is bounded — the Pending
+// Confirmation stays pending, which sends nothing and is the safe direction —
+// and it is re-offered at the owner's next capture moment (ADR 0035).
+//
+// A failure IS logged, unlike a Confirmation Link that could not be signed,
+// because this one reads the database: an unsigned link means a misconfigured
+// deployment that fails loudly elsewhere, while a persistent failure here would
+// be a feature that had quietly stopped working.
+func (s *Service) consentConfirmationLink(ctx context.Context, customerID string) string {
+	if customerID == "" {
+		return ""
+	}
+	link, err := s.customers.ConsentConfirmationLinkURL(ctx, customerID)
+	if err != nil {
+		s.logger.Warn("could not mint the consent confirmation link for a Sale Confirmation; the receipt goes out without it and the consent stays pending",
+			"customer_id", customerID, "error", err)
+		return ""
+	}
+	return link
 }
 
 // ConfirmCheckoutResult is the settled outcome of a Payment: approved with the
