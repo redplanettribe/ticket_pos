@@ -311,6 +311,26 @@ var (
 		"View your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
 		"Vea sus entradas:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
 	)
+	// The double opt-in's one line (#255, ADR 0035), carried only by receipts
+	// whose checkout left an optional consent in Pending Confirmation.
+	//
+	// IT NAMES NO PARTICULAR BOX, and that is a decision. Anyone at all can type
+	// anyone's address into a checkout, so this line is read by two different
+	// people: the buyer, who remembers ticking something, and — when a stranger
+	// typed their address — somebody who ticked nothing and is owed an
+	// explanation rather than a bill of particulars. "You or someone using your
+	// address" covers both without accusing the second of a choice they did not
+	// make, and without the platform having to tell an uninvolved reader which
+	// marketing lists somebody tried to sign them up for.
+	//
+	// It says explicitly that ignoring it is safe and complete, because it is:
+	// unconfirmed is the same as No for every purpose except the record, nothing
+	// expires and nothing chases. That sentence is what makes the whole non-
+	// expiring design honest to the person reading it.
+	saleConfirmationConsentCopy = translated(
+		"Confirm your optional preferences:\n%s\n\nYou, or someone using your address, ticked one or more optional boxes at checkout. We act on none of them until they are confirmed from this inbox. If that was not you, ignore this — nothing will be sent, and nothing else will be asked.",
+		"Confirme sus preferencias opcionales:\n%s\n\nUsted, o alguien que usó su dirección, marcó una o más casillas opcionales al finalizar la compra. No actuamos sobre ninguna hasta que se confirme desde este buzón. Si no fue usted, ignore este mensaje: no se enviará nada ni se le volverá a preguntar.",
+	)
 )
 
 // Subject is the Sale Confirmation's subject line, in the language the sale was
@@ -322,9 +342,9 @@ func (c SaleConfirmation) Subject() string {
 // Text is the Sale Confirmation's plain-text body: what the Customer keeps as
 // their receipt.
 //
-// Two parts are conditional, and both are absent rather than blank when they do
-// not apply — an empty label on a receipt reads as a fault in the platform, and
-// there is nothing a Customer could do about it either way.
+// Three parts are conditional, and all are absent rather than blank when they
+// do not apply — an empty label on a receipt reads as a fault in the platform,
+// and there is nothing a Customer could do about it either way.
 func (c SaleConfirmation) Text() string {
 	// The total is the amount the Customer was charged, all in: the platform's
 	// fee is never itemized on a receipt (ADR 0014).
@@ -344,6 +364,14 @@ func (c SaleConfirmation) Text() string {
 	// this purchase months later, at the gate, with one tap and no typing.
 	if c.ConfirmationLink != "" {
 		text += "\n\n" + fmt.Sprintf(saleConfirmationLinkCopy.in(c.Locale), c.ConfirmationLink)
+	}
+
+	// Last, and only when something actually pends. It goes below the tickets
+	// because that is the order of the reader's interest: they opened this for
+	// the reference and the link, and a consent question above either would be
+	// the platform's business interrupting theirs.
+	if c.ConsentConfirmationLink != "" {
+		text += "\n\n" + fmt.Sprintf(saleConfirmationConsentCopy.in(c.Locale), c.ConsentConfirmationLink)
 	}
 	return text
 }

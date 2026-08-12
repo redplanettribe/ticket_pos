@@ -194,3 +194,80 @@ type Outstanding struct {
 func (o Outstanding) Any() bool {
 	return o.PolicyAcceptance || o.MarketingConsent || o.NetworkingConsent
 }
+
+// Pending is which optional consents currently sit in Pending Confirmation:
+// ticked by somebody who had not proven the address, denied for sending,
+// unanswered for prompting, and never expiring (ADR 0035).
+//
+// It is a different question from Outstanding and deliberately a different
+// type, although one implies the other. Outstanding asks "must this person be
+// SHOWN this box?", which a Pending Confirmation and a never-answered NULL both
+// answer yes to. This asks "is there somebody else's tick here WAITING to be
+// resolved?", which only a Pending Confirmation answers yes to — and it is the
+// question the Sale Confirmation's confirmation line is decided by (#255).
+// Folding the two together would put that line into receipts for people who had
+// simply never been asked, offering to confirm an opt-in nobody ever made.
+//
+// Policy Acceptance is absent, and that is the model rather than an omission: a
+// guest's acceptance is recorded unconditionally because it is a fact about the
+// sale rather than a claim on an inbox (ADR 0035), so it never pends.
+type Pending struct {
+	MarketingConsent  bool
+	NetworkingConsent bool
+}
+
+// Any reports whether anything is waiting to be confirmed at all.
+func (p Pending) Any() bool {
+	return p.MarketingConsent || p.NetworkingConsent
+}
+
+// Intersect narrows this set to the boxes another set also names. It is how a
+// confirmation link's SCOPE — what pended when the mail was written — meets the
+// state as it stands when somebody finally presses it, months later.
+func (p Pending) Intersect(other Pending) Pending {
+	return Pending{
+		MarketingConsent:  p.MarketingConsent && other.MarketingConsent,
+		NetworkingConsent: p.NetworkingConsent && other.NetworkingConsent,
+	}
+}
+
+// Confirmation is one press of the confirmation link in a Sale Confirmation:
+// the double opt-in's resolving half (#255, ADR 0035).
+//
+// It is deliberately not a Capture, and a caller must not build one into a
+// Capture itself: the answers a press produces are not the presser's to state.
+// What a press means is "whatever of my scope is still pending, I confirm", and
+// only the consent module can see what that is at the moment of the write. A
+// surface that composed the Answers from what the mail once offered would
+// resurrect an answer the owner has since changed.
+type Confirmation struct {
+	// CustomerID is who the signed token named.
+	CustomerID string
+	// Email is the address the confirmation was sent to — the Customer's own
+	// stored one, since that is the only address a link this platform mailed
+	// could have reached.
+	Email string
+	// Scope is what pended at the moment the link was minted, carried inside the
+	// signed payload. A press confirms nothing outside it: the mail said what it
+	// was offering to confirm, and a Pending Confirmation created afterwards by
+	// some other checkout was never on the page the person read.
+	Scope Pending
+	// Evidence is the prueba técnica of the press.
+	Evidence Evidence
+}
+
+// ConfirmationResult is what a press actually did.
+//
+// Confirmed is the set of boxes THIS press flipped, and it is empty on a second
+// press or on a link whose pendings the owner has since resolved themselves.
+// That is not an error (see service.ConfirmPending); it is the difference the
+// confirmation page tells the person, because "confirmed" and "there was
+// nothing left to confirm" are both true outcomes and only one of them is news.
+type ConfirmationResult struct {
+	Confirmed Pending
+	// MarketingConsent and NetworkingConsent are the states as they stand AFTER
+	// the press, including where the press changed nothing — so the page reports
+	// what is true rather than what was asked for.
+	MarketingConsent  State
+	NetworkingConsent State
+}

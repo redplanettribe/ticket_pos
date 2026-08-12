@@ -133,6 +133,21 @@ type EnvelopeCustomerDigestSubscription struct {
 	RequestID string                         `json:"request_id"`
 }
 
+// EnvelopeCustomerConsentConfirmation documents POST
+// /api/v1/customer/consent/confirm success responses (#255): what one press of
+// the confirmation link in a Sale Confirmation actually did.
+//
+// It is its own shape rather than the digest subscription's, although a
+// confirmed Marketing Consent moves that same switch, because the question is
+// different: this reports WHICH pending opt-ins this press resolved, and
+// `already_resolved` when it resolved none — a second press, or an answer the
+// owner has since given themselves. Both are successes.
+type EnvelopeCustomerConsentConfirmation struct {
+	Data      service.ConsentConfirmationView `json:"data"`
+	Error     *platform.APIError              `json:"error"`
+	RequestID string                          `json:"request_id"`
+}
+
 // EnvelopeCustomerFollow documents POST
 // /api/v1/customer/follows/organizations/{slug} success responses: the one
 // Follow, in exactly the shape it takes inside the list above.

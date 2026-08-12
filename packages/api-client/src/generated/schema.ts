@@ -719,6 +719,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/consent/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a pending consent from a Sale Confirmation link
+         * @description Confirms the optional consents (Marketing, Networking) that a guest checkout left in Pending Confirmation, for the Customer named by a signed, non-expiring confirmation token carried in their Sale Confirmation email. Requires no sign-in and accepts no credential: pressing a link sent to that address is itself the proof of ownership the guest's tick lacked (ADR 0035), and a guest buyer may have no account to sign in to. It flips only what the token was minted for AND is still pending, so a press cannot resurrect an answer the owner has since given themselves — a later proven answer outranks an older pending. Idempotent and never an error when there is nothing left to confirm: a second press, or a press against state the owner has already resolved, answers 200 with already_resolved. Granting Marketing Consent turns the weekly Follow Digest on in lockstep (ADR 0034), and every press that changes something writes an immutable Consent Record on the email_confirmation channel. Deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link cannot grant consent nobody gave; a GET is answered 405. A malformed, forged, or wrong-purpose token is CONSENT_CONFIRMATION_LINK_INVALID.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Signed consent confirmation token */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.consentConfirmationBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerConsentConfirmation"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/digest": {
         parameters: {
             query?: never;
@@ -6582,6 +6635,9 @@ export interface components {
             follow?: string;
             token?: string;
         };
+        "handler.consentConfirmationBody": {
+            token?: string;
+        };
         "handler.consentSubmitBody": {
             /**
              * @description Follow is the Follow intent, relayed here for the same reason it is
@@ -6937,6 +6993,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerConsentConfirmation": {
+            data?: components["schemas"]["service.ConsentConfirmationView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeCustomerDigestSubscription": {
             data?: components["schemas"]["service.DigestSubscriptionView"];
             error?: components["schemas"]["platform.APIError"];
@@ -7284,6 +7345,28 @@ export interface components {
             marketing_consent?: boolean;
             networking_consent?: boolean;
             policy_acceptance?: boolean;
+        };
+        "service.ConsentConfirmationView": {
+            /**
+             * @description AlreadyResolved is true when there was nothing left for this link to
+             *     confirm — a second press, or an answer the owner has since given
+             *     themselves. Not an error, and deliberately not distinguished further: the
+             *     page has nothing useful to say about WHICH of those it was, and the person
+             *     can see their own answers in their Customer Area.
+             */
+            already_resolved?: boolean;
+            /**
+             * @description DigestEnabled is the Follow Digest as it now stands, so a person who has
+             *     just confirmed a marketing opt-in is told what they will actually receive
+             *     (ADR 0034 — one switch).
+             */
+            digest_enabled?: boolean;
+            /**
+             * @description MarketingConsent and NetworkingConsent are true where this press flipped
+             *     that box from Pending Confirmation to granted.
+             */
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
         };
         /**
          * @description ConsentRequired carries the short-lived, single-use pending-consent token

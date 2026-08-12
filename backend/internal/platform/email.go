@@ -44,6 +44,21 @@ type SaleConfirmation struct {
 	// be signed, in which case the receipt still goes out — a missing link is
 	// worth less than no email at all.
 	ConfirmationLink string
+	// ConsentConfirmationLink resolves the Pending Confirmations this buyer's
+	// address is carrying: the double opt-in's one-click half (#255, ADR 0035).
+	//
+	// EMPTY IS THE COMMON CASE AND CHANGES NOTHING. A receipt for a signed-in
+	// buyer, for a guest who ticked nothing, for a box office sale or an import
+	// carries no such line at all, because there is nothing to confirm. The
+	// caller decides — the consent module holds the only view of what is pending
+	// — and passes "" when the answer is "nothing", exactly as it does for a
+	// Confirmation Link it could not sign.
+	//
+	// It is a SECOND link in one email, which is a real cost and an accepted one:
+	// the alternative is a marketing opt-in that either sends on a stranger's
+	// word or never resolves at all. It sits below the Confirmation Link, because
+	// the receipt's job is the tickets and this is an aside.
+	ConsentConfirmationLink string
 	// TaxID is the Tax ID this Ticket Sale was transacted under, printed on the
 	// receipt so the buyer can file it against their own expense records
 	// (ADR 0016). It is the sale's immutable snapshot, never the Customer's
