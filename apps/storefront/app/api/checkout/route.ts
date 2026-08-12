@@ -6,6 +6,7 @@ import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
 import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import { customerSessionToken } from "@/lib/customer-session";
 import { isAppLocale, type AppLocale } from "@/lib/locale";
 
@@ -42,9 +43,26 @@ type CheckoutRequestBody = {
   customer_tax_id_type?: unknown;
   customer_tax_id_number?: unknown;
   customer_phone?: unknown;
+  policy_acceptance?: unknown;
+  marketing_consent?: unknown;
+  networking_consent?: unknown;
   lines?: unknown;
   locale?: unknown;
 };
+
+/**
+ * One consent box, relayed only when the dialog actually drew it.
+ *
+ * `undefined` and `false` mean different things all the way down to the column
+ * (migration 064): absent is "this box was not shown", false is a person who was
+ * shown it and left it unticked, which is an explicit No. So anything that is
+ * not a boolean is dropped rather than coerced — this hop is shape-only, and a
+ * `null` from a client turning into a refusal would be this app answering on the
+ * buyer's behalf.
+ */
+function consentAnswer(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
 
 function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -172,6 +190,28 @@ export async function POST(request: Request) {
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
         customer_tax_id_number: asTrimmedString(body.customer_tax_id_number),
         ...(phone ? { customer_phone: phone } : {}),
+        // The consent boxes (#253, #254). All three are relayed on identical
+        // terms now, the required one included: present as sent — `false` and
+        // all — and ABSENT when the dialog drew no such box, which since #254 is
+        // what a Customer who has already accepted the current Policy Version
+        // sends. It used to be coerced to `false` here, on the grounds that the
+        // field was required on the wire; it is not required of everybody any
+        // more, and a `false` this hop invented would be this app answering a
+        // question nobody was asked.
+        //
+        // This hop deliberately enforces NOTHING: a second copy of a legal gate
+        // is a second place for it to be wrong. The API recomputes which boxes
+        // the buyer was owed and refuses with POLICY_ACCEPTANCE_REQUIRED where
+        // one was owed and not given.
+        ...(consentAnswer(body.policy_acceptance) !== undefined
+          ? { policy_acceptance: consentAnswer(body.policy_acceptance) }
+          : {}),
+        ...(consentAnswer(body.marketing_consent) !== undefined
+          ? { marketing_consent: consentAnswer(body.marketing_consent) }
+          : {}),
+        ...(consentAnswer(body.networking_consent) !== undefined
+          ? { networking_consent: consentAnswer(body.networking_consent) }
+          : {}),
         ...(affiliateCodes.length > 0 ? { affiliate_codes: affiliateCodes } : {}),
         // Dropped rather than sent null when nothing here can say which page
         // this was: the API reads an absent language as "no page produced this
@@ -181,6 +221,17 @@ export async function POST(request: Request) {
         lines,
       },
       await customerSessionToken(),
+      // The technical proof of the consent captured on the dialog, forwarded the
+      // way the sign-in consent route forwards it and for the same reason: the
+      // API records the circumstances of a capture act and can observe none of
+      // them from behind this hop. The IP comes from the forwarding chain and
+      // never from a copy the browser could set; the other two are the browser's
+      // own headers, verbatim. None of them proves anything — proof is a
+      // Customer Session or nothing — and all of them are what ties a Consent
+      // Record to a moment (#253).
+      {
+        ...consentEvidenceHeaders(request.headers),
+      },
     );
 
     // Remembered only once the API accepted the checkout: the slugs were just

@@ -4,7 +4,8 @@
     "organizationLogoAlt": "{organization} logo",
     "breadcrumbLabel": "Breadcrumb",
     "closeLabel": "Close",
-    "languageSwitcherLabel": "Language"
+    "languageSwitcherLabel": "Language",
+    "privacyPolicy": "Privacy Policy"
   },
   "explorer": {
     "metaTitle": "{brand} — Discover events",
@@ -92,6 +93,22 @@
     "missingTokenTitle": "This link is incomplete",
     "missingTokenDescription": "Open the link from your email again, or turn the digest off from your account."
   },
+  "confirmConsent": {
+    "metaTitle": "Confirm your preferences · {brand}",
+    "title": "Confirm your preferences",
+    "description": "You, or someone using your address, ticked one or more optional boxes at checkout. Nothing happens until it's confirmed here, from the inbox the message arrived in.",
+    "confirm": "Confirm",
+    "doneTitle": "Confirmed",
+    "doneDescription": "Your choices are saved. You can change them from your account whenever you like, and every marketing email carries an unsubscribe link.",
+    "nothingTitle": "There was nothing left to confirm",
+    "nothingDescription": "This is already settled — either it was confirmed before, or you've since answered from your account. Nothing changed just now, and the preferences you have are the ones that stand.",
+    "manageLink": "Manage your preferences",
+    "failedTitle": "We couldn't confirm it",
+    "failed": "That didn't work. Try again.",
+    "networkFailed": "That didn't work. Check your connection and try again.",
+    "missingTokenTitle": "This link is incomplete",
+    "missingTokenDescription": "Open the link from your email again, or set your preferences from your account."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Get tickets for {event}.",
@@ -143,6 +160,12 @@
     "phoneLabel": "Phone (optional)",
     "submit": "Continue to payment",
     "submitting": "Starting payment…",
+    "consent": {
+      "notice": "How we handle your data",
+      "readPolicy": "Read the full Privacy Policy",
+      "optional": "Optional",
+      "unavailable": "We can't show the privacy notice right now, so we can't take your purchase. Please try again in a moment."
+    },
     "undoUntil": "You can undo this purchase until <when>{deadline}</when> Ecuador time.",
     "undoInTickets": "Undo it in your tickets",
     "signInToUndo": "Sign in to undo",
@@ -205,7 +228,16 @@
     "sendFailed": "Could not send a passcode. Please try again.",
     "sendNetworkFailed": "Could not send a passcode. Please check your connection and try again.",
     "verifyFailed": "That passcode was not accepted.",
-    "verifyNetworkFailed": "Could not check that passcode. Please check your connection and try again."
+    "verifyNetworkFailed": "Could not check that passcode. Please check your connection and try again.",
+    "consent": {
+      "description": "Before we sign you in, please read how we handle your data and tell us what you agree to.",
+      "readPolicy": "Read the full Privacy Policy",
+      "optional": "Optional",
+      "submit": "Agree and sign in",
+      "unavailable": "We can't show the privacy notice right now, so we can't finish signing you in. Please try again in a moment."
+    },
+    "consentFailed": "We couldn't record your choices.",
+    "consentNetworkFailed": "We couldn't record your choices. Please check your connection and try again."
   },
   "customerArea": {
     "metaTitle": "Your tickets · {brand}",
@@ -293,6 +325,14 @@
     "photoRemoveFailed": "Your photo could not be removed. Try again.",
     "photoRemoveNetworkFailed": "Your photo could not be removed. Check your connection and try again."
   },
+  "privacy": {
+    "metaTitle": "Privacy Policy · {brand}",
+    "metaDescription": "How {brand} processes your personal data, what you can consent to, and how to exercise your rights.",
+    "title": "Privacy Policy",
+    "effectiveDate": "In effect since {date}",
+    "version": "Version {version}",
+    "contentHash": "Fingerprint: {hash}"
+  },
   "errors": {
     "envelope": {
       "INTERNAL_ERROR": "Something went wrong on our side. Please try again.",
@@ -318,7 +358,8 @@
       "REVERSAL_WINDOW_CLOSED": "The time to undo this purchase has passed. Contact the organizer for help.",
       "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
       "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference.",
-      "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead."
+      "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead.",
+      "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead."
     },
     "field": {
       "REQUIRED": "is required",

@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { readPasscode } from "./support/passcode";
+
 // Storefront checkout journeys through the stub Payment Provider (issue #84),
 // against the dev stack (`make dev`). These are thin cross-runtime journeys —
 // browser → Storefront BFF → Go API → Postgres and back through the stub's
@@ -53,7 +55,21 @@ async function fillCheckoutForm(page: Page, email: string) {
   // arbitrary ten digits would fail this journey at begin-checkout.
   await page.getByLabel("ID type").selectOption("cedula");
   await page.getByLabel("ID number").fill(GA_TAX_ID);
-  await page.getByRole("button", { name: "Continue to payment" }).click();
+
+  // Policy Acceptance is as required as the Tax ID (#253): the pay button is
+  // disabled until it is ticked, and the API refuses the checkout regardless of
+  // what this form does. The two optional boxes are left alone — declining them
+  // must cost the buyer nothing, and this journey proves it by completing.
+  //
+  // The label's words come from the API rather than from the message catalogs
+  // (ADR 0036), so the box is addressed by its stable id and not by its text:
+  // publishing a new Policy Version rewords every label, and a spec keyed on the
+  // wording would fail on a legal-text drop that broke nothing.
+  const pay = page.getByRole("button", { name: "Continue to payment" });
+  await expect(pay).toBeDisabled();
+  await page.locator("#consent-policy-acceptance").check();
+  await expect(pay).toBeEnabled();
+  await pay.click();
 
   // The stub Payment Provider's interstitial: a top-level page showing the
   // amount, exactly where a real provider's hosted payment page would be.
@@ -121,6 +137,80 @@ test("a declined payment lands on the failure page and retry returns to the Even
   await expect(page).toHaveURL(EVENT_PATH);
   await expect(page.getByRole("heading", { level: 1, name: EVENT_NAME })).toBeVisible();
   await expect(page.getByRole("button", { name: "Get tickets" })).toBeDisabled();
+});
+
+// Which consent boxes the dialog draws, and for whom (#254, parent #249).
+//
+// The rule is the API's and its matrix is pinned in
+// backend/integration/checkout_consent_visibility_test.go; what a browser adds
+// is the wiring between them — that the dialog asks for the set at all, and that
+// "nothing outstanding" reaches the screen as NO consent UI rather than as three
+// boxes nobody can see the point of.
+//
+// Addressed by the checkbox ids rather than by their words, as the journey above
+// is: the labels belong to the Policy Version and are reworded by a legal-text
+// drop that breaks nothing (ADR 0036).
+const CONSENT_BOX_IDS = ["#consent-policy-acceptance", "#consent-marketing", "#consent-networking"];
+
+test("a guest is shown the Short Notice and all three consent boxes", async ({ page }) => {
+  await selectOneTicketAndOpenCheckout(page);
+
+  await expect(page.getByText("How we handle your data", { exact: false })).toBeVisible();
+  for (const id of CONSENT_BOX_IDS) {
+    // Present, and unticked: consent is affirmative, so nothing arrives agreed.
+    await expect(page.locator(id)).not.toBeChecked();
+  }
+  await expect(page.getByRole("button", { name: "Continue to payment" })).toBeDisabled();
+});
+
+test("a Customer who has answered everything is asked nothing at checkout", async ({ page }) => {
+  // A fresh address, signed in through the consent step with every box answered
+  // — which is what makes this Customer "fully answered" a moment later. The
+  // required box is ticked and the optional two are deliberately left unticked:
+  // an unticked box at a capture moment is an explicit No, and a No is an ANSWER
+  // (ADR 0034). A dialog that re-asked them would be the bug this journey is
+  // about.
+  const email = `e2e-consent-checkout-${Date.now()}@example.com`;
+
+  await page.goto(`/${LOCALE}/signin?next=/tickets`);
+  await page.getByLabel("Email").fill(email);
+  await page.getByRole("button", { name: "Send passcode" }).click();
+  await expect(page.getByLabel("Passcode")).toBeVisible();
+
+  const code = readPasscode(email);
+  test.skip(
+    code === null,
+    "no passcode in the API log — this journey needs the dev stack (`make dev`)",
+  );
+
+  await page.getByLabel("Passcode").fill(code as string);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel(/I have read and accept the Privacy Policy/).check();
+  await page.getByRole("button", { name: "Agree and sign in" }).click();
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}/tickets$`));
+
+  await selectOneTicketAndOpenCheckout(page);
+  // The email prefills from the session, which is the same read the boxes come
+  // from — so seeing it filled in is also evidence the set arrived.
+  await expect(page.getByLabel("Email")).toHaveValue(email);
+
+  // No notice, no link, no boxes: the checkout is exactly what it was before
+  // this feature existed (parent #249, user story 10).
+  await expect(page.getByText("How we handle your data", { exact: false })).toHaveCount(0);
+  for (const id of CONSENT_BOX_IDS) {
+    await expect(page.locator(id)).toHaveCount(0);
+  }
+  // And the pay button is not held behind a box that is not there.
+  await expect(page.getByRole("button", { name: "Continue to payment" })).toBeEnabled();
+
+  // Typing somebody else's address turns this back into a guest checkout for a
+  // person whose consent nobody has — so every box comes back, and the required
+  // one gates the purchase again.
+  await page.getByLabel("Email").fill(`e2e-friend-${Date.now()}@example.com`);
+  for (const id of CONSENT_BOX_IDS) {
+    await expect(page.locator(id)).not.toBeChecked();
+  }
+  await expect(page.getByRole("button", { name: "Continue to payment" })).toBeDisabled();
 });
 
 test("the confirmation page without a reference sends the visitor home, not to a 404", async ({

@@ -33,6 +33,22 @@ export async function POST(request: Request) {
     );
 
     const result = envelope.data;
+
+    // The consent step (#251): the passcode was right and no session exists yet,
+    // because this Customer has not accepted the Policy Version in effect. NO
+    // COOKIE IS WRITTEN — there is no session to hold custody of, and writing
+    // one here is exactly the bug the gate exists to prevent. The token goes to
+    // the form, which shows the Short Notice and the boxes and exchanges it at
+    // /api/customer/auth/consent. A visitor who closes the tab here stays signed
+    // out, which is the correct outcome of declining.
+    if (result?.consent_required) {
+      return NextResponse.json({
+        data: { session: null, consent_required: result.consent_required },
+        error: null,
+        request_id: envelope.request_id ?? crypto.randomUUID(),
+      });
+    }
+
     if (!result?.session_id) {
       return NextResponse.json(
         {
@@ -48,7 +64,7 @@ export async function POST(request: Request) {
     store.set(CUSTOMER_SESSION_COOKIE, result.session_id, customerSessionCookieOptions());
 
     return NextResponse.json({
-      data: { session: result.session },
+      data: { session: result.session, consent_required: null },
       error: null,
       request_id: envelope.request_id ?? crypto.randomUUID(),
     });

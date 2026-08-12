@@ -1,0 +1,45 @@
+-- A Customer born after consent exists starts unsubscribed (#249, ADR 0034).
+--
+-- Migration 056 gave `digest_enabled` a DEFAULT of TRUE, and that was right for
+-- the world it was written in: the Follow Digest was opt-OUT, everybody was in
+-- until they said otherwise, and the flag was the whole of the decision.
+--
+-- Consent changed what the flag means without changing what it defaults to, and
+-- the gap between those two is a bug we shipped and are now closing. The Digest
+-- sender reads
+--
+--     marketing_consent = 'granted' OR (marketing_consent IS NULL AND digest_enabled)
+--
+-- where the second arm is the TRANSITION: it exists to keep whole the people who
+-- were subscribed under the old regime and have not yet been asked, on the
+-- strength of Follow being "a request to be written to" plus the unsubscribe
+-- link in every issue (ADR 0034). It was never meant to reach anybody else.
+--
+-- But every Customer row created since — by a checkout, a box office sale, an
+-- import, a first sign-in — also arrived with `digest_enabled` TRUE and
+-- `marketing_consent` NULL, which is indistinguishable from a legacy subscriber
+-- to that predicate. So a guest who read the notice, deliberately left the
+-- marketing box unticked, and bought a ticket would be enrolled in the Digest
+-- the moment they Followed anything: their explicit No is kept as evidence and
+-- then overridden by a default they never chose. That is precisely the sentence
+-- the parent spec refuses — "my silence is never treated as consent" — with the
+-- silence supplied by a column instead of a person.
+--
+-- Changing the DEFAULT rather than the existing data is the whole of the fix,
+-- and the asymmetry is deliberate:
+--
+--   * Rows already here keep TRUE. They are the legacy subscribers the
+--     transition arm is for, and rewriting them would silence people who never
+--     asked to be silenced — the exact harm, in the other direction.
+--   * Rows created from now on start FALSE. They have no legacy subscription to
+--     preserve, because they have no history at all; they have never been sent a
+--     Digest and never pressed anything. Unanswered plus off means the sender
+--     stays quiet until somebody actually says yes, which is what consent means.
+--
+-- Nothing writes this column on INSERT — every creation path takes the default —
+-- so this one line reaches all four of them. Once a person answers, the write
+-- path keeps flag and consent in lockstep and this default never matters again
+-- (consent/service.Capture is the only thing that writes either column).
+--
+-- FORWARD-ONLY, as every migration here is.
+ALTER TABLE customers ALTER COLUMN digest_enabled SET DEFAULT FALSE;

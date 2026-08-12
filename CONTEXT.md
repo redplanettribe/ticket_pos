@@ -387,7 +387,7 @@ _Avoid_: Session, login, token, cookie
 
 **Confirmation Link**:
 A signed link carried in a Sale Confirmation, granting access to that one Ticket Sale without signing in.
-Distinct from a Customer Session, which spans every Ticket Sale the Customer owns.
+Distinct from a Customer Session, which spans every Ticket Sale the Customer owns, and from a Consent Confirmation Link, which may travel in the same email and confirms an optional consent rather than opening a sale.
 _Avoid_: Magic link, access token, deep link
 
 **Customer Area**:
@@ -417,6 +417,53 @@ _Avoid_: Mobile, cell, contact number, telephone, celular — as names for the c
 Which kind of identification a Tax ID is: `cedula` (Ecuadorian national identity card), `ruc` (Ecuadorian taxpayer registration, held by persons or companies), or `passport` (buyers without either). Determines how strictly the number is validated.
 _Avoid_: Document type, ID class, tipo de identificación
 
+## Consent
+
+**Privacy Policy**:
+The platform's full statement of what personal data it processes and why, published on its own Storefront page in every Locale, together with the Short Notice shown at capture moments.
+What a Customer accepts when they accept — always a specific Policy Version, never "the policy" in the abstract.
+_Avoid_: Terms, T&C, legal page, data policy
+
+**Short Notice**:
+The condensed privacy notice (capa 1) shown inline wherever consent is captured, linking to the full Privacy Policy.
+Part of the Policy Version it belongs to: notice and policy change together or not at all.
+_Avoid_: Banner, disclaimer, fine print, capa 1 (in code and prose)
+
+**Policy Version**:
+One published edition of the Privacy Policy and its Short Notice, preserved exactly as shown so that what a person accepted is readable forever.
+Publishing a new one makes every Customer unaccepted again: Policy Acceptance is of a version, not of the policy's idea.
+_Avoid_: Revision, policy update, version number (as the whole concept)
+
+**Policy Acceptance**:
+A Customer's affirmative acceptance of the current Policy Version, required before a Customer Session is established or an Online Sale is completed — the two acts where the person is at the keyboard.
+Never collected by staff on a buyer's behalf: a box-office or imported Customer carries no acceptance until they first act on a Storefront surface themselves.
+_Avoid_: Agreeing to terms, signup consent, mandatory consent
+
+**Marketing Consent**:
+A Customer's opt-in to marketing email — promotions, campaigns, partner content, and the Follow Digest, which it subsumes: the Digest's switch and this consent are one thing, granted and declined together (ADR 0034).
+Optional, never pre-ticked, and never blocking: declining it costs no purchase and no session. Gates no transactional mail — Sale Confirmations and One-time Passcodes arrive regardless.
+_Avoid_: Newsletter opt-in, email preferences, subscription, mercadotecnia
+
+**Networking Consent**:
+A Customer's authorization to have their profile data shown, through the complementary networking application, to other attendees of the same event and to its organizers.
+This platform holds the authoritative state; the networking application reads it and keeps no truth of its own.
+_Avoid_: Public profile, profile visibility, data sharing (unqualified)
+
+**Consent Record**:
+The append-only evidence of one capture act: who answered which boxes, when, on which channel, under which Policy Version, with technical proof of the circumstances.
+Never edited and never deleted — the log records what happened; the Customer's current consent state, kept beside it, records what is true now. A tick that changed no state still leaves its record.
+_Avoid_: Consent log, audit trail, consent table
+
+**Pending Confirmation**:
+The state of an optional consent ticked by someone who had not proven the email they typed: denied for sending, unanswered for prompting (ADR 0035).
+Resolved when the proven owner answers at a later capture moment or presses the Consent Confirmation Link in their Sale Confirmation; unresolved, it sends nothing forever and never expires.
+_Avoid_: Unconfirmed opt-in, double opt-in (as the state's name), limbo
+
+**Consent Confirmation Link**:
+The signed link carried in a Sale Confirmation that resolves a Pending Confirmation, pressing it being itself the proof of the address that the checkout lacked.
+Named apart from the Confirmation Link, which grants access to one Ticket Sale: the two are different tokens with different purposes and neither opens what the other does. It confirms only the boxes the mail it travelled in offered, and only where they are still pending — a decision the owner has made since always outranks it.
+_Avoid_: Confirmation Link (unqualified), opt-in link, verification link, double opt-in link
+
 ## Following
 
 **Follow**:
@@ -443,7 +490,7 @@ Distinct from Unsubscribing, which leaves every Follow standing and changes only
 _Avoid_: Unsave, remove favorite, mute
 
 **Unsubscribe**:
-Turning a Customer's Follow Digest off while leaving every Follow intact.
+Turning a Customer's Follow Digest off while leaving every Follow intact — which, the Digest and Marketing Consent being one switch (ADR 0034), is also declining Marketing Consent.
 Reversible from the Customer Area, reachable from any Digest without signing in, and never a way to lose a list: a Customer who wants quiet keeps what they Followed. Touches no transactional mail — Sale Confirmations and One-time Passcodes arrive either way.
 _Avoid_: Opt out, mute, disable notifications, delete follows
 

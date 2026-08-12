@@ -230,7 +230,10 @@ func TestGoogleSignInSeedsAvatarIntoEmptySlot(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("google verify status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	data := decodeCustomerVerify(t, body)
+	// The Avatar is seeded when the address is proven, before the consent gate;
+	// the session that carries it is minted on the far side of the consent step
+	// (#251), so this reads the session that step returns.
+	data := completeConsentStep(t, env, decodeCustomerVerify(t, body))
 
 	if data.Session.AvatarURL == nil {
 		t.Fatal("session avatar_url = null, want a seeded Avatar")
@@ -262,7 +265,7 @@ func TestGoogleSignInNeverOverwritesAnAvatar(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("google verify status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	data := decodeCustomerVerify(t, body)
+	data := completeConsentStep(t, env, decodeCustomerVerify(t, body))
 	if data.Session.AvatarURL == nil || *data.Session.AvatarURL != ticket.PublicURL {
 		t.Fatalf("avatar after google sign-in = %v, want the untouched upload %q", data.Session.AvatarURL, ticket.PublicURL)
 	}
@@ -274,7 +277,7 @@ func TestGoogleSignInNeverOverwritesAnAvatar(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("google verify status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	first := decodeCustomerVerify(t, body)
+	first := completeConsentStep(t, env, decodeCustomerVerify(t, body))
 	if first.Session.AvatarURL == nil {
 		t.Fatal("bob's first sign-in seeded nothing")
 	}
@@ -311,7 +314,7 @@ func TestGoogleSignInSurvivesAnUnfetchablePicture(t *testing.T) {
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("google verify status=%d error=%+v", resp.StatusCode, body.Error)
 			}
-			data := decodeCustomerVerify(t, body)
+			data := completeConsentStep(t, env, decodeCustomerVerify(t, body))
 			if data.Session.AvatarURL != nil {
 				t.Fatalf("avatar_url = %q, want null when the picture cannot be fetched", *data.Session.AvatarURL)
 			}

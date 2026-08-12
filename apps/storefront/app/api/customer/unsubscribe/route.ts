@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse } from "@/lib/bff";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 
 // Acts on a request; never cached or prerendered.
 export const dynamic = "force-dynamic";
@@ -28,6 +29,14 @@ type DigestSubscription = { digest_enabled: boolean };
  * The token travels in the BODY rather than in the query string, so it does not
  * end up in this app's access logs or in a Referer header on the way to
  * anywhere else.
+ *
+ * IT FORWARDS THE THREE EVIDENCE HEADERS (#256, ADR 0034): pressing unsubscribe
+ * is declining Marketing Consent, which the API records as a Consent Record with
+ * the circumstances of the act. It cannot observe them itself — no browser
+ * reaches it directly (ADR 0008) — so a relay that dropped them would leave the
+ * record with an empty technical proof. They evidence the act; what makes the
+ * answer credible is the signed token that only ever travelled to the
+ * Customer's own inbox.
  */
 export async function POST(request: Request) {
   let token: unknown;
@@ -51,6 +60,9 @@ export async function POST(request: Request) {
     const backend = await callBackend<DigestSubscription>("/api/v1/customer/unsubscribe", {
       method: "POST",
       body: JSON.stringify({ token }),
+      headers: {
+        ...consentEvidenceHeaders(request.headers),
+      },
     });
     return NextResponse.json(
       { data: backend.data, error: null, request_id: crypto.randomUUID() },

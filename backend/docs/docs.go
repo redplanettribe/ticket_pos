@@ -59,6 +59,16 @@ const docTemplate = `{
                     "locale": {
                         "description": "Locale is the language of the Storefront page this checkout was completed\non, recorded as the sale's Sale Locale and read back whenever mail about\nthis sale is written (ADR 0033).\n\nIt is a fact the page reports about itself — its language is in its own\naddress — and not a preference being negotiated: no read path takes an\nAccept-Language and none is added here (ADR 0027).\n\nOPTIONAL AND NEVER A REASON TO REFUSE. A caller with no page to name one\nomits it, and a language this platform does not serve is dropped. Either\nway the sale records no language and the receipt falls back to what the\nCustomer's record remembers, then to English. A locale must never fail a\npurchase — the money is the point of this request and the words are not.",
                         "type": "string"
+                    },
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    },
+                    "policy_acceptance": {
+                        "description": "The three consent boxes on the checkout dialog (#253, parent #249), named\nidentically to the sign-in consent submission's: one vocabulary for one set\nof answers, so a client that learned the shape on one surface knows it on\nthe other.\n\nPOINTERS, AND THE NIL IS LOAD-BEARING. Absent means THE BOX WAS NOT SHOWN,\nwhich is a different fact from ` + "`" + `false` + "`" + `; false means it was shown and left\nunticked, which is an explicit No and is recorded as ` + "`" + `denied` + "`" + ` (ADR 0034).\nA guest checkout always shows all three and therefore always sends all\nthree; a signed-in Customer is shown only what they have not answered\n(#254), and reading their absent boxes as refusals would turn their\npurchase into a marketing opt-out.\n\nPolicyAcceptance is REQUIRED to be present and true of everybody who is\nstill owed it — every guest, and every signed-in Customer without an\nacceptance of the current Policy Version. It is not a field error but a\ndomain refusal — POLICY_ACCEPTANCE_REQUIRED from the service — because what\nis wrong is not the shape of the request but that the platform may not act\non it (ADR 0035, consent.ErrPolicyAcceptanceRequired).\n\nWHICH BOXES WERE OWED IS THE SERVICE'S FINDING, not this body's assertion:\nan answer for a box the buyer was not owed is dropped rather than applied\n(service.owedConsentAnswers).",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -112,6 +122,38 @@ const docTemplate = `{
                     },
                     "token": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.consentConfirmationBody": {
+                "properties": {
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.consentSubmitBody": {
+                "properties": {
+                    "follow": {
+                        "description": "Follow is the Follow intent, relayed here for the same reason it is\nrelayed on the verify: this is now the request that produces a session, and\na Follow is written against the session a sign-in produced and against\nnothing a body could name (#219). A visitor who pressed Follow and was\nthen stopped for consent must not silently lose it.",
+                        "type": "string"
+                    },
+                    "marketing_consent": {
+                        "description": "MarketingConsent and NetworkingConsent are the optional boxes. ABSENT IS\nFALSE AND FALSE IS AN EXPLICIT NO — an unticked box that was shown is a\nrefusal, recorded as ` + "`" + `denied` + "`" + `, and for Marketing that turns the Follow\nDigest off (ADR 0034). This is the one place in the API where a missing\nJSON field means something, and it means it because that is what the\nsurface means: the boxes are rendered unticked and a person who submits\nwithout touching them has answered.\n\nAn answer for a box this Customer was not shown is ignored by the service,\nwhich recomputes what they were owed rather than trusting this body.",
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    },
+                    "pending_consent_token": {
+                        "description": "PendingConsentToken is the credential from the consent-required outcome.",
+                        "type": "string"
+                    },
+                    "policy_acceptance": {
+                        "description": "PolicyAcceptance is the required box. Absent is false, and false is\nrefused: the API is the guarantee, the disabled submit button is a\ncourtesy.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -681,6 +723,9 @@ const docTemplate = `{
             },
             "openapi.CustomerVerifyOTPData": {
                 "properties": {
+                    "consent_required": {
+                        "$ref": "#/components/schemas/service.ConsentRequiredView"
+                    },
                     "session": {
                         "$ref": "#/components/schemas/service.CustomerSessionView"
                     },
@@ -796,6 +841,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/storage.CoverUploadResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerConsentConfirmation": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ConsentConfirmationView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1280,6 +1339,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopePrivacyPolicy": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PolicyView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePublicEventDetail": {
                 "properties": {
                     "data": {
@@ -1505,6 +1578,38 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "platform.Locale": {
+                "description": "Locale is the language everything below is written in.",
+                "enum": [
+                    "en",
+                    "es",
+                    "en"
+                ],
+                "type": "string",
+                "x-enum-varnames": [
+                    "LocaleEN",
+                    "LocaleES",
+                    "DefaultLocale"
+                ]
+            },
+            "policy.ConsentLabels": {
+                "description": "ConsentLabels are the three checkbox labels, markdown.",
+                "properties": {
+                    "marketing_consent": {
+                        "description": "MarketingConsent is the optional marketing box, and it names the weekly\nFollow Digest out loud because granting it turns the Digest on (ADR 0034).",
+                        "type": "string"
+                    },
+                    "networking_consent": {
+                        "description": "NetworkingConsent is the optional networking box, and it names both\naudiences — other attendees of the same event, and that event's organizers\n— because those are the two the authorization actually covers.",
+                        "type": "string"
+                    },
+                    "policy_acceptance": {
+                        "description": "PolicyAcceptance is the required box. Without it no Customer Session is\nestablished and no Online Sale completes.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.ActiveMemberView": {
                 "properties": {
                     "member_id": {
@@ -1607,6 +1712,58 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.ConsentBoxesView": {
+                "description": "Boxes is what to show.",
+                "properties": {
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    },
+                    "policy_acceptance": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ConsentConfirmationView": {
+                "properties": {
+                    "already_resolved": {
+                        "description": "AlreadyResolved is true when there was nothing left for this link to\nconfirm — a second press, or an answer the owner has since given\nthemselves. Not an error, and deliberately not distinguished further: the\npage has nothing useful to say about WHICH of those it was, and the person\ncan see their own answers in their Customer Area.",
+                        "type": "boolean"
+                    },
+                    "digest_enabled": {
+                        "description": "DigestEnabled is the Follow Digest as it now stands, so a person who has\njust confirmed a marketing opt-in is told what they will actually receive\n(ADR 0034 — one switch).",
+                        "type": "boolean"
+                    },
+                    "marketing_consent": {
+                        "description": "MarketingConsent and NetworkingConsent are true where this press flipped\nthat box from Pending Confirmation to granted.",
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ConsentRequiredView": {
+                "description": "ConsentRequired carries the short-lived, single-use pending-consent token\nand the boxes to show. Null on an ordinary sign-in.",
+                "properties": {
+                    "boxes": {
+                        "$ref": "#/components/schemas/service.ConsentBoxesView"
+                    },
+                    "expires_at": {
+                        "description": "ExpiresAt is when that token stops working, RFC 3339. Published so a client\ncan say \"start again\" rather than discovering it by being refused.",
+                        "type": "string"
+                    },
+                    "pending_consent_token": {
+                        "description": "PendingConsentToken is the single-use, short-lived credential that\nexchanges answers for the session this sign-in did not mint. It is a\nserver-side row (migration 063), so spending it destroys it.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.CustomerAreaView": {
                 "properties": {
                     "past": {
@@ -1667,6 +1824,9 @@ const docTemplate = `{
                     "avatar_url": {
                         "description": "The Customer's Avatar as a browser-loadable URL, null when they have none\n(the Storefront renders initials instead). A URL rather than an object key\nbecause no client of this view writes Avatars — the header only shows one.",
                         "type": "string"
+                    },
+                    "consent_boxes": {
+                        "$ref": "#/components/schemas/service.ConsentBoxesView"
                     },
                     "email": {
                         "type": "string"
@@ -2631,6 +2791,37 @@ const docTemplate = `{
                     "total_owed_cents": {
                         "description": "TotalOwedCents sums only the positive Withdrawable Balances: what the\nplatform owes. An Organization in the red after a post-settlement reversal\nowes the platform instead, and netting that off would understate the cash\nthat must stay on hand.",
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PolicyView": {
+                "properties": {
+                    "body_markdown": {
+                        "description": "BodyMarkdown is the full Privacy Policy, markdown.",
+                        "type": "string"
+                    },
+                    "consent_labels": {
+                        "$ref": "#/components/schemas/policy.ConsentLabels"
+                    },
+                    "content_hash": {
+                        "description": "ContentHash is the fingerprint of the artifact set below, published so that\nthe page can show it and a reader can hold the platform to it.",
+                        "type": "string"
+                    },
+                    "effective_date": {
+                        "description": "EffectiveDate is the day this edition took effect, YYYY-MM-DD, as the\ndocument itself states it.",
+                        "type": "string"
+                    },
+                    "locale": {
+                        "$ref": "#/components/schemas/platform.Locale"
+                    },
+                    "short_notice": {
+                        "description": "ShortNotice is the condensed notice shown inline at a capture moment,\nmarkdown.",
+                        "type": "string"
+                    },
+                    "version": {
+                        "description": "Version is the label a human names this edition by (\"0-placeholder\").",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3693,6 +3884,67 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/customer/auth/consent": {
+            "post": {
+                "description": "Finishes a sign-in that was held for consent: exchanges the short-lived, single-use ` + "`" + `pending_consent_token` + "`" + ` from a verify response for the Customer Session that verification withheld. Writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized. ` + "`" + `policy_acceptance` + "`" + ` is required: a submission without it is refused by the API with POLICY_ACCEPTANCE_REQUIRED, not merely disabled in a form. The optional ` + "`" + `marketing_consent` + "`" + ` and ` + "`" + `networking_consent` + "`" + ` default to false, and false is an explicit No — it records ` + "`" + `denied` + "`" + ` and, for marketing, switches the weekly Follow Digest off (ADR 0034). Answers for boxes the Customer was not shown are ignored: standing optional answers are never churned. The Policy Version is resolved server-side and is never accepted from the request. An optional ` + "`" + `follow` + "`" + ` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step leaves no session at all.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.consentSubmitBody",
+                                        "summary": "body",
+                                        "description": "Pending consent token and answers"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Pending consent token and answers",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerVerifyOTP"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "summary": "Submit sign-in consent",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
         "/api/v1/customer/auth/google/verify": {
             "post": {
                 "description": "Exchanges an authorization code obtained on the Storefront at Google's token endpoint, and issues a Customer Session on the email address Google vouches for. Marks the Customer verified by the same rule a passcode does. An optional ` + "`" + `locale` + "`" + ` is remembered as the Customer's Mail Locale, exactly as on the passcode route. An optional ` + "`" + `follow` + "`" + ` carries a Follow intent and is honoured exactly as on the passcode route, because both doors are equal Proof of Email Ownership. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.",
@@ -3924,7 +4176,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/auth/session": {
             "get": {
-                "description": "Returns which email the caller is signed in as, and extends the sliding session window.",
+                "description": "Returns which email the caller is signed in as, and extends the sliding session window. consent_boxes reports which consent checkboxes a capture surface must still show this Customer — the checkout dialog reads it here so that who is buying and what may still be asked of them come from one snapshot of one session (#254). A box is true when its answer is outstanding: policy_acceptance when there is no acceptance of the CURRENT Policy Version, and each optional consent when its state is unanswered, with a Pending Confirmation counting as unanswered because somebody else's tick is not the owner's answer (ADR 0035). It never says what to pre-tick; boxes are always drawn unticked. A Confirmation Link session (ticket_sale_id set) reports all three true whatever the stored state says: it is minted from a forwarded email rather than from Proof of Email Ownership, so a capture under it is treated as a guest's on the write side too.",
                 "responses": {
                     "200": {
                         "content": {
@@ -3953,6 +4205,57 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get Customer Session",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/consent/confirm": {
+            "post": {
+                "description": "Confirms the optional consents (Marketing, Networking) that a guest checkout left in Pending Confirmation, for the Customer named by a signed, non-expiring confirmation token carried in their Sale Confirmation email. Requires no sign-in and accepts no credential: pressing a link sent to that address is itself the proof of ownership the guest's tick lacked (ADR 0035), and a guest buyer may have no account to sign in to. It flips only what the token was minted for AND is still pending, so a press cannot resurrect an answer the owner has since given themselves — a later proven answer outranks an older pending. Idempotent and never an error when there is nothing left to confirm: a second press, or a press against state the owner has already resolved, answers 200 with already_resolved. Granting Marketing Consent turns the weekly Follow Digest on in lockstep (ADR 0034), and every press that changes something writes an immutable Consent Record on the email_confirmation channel. Deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link cannot grant consent nobody gave; a GET is answered 405. A malformed, forged, or wrong-purpose token is CONSENT_CONFIRMATION_LINK_INVALID.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.consentConfirmationBody",
+                                        "summary": "body",
+                                        "description": "Signed consent confirmation token"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Signed consent confirmation token",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerConsentConfirmation"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Confirm a pending consent from a Sale Confirmation link",
                 "tags": [
                     "customer"
                 ]
@@ -6350,7 +6653,7 @@ const docTemplate = `{
         },
         "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout": {
             "post": {
-                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.",
+                "description": "Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status \"approved\" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer. Consent is captured here and refused here: policy_acceptance must be present and true from everybody who is still owed it — every guest, and every signed-in Customer with no acceptance of the current Policy Version — or the checkout is refused with 400 POLICY_ACCEPTANCE_REQUIRED and no Payment is created; the disabled button on the dialog is a courtesy, this is the guarantee. WHICH BOXES A BUYER WAS OWED IS RECOMPUTED HERE and never taken from the body: a guest is owed all three, and a checkout carrying the buyer's own Customer Session for the very address being bought under is owed only what that Customer has not answered (the same set the session read publishes as consent_boxes). An answer for a box that was not owed is DROPPED — so a signed-in Customer who has accepted the current edition and answered both optional boxes checks out with no consent fields at all and writes no Consent Record, and no crafted body can churn a standing Marketing or Networking Consent. It is enforced at BEGIN and never at confirm, so nobody is ever handed to a Payment Provider under a Privacy Policy they have not accepted, and no Payment the provider approved is ever refused over a checkbox. marketing_consent and networking_consent are optional and never blocking: sent true they are a grant, sent false they are an explicit No (which switches the weekly Follow Digest off, ADR 0034), and OMITTED means the box was not shown — which is not a No, and leaves any standing answer untouched. The answers are held on the Payment across the Payment Provider redirect, exactly as the Tax ID, phone and locale are, and the immutable Consent Record plus the consent state are written only when the sale commits: an abandoned, declined or expired Payment records no consent at all, just as it records no Customer. A guest has not proven the address they typed, so an optional tick from one enters Pending Confirmation — recorded as evidence, denied for sending, and never overwriting an answer given under a proven Customer Session (ADR 0035). The technical proof stored with the record (IP, user agent, origin URL) is taken from the request, never from this body. The Policy Version accepted is resolved server-side and is never accepted from a client.",
                 "parameters": [
                     {
                         "description": "Organization slug",
@@ -6475,6 +6778,62 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Record registration link click",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/privacy-policy/{locale}": {
+            "get": {
+                "description": "Serves the Policy Version currently in effect, rendered in the requested Locale: the version label, its effective date, the SHA-256 fingerprint of the edition, the full Privacy Policy (` + "`" + `body_markdown` + "`" + `), the Short Notice shown inline at consent capture moments (` + "`" + `short_notice` + "`" + `), and the three consent checkbox labels (` + "`" + `consent_labels` + "`" + `) — the required Policy Acceptance, the optional Marketing Consent which names the weekly Follow Digest, and the optional Networking Consent which names both audiences. All text is markdown, and all of it is what the fingerprint covers: the hash on the Policy Version is computed over exactly these strings in every published Locale, so a client can prove that what it rendered is what the platform recorded as accepted. Public and unauthenticated. The Locale is a path parameter and is answered strictly — a language the policy is not published in is a 404, never a silent fallback to English.",
+                "parameters": [
+                    {
+                        "description": "Locale the policy is read in",
+                        "in": "path",
+                        "name": "locale",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "en",
+                                "es"
+                            ],
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopePrivacyPolicy"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Current Privacy Policy",
                 "tags": [
                     "public"
                 ]

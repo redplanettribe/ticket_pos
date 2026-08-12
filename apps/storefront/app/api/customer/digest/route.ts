@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse, notSignedInResponse } from "@/lib/bff";
+import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import { customerSessionToken } from "@/lib/customer-session";
 
 // Reads the session cookie and writes through it; never cached.
@@ -31,6 +32,14 @@ type DigestSubscription = { digest_enabled: boolean };
  * link beside it is unauthenticated because a person who wants quiet must be
  * able to have it without signing in, and none of that argument applies to
  * subscribing an inbox to weekly mail.
+ *
+ * IT NOW FORWARDS THE THREE EVIDENCE HEADERS, exactly as the consent submission
+ * does (#256, ADR 0034): the Digest switch and Marketing Consent are one thing,
+ * so pressing this toggle is a consent act and the API records the
+ * circumstances of it. The API can observe none of them for itself — no browser
+ * reaches it directly (ADR 0008) — so a relay that dropped them would leave a
+ * Consent Record with an empty technical proof. The IP is derived from the
+ * forwarding chain and never from the browser's own copy of it.
  */
 export async function PUT(request: Request) {
   const token = await customerSessionToken();
@@ -71,6 +80,9 @@ export async function PUT(request: Request) {
       method: "PUT",
       body: JSON.stringify({ enabled }),
       sessionToken: token,
+      headers: {
+        ...consentEvidenceHeaders(request.headers),
+      },
     });
     return NextResponse.json(
       { data: backend.data, error: null, request_id: crypto.randomUUID() },

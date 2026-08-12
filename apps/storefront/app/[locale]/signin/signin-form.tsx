@@ -11,16 +11,26 @@ import {
   CardTitle,
   FormField,
   Input,
+  Markdown,
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { useRouter } from "@/i18n/navigation";
+import { ConsentCheckbox } from "@/components/consent-checkbox";
+import { Link, useRouter } from "@/i18n/navigation";
+import type { PrivacyPolicy } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-errors";
+import type { ConsentRequired } from "@/lib/customer-session";
+import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
 
-type Step = "email" | "code";
+/**
+ * The three steps this page can be on. "consent" is reached only from "code" or
+ * from a Google sign-in that came back held: the address is proven by then, and
+ * what is missing is Policy Acceptance of the edition in effect (#251).
+ */
+type Step = "email" | "code" | "consent";
 
 type Envelope<T> = {
   data: T | null;
@@ -48,7 +58,13 @@ const RESEND_REFUSED_ERRORS = new Set(["OTP_RATE_LIMITED", "OTP_GLOBAL_CEILING_R
 type SignInError = {
   code: string | null;
   message: string | null;
-  fallback: "sendFailed" | "sendNetworkFailed" | "verifyFailed" | "verifyNetworkFailed";
+  fallback:
+    | "sendFailed"
+    | "sendNetworkFailed"
+    | "verifyFailed"
+    | "verifyNetworkFailed"
+    | "consentFailed"
+    | "consentNetworkFailed";
 };
 
 type SignInFormProps = {
@@ -98,6 +114,35 @@ type SignInFormProps = {
    * credentials and the button must not be offered at all.
    */
   googleSignInHref: string | null;
+  /**
+   * The current Policy Version's Short Notice and checkbox labels, as the API
+   * serves them — null when it could not be reached.
+   *
+   * THE WORDS OF THE NOTICE AND THE LABELS ARE NOT IN THE MESSAGE CATALOGS, and
+   * that is the one thing to know about the consent step. They are evidence:
+   * the Policy Version records the SHA-256 of exactly these strings, so what a
+   * Customer is shown here is byte-for-byte what the platform will later claim
+   * they accepted (ADR 0036). The step's own chrome — its heading, the word
+   * "Optional", the button — is ordinary copy and lives in the catalogs like
+   * everything else.
+   */
+  policy: PrivacyPolicy | null;
+  /**
+   * The consent step a Google Sign-In was held at, carried across the callback
+   * redirect in an httpOnly cookie and read by the page (#252) — null for every
+   * other way of arriving here.
+   *
+   * It is THE SAME SHAPE the passcode verify answers with, and that sameness is
+   * the whole of this feature: past this prop there is no Google path in this
+   * component. The step renders from one piece of state, the submission goes to
+   * one endpoint, and neither can tell which door produced the token, exactly as
+   * the API cannot (ADR 0011).
+   *
+   * When it is set the form OPENS on the consent step. There is nothing before
+   * it to show: the address is already proven, so an email field would be asking
+   * for something this visitor has already given.
+   */
+  pendingConsent: ConsentRequired | null;
 };
 
 /** Google's four-colour G, inline so the button needs no network request. */
@@ -125,9 +170,10 @@ function GoogleMark() {
 }
 
 /**
- * Two steps, one page, no navigation between them: entering an email swaps the
- * form for the passcode field with the email still in component state, matching
- * the Staff app's sign-in.
+ * Three steps, one page, no navigation between them: entering an email swaps the
+ * form for the passcode field with the email still in component state, and
+ * proving the address swaps it again for the consent step when the Policy
+ * Version in effect has not been accepted (#251).
  *
  * Every request this component makes is to a relative /api/customer/... route on
  * this same origin. It never addresses the Go API, and it never sees a session
@@ -141,6 +187,8 @@ export function SignInForm({
   googleFailed,
   followIntent,
   googleSignInHref,
+  policy,
+  pendingConsent,
 }: SignInFormProps) {
   const router = useRouter();
   const t = useTranslations("signin");
@@ -150,7 +198,12 @@ export function SignInForm({
   // Keyed by API codes rather than by message keys, so it is read as plain data
   // rather than through `t`.
   const errorCopy = useMessages().errors;
-  const [step, setStep] = useState<Step>("email");
+  // A held Google Sign-In opens on the consent step; everyone else opens on the
+  // email step. It is an initial value rather than an effect because the step is
+  // already decided by the time this renders — the page read the cookie
+  // server-side — and a flash of the email form before it corrected itself would
+  // invite somebody to start typing an address they have already proven.
+  const [step, setStep] = useState<Step>(pendingConsent ? "consent" : "email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
   // Whether a passcode has just gone out — a fact, not a sentence. The words are
@@ -159,6 +212,22 @@ export function SignInForm({
   const [passcodeSent, setPasscodeSent] = useState(false);
   const [error, setError] = useState<SignInError | null>(null);
   const [loading, setLoading] = useState(false);
+  // The consent step, once a verify has held this sign-in: which boxes to show,
+  // and the token that finishes it. Held in component state and nowhere else —
+  // it is spent within the minute, and a token in storage is a token that
+  // outlives the tab.
+  //
+  // Seeded from the Google door's held sign-in when there is one (#252) and set
+  // by the passcode verify otherwise: one piece of state for both doors, so
+  // nothing downstream of here knows which produced it.
+  const [consent, setConsent] = useState<ConsentRequired | null>(pendingConsent);
+  // The three answers. ALL START FALSE, always, and nothing in this component
+  // ever sets them from anything but a person clicking: consent has to be
+  // affirmative, so a pre-ticked box is not a shortcut but a lie about what
+  // somebody did (ADR 0034).
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
+  const [networkingConsent, setNetworkingConsent] = useState(false);
   const clearedStaleSession = useRef(false);
 
   // An expired session leaves a cookie behind that will never authenticate
@@ -236,7 +305,9 @@ export function SignInForm({
         // been sending it with an unproven address.
         body: JSON.stringify({ email, code, locale, ...(followIntent ? { follow: followIntent } : {}) }),
       });
-      const envelope = (await response.json()) as Envelope<unknown>;
+      const envelope = (await response.json()) as Envelope<{
+        consent_required: ConsentRequired | null;
+      }>;
       if (!response.ok || envelope.error) {
         setError({
           code: envelope.error?.code ?? null,
@@ -245,10 +316,68 @@ export function SignInForm({
         });
         return;
       }
+      // The passcode was right and there is still no session: this Customer has
+      // not accepted the Policy Version in effect, so the sign-in continues on
+      // the consent step rather than finishing (#251). Nothing was set in a
+      // cookie — walking away from here leaves them signed out.
+      if (envelope.data?.consent_required) {
+        setConsent(envelope.data.consent_required);
+        setStep("consent");
+        return;
+      }
       router.push(next);
       router.refresh();
     } catch {
       setError({ code: null, message: null, fallback: "verifyNetworkFailed" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /**
+   * Exchanges the answers for the session the verify withheld.
+   *
+   * The required box gates the button below, and this sends whatever the person
+   * did regardless — including the optional boxes they left alone, because an
+   * unticked box that was SHOWN is an explicit No and the platform records it as
+   * one (ADR 0034). The API refuses a submission without Policy Acceptance on
+   * its own account; the disabled button is a courtesy, never the guarantee.
+   */
+  async function handleSubmitConsent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!consent) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/customer/auth/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pending_consent_token: consent.pending_consent_token,
+          policy_acceptance: policyAccepted,
+          marketing_consent: marketingConsent,
+          networking_consent: networkingConsent,
+          // The Follow intent rides THIS request now, because this is the one
+          // that produces a session and the API writes the Follow against the
+          // session it just minted (#219). Losing it here would punish somebody
+          // for having been asked about consent.
+          ...(followIntent ? { follow: followIntent } : {}),
+        }),
+      });
+      const envelope = (await response.json()) as Envelope<unknown>;
+      if (!response.ok || envelope.error) {
+        setError({
+          code: envelope.error?.code ?? null,
+          message: envelope.error?.message ?? null,
+          fallback: "consentFailed",
+        });
+        return;
+      }
+      router.push(next);
+      router.refresh();
+    } catch {
+      setError({ code: null, message: null, fallback: "consentNetworkFailed" });
     } finally {
       setLoading(false);
     }
@@ -264,7 +393,9 @@ export function SignInForm({
         <CardDescription>
           {/* The address goes inside the sentence rather than being appended to
               it: which side of it the words fall on is the translator's. */}
-          {step === "email" ? t("emailStep") : t("codeStep", { email })}
+          {step === "email" ? t("emailStep") : null}
+          {step === "code" ? t("codeStep", { email }) : null}
+          {step === "consent" ? t("consent.description") : null}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -339,7 +470,87 @@ export function SignInForm({
           </div>
         ) : null}
 
-        {step === "email" ? (
+        {step === "consent" ? (
+          <form className="space-y-4" onSubmit={handleSubmitConsent} noValidate>
+            {policy ? (
+              <>
+                {/*
+                  The Short Notice, inline and in full, exactly as the API served
+                  it. It is the layer of the notice this person is about to
+                  accept that must be read without asking for it,
+                  and it is here rather than a link away because the guidance
+                  requires the information to be present AT the moment of
+                  capture. The link below is the rest of it.
+                */}
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                  <Markdown className="text-sm [&>p]:mt-2 [&>p]:first:mt-0">
+                    {policy.short_notice}
+                  </Markdown>
+                  <p className="mt-3">
+                    <Link
+                      href={PRIVACY_POLICY_PATH}
+                      target="_blank"
+                      className="font-medium underline underline-offset-4"
+                    >
+                      {t("consent.readPolicy")}
+                    </Link>
+                  </p>
+                </div>
+
+                {consent?.boxes.policy_acceptance ? (
+                  <ConsentCheckbox
+                    id="policy_acceptance"
+                    checked={policyAccepted}
+                    onChange={setPolicyAccepted}
+                    label={policy.consent_labels.policy_acceptance}
+                    optionalLabel={null}
+                  />
+                ) : null}
+                {consent?.boxes.marketing_consent ? (
+                  <ConsentCheckbox
+                    id="marketing_consent"
+                    checked={marketingConsent}
+                    onChange={setMarketingConsent}
+                    label={policy.consent_labels.marketing_consent}
+                    optionalLabel={t("consent.optional")}
+                  />
+                ) : null}
+                {consent?.boxes.networking_consent ? (
+                  <ConsentCheckbox
+                    id="networking_consent"
+                    checked={networkingConsent}
+                    onChange={setNetworkingConsent}
+                    label={policy.consent_labels.networking_consent}
+                    optionalLabel={t("consent.optional")}
+                  />
+                ) : null}
+
+                <Button
+                  type="submit"
+                  className="h-11 w-full"
+                  // The required box gates the button. The API refuses the same
+                  // submission on its own account, so this is what the person
+                  // sees rather than what makes it true.
+                  disabled={loading || !policyAccepted}
+                  aria-busy={loading}
+                >
+                  {loading ? t("signingIn") : t("consent.submit")}
+                </Button>
+              </>
+            ) : (
+              /*
+                No notice, no boxes. An API this app cannot reach means it cannot
+                show what is being accepted, and a checkbox with no text beside
+                it would collect a consent to nothing — which is worse than an
+                honest failure, exactly as the Privacy Policy page 404s rather
+                than rendering empty.
+              */
+              <Alert variant="destructive">
+                <AlertDescription>{t("consent.unavailable")}</AlertDescription>
+              </Alert>
+            )}
+          </form>
+        ) : step === "email" ? (
           <form className="space-y-4" onSubmit={handleRequestPasscode} noValidate>
             <FormField id="email" label={t("emailLabel")}>
               <Input

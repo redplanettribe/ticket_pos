@@ -61,7 +61,13 @@ export async function GET(request: Request) {
     });
 
     const result = envelope.data;
-    if (!result?.session_id) {
+    // A Confirmation Link redemption never comes back holding a consent step:
+    // it is not Proof of Email Ownership and mints a sale-scoped session, which
+    // the consent gate deliberately does not stand in front of (#251). Both
+    // halves are checked anyway, because the type says they can be null and a
+    // redemption that answered anything but a session is one this route cannot
+    // act on.
+    if (!result?.session_id || !result.session) {
       return redirectTo("/signin?link=invalid");
     }
 

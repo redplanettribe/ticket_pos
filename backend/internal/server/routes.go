@@ -163,6 +163,14 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// the identical Customer Session the passcode above does, on an email Google
 	// vouched for instead of one a passcode did (ADR 0011).
 	mux.HandleFunc("POST /api/v1/customer/auth/google/verify", h.VerifyGoogle)
+	// The far side of the consent gate (#251, parent #249). Both doors above can
+	// answer with a consent-required outcome instead of a session, and this is
+	// the only route that turns one back into a session: it records the Consent
+	// Record and mints the credential the verify withheld. Unauthenticated for
+	// the same reason they are — the pending-consent token IS the credential —
+	// and it names no email, so it cannot be pointed at anybody but the address
+	// the token was minted for.
+	mux.HandleFunc("POST /api/v1/customer/auth/consent", h.SubmitConsent)
 	// The Confirmation Link's token is itself the credential, so this route is
 	// unauthenticated too. It reads Authorization when present, but only to
 	// notice that the caller already holds something wider than a link.
@@ -179,6 +187,21 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// silence everybody it protects. Registering the method alone is what makes
 	// the router answer a bare GET of this path with 405 rather than with an act.
 	mux.HandleFunc("POST /api/v1/customer/unsubscribe", h.Unsubscribe)
+	// Confirming a Pending Confirmation from the link in a Sale Confirmation
+	// (#255, ADR 0035) — the unsubscribe route's mirror image, and the second
+	// unauthenticated write in this namespace. A guest checkout creates a
+	// Customer nobody has ever signed in as, so the owner of an address somebody
+	// else typed may have no account to sign in to; the signed token is the whole
+	// authority, and pressing a link that only ever travelled to that inbox is
+	// itself the proof of ownership the guest's tick lacked.
+	//
+	// POST AND ONLY POST, and here the scanner argument is sharper than it is
+	// above. A prefetch of an unsubscribe GET would silence somebody's mail; a
+	// prefetch of a confirmation GET would GRANT a marketing opt-in nobody ever
+	// confirmed, and leave an evidence row saying an inbox confirmed itself when
+	// what confirmed it was a robot. Registering the method alone is what makes
+	// the router answer a bare GET with 405 rather than with an act.
+	mux.HandleFunc("POST /api/v1/customer/consent/confirm", h.ConfirmConsent)
 
 	// signedIn gates a route on a valid Customer Session and extends its sliding
 	// window. Everything behind it is scoped to the Customer on that session.
@@ -259,6 +282,22 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	h := app.IdentityHandler
 	ch := app.CatalogHandler
 	sh := app.SalesHandler
+	// The Privacy Policy (#250, parent #249). Public because a privacy notice
+	// that only a signed-up person could read would be the wrong way round, and
+	// it discloses nothing about anybody — the same bytes for every caller.
+	//
+	// THE ONLY LOCALIZED ROUTE IN THE API, and the exception is narrow and
+	// argued: ADR 0027 keeps the API Locale-unaware because words this product
+	// chooses for concepts the database owns belong in the Storefront catalog.
+	// This is not copy but evidence — the text a Policy Version's SHA-256 is
+	// taken over — so it has to be served from the same place it is hashed, or
+	// the hash proves nothing. See internal/consent/policy's package doc.
+	//
+	// The Locale is in the PATH rather than a query parameter or a header,
+	// because it names WHICH DOCUMENT this is rather than how to present one:
+	// the Spanish policy and the English policy are two texts, each with its own
+	// address, and each cacheable at that address by anything in front of this.
+	mux.HandleFunc("GET /api/v1/public/privacy-policy/{locale}", app.ConsentHandler.GetPrivacyPolicy)
 	mux.HandleFunc("GET /api/v1/public/organizations/{slug}", h.GetPublicOrganization)
 	mux.HandleFunc("GET /api/v1/public/events", ch.ListPublicEvents)
 	mux.HandleFunc("GET /api/v1/public/tags", ch.ListPublicTags)

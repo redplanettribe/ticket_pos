@@ -4,7 +4,8 @@
     "organizationLogoAlt": "Logo de {organization}",
     "breadcrumbLabel": "Ruta de navegación",
     "closeLabel": "Cerrar",
-    "languageSwitcherLabel": "Idioma"
+    "languageSwitcherLabel": "Idioma",
+    "privacyPolicy": "Política de Privacidad"
   },
   "explorer": {
     "metaTitle": "{brand} — Descubrir eventos",
@@ -92,6 +93,22 @@
     "missingTokenTitle": "Este enlace está incompleto",
     "missingTokenDescription": "Abra de nuevo el enlace de su correo, o desactive el resumen desde su cuenta."
   },
+  "confirmConsent": {
+    "metaTitle": "Confirme sus preferencias · {brand}",
+    "title": "Confirme sus preferencias",
+    "description": "Usted, o alguien que usó su dirección, marcó una o más casillas opcionales al finalizar la compra. No ocurre nada hasta que se confirme aquí, desde el buzón al que llegó el mensaje.",
+    "confirm": "Confirmar",
+    "doneTitle": "Confirmado",
+    "doneDescription": "Sus elecciones quedaron guardadas. Puede cambiarlas desde su cuenta cuando quiera, y todo correo de marketing lleva un enlace para cancelar la suscripción.",
+    "nothingTitle": "No quedaba nada por confirmar",
+    "nothingDescription": "Esto ya estaba resuelto: o se confirmó antes, o usted ya respondió desde su cuenta. Ahora no cambió nada, y las preferencias que tiene son las que valen.",
+    "manageLink": "Gestionar sus preferencias",
+    "failedTitle": "No pudimos confirmarlo",
+    "failed": "No funcionó. Inténtelo de nuevo.",
+    "networkFailed": "No funcionó. Revise su conexión e inténtelo de nuevo.",
+    "missingTokenTitle": "Este enlace está incompleto",
+    "missingTokenDescription": "Abra de nuevo el enlace de su correo, o configure sus preferencias desde su cuenta."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Obtenga entradas para {event}.",
@@ -143,6 +160,12 @@
     "phoneLabel": "Teléfono (opcional)",
     "submit": "Continuar al pago",
     "submitting": "Iniciando el pago…",
+    "consent": {
+      "notice": "Cómo tratamos sus datos",
+      "readPolicy": "Leer la Política de Privacidad completa",
+      "optional": "Opcional",
+      "unavailable": "Ahora mismo no podemos mostrarle el aviso de privacidad, así que no podemos procesar su compra. Inténtelo de nuevo en un momento."
+    },
     "undoUntil": "Puede deshacer esta compra hasta el <when>{deadline}</when>, hora de Ecuador.",
     "undoInTickets": "Deshacerla en sus entradas",
     "signInToUndo": "Iniciar sesión para deshacer",
@@ -205,7 +228,16 @@
     "sendFailed": "No se pudo enviar el código. Inténtelo de nuevo.",
     "sendNetworkFailed": "No se pudo enviar el código. Revise su conexión e inténtelo de nuevo.",
     "verifyFailed": "Ese código no fue aceptado.",
-    "verifyNetworkFailed": "No se pudo verificar ese código. Revise su conexión e inténtelo de nuevo."
+    "verifyNetworkFailed": "No se pudo verificar ese código. Revise su conexión e inténtelo de nuevo.",
+    "consent": {
+      "description": "Antes de iniciar tu sesión, lee cómo tratamos tus datos e indícanos qué autorizas.",
+      "readPolicy": "Leer la Política de Privacidad completa",
+      "optional": "Opcional",
+      "submit": "Aceptar e iniciar sesión",
+      "unavailable": "Ahora mismo no podemos mostrarte el aviso de privacidad, así que no podemos terminar de iniciar tu sesión. Inténtalo de nuevo en un momento."
+    },
+    "consentFailed": "No pudimos registrar tus decisiones.",
+    "consentNetworkFailed": "No pudimos registrar tus decisiones. Revisa tu conexión e inténtalo de nuevo."
   },
   "customerArea": {
     "metaTitle": "Sus entradas · {brand}",
@@ -293,6 +325,14 @@
     "photoRemoveFailed": "No se pudo quitar su foto. Inténtelo de nuevo.",
     "photoRemoveNetworkFailed": "No se pudo quitar su foto. Revise su conexión e inténtelo de nuevo."
   },
+  "privacy": {
+    "metaTitle": "Política de Privacidad · {brand}",
+    "metaDescription": "Cómo {brand} trata sus datos personales, qué puede consentir y cómo ejercer sus derechos.",
+    "title": "Política de Privacidad",
+    "effectiveDate": "Vigente desde el {date}",
+    "version": "Versión {version}",
+    "contentHash": "Huella: {hash}"
+  },
   "errors": {
     "envelope": {
       "INTERNAL_ERROR": "Algo falló de nuestro lado. Inténtelo de nuevo.",
@@ -318,7 +358,8 @@
       "REVERSAL_WINDOW_CLOSED": "El plazo para deshacer esta compra ya terminó. Contacte al organizador para que lo ayude.",
       "SALE_REVERSAL_FAILED": "No pudimos deshacer esta compra. No cambió nada; contacte al organizador con su referencia de confirmación.",
       "REVERSAL_UNRESOLVED": "Estamos revisando con el proveedor de pagos qué pasó con este reembolso. Aquí no cambió nada; contacte al organizador con su referencia de confirmación.",
-      "UNSUBSCRIBE_LINK_INVALID": "Este enlace para cancelar no es válido. Puede desactivar el resumen semanal desde su cuenta."
+      "UNSUBSCRIBE_LINK_INVALID": "Este enlace para cancelar no es válido. Puede desactivar el resumen semanal desde su cuenta.",
+      "CONSENT_CONFIRMATION_LINK_INVALID": "Este enlace de confirmación no es válido. Puede configurar sus preferencias desde su cuenta."
     },
     "field": {
       "REQUIRED": "Campo obligatorio",

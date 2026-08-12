@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
@@ -114,6 +116,41 @@ type BeginCheckoutInput struct {
 	// record no language at all, and that is a different thing from recording
 	// English (see migration 059).
 	Locale string
+	// Consent is what the buyer did with the three consent boxes on the checkout
+	// dialog (#253, parent #249).
+	//
+	// PolicyAcceptance must be present and true or this checkout is refused below
+	// — the required box is not a courtesy of the form — UNLESS this checkout is
+	// a signed-in Customer's own and they have already accepted the current
+	// Policy Version, in which case no such box was drawn and none is owed. The
+	// optional two are recorded as given: ticked, unticked (an explicit No), or
+	// nil for a box this buyer was not shown (#254).
+	//
+	// Every one of them is read only for a box the buyer was actually OWED, which
+	// BeginCheckout recomputes rather than trusting the body about.
+	Consent consent.Answers
+	// SessionCustomerID is the Customer whose own Customer Session this checkout
+	// is running under, and it is set ONLY where Customer.SelfAsserted is: a full
+	// session, presented for the very address being bought under.
+	//
+	// The two travel together because they are one fact — "the person at the
+	// keyboard is provably this Customer" — and the same fact decides both what a
+	// buyer may overwrite on their own profile and which consent boxes they were
+	// owed. A signed-in Customer buying for a friend supplies the friend's
+	// details and the friend's consent: nothing is self-asserted, no id is set,
+	// and the checkout is captured exactly as a guest's is.
+	//
+	// Empty on every guest checkout, on a Confirmation Link session (which proves
+	// nothing about who holds it), and on the box office and import channels,
+	// which never build one of these.
+	SessionCustomerID string
+	// ConsentEvidence is the technical proof of that act: the client IP as
+	// platform.ClientIP derived it, the user agent, and the page it happened on.
+	//
+	// It comes from the REQUEST and never from the body, and the handler is what
+	// enforces that — this service takes what it is given, exactly as it takes
+	// Customer.SelfAsserted.
+	ConsentEvidence consent.Evidence
 }
 
 // BeginCheckoutResult is what the Storefront needs to finish the checkout: our
@@ -137,6 +174,75 @@ type BeginCheckoutResult struct {
 	Currency        string `json:"currency"`
 }
 
+// owedConsentAnswers narrows a checkout body's three answers to the boxes this
+// buyer was actually OWED, and refuses the checkout when the one that gates it
+// was owed and not given.
+//
+// WHO IS OWED WHAT. A guest is owed all three: nothing is known about who typed
+// that address, so the dialog draws every box and every answer counts as given.
+// A signed-in Customer buying under their own address is owed only what the
+// consent module says they have not answered — which is what lets a Customer
+// who accepted the current Policy Version and answered both optional boxes check
+// out with no consent UI at all, exactly as they did before this feature existed
+// (#254, parent spec user story 10).
+//
+// POLICY ACCEPTANCE GATES BEGIN, NOT CONFIRM, and the choice is the whole point
+// of putting it here (#253, parent spec user story 8).
+//
+// Begin is the leg that hands a buyer to a Payment Provider. Refusing at confirm
+// would mean the platform sent somebody's email, name, Tax ID and phone across a
+// third-party boundary — processing them, in the guidance's sense — under a
+// Privacy Policy nobody had accepted, and then declined the purchase after their
+// card had been charged. That is the PAYMENT_APPROVED_WITHOUT_SALE incident,
+// manufactured deliberately, over a checkbox. Nothing about consent may ever be a
+// reason to refuse a Payment the provider has already approved, exactly as the
+// Purchase Limit is checked once and never again (ADR 0025).
+//
+// It is refused in the SERVICE rather than as a handler-level field error,
+// because it is a rule about whether the platform may act at all and not about
+// whether the form is well-formed: a caller that is not the Storefront gets the
+// same refusal, with the same code, from the same place the sign-in door uses
+// (consent.ErrPolicyAcceptanceRequired). A free checkout is gated identically —
+// it settles inside the same request (ADR 0017), and a ticket that costs nothing
+// is still a Customer record created and a receipt emailed.
+//
+// RECOMPUTED, NEVER TRUSTED, which is the sign-in consent step's rule applied at
+// the other capture surface (#251, service.SubmitConsent). The body arrives from
+// a browser that was TOLD which boxes to draw, and this is the server asking the
+// same question again at the moment of the write. An answer for a box this buyer
+// was not owed is DROPPED rather than applied, so no crafted body can churn a
+// standing Marketing or Networking Consent, and no client can manufacture
+// evidence of a box it never showed. What that leaves, when a fully-answered
+// Customer checks out, is three nil answers — and a capture with nothing in it
+// writes no Consent Record at all (repository.ApprovePaymentAndCommitSale):
+// evidence exists where a capture act happened, and no box was shown here.
+func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput) (consent.Answers, error) {
+	// A guest owes every box, without asking anything: there is no Customer this
+	// request has proven itself to be, and the address in the form is a claim.
+	owed := consent.Outstanding{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
+	if in.SessionCustomerID != "" {
+		var err error
+		if owed, err = s.consent.Outstanding(ctx, in.SessionCustomerID); err != nil {
+			return consent.Answers{}, err
+		}
+	}
+
+	var answers consent.Answers
+	if owed.PolicyAcceptance {
+		if in.Consent.PolicyAcceptance == nil || !*in.Consent.PolicyAcceptance {
+			return consent.Answers{}, consent.ErrPolicyAcceptanceRequired()
+		}
+		answers.PolicyAcceptance = in.Consent.PolicyAcceptance
+	}
+	if owed.MarketingConsent {
+		answers.MarketingConsent = in.Consent.MarketingConsent
+	}
+	if owed.NetworkingConsent {
+		answers.NetworkingConsent = in.Consent.NetworkingConsent
+	}
+	return answers, nil
+}
+
 // BeginCheckout starts an online checkout: it validates the Event is published
 // and the requested Ticket Types exist with capacity to spare, snapshots the
 // current unit prices into a pending Payment, asks the Payment Provider to
@@ -148,6 +254,19 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	if err := sales.RequireTaxID("online", in.Customer.TaxID); err != nil {
 		return nil, err
 	}
+
+	// Wired at construction; nil would mean a deployment that can capture answers
+	// and cannot record them. Refused rather than logged: a sale recorded without
+	// its evidence is worse than a sale not made. Checked before the gate below,
+	// which now needs it to ask what this buyer was owed.
+	if s.consent == nil {
+		return nil, fmt.Errorf("sales: no consent capturer wired; refusing to sell without an evidence log")
+	}
+	answers, err := s.owedConsentAnswers(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	in.Consent = answers
 	orgSlug := strings.ToLower(strings.TrimSpace(in.OrganizationSlug))
 	eventSlug := strings.ToLower(strings.TrimSpace(in.EventSlug))
 
@@ -301,7 +420,12 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		AmountCents:         amountCents,
 		Customer:            customer,
 		Lines:               paymentLines,
-		Now:                 now,
+		// Held, not recorded: the Consent Record is written when the sale commits,
+		// so an abandoned or declined Payment leaves no evidence — the same rule
+		// that leaves it no Customer (migration 064, ADR 0035).
+		Consent:         in.Consent,
+		ConsentEvidence: in.ConsentEvidence,
+		Now:             now,
 	}); err != nil {
 		return nil, err
 	}
@@ -542,6 +666,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		ConfirmationRef: ref,
 		Now:             now,
 		UpsertCustomer:  s.customers.UpsertForSale,
+		CaptureConsent:  s.captureCheckoutConsent,
 	})
 	if err != nil {
 		// Nothing was collected, so there is no incident here — only a checkout
@@ -584,6 +709,22 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 	}, nil
 }
 
+// captureCheckoutConsent is the sale-commit spine's consent seam, bound to the
+// consent service (#253).
+//
+// It is a method on the service rather than a closure at each call site so that
+// both settlements — the provider confirm and the free checkout, which are the
+// two places an Online Sale is recorded — reach the same write path with no
+// chance of one being wired and the other forgotten. It adds nothing of its own:
+// the sales module states what happened and discards the receipt, because what
+// the answers MADE TRUE is the consent module's finding and nothing here has a
+// use for it. The Sale Confirmation's own line about a Pending Confirmation is
+// #255's, read from state at send time.
+func (s *Service) captureCheckoutConsent(ctx context.Context, tx *sql.Tx, capture consent.Capture) error {
+	_, err := s.consent.CaptureInTx(ctx, tx, capture)
+	return err
+}
+
 // sendSaleConfirmation emails the receipt for a Ticket Sale that has just been
 // committed, and is deliberately the only place either settlement does it.
 //
@@ -604,9 +745,52 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		AmountCents:      sale.AmountCents,
 		Currency:         event.Currency,
 		ConfirmationLink: s.confirmationLink(sale.ID, event.End()),
-		TaxID:            sale.CustomerTaxID,
-		Locale:           s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
+		// Read from STATE, here, after the commit — which is the only place it
+		// could be read. #253's capture discards its receipt deliberately (the
+		// sales module states what happened and has no use for what it made true),
+		// and the transaction that wrote the pending has to have committed before
+		// anything outside it can observe one anyway.
+		ConsentConfirmationLink: s.consentConfirmationLink(ctx, sale.CustomerID),
+		TaxID:                   sale.CustomerTaxID,
+		Locale:                  s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
 	})
+}
+
+// consentConfirmationLink is the link the receipt carries when this buyer's
+// address has an optional consent waiting to be confirmed, and "" when it does
+// not — which is the great majority of receipts, and every receipt this platform
+// sent before #255.
+//
+// IT IS ASKED ONLY BY THE ONLINE CHECKOUT, which is the only channel that
+// captures consent at all. A box office sale and a Sale Import attest nothing on
+// anybody's behalf (#249), so their receipts do not carry an offer to confirm
+// something their buyer was never asked — even where that person happens to have
+// a pending from some other checkout. Being prompted is the Storefront's job,
+// and it happens at their next capture moment or on the receipt of the sale that
+// actually asked.
+//
+// It degrades to "" on failure rather than propagating, exactly as
+// confirmationLink does and for the same reason: the Ticket Sale is committed by
+// the time this runs, and a receipt without a consent line is worth immeasurably
+// more to the buyer than no receipt. The consequence is bounded — the Pending
+// Confirmation stays pending, which sends nothing and is the safe direction —
+// and it is re-offered at the owner's next capture moment (ADR 0035).
+//
+// A failure IS logged, unlike a Confirmation Link that could not be signed,
+// because this one reads the database: an unsigned link means a misconfigured
+// deployment that fails loudly elsewhere, while a persistent failure here would
+// be a feature that had quietly stopped working.
+func (s *Service) consentConfirmationLink(ctx context.Context, customerID string) string {
+	if customerID == "" {
+		return ""
+	}
+	link, err := s.customers.ConsentConfirmationLinkURL(ctx, customerID)
+	if err != nil {
+		s.logger.Warn("could not mint the consent confirmation link for a Sale Confirmation; the receipt goes out without it and the consent stays pending",
+			"customer_id", customerID, "error", err)
+		return ""
+	}
+	return link
 }
 
 // ConfirmCheckoutResult is the settled outcome of a Payment: approved with the
@@ -682,6 +866,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		ConfirmationRef:       ref,
 		Now:                   s.now(),
 		UpsertCustomer:        s.customers.UpsertForSale,
+		CaptureConsent:        s.captureCheckoutConsent,
 	})
 	if err != nil {
 		// The provider has the money and the sale could not be recorded — the one

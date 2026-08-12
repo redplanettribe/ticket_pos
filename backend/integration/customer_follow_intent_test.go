@@ -34,9 +34,10 @@ func followIntentFor(slug string) string { return "organization:" + slug }
 // rode along became. `follow` is null whenever no intent was carried or the
 // subject it named no longer exists.
 type verifyResponseWithFollow struct {
-	Session   customerSessionView `json:"session"`
-	SessionID string              `json:"session_id"`
-	Follow    *followView         `json:"follow"`
+	Session         *customerSessionView    `json:"session"`
+	SessionID       string                  `json:"session_id"`
+	Follow          *followView             `json:"follow"`
+	ConsentRequired *consentRequiredOutcome `json:"consent_required"`
 }
 
 // customerSignInWithFollowIntent completes a passcode sign-in carrying a Follow
@@ -59,11 +60,19 @@ func customerSignInWithFollowIntent(t *testing.T, env *testEnv, email, intent st
 func signInWithFollowIntentOK(t *testing.T, env *testEnv, email, intent string) verifyResponseWithFollow {
 	t.Helper()
 	resp, body := customerSignInWithFollowIntent(t, env, email, intent)
-	return decodeVerifyWithFollow(t, resp, body)
+	return decodeVerifyWithFollow(t, env, resp, body, intent)
 }
 
-// decodeVerifyWithFollow insists a sign-in worked and hands back its answer.
-func decodeVerifyWithFollow(t *testing.T, resp *http.Response, body envelope) verifyResponseWithFollow {
+// decodeVerifyWithFollow insists a sign-in worked and hands back its answer —
+// carrying the intent across the consent step when the sign-in was held for one.
+//
+// THE INTENT RIDES THE REQUEST THAT PRODUCES THE SESSION, and since #251 that
+// request may be the consent submission rather than the verify. The security
+// property is unchanged and is the reason the intent is relayed rather than
+// remembered server-side: a Follow is written against the session the platform
+// just minted, and neither request can name an address at all. A visitor who
+// pressed Follow and was then stopped for consent must not lose it.
+func decodeVerifyWithFollow(t *testing.T, env *testEnv, resp *http.Response, body envelope, intent string) verifyResponseWithFollow {
 	t.Helper()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("verify status=%d error=%+v", resp.StatusCode, body.Error)
@@ -74,6 +83,21 @@ func decodeVerifyWithFollow(t *testing.T, resp *http.Response, body envelope) ve
 	var data verifyResponseWithFollow
 	if err := json.Unmarshal(body.Data, &data); err != nil {
 		t.Fatalf("decode verify data: %v", err)
+	}
+
+	if data.SessionID == "" {
+		if data.ConsentRequired == nil {
+			t.Fatal("expected a Customer Session token or a consent step")
+		}
+		answers := consentAnswers(data.ConsentRequired.PendingConsentToken, true, true, true)
+		answers["follow"] = intent
+		resp, body = env.post(t, customerConsentPath, answers, consentEvidenceHeaders())
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("consent submission status=%d error=%+v", resp.StatusCode, body.Error)
+		}
+		if err := json.Unmarshal(body.Data, &data); err != nil {
+			t.Fatalf("decode consent submission data: %v", err)
+		}
 	}
 	if data.SessionID == "" {
 		t.Fatal("expected a Customer Session token")
@@ -122,7 +146,7 @@ func TestFollowIntentThroughGoogleSignInCreatesTheFollow(t *testing.T) {
 		"redirect_uri":  googleRedirectURI,
 		"follow":        followIntentFor("test-org"),
 	}, nil)
-	data := decodeVerifyWithFollow(t, resp, body)
+	data := decodeVerifyWithFollow(t, env, resp, body, followIntentFor("test-org"))
 
 	if data.Follow == nil || data.Follow.Organization == nil || data.Follow.Organization.Slug != "test-org" {
 		t.Fatalf("follow = %+v, want test-org", data.Follow)

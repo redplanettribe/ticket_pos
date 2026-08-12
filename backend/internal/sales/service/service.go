@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	"github.com/peter/ticket_pos/backend/internal/sales/exportfile"
@@ -117,6 +118,55 @@ type CustomerService interface {
 	// when it has no schedule; how long the link then lives is the customers
 	// module's decision, not this one's.
 	ConfirmationLinkURL(ticketSaleID string, eventEnd time.Time) (string, error)
+	// ConsentConfirmationLinkURL mints the link that resolves whatever optional
+	// consents this Customer has sitting in Pending Confirmation, and returns ""
+	// when they have none (#255, ADR 0035).
+	//
+	// THE EMPTY ANSWER IS THE INTERESTING ONE, because it is what keeps every
+	// other receipt exactly as it was. This module asks the question for every
+	// Online Sale it confirms and gets "" for the great majority — the signed-in
+	// buyer, the guest who ticked nothing — and renders no line. Whether anything
+	// pends, and what a link may therefore be minted for, is decided entirely on
+	// the far side: sales knows that a receipt may carry a link, and nothing at
+	// all about Pending Confirmation.
+	//
+	// It takes a CUSTOMER and not a sale, unlike the Confirmation Link above,
+	// which is the honest shape of the thing. A Pending Confirmation is a fact
+	// about an address rather than about a purchase — the same one may have been
+	// left by an earlier checkout — so a per-sale answer would be a fiction, and a
+	// receipt offering to confirm one pending while an identical one stood beside
+	// it would resolve half of somebody's inbox.
+	ConsentConfirmationLinkURL(ctx context.Context, customerID string) (string, error)
+}
+
+// ConsentCapturer is what sales needs from consent: the one write path every
+// capture surface on the platform goes through, offered inside the transaction
+// that is committing the sale (#253, parent #249).
+//
+// The seam is one method wide, and everything interesting is on the far side of
+// it. Sales does not decide whether a tick becomes `granted` or Pending
+// Confirmation, does not resolve the Policy Version, does not know that
+// `digest_enabled` moves in lockstep with Marketing Consent (ADR 0034). It
+// states what happened at its checkout — who, which address, which boxes,
+// whether the email was proven, and the circumstances — and the consent module
+// decides what that makes true. That is what keeps ADR 0035's rule a property of
+// the platform rather than of two code paths that must be remembered together.
+//
+// Implemented by the consent service, so the cross-module call goes through a
+// service exactly as CustomerService and AffiliateLinkResolver do.
+//
+// It gained a READ in #254, and the read is the same seam's other half: which
+// boxes this buyer is still owed. Sales asks it for exactly one purpose — to
+// know which of the answers in a checkout body were actually asked for — and it
+// still decides nothing. Whether a Policy Version bump has re-gated somebody,
+// whether a Pending Confirmation counts as an answer: all of that stays behind
+// the interface, in the module that owns the question.
+type ConsentCapturer interface {
+	CaptureInTx(ctx context.Context, tx *sql.Tx, capture consent.Capture) (consent.Receipt, error)
+	// Outstanding reports which boxes a Customer must still be shown. A checkout
+	// asks it only about the Customer whose own Customer Session the request
+	// carries: it is a fact about a known Customer, and nobody else may learn it.
+	Outstanding(ctx context.Context, customerID string) (consent.Outstanding, error)
 }
 
 // AffiliateLinkResolver is what sales needs from Affiliate Links: given the
@@ -174,8 +224,14 @@ type Service struct {
 	// unchanged — which is exactly what the channels that never carry a code do
 	// anyway.
 	affiliates AffiliateLinkResolver
-	logger     platform.Logger
-	now        func() time.Time
+	// consent records what the buyer authorized at checkout, inside the sale's own
+	// transaction. Required, and refused loudly when absent: a checkout that
+	// captured answers and then quietly dropped them would leave the platform
+	// processing personal data it cannot evidence, which is the one failure this
+	// whole feature exists to prevent.
+	consent ConsentCapturer
+	logger  platform.Logger
+	now     func() time.Time
 	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
 	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
 	drainBatch int
@@ -188,12 +244,17 @@ type Service struct {
 // Sale, on every Sales Channel, creates or reuses a Customer. The Payment
 // Provider is equally required: the online channel cannot sell without one, and
 // which implementation arrives here is server wiring's decision (ADR 0009,
-// ADR 0012).
-func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender, provider platform.PaymentProvider, storefrontBaseURL string, fees sales.FeeRates, logger platform.Logger) *Service {
+// ADR 0012). So is the consent capturer: an Online Sale cannot complete without
+// Policy Acceptance and cannot record one without somewhere to write the
+// evidence, so it is a constructor argument rather than a knot tied afterwards —
+// a deployment that forgot it would be a deployment selling tickets without a
+// Consent Record, and that must not be reachable by omission.
+func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender, provider platform.PaymentProvider, storefrontBaseURL string, fees sales.FeeRates, consentCapturer ConsentCapturer, logger platform.Logger) *Service {
 	return &Service{
 		repo:              repo,
 		customers:         customers,
 		email:             email,
+		consent:           consentCapturer,
 		provider:          provider,
 		storefrontBaseURL: storefrontBaseURL,
 		fees:              fees,

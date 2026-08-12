@@ -404,14 +404,26 @@ func (s *Service) followTarget(ctx context.Context, token, slug string) (*reposi
 // standing statement of their interests, and a forwarded confirmation is not
 // authority to read it.
 func (s *Service) fullSessionCustomer(ctx context.Context, token string) (*repository.Customer, error) {
+	_, customer, err := s.fullSession(ctx, token)
+	return customer, err
+}
+
+// fullSession is fullSessionCustomer for a caller that also needs the SESSION —
+// one caller today, the Customer Area's Digest toggle, whose Consent Record has
+// to name the session the act was made under as its evidence (#256).
+//
+// Split out rather than widened in place so the gate itself stays one piece of
+// code: every caller here is refused by the same three lines, and a second copy
+// of "reject a Confirmation Link session" is how one surface eventually forgets.
+func (s *Service) fullSession(ctx context.Context, token string) (*repository.CustomerSession, *repository.Customer, error) {
 	session, customer, err := s.authenticate(ctx, token)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if session.TicketSaleID.Valid {
-		return nil, customers.ErrFollowRequiresFullSession()
+		return nil, nil, customers.ErrFollowRequiresFullSession()
 	}
-	return customer, nil
+	return session, customer, nil
 }
 
 // tagFollowTarget authenticates the caller and resolves the canonical key they

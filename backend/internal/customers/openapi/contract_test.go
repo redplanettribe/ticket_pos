@@ -38,6 +38,18 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"/api/v1/customer/auth/otp/verify",
 		"/api/v1/customer/auth/google/verify",
 		"/api/v1/customer/auth/confirmation-link",
+		// The consent submission (#251, parent #249): the only route that turns a
+		// held sign-in into a Customer Session. It is asserted here because both
+		// verify routes above can now answer with a consent-required outcome, and
+		// an outcome with no documented endpoint to resolve it is a sign-in a
+		// client cannot finish.
+		"/api/v1/customer/auth/consent",
+		// The confirmation link's endpoint (#255, parent #249), asserted for the
+		// same reason: every Sale Confirmation for a checkout that pended
+		// something now carries a link only this route can resolve, and those
+		// mails live in inboxes for years. A path that vanished from the spec
+		// would be a Pending Confirmation nobody can ever clear.
+		"/api/v1/customer/consent/confirm",
 		"/api/v1/customer/auth/session",
 		"/api/v1/customer/auth/logout",
 		"/api/v1/customer/ticket-sales",
@@ -77,6 +89,7 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"openapi.EnvelopeCustomerFollows",
 		"openapi.EnvelopeCustomerFollow",
 		"openapi.EnvelopeCustomerFollowSuggestions",
+		"openapi.EnvelopeCustomerConsentConfirmation",
 	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Fatalf("missing typed envelope schema %s", schema)

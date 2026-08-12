@@ -13,13 +13,20 @@ import {
   clearedGoogleStateCookieOptions,
   decodePendingSignIn,
   googleSignInConfig,
+  signInConsentPath,
   signInFailurePath,
   statesMatch,
 } from "@/lib/google-signin";
 import { localizedPath, type AppLocale } from "@/lib/locale";
+import {
+  PENDING_CONSENT_COOKIE,
+  encodePendingConsent,
+  pendingConsentCookieOptions,
+} from "@/lib/pending-consent";
 import { redirectLocale } from "@/lib/redirect-locale";
 
-// Reads one cookie and writes two. Never cached, never prerendered.
+// Reads one cookie and writes two: the spent state cookie, plus either the
+// Customer Session or a held sign-in. Never cached, never prerendered.
 export const dynamic = "force-dynamic";
 
 /**
@@ -38,6 +45,16 @@ export const dynamic = "force-dynamic";
  * refused all look identical from the outside, which is what keeps this path
  * from becoming the "is this address known?" oracle the passcode request
  * endpoint refuses to be (PRD decision 9).
+ *
+ * A sign-in HELD FOR CONSENT is not one of those failures and does not land
+ * there (#252). It proved the address and withheld only the session, so it goes
+ * to the sign-in page's consent step with the pending-consent token in its own
+ * short-lived httpOnly cookie — the same step, the same submission endpoint and
+ * the same component state a passcode's consent-required outcome produces. That
+ * is what stops the two doors diverging on this Storefront the way the API
+ * already refuses to let them diverge (ADR 0011): it would otherwise be possible
+ * to be turned away from Google and told to try a passcode you had already
+ * earned the right not to need.
  */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -109,6 +126,30 @@ export async function GET(request: Request) {
     );
 
     const result = envelope.data;
+    // The consent step (#251) comes back here too — the gate is at the
+    // convergence both doors reach, so a Google Sign-In by a Customer who has
+    // not accepted the current Policy Version mints no session either.
+    //
+    // NO SESSION COOKIE IS WRITTEN, exactly as the passcode route writes none:
+    // there is no session to take custody of, and writing one here is the bug
+    // the gate exists to prevent. What is written instead is the transport — the
+    // pending-consent token in its own short-lived httpOnly cookie — and the
+    // visitor is sent to the sign-in page's consent step rather than to its
+    // generic failure (#252). This is a SUCCESS: the address was proven, and
+    // saying otherwise would send somebody back through a passcode they have
+    // already earned the right not to need (ADR 0011).
+    //
+    // Abandoning from there still leaves them signed out, which is the whole
+    // point: the cookie buys a consent submission and nothing else.
+    if (result?.consent_required) {
+      store.set(
+        PENDING_CONSENT_COOKIE,
+        encodePendingConsent(result.consent_required),
+        pendingConsentCookieOptions(),
+      );
+      return redirectTo(signInConsentPath(destination, followIntent));
+    }
+
     if (!result?.session_id) {
       return redirectTo(signInFailurePath(destination, followIntent));
     }

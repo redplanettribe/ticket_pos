@@ -30,7 +30,14 @@ import (
 // the identity key of every existing row.
 // locale is the Locale of the Storefront the sign-in started on, remembered as
 // the Customer's Mail Locale exactly as the passcode path remembers it.
-func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, locale string) (*CustomerSessionView, string, error) {
+//
+// The consent gate applies here identically, and by construction rather than by
+// repetition: this function does not know about it at all. It converges on
+// signInProvenEmail, which is where the gate is, so a Google Sign-In by a
+// Customer with consent outstanding returns the same consent-required outcome
+// a passcode does and mints the same nothing. (#252 owns Google's own tests and
+// the Storefront work that carries the outcome through the callback.)
+func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, locale string) (*SignInOutcome, error) {
 	identity, err := s.google.VerifiedIdentity(ctx, googleauth.Exchange{
 		Code:         code,
 		CodeVerifier: codeVerifier,
@@ -39,7 +46,7 @@ func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, re
 	if err != nil {
 		// One generic error, whatever went wrong, and nothing written: a refused
 		// exchange leaves no Customer and no Customer Session behind.
-		return nil, "", err
+		return nil, err
 	}
 
 	// The picture URL rides along to seed a Customer Avatar into an empty slot

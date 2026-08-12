@@ -16,19 +16,27 @@ import {
   DialogTitle,
   FormField,
   Input,
+  Markdown,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
+import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { useFormatLocale } from "@/i18n/format-locale";
-import type { BeginCheckoutResult, PublicTicketType } from "@/lib/api";
+import { Link } from "@/i18n/navigation";
+import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType } from "@/lib/api";
 import {
   apiErrorMessage,
   fieldCodeMessage,
   fieldErrorMessages,
   type ErrorCatalog,
 } from "@/lib/api-errors";
+import {
+  anyConsentBox,
+  checkoutConsentBoxes,
+  type ConsentBoxes,
+} from "@/lib/checkout-consent";
 import {
   allowanceSpent,
   checkoutDestination,
@@ -48,6 +56,7 @@ import {
   splitPhone,
   validatePhone,
 } from "@/lib/phone";
+import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
 import {
   TAX_ID_TYPES,
   TAX_ID_TYPE_LABELS,
@@ -72,6 +81,11 @@ import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion"
  * person themselves put on their profile — anything else would be the static
  * cardholder data PayPhone's rules prohibit.
  *
+ * Below the fields sit the Short Notice and the three consent boxes, unticked,
+ * with the required one gating the pay button (#253, parent #249). Their words
+ * come from the API rather than from the message catalogs, because a Policy
+ * Version is the fingerprint of exactly the text a person was shown (ADR 0036).
+ *
  * Submitting asks this app's own /api/checkout route to begin the Payment
  * (the browser never addresses the Go API, ADR 0008) and then performs a
  * full-page navigation to the provider's payment URL: the payment page must be
@@ -91,6 +105,14 @@ type SessionData = {
   tax_id_number: string | null;
   /** The stored phone in canonical E.164 form, null when the Customer has none. */
   phone: string | null;
+  /**
+   * Which consent boxes this Customer still owes an answer to (#254).
+   *
+   * It rides on the same read as the prefill above, deliberately: the boxes to
+   * draw and the email to draw them beside are one snapshot of one session, and
+   * a second read could tell this dialog it is serving two different people.
+   */
+  consent_boxes: ConsentBoxes;
 };
 
 type TicketSelectionProps = {
@@ -98,6 +120,23 @@ type TicketSelectionProps = {
   eventSlug: string;
   eventName: string;
   ticketTypes: PublicTicketType[];
+  /**
+   * The current Policy Version's Short Notice and checkbox labels, as the API
+   * serves them — null when it could not be reached (#253).
+   *
+   * THE WORDS OF THE NOTICE AND THE LABELS ARE NOT IN THE MESSAGE CATALOGS.
+   * They are evidence: the Policy Version records the SHA-256 of exactly these
+   * strings, so what a buyer is shown here is byte-for-byte what the platform
+   * will later claim they accepted (ADR 0036). The section's own chrome — the
+   * summary line that opens the notice, the word "Optional", the link's words —
+   * is ordinary copy and lives in the catalogs.
+   *
+   * Null hides the whole checkout form. A dialog that cannot show what is being
+   * accepted must not collect an acceptance of it, and the API refuses such a
+   * checkout anyway — a form that led somewhere refused would only waste the
+   * buyer's typing.
+   */
+  policy: PrivacyPolicy | null;
   /**
    * Whether the quoted prices carry the platform's service fee, which is the
    * only thing that decides the muted note below. Prices themselves are always
@@ -176,6 +215,7 @@ export function TicketSelection({
   ticketTypes,
   priceIncludesFee,
   timezone,
+  policy,
 }: TicketSelectionProps) {
   // next/navigation's router, deliberately: the only thing asked of it here is
   // refresh(), which has no address to localize.
@@ -213,12 +253,40 @@ export function TicketSelection({
   // earlier, on their profile — and an untouched field submits nothing at all.
   const [phoneDiallingCode, setPhoneDiallingCode] = useState(ECUADOR_DIALLING_CODE);
   const [phoneNationalNumber, setPhoneNationalNumber] = useState("");
+  // The three consent boxes, all starting unticked and never pre-ticked from
+  // anything (parent #249): consent has to be something the person actively
+  // gave, so there is no prefill here even for a signed-in Customer whose
+  // standing answer this app could read. What is stored decides whether to ASK
+  // (#254), never what to show as already agreed.
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
+  const [networkingConsent, setNetworkingConsent] = useState(false);
+  // Who the session read said is buying, and what they still owe (#254). Null
+  // until that read has come back AND for every visitor it comes back empty for,
+  // which are the same thing as far as the boxes are concerned: a guest.
+  const [consentSession, setConsentSession] = useState<{
+    email: string;
+    consent_boxes: ConsentBoxes;
+  } | null>(null);
+  // Whether the read has settled at all, which is a different question. Before
+  // it has, this dialog does not yet know whether it is serving a guest or a
+  // Customer who has answered everything — and the two get opposite consent UI,
+  // so it draws neither rather than drawing all three boxes and pulling them
+  // away a moment later.
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<CheckoutError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const prefillAttempted = useRef(false);
   const taxIdTouched = useRef(false);
   const phoneTouched = useRef(false);
+
+  // Which boxes this dialog draws, recomputed on every render because one of its
+  // inputs is the email field: a signed-in Customer who types a friend's address
+  // is checking out as a guest for somebody else, and every box comes back the
+  // moment the two diverge (lib/checkout-consent.ts).
+  const consentBoxes = checkoutConsentBoxes(consentSession, email);
+  const showConsent = anyConsentBox(consentBoxes);
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -250,6 +318,11 @@ export function TicketSelection({
       const envelope = (await response.json()) as Envelope<SessionData>;
       if (!envelope.data) return;
       const session = envelope.data;
+      // The consent boxes come off the SAME response as the fields below, which
+      // is the whole reason they ride on this endpoint: the dialog cannot end up
+      // prefilled with one person's email while drawing boxes computed for
+      // another (#254).
+      setConsentSession({ email: session.email, consent_boxes: session.consent_boxes });
       setEmail((current) => current || session.email);
       setFirstName((current) => current || session.first_name);
       setLastName((current) => current || session.last_name);
@@ -290,6 +363,11 @@ export function TicketSelection({
       }
     } catch {
       // Prefill is a convenience; its failure must never block a guest.
+    } finally {
+      // Settled either way — signed in, signed out, or unreachable. A read that
+      // failed leaves consentSession null, so the dialog falls back to showing
+      // every box: the answer the API accepts from anybody.
+      setSessionChecked(true);
     }
   }
 
@@ -356,6 +434,17 @@ export function TicketSelection({
           // Prepare payload, so a skipped field reaches PayPhone as an absence
           // rather than as a value nobody entered.
           ...(canonicalPhone ? { customer_phone: canonicalPhone } : {}),
+          // The consent answers, as the buyer left the boxes THAT WERE DRAWN.
+          // A box that was shown and left unticked is an explicit No and is
+          // recorded as one (ADR 0034); a box that was never drawn is omitted
+          // entirely, all the way down to a NULL in the evidence, because "not
+          // asked" is not a refusal (#254). The required one is sent as it
+          // stands rather than assumed — the API refuses the checkout without it
+          // from anybody who is still owed it, and the disabled button below is
+          // the courtesy, not the rule.
+          ...(consentBoxes.policy_acceptance ? { policy_acceptance: policyAccepted } : {}),
+          ...(consentBoxes.marketing_consent ? { marketing_consent: marketingConsent } : {}),
+          ...(consentBoxes.networking_consent ? { networking_consent: networkingConsent } : {}),
           lines: selectionLines(quantities),
           // The language this page is being read in, stated rather than left to
           // be inferred. It is written into the checkout context cookie so the
@@ -425,6 +514,7 @@ export function TicketSelection({
   //
   const purchaseLimitExceeded = error?.code === "PURCHASE_LIMIT_EXCEEDED";
   const cartRefused = capacityExceeded || purchaseLimitExceeded;
+
 
   // Neither the title nor the body claims the Customer already HOLDS any of
   // these tickets, though this refusal usually means they do. The API refuses
@@ -621,6 +711,20 @@ export function TicketSelection({
                 {t("backToSelection")}
               </Button>
             </DialogFooter>
+          ) : !policy ? (
+            /*
+              No notice, no form. The API could not be reached for the current
+              Policy Version, so this dialog cannot show what is being accepted
+              — and a checkout that collected an acceptance of nothing would be
+              worse than an honest failure. It is also what the API would do
+              anyway: it refuses a checkout without Policy Acceptance, and it is
+              the same read that would have supplied the words. The Privacy
+              Policy page 404s in the same situation for the same reason
+              (ADR 0036).
+            */
+            <Alert variant="destructive">
+              <AlertDescription>{t("consent.unavailable")}</AlertDescription>
+            </Alert>
           ) : (
             <form className="space-y-4" onSubmit={handleSubmit} noValidate>
               <FormField
@@ -772,7 +876,94 @@ export function TicketSelection({
                   />
                 </FormField>
               </div>
-              <Button type="submit" className="h-11 w-full" disabled={submitting} aria-busy={submitting}>
+              {/*
+                The consent section: the Short Notice and the three boxes, in
+                the dialog the purchase happens in, because the guidance
+                requires the information to be present AT the moment of capture
+                (parent #249, user story 7).
+
+                The notice is COLLAPSED by default and the summary line says
+                what it is. It is a whole privacy notice sitting on a form whose
+                job is to sell a ticket, and rendered open it would be the
+                largest thing in the dialog by some margin — pushing the boxes
+                and the pay button below the fold on a phone, which is where
+                this checkout mostly happens. Collapsed, it is one line the
+                buyer can open in place, and the full policy is a link away.
+                Nothing is hidden that has to be read: the checkbox labels are
+                always visible, and each says what it authorizes.
+              */}
+              {sessionChecked && showConsent ? (
+                <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
+                  <details className="text-sm">
+                    <summary className="cursor-pointer font-medium">{t("consent.notice")}</summary>
+                    <Markdown className="mt-2 text-sm [&>p]:mt-2 [&>p]:first:mt-0">
+                      {policy.short_notice}
+                    </Markdown>
+                  </details>
+                  <p className="text-sm">
+                    <Link
+                      href={PRIVACY_POLICY_PATH}
+                      target="_blank"
+                      className="font-medium underline underline-offset-4"
+                    >
+                      {t("consent.readPolicy")}
+                    </Link>
+                  </p>
+                  {consentBoxes.policy_acceptance ? (
+                    <ConsentCheckbox
+                      id="consent-policy-acceptance"
+                      checked={policyAccepted}
+                      onChange={setPolicyAccepted}
+                      label={policy.consent_labels.policy_acceptance}
+                      optionalLabel={null}
+                      className="bg-background"
+                    />
+                  ) : null}
+                  {consentBoxes.marketing_consent ? (
+                    <ConsentCheckbox
+                      id="consent-marketing"
+                      checked={marketingConsent}
+                      onChange={setMarketingConsent}
+                      label={policy.consent_labels.marketing_consent}
+                      optionalLabel={t("consent.optional")}
+                      className="bg-background"
+                    />
+                  ) : null}
+                  {consentBoxes.networking_consent ? (
+                    <ConsentCheckbox
+                      id="consent-networking"
+                      checked={networkingConsent}
+                      onChange={setNetworkingConsent}
+                      label={policy.consent_labels.networking_consent}
+                      optionalLabel={t("consent.optional")}
+                      className="bg-background"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              <Button
+                type="submit"
+                className="h-11 w-full"
+                // The required box gates the pay action, and only the required
+                // one: declining the optional two costs nothing (parent #249,
+                // user story 9). The API refuses the same checkout on its own
+                // account, so this is what the buyer sees rather than what makes
+                // it true.
+                //
+                // It gates only where it was DRAWN. A Customer who has already
+                // accepted the current Policy Version is shown no such box and
+                // must not be held behind one they cannot tick — the API owes
+                // them no acceptance either, and would take this checkout.
+                //
+                // Held until the session read settles, because until then this
+                // dialog does not know which of those two people it is serving.
+                // It is the same read the fields above are waiting on, and a
+                // guest's costs no call to the API at all.
+                disabled={
+                  submitting || !sessionChecked || (consentBoxes.policy_acceptance && !policyAccepted)
+                }
+                aria-busy={submitting}
+              >
                 {submitting ? t("submitting") : t("submit")}
               </Button>
             </form>

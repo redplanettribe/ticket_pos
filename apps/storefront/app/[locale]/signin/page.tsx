@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 
 import { StorefrontShell } from "@/components/storefront-shell";
 import { redirect } from "@/i18n/navigation";
 import { localeAlternates } from "@/lib/alternates";
+import { getPrivacyPolicy } from "@/lib/api";
 import { BRAND_NAME } from "@/lib/brand";
 import { getCustomerSession } from "@/lib/customer-session";
 import { safeNext } from "@/lib/destination";
 import { safeFollowIntent } from "@/lib/follow-intent";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
 import { toAppLocale } from "@/lib/locale";
+import { PENDING_CONSENT_COOKIE, decodePendingConsent } from "@/lib/pending-consent";
 import { storefrontBaseUrl } from "@/lib/site";
 import { safePrefillEmail } from "@/lib/signin-prefill";
 
@@ -81,6 +84,17 @@ type SignInPageProps = {
      * Follow this becomes is decided by the session verification mints.
      */
     follow?: string;
+    /**
+     * "pending" when the visitor was just sent here by a Google Sign-In that
+     * the consent gate held (#252).
+     *
+     * A MARKER, never the credential. It says only that this page should look
+     * for a held sign-in; the pending-consent token itself arrives in an
+     * httpOnly cookie, because a credential in an address ends up in history,
+     * in logs and in the `Referer` of the Privacy Policy link the step offers.
+     * Typing this parameter by hand gets the ordinary email step.
+     */
+    consent?: string;
   }>;
 };
 
@@ -92,8 +106,24 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
   const { locale } = await params;
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
-  const { next, expired, link, google, email, follow } = await searchParams;
+  const { next, expired, link, google, email, follow, consent } = await searchParams;
   const destination = safeNext(next);
+  // The held Google Sign-In, if this visitor is coming back from one (#252).
+  //
+  // The cookie is read ONLY when the address says to look for it. That is what
+  // keeps a cookie that outlives its step from ambushing an ordinary visit to
+  // /signin with a consent form: a fresh visit carries no marker and sees the
+  // email step, whatever is still in the jar.
+  //
+  // It is read here rather than fetched by the form because this page is the
+  // only thing that can read it — the cookie is httpOnly, which is the point of
+  // it (ADR 0008, ADR 0010). What the form receives is the same
+  // consent-required outcome the passcode door hands it out of a fetch
+  // response; where it came from is this page's problem and not the step's.
+  const pendingConsent =
+    consent === "pending"
+      ? decodePendingConsent((await cookies()).get(PENDING_CONSENT_COOKIE)?.value)
+      : null;
   // Guarded before it reaches the form or the Google button, and dropped rather
   // than refused when it is not an intent: a junk `follow` on an address anybody
   // can craft must never be the reason somebody cannot sign in. They get the
@@ -144,6 +174,27 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
           // must not silently lose it — it goes into the state cookie the start
           // route mints and comes back out at the callback.
           followIntent={intent}
+          // The consent step a Google Sign-In was held at, or null (#252). The
+          // form starts ON that step when it is set, which is what makes the two
+          // doors reach the same place: from here on the Google visitor is in
+          // the identical component state a passcode visitor's verify put them
+          // in, and finishes through the identical submission.
+          pendingConsent={pendingConsent}
+          // The Short Notice and the three checkbox labels, fetched from the
+          // SAME public endpoint the Privacy Policy page renders (#250, ADR
+          // 0036). One read, one edition: the page a visitor follows the link to
+          // and the notice they accept beside the boxes cannot come from
+          // different editions, because they are literally the same payload.
+          //
+          // Fetched on every render of this page rather than only when a consent
+          // step turns up, because whether one will is not knowable here — it is
+          // disclosed only after a passcode is proved, and asking earlier would
+          // be asking the API about an address nobody has proven (ADR 0035).
+          //
+          // Null when the API cannot be reached, which the form renders as a
+          // consent step it cannot complete rather than as boxes with no notice
+          // beside them: consent to text nobody was shown is not consent.
+          policy={await getPrivacyPolicy(locale)}
           googleSignInHref={
             isGoogleSignInConfigured() ? googleSignInStartPath(destination, intent) : null
           }

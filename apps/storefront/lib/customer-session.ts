@@ -20,6 +20,7 @@
 import { cookies } from "next/headers";
 
 import { APIError, callBackend } from "./api";
+import type { ConsentBoxes } from "./checkout-consent";
 
 /** Name of the httpOnly cookie holding the Customer Session token. */
 export const CUSTOMER_SESSION_COOKIE = "ticket_pos_customer_session";
@@ -108,11 +109,65 @@ export type CustomerSession = {
   avatar_url: string | null;
   verified_at: string | null;
   ticket_sale_id: string | null;
+  /**
+   * Which consent boxes a capture surface must still show this Customer (#254).
+   *
+   * True means OUTSTANDING — not answered, and therefore to be ASKED. It never
+   * means "already agreed": every box is drawn unticked, always, because consent
+   * has to be something the person actively gave.
+   *
+   * It rides on the session read rather than on a read of its own so that the
+   * checkout dialog gets it in the same response as the email and Tax ID it
+   * prefills from: who is buying and what may still be asked of them are one
+   * snapshot of one session, and two reads could disagree. Behind a session it
+   * is no oracle either — it only ever tells a Customer about themselves.
+   *
+   * A Confirmation Link session (`ticket_sale_id` set) reports all three true
+   * whatever is stored, because a forwarded email proves nothing about who is
+   * holding it and the checkout treats such a session as a guest's.
+   */
+  consent_boxes: ConsentBoxes;
 };
 
+/**
+ * What a sign-in door answers with, and it has TWO SHAPES (#251).
+ *
+ * Either the address was proven and the Customer has accepted the Policy
+ * Version in effect — `session` and `session_id` are set — or the address was
+ * proven and they have not, in which case both are null and `consent_required`
+ * carries the pending-consent token and the boxes to show. Proof succeeded
+ * either way: a missing `session_id` here is a consent step, never a failure,
+ * and a route that treats it as one reports a working sign-in as broken.
+ */
 export type CustomerVerifyResult = {
-  session: CustomerSession;
-  session_id: string;
+  session: CustomerSession | null;
+  session_id: string | null;
+  consent_required: ConsentRequired | null;
+};
+
+/**
+ * The consent step: what the Storefront must show before this sign-in can
+ * finish, and the credential that finishes it.
+ *
+ * The token is short-lived and single-use, and it is the only thing this app
+ * ever holds between the passcode and the session. It never reaches page
+ * scripts as a session would — it buys nothing but a consent submission — but
+ * it is handed to the form, because the form is what collects the answers it is
+ * exchanged for.
+ *
+ * `boxes` says which checkboxes to render, and says nothing about what to
+ * pre-tick: every box is drawn UNTICKED, always. A box the API did not ask for
+ * is one this Customer has already answered, and re-showing it would churn a
+ * standing answer.
+ */
+export type ConsentRequired = {
+  pending_consent_token: string;
+  expires_at: string;
+  boxes: {
+    policy_acceptance: boolean;
+    marketing_consent: boolean;
+    networking_consent: boolean;
+  };
 };
 
 /** One Ticket Type and the quantity bought within a Ticket Sale. */

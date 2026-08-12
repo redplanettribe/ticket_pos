@@ -18,6 +18,9 @@ import (
 	cataloghandler "github.com/peter/ticket_pos/backend/internal/catalog/handler"
 	catalogrepo "github.com/peter/ticket_pos/backend/internal/catalog/repository"
 	catalogsvc "github.com/peter/ticket_pos/backend/internal/catalog/service"
+	consenthandler "github.com/peter/ticket_pos/backend/internal/consent/handler"
+	consentrepo "github.com/peter/ticket_pos/backend/internal/consent/repository"
+	consentsvc "github.com/peter/ticket_pos/backend/internal/consent/service"
 	customershandler "github.com/peter/ticket_pos/backend/internal/customers/handler"
 	customersrepo "github.com/peter/ticket_pos/backend/internal/customers/repository"
 	customerssvc "github.com/peter/ticket_pos/backend/internal/customers/service"
@@ -72,6 +75,11 @@ type App struct {
 	DigestRepo    *digestrepo.Repository
 	DigestService *digestsvc.Service
 	DigestHandler *digesthandler.Handler
+	// Consent (#250, parent #249): the Privacy Policy, its Policy Versions, and
+	// — from #251 — the evidence of what each Customer authorized.
+	ConsentRepo    *consentrepo.Repository
+	ConsentService *consentsvc.Service
+	ConsentHandler *consenthandler.Handler
 }
 
 // Option customizes application wiring (tests and local overrides).
@@ -200,11 +208,27 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		platformLogger.Warn("storefront base url: falling back to the development origin (no STOREFRONT_BASE_URL set); Confirmation Links will point at localhost")
 	}
 
+	// Consent (#250, #251, parent #249). It depends on nothing but the database
+	// and the Privacy Policy text embedded in this binary, so it is built FIRST
+	// among the domain modules — before customers, which depends on it. The
+	// direction is the whole design: customers may depend on consent, consent may
+	// never depend on customers, and the module that decides whether a Customer
+	// Session may be minted must not be the one that owns Customer Sessions.
+	consentRepo := consentrepo.New(db)
+	consentService := consentsvc.New(consentRepo, platformLogger)
+	consentHandler := consenthandler.New(consentService)
+	if options.clock != nil {
+		// Consent Records are stamped with the server clock, so the harness's
+		// fixed clock has to reach it like it reaches every other service that
+		// writes a timestamp anybody asserts on.
+		consentService = consentService.WithClock(options.clock)
+	}
+
 	customersRepo := customersrepo.New(db)
 	customersService := customerssvc.New(customersRepo, otpService, platformLogger, customerssvc.ConfirmationLinkConfig{
 		Secret:            confirmationLinkSecret,
 		StorefrontBaseURL: cfg.StorefrontBaseURL,
-	}, storefrontGoogle).WithObjectStorage(objectStorage)
+	}, storefrontGoogle, consentService).WithObjectStorage(objectStorage)
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}
@@ -225,7 +249,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// Undo, the reversal endpoint to decide whether to go ahead (ADR 0018). One
 	// value, handed to both, is what keeps the offer honest.
 	customersService = customersService.WithPaymentReversal(platform.NewPaymentReversal(paymentProvider))
-	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, platformLogger)
+	// Consent is a constructor argument and not a knot tied afterwards (#253): an
+	// Online Sale may not complete without Policy Acceptance, and the evidence of
+	// it is written inside the transaction that records the sale, so a sales
+	// service built without one would be a service that sells tickets and keeps no
+	// Consent Records. It is built above, and the dependency runs one way only —
+	// consent knows nothing of sales.
+	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, consentService, platformLogger)
 	if options.clock != nil {
 		salesService = salesService.WithClock(options.clock)
 	}
@@ -340,6 +370,9 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 		DigestRepo:        digestRepo,
 		DigestService:     digestService,
 		DigestHandler:     digestHandler,
+		ConsentRepo:       consentRepo,
+		ConsentService:    consentService,
+		ConsentHandler:    consentHandler,
 	}, nil
 }
 

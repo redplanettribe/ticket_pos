@@ -1,8 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
-
 import { test, expect } from "@playwright/test";
+
+import { readPasscode } from "./support/passcode";
 
 // The Follow intent through sign-in (#219, parent #215), against the dev stack
 // (`make dev`).
@@ -26,87 +24,6 @@ const ORGANIZATION_NAME = "Demo Venue";
 // The intent as it travels: the same string the API validates. Asserting on it
 // by name is the point of the spec — it is the one thing that has to survive.
 const INTENT = "organization:demo-venue";
-
-/**
- * The dev stack's compose file, found by walking up from wherever this suite was
- * invoked — `pnpm test` from e2e/, `pnpm --filter` from the root, either works.
- *
- * Naming the file rather than relying on the ambient compose project matters:
- * `docker compose` keys a project on its directory, so a suite run from a git
- * worktree would otherwise address a project that does not exist and read no
- * logs at all.
- */
-function findComposeFile(): string | null {
-  let directory = process.cwd();
-  for (let depth = 0; depth < 6; depth += 1) {
-    const candidate = path.join(directory, "docker-compose.yml");
-    if (existsSync(candidate)) return candidate;
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
-  }
-  return null;
-}
-
-/**
- * The API's recent log, from wherever this run's API is writing it.
- *
- * The compose stack is the ordinary case. `E2E_API_LOG_FILE` is the companion to
- * PLAYWRIGHT_BASE_URL and exists for the same case the README already describes:
- * a branch build running on its own ports, whose API is a plain process rather
- * than a container. Without it that configuration could not run this spec at
- * all, since a passcode exists nowhere but in the log of the API that issued it.
- */
-function readApiLog(): string | null {
-  const file = process.env.E2E_API_LOG_FILE?.trim();
-  if (file) {
-    try {
-      return readFileSync(file, "utf8");
-    } catch {
-      return null;
-    }
-  }
-
-  const composeFile = findComposeFile();
-  if (!composeFile) return null;
-  try {
-    return execFileSync(
-      "docker",
-      ["compose", "-f", composeFile, "logs", "--no-log-prefix", "--since", "5m", "backend"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The passcode, read out of the API's own log.
- *
- * `make dev` runs on the logging email sender (no RESEND_API_KEY), which writes
- * one line per passcode: {"msg":"otp sent","email":…,"code":…}. That log is the
- * only place a code exists in a dev stack — the database stores a salted hash —
- * and it is why the checkout spec avoids signing in at all. Reading it here is
- * the smallest thing that lets one browser journey complete a real sign-in.
- *
- * Returns null when the stack cannot be reached that way, which is a real case:
- * PLAYWRIGHT_BASE_URL exists so this suite can be pointed at a build that is not
- * the compose stack, and this journey cannot run against one.
- */
-function readPasscode(email: string): string | null {
-  const logs = readApiLog();
-  if (logs === null) return null;
-
-  // Last match wins: a re-run of this spec issues a second passcode for a new
-  // address, and only the most recent line for THIS address is live.
-  let code: string | null = null;
-  for (const line of logs.split("\n")) {
-    if (!line.includes('"otp sent"') || !line.includes(`"${email}"`)) continue;
-    const match = /"code":"(\d{6})"/.exec(line);
-    if (match) code = match[1];
-  }
-  return code;
-}
 
 test("an anonymous visitor presses Follow, signs in, and lands back Following", async ({
   page,
@@ -145,6 +62,13 @@ test("an anonymous visitor presses Follow, signs in, and lands back Following", 
 
   await page.getByLabel("Passcode").fill(code as string);
   await page.getByRole("button", { name: "Sign in" }).click();
+
+  // The consent step, which a brand-new address always meets (#251). The intent
+  // has to survive it too: the Follow is written against the session, and the
+  // session is now minted by THIS submission rather than by the verify. That is
+  // the whole reason this spec passes through here rather than avoiding it.
+  await page.getByLabel(/I have read and accept the Privacy Policy/).check();
+  await page.getByRole("button", { name: "Agree and sign in" }).click();
 
   // Back where they started, in the language they were reading in.
   await expect(page).toHaveURL(new RegExp(`/${LOCALE}/demo-venue$`));

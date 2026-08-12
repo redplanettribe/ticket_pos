@@ -163,6 +163,60 @@ func ErrUnsubscribeLinkUnavailable() apperror.DomainError {
 	return apperror.New("UNSUBSCRIBE_LINK_UNAVAILABLE", "Unsubscribe links are not available.", nil)
 }
 
+// ErrConsentConfirmationLinkInvalid is returned when a consent confirmation
+// token is malformed, unsigned, signed with the wrong key, tampered with, signed
+// for some other purpose, names an unrecognised scope, or names a Customer who
+// no longer exists (#255, ADR 0035).
+//
+// One code for all of them, exactly as for ErrUnsubscribeLinkInvalid and for the
+// same reason, which is sharper here: this endpoint takes no credential at all,
+// so an error distinguishing "bad signature" from "no such Customer" would be an
+// unauthenticated oracle for whether a Customer id exists.
+//
+// PRESSING A GOOD LINK TWICE IS NOT THIS. A link whose pendings are already
+// resolved succeeds and says nothing was left to confirm — the token is valid,
+// the request is fine, and reporting a stale press as an error would tell
+// somebody their own confirmation had failed when it had already worked.
+//
+// 400 rather than 401: nothing here is a sign-in. This token authenticates
+// nobody and mints nothing; it is a malformed argument to a request that
+// establishes no session, and there is no credential to re-present.
+func ErrConsentConfirmationLinkInvalid() apperror.DomainError {
+	return apperror.New(
+		"CONSENT_CONFIRMATION_LINK_INVALID",
+		"This confirmation link is not valid. You can set your preferences from your account instead.",
+		nil,
+	)
+}
+
+// ErrConsentConfirmationLinkUnavailable is returned when the service holds no
+// signing key and so cannot mint or verify a confirmation link. A deployment
+// fault with ErrUnsubscribeLinkUnavailable's posture: refuse plainly rather than
+// emit or accept an unsigned token, which here would be an unauthenticated way
+// to grant a pending consent for any Customer whose id somebody could guess.
+func ErrConsentConfirmationLinkUnavailable() apperror.DomainError {
+	return apperror.New("CONSENT_CONFIRMATION_LINK_UNAVAILABLE", "Confirmation links are not available.", nil)
+}
+
 func ErrConfirmationLinkUnavailable() apperror.DomainError {
 	return apperror.New("CONFIRMATION_LINK_UNAVAILABLE", "Confirmation links are not available.", nil)
+}
+
+// ErrPendingConsentInvalid is returned when a pending-consent token is unknown,
+// already spent, or past its short expiry (#251).
+//
+// One code and one message for all three causes, in the tradition of
+// ErrConfirmationLinkInvalid above, and for a sharper reason than either: this
+// token stands between Proof of Email Ownership and a Customer Session, so an
+// error that distinguished "never existed" from "already used" would let a
+// caller probe which halves of a sign-in some address has completed — a thinner
+// version of the account-existence oracle the passcode request endpoint refuses
+// to be.
+//
+// 401, like a bad passcode and a bad Confirmation Link: this token is a
+// credential, and failing to present a valid one is a failure to prove
+// something. The recovery is the same as theirs — start the sign-in again — and
+// the message says so rather than describing the token.
+func ErrPendingConsentInvalid() apperror.DomainError {
+	return apperror.New("PENDING_CONSENT_INVALID", "This sign-in has expired. Please sign in again.", nil)
 }

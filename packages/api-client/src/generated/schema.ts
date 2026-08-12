@@ -366,6 +366,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/auth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit sign-in consent
+         * @description Finishes a sign-in that was held for consent: exchanges the short-lived, single-use `pending_consent_token` from a verify response for the Customer Session that verification withheld. Writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized. `policy_acceptance` is required: a submission without it is refused by the API with POLICY_ACCEPTANCE_REQUIRED, not merely disabled in a form. The optional `marketing_consent` and `networking_consent` default to false, and false is an explicit No — it records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034). Answers for boxes the Customer was not shown are ignored: standing optional answers are never churned. The Policy Version is resolved server-side and is never accepted from the request. An optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step leaves no session at all.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Pending consent token and answers */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.consentSubmitBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyOTP"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/auth/google/verify": {
         parameters: {
             query?: never;
@@ -618,7 +680,7 @@ export interface paths {
         };
         /**
          * Get Customer Session
-         * @description Returns which email the caller is signed in as, and extends the sliding session window.
+         * @description Returns which email the caller is signed in as, and extends the sliding session window. consent_boxes reports which consent checkboxes a capture surface must still show this Customer — the checkout dialog reads it here so that who is buying and what may still be asked of them come from one snapshot of one session (#254). A box is true when its answer is outstanding: policy_acceptance when there is no acceptance of the CURRENT Policy Version, and each optional consent when its state is unanswered, with a Pending Confirmation counting as unanswered because somebody else's tick is not the owner's answer (ADR 0035). It never says what to pre-tick; boxes are always drawn unticked. A Confirmation Link session (ticket_sale_id set) reports all three true whatever the stored state says: it is minted from a forwarded email rather than from Proof of Email Ownership, so a capture under it is treated as a guest's on the write side too.
          */
         get: {
             parameters: {
@@ -651,6 +713,59 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/consent/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a pending consent from a Sale Confirmation link
+         * @description Confirms the optional consents (Marketing, Networking) that a guest checkout left in Pending Confirmation, for the Customer named by a signed, non-expiring confirmation token carried in their Sale Confirmation email. Requires no sign-in and accepts no credential: pressing a link sent to that address is itself the proof of ownership the guest's tick lacked (ADR 0035), and a guest buyer may have no account to sign in to. It flips only what the token was minted for AND is still pending, so a press cannot resurrect an answer the owner has since given themselves — a later proven answer outranks an older pending. Idempotent and never an error when there is nothing left to confirm: a second press, or a press against state the owner has already resolved, answers 200 with already_resolved. Granting Marketing Consent turns the weekly Follow Digest on in lockstep (ADR 0034), and every press that changes something writes an immutable Consent Record on the email_confirmation channel. Deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link cannot grant consent nobody gave; a GET is answered 405. A malformed, forged, or wrong-purpose token is CONSENT_CONFIRMATION_LINK_INVALID.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Signed consent confirmation token */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.consentConfirmationBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerConsentConfirmation"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -3025,7 +3140,7 @@ export interface paths {
         put?: never;
         /**
          * Begin an online checkout
-         * @description Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer.
+         * @description Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer. Consent is captured here and refused here: policy_acceptance must be present and true from everybody who is still owed it — every guest, and every signed-in Customer with no acceptance of the current Policy Version — or the checkout is refused with 400 POLICY_ACCEPTANCE_REQUIRED and no Payment is created; the disabled button on the dialog is a courtesy, this is the guarantee. WHICH BOXES A BUYER WAS OWED IS RECOMPUTED HERE and never taken from the body: a guest is owed all three, and a checkout carrying the buyer's own Customer Session for the very address being bought under is owed only what that Customer has not answered (the same set the session read publishes as consent_boxes). An answer for a box that was not owed is DROPPED — so a signed-in Customer who has accepted the current edition and answered both optional boxes checks out with no consent fields at all and writes no Consent Record, and no crafted body can churn a standing Marketing or Networking Consent. It is enforced at BEGIN and never at confirm, so nobody is ever handed to a Payment Provider under a Privacy Policy they have not accepted, and no Payment the provider approved is ever refused over a checkbox. marketing_consent and networking_consent are optional and never blocking: sent true they are a grant, sent false they are an explicit No (which switches the weekly Follow Digest off, ADR 0034), and OMITTED means the box was not shown — which is not a No, and leaves any standing answer untouched. The answers are held on the Payment across the Payment Provider redirect, exactly as the Tax ID, phone and locale are, and the immutable Consent Record plus the consent state are written only when the sale commits: an abandoned, declined or expired Payment records no consent at all, just as it records no Customer. A guest has not proven the address they typed, so an optional tick from one enters Pending Confirmation — recorded as evidence, denied for sending, and never overwriting an answer given under a proven Customer Session (ADR 0035). The technical proof stored with the record (IP, user agent, origin URL) is taken from the request, never from this body. The Policy Version accepted is resolved server-side and is never accepted from a client.
          */
         post: {
             parameters: {
@@ -3128,6 +3243,66 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/privacy-policy/{locale}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current Privacy Policy
+         * @description Serves the Policy Version currently in effect, rendered in the requested Locale: the version label, its effective date, the SHA-256 fingerprint of the edition, the full Privacy Policy (`body_markdown`), the Short Notice shown inline at consent capture moments (`short_notice`), and the three consent checkbox labels (`consent_labels`) — the required Policy Acceptance, the optional Marketing Consent which names the weekly Follow Digest, and the optional Networking Consent which names both audiences. All text is markdown, and all of it is what the fingerprint covers: the hash on the Policy Version is computed over exactly these strings in every published Locale, so a client can prove that what it rendered is what the platform recorded as accepted. Public and unauthenticated. The Locale is a path parameter and is answered strictly — a language the policy is not published in is a 404, never a silent fallback to English.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Locale the policy is read in */
+                    locale: "en" | "es";
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopePrivacyPolicy"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6394,6 +6569,34 @@ export interface components {
              *     purchase — the money is the point of this request and the words are not.
              */
             locale?: string;
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            /**
+             * @description The three consent boxes on the checkout dialog (#253, parent #249), named
+             *     identically to the sign-in consent submission's: one vocabulary for one set
+             *     of answers, so a client that learned the shape on one surface knows it on
+             *     the other.
+             *
+             *     POINTERS, AND THE NIL IS LOAD-BEARING. Absent means THE BOX WAS NOT SHOWN,
+             *     which is a different fact from `false`; false means it was shown and left
+             *     unticked, which is an explicit No and is recorded as `denied` (ADR 0034).
+             *     A guest checkout always shows all three and therefore always sends all
+             *     three; a signed-in Customer is shown only what they have not answered
+             *     (#254), and reading their absent boxes as refusals would turn their
+             *     purchase into a marketing opt-out.
+             *
+             *     PolicyAcceptance is REQUIRED to be present and true of everybody who is
+             *     still owed it — every guest, and every signed-in Customer without an
+             *     acceptance of the current Policy Version. It is not a field error but a
+             *     domain refusal — POLICY_ACCEPTANCE_REQUIRED from the service — because what
+             *     is wrong is not the shape of the request but that the platform may not act
+             *     on it (ADR 0035, consent.ErrPolicyAcceptanceRequired).
+             *
+             *     WHICH BOXES WERE OWED IS THE SERVICE'S FINDING, not this body's assertion:
+             *     an answer for a box the buyer was not owed is dropped rather than applied
+             *     (service.owedConsentAnswers).
+             */
+            policy_acceptance?: boolean;
         };
         "handler.checkoutLineBody": {
             quantity?: number;
@@ -6431,6 +6634,41 @@ export interface components {
              */
             follow?: string;
             token?: string;
+        };
+        "handler.consentConfirmationBody": {
+            token?: string;
+        };
+        "handler.consentSubmitBody": {
+            /**
+             * @description Follow is the Follow intent, relayed here for the same reason it is
+             *     relayed on the verify: this is now the request that produces a session, and
+             *     a Follow is written against the session a sign-in produced and against
+             *     nothing a body could name (#219). A visitor who pressed Follow and was
+             *     then stopped for consent must not silently lose it.
+             */
+            follow?: string;
+            /**
+             * @description MarketingConsent and NetworkingConsent are the optional boxes. ABSENT IS
+             *     FALSE AND FALSE IS AN EXPLICIT NO — an unticked box that was shown is a
+             *     refusal, recorded as `denied`, and for Marketing that turns the Follow
+             *     Digest off (ADR 0034). This is the one place in the API where a missing
+             *     JSON field means something, and it means it because that is what the
+             *     surface means: the boxes are rendered unticked and a person who submits
+             *     without touching them has answered.
+             *
+             *     An answer for a box this Customer was not shown is ignored by the service,
+             *     which recomputes what they were owed rather than trusting this body.
+             */
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            /** @description PendingConsentToken is the credential from the consent-required outcome. */
+            pending_consent_token?: string;
+            /**
+             * @description PolicyAcceptance is the required box. Absent is false, and false is
+             *     refused: the API is the guarantee, the disabled submit button is a
+             *     courtesy.
+             */
+            policy_acceptance?: boolean;
         };
         "handler.coverUploadURLBody": {
             content_type?: string;
@@ -6711,6 +6949,7 @@ export interface components {
             paid_at?: string;
         };
         "openapi.CustomerVerifyOTPData": {
+            consent_required?: components["schemas"]["service.ConsentRequiredView"];
             session?: components["schemas"]["service.CustomerSessionView"];
             session_id?: string;
         };
@@ -6751,6 +6990,11 @@ export interface components {
         };
         "openapi.EnvelopeCustomerAvatarUpload": {
             data?: components["schemas"]["storage.CoverUploadResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerConsentConfirmation": {
+            data?: components["schemas"]["service.ConsentConfirmationView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -6919,6 +7163,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopePrivacyPolicy": {
+            data?: components["schemas"]["service.PolicyView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePublicEventDetail": {
             data?: components["schemas"]["service.PublicEventDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -6998,6 +7247,30 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        /**
+         * @description Locale is the language everything below is written in.
+         * @enum {string}
+         */
+        "platform.Locale": "en" | "es" | "en";
+        /** @description ConsentLabels are the three checkbox labels, markdown. */
+        "policy.ConsentLabels": {
+            /**
+             * @description MarketingConsent is the optional marketing box, and it names the weekly
+             *     Follow Digest out loud because granting it turns the Digest on (ADR 0034).
+             */
+            marketing_consent?: string;
+            /**
+             * @description NetworkingConsent is the optional networking box, and it names both
+             *     audiences — other attendees of the same event, and that event's organizers
+             *     — because those are the two the authorization actually covers.
+             */
+            networking_consent?: string;
+            /**
+             * @description PolicyAcceptance is the required box. Without it no Customer Session is
+             *     established and no Online Sale completes.
+             */
+            policy_acceptance?: string;
+        };
         "service.ActiveMemberView": {
             member_id?: string;
             organization_id?: string;
@@ -7067,6 +7340,52 @@ export interface components {
             /** @description Status is "approved" or "failed". */
             status?: string;
         };
+        /** @description Boxes is what to show. */
+        "service.ConsentBoxesView": {
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            policy_acceptance?: boolean;
+        };
+        "service.ConsentConfirmationView": {
+            /**
+             * @description AlreadyResolved is true when there was nothing left for this link to
+             *     confirm — a second press, or an answer the owner has since given
+             *     themselves. Not an error, and deliberately not distinguished further: the
+             *     page has nothing useful to say about WHICH of those it was, and the person
+             *     can see their own answers in their Customer Area.
+             */
+            already_resolved?: boolean;
+            /**
+             * @description DigestEnabled is the Follow Digest as it now stands, so a person who has
+             *     just confirmed a marketing opt-in is told what they will actually receive
+             *     (ADR 0034 — one switch).
+             */
+            digest_enabled?: boolean;
+            /**
+             * @description MarketingConsent and NetworkingConsent are true where this press flipped
+             *     that box from Pending Confirmation to granted.
+             */
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+        };
+        /**
+         * @description ConsentRequired carries the short-lived, single-use pending-consent token
+         *     and the boxes to show. Null on an ordinary sign-in.
+         */
+        "service.ConsentRequiredView": {
+            boxes?: components["schemas"]["service.ConsentBoxesView"];
+            /**
+             * @description ExpiresAt is when that token stops working, RFC 3339. Published so a client
+             *     can say "start again" rather than discovering it by being refused.
+             */
+            expires_at?: string;
+            /**
+             * @description PendingConsentToken is the single-use, short-lived credential that
+             *     exchanges answers for the session this sign-in did not mint. It is a
+             *     server-side row (migration 063), so spending it destroys it.
+             */
+            pending_consent_token?: string;
+        };
         "service.CustomerAreaView": {
             past?: components["schemas"]["service.TicketSaleView"][];
             upcoming?: components["schemas"]["service.TicketSaleView"][];
@@ -7105,6 +7424,7 @@ export interface components {
              *     because no client of this view writes Avatars — the header only shows one.
              */
             avatar_url?: string;
+            consent_boxes?: components["schemas"]["service.ConsentBoxesView"];
             email?: string;
             first_name?: string;
             last_name?: string;
@@ -7775,6 +8095,29 @@ export interface components {
              *     that must stay on hand.
              */
             total_owed_cents?: number;
+        };
+        "service.PolicyView": {
+            /** @description BodyMarkdown is the full Privacy Policy, markdown. */
+            body_markdown?: string;
+            consent_labels?: components["schemas"]["policy.ConsentLabels"];
+            /**
+             * @description ContentHash is the fingerprint of the artifact set below, published so that
+             *     the page can show it and a reader can hold the platform to it.
+             */
+            content_hash?: string;
+            /**
+             * @description EffectiveDate is the day this edition took effect, YYYY-MM-DD, as the
+             *     document itself states it.
+             */
+            effective_date?: string;
+            locale?: components["schemas"]["platform.Locale"];
+            /**
+             * @description ShortNotice is the condensed notice shown inline at a capture moment,
+             *     markdown.
+             */
+            short_notice?: string;
+            /** @description Version is the label a human names this edition by ("0-placeholder"). */
+            version?: string;
         };
         /**
          * @description Promotion is the Ticket Type's one Promotion slot, or null when it is

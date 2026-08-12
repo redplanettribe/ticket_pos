@@ -36,6 +36,22 @@ type StorefrontShellProps = {
   homeHref?: string;
   /** Alt text for an Organization's logo when it has no name to interpolate. */
   organizationLogoAlt?: string;
+  /**
+   * The Privacy Policy link in the footer: where it points and what it says.
+   *
+   * Both optional, and BOTH must be supplied for the link to render — an
+   * address with no words is not a link anyone can read, and words with no
+   * address are not a link at all. Staff has no privacy page of its own and
+   * passes neither, leaving its footer exactly as it was.
+   *
+   * A plain path, like homeHref: this package knows nothing about locales, so
+   * the caller passes an address already carrying the language its reader is
+   * in. A Customer sent from a Spanish page to an English policy would be sent
+   * to a document they cannot read, which for this particular document is the
+   * whole failure.
+   */
+  privacyHref?: string;
+  privacyLabel?: string;
 };
 
 export function StorefrontShell({
@@ -48,6 +64,8 @@ export function StorefrontShell({
   poweredByLabel = "Powered by Multiticketing",
   organizationLogoAlt,
   homeHref = "/",
+  privacyHref,
+  privacyLabel,
 }: StorefrontShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -79,6 +97,16 @@ export function StorefrontShell({
           <a href="https://multiticketing.com" className="hover:text-foreground">
             {poweredByLabel}
           </a>
+          {privacyHref && privacyLabel ? (
+            <>
+              <span aria-hidden className="px-2">
+                ·
+              </span>
+              <a href={privacyHref} className="hover:text-foreground">
+                {privacyLabel}
+              </a>
+            </>
+          ) : null}
           {languageSwitcher ? <div className="mt-3 flex justify-center">{languageSwitcher}</div> : null}
         </div>
       </footer>

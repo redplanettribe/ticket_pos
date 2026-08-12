@@ -16,7 +16,7 @@ import { getFormatLocale } from "@/i18n/format-locale.server";
 import { Link } from "@/i18n/navigation";
 import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
-import { getPublicEvent } from "@/lib/api";
+import { getPrivacyPolicy, getPublicEvent } from "@/lib/api";
 import { customerSessionToken, getFollows } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
@@ -299,6 +299,18 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 ticketTypes={event.ticket_types}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}
+                // The current Policy Version's Short Notice and checkbox
+                // labels, read here so the checkout dialog can show what is
+                // being accepted at the moment it is accepted (#253, ADR 0036).
+                //
+                // Read on the SERVER with the page rather than by the dialog
+                // when it opens: it is the same read the Privacy Policy page
+                // makes, it costs nothing extra on a page that is already
+                // dynamic, and it means the boxes are drawn with the notice
+                // already in hand rather than appearing a moment after the
+                // dialog does. Null when the API could not be reached, which
+                // the dialog turns into an honest refusal to collect consent.
+                policy={await getPrivacyPolicy(locale)}
               />
             )}
           </section>

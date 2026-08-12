@@ -115,6 +115,18 @@ func domainHTTPStatus(code string) int {
 	// same reason a bad passcode is: the caller failed to prove anything.
 	case "CONFIRMATION_LINK_INVALID", "CONFIRMATION_LINK_EXPIRED":
 		return http.StatusUnauthorized
+	// A pending-consent token that is unknown, spent or expired (#251). 401 with
+	// its Confirmation Link neighbour and for the same reason: it is a credential
+	// standing between proof of email ownership and a Customer Session, and the
+	// recovery is to sign in again.
+	case "PENDING_CONSENT_INVALID":
+		return http.StatusUnauthorized
+	// A consent submission with the required box unticked (#251, parent #249).
+	// 400: nothing about the caller is unauthorized and re-sending the request
+	// with the box ticked is exactly what fixes it. The refusal lives in the API
+	// and not only in the form — see consent.ErrPolicyAcceptanceRequired.
+	case "POLICY_ACCEPTANCE_REQUIRED":
+		return http.StatusBadRequest
 	// An unsubscribe token that does not verify is 400 and pointedly not the 401
 	// its Confirmation Link neighbour gets (#224, ADR 0030). A Confirmation Link
 	// mints a session, so a bad one is a failure to authenticate; unsubscribing
@@ -135,6 +147,16 @@ func domainHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND":
 		return http.StatusNotFound
+	// The Privacy Policy asked for in a language it is not published in (#250).
+	// 404 rather than a 400 about a bad parameter: the address named a document,
+	// and that document does not exist. Never a fallback to English — see
+	// consent.ErrPolicyLocaleNotPublished.
+	case "POLICY_LOCALE_NOT_PUBLISHED":
+		return http.StatusNotFound
+	// No Policy Version in effect. A deployment fault — migration 060 seeds one
+	// — so it is the platform's 500 and not the caller's 404.
+	case "NO_CURRENT_POLICY_VERSION":
+		return http.StatusInternalServerError
 	// The two Payout Request refusals (ADR 0026). Both 409: the request was well
 	// formed and the Org Admin was entitled to make it, and what stands in the way
 	// is a fact about the money or about the request's own state. Asking for more

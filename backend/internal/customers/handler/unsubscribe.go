@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -66,7 +67,7 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, err := h.svc.Unsubscribe(r.Context(), body.Token)
+	view, err := h.svc.Unsubscribe(r.Context(), body.Token, consent.EvidenceFromRequest(r))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -105,7 +106,7 @@ func (h *Handler) SetDigestEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, err := h.svc.SetDigestEnabled(r.Context(), customerSessionToken(r), *body.Enabled)
+	view, err := h.svc.SetDigestEnabled(r.Context(), customerSessionToken(r), *body.Enabled, consent.EvidenceFromRequest(r))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

@@ -15,6 +15,7 @@ import {
   isGoogleSignInConfigured,
   newPendingSignIn,
   randomToken,
+  signInConsentPath,
   signInFailurePath,
   statesMatch,
 } from "./google-signin.ts";
@@ -235,6 +236,53 @@ test("a failure keeps the destination so the passcode form still returns them", 
 
 test("a failure never carries a destination off this Storefront", () => {
   assert.equal(signInFailurePath("//evil.example"), "/signin?google=failed");
+});
+
+// --- the consent step across the callback redirect (#252) ------------------
+
+test("a held sign-in lands on the consent step, not on the failure message", () => {
+  // The opposite outcome from signInFailurePath above, and the difference is the
+  // whole of #252: this visitor's address WAS proven, so telling them the
+  // sign-in failed would be false, and sending them back to a passcode form
+  // would charge them for a door they already came through (ADR 0011).
+  assert.equal(signInConsentPath(DEFAULT_DESTINATION), "/signin?consent=pending");
+  assert.notEqual(signInConsentPath(DEFAULT_DESTINATION), signInFailurePath(DEFAULT_DESTINATION));
+});
+
+test("the consent step keeps the destination the visitor was heading for", () => {
+  assert.equal(
+    signInConsentPath("/rock-fest/events/summer-night"),
+    "/signin?consent=pending&next=%2Frock-fest%2Fevents%2Fsummer-night",
+  );
+});
+
+test("the consent step keeps the Follow pressed before signing in", () => {
+  // Being asked about consent must not cost somebody the thing they came to do
+  // (#219). The form relays the intent on the submission, which is the request
+  // that finally mints a session for it to be written against.
+  assert.equal(
+    signInConsentPath("/rock-fest", "organization:rock-fest"),
+    "/signin?consent=pending&next=%2Frock-fest&follow=organization%3Arock-fest",
+  );
+});
+
+test("the consent step never carries a destination or an intent it should not", () => {
+  assert.equal(signInConsentPath("//evil.example"), "/signin?consent=pending");
+  assert.equal(
+    signInConsentPath("/rock-fest", "javascript:alert(1)"),
+    "/signin?consent=pending&next=%2Frock-fest",
+  );
+});
+
+test("no credential is ever written into the address", () => {
+  // The pending-consent token travels in an httpOnly cookie and nowhere else. A
+  // query parameter would end up in browser history, in this app's own logs, and
+  // in the Referer of the Privacy Policy link the consent step opens in a new
+  // tab. `consent=pending` says only "look for a held sign-in".
+  const path = signInConsentPath("/rock-fest", "organization:rock-fest");
+  const params = new URLSearchParams(path.slice(path.indexOf("?")));
+  assert.deepEqual([...params.keys()].sort(), ["consent", "follow", "next"]);
+  assert.equal(params.get("consent"), "pending");
 });
 
 // --- the Follow intent across the Google leg (#219) ------------------------

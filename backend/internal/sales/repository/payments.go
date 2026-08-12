@@ -6,9 +6,19 @@ import (
 	"errors"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 )
+
+// The consent vocabulary is imported directly rather than mirrored into
+// `platform`, which is where SaleCustomer and SaleTaxID live for crossing the
+// sales/customers boundary. The reason those are in platform is that sales and
+// customers depend on each other and neither may import the other's packages for
+// a data type. Consent is not in that position: it depends on nothing but the
+// database and platform (see the consent package's own doc comment), so it sits
+// BELOW both, exactly as platform does, and a second spelling of Answers and
+// Evidence would be two vocabularies for one set of legal facts.
 
 // Payments: the persistence of a Customer's attempt to pay through a Payment
 // Provider (ADR 0012). A Payment begins 'pending' at begin-checkout and settles
@@ -103,7 +113,24 @@ type CreatePaymentInput struct {
 	// redirect with a transaction id and nothing else, so a language not on this
 	// row is a language lost by the time there is a Ticket Sale to put it on.
 	Locale string
-	Now    time.Time
+	// Consent is what the buyer did with the consent boxes on the checkout dialog
+	// and the circumstances the platform observed while they did it, held on this
+	// row until there is a sale to evidence (#253, ADR 0035).
+	//
+	// The fourth buyer fact snapshotted here for the third time the same reason
+	// applies, and the one with the sharpest deadline: the answers were given in
+	// THIS request, and the confirm leg is a redirect back from a third party
+	// that knows nothing of them. Held rather than recorded, because a Consent
+	// Record evidences a transaction and an abandoned checkout is not one — see
+	// migration 064.
+	//
+	// Each answer is a *bool: nil is "the box was not shown", which is not a No.
+	Consent consent.Answers
+	// ConsentEvidence is the technical proof of that same act, derived from the
+	// request and never from its body. Empty fields are stored NULL, because
+	// "not collected" and "collected as blank" are different answers.
+	ConsentEvidence consent.Evidence
+	Now             time.Time
 }
 
 // CreatePayment records a pending Payment and its line snapshot atomically,
@@ -121,14 +148,20 @@ func (r *Repository) CreatePayment(ctx context.Context, in CreatePaymentInput) (
 			event_id, organization_id, provider, client_transaction_id,
 			status, amount_cents, customer_email, customer_first_name, customer_last_name,
 			customer_tax_id_type, customer_tax_id_number, customer_session_authorized,
-			customer_phone, affiliate_link_id, locale, created_at, updated_at
+			customer_phone, affiliate_link_id, locale,
+			consent_policy_acceptance, consent_marketing, consent_networking,
+			consent_ip, consent_user_agent, consent_origin_url,
+			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $15, $9, $9)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $10, $11, $12, $13, $14, $15,
+			$16, $17, $18, $19, $20, $21, $9, $9)
 		RETURNING id
 	`, in.EventID, in.OrganizationID, in.Provider, in.ClientTransactionID,
 		in.AmountCents, in.Customer.Email, in.Customer.FirstName, in.Customer.LastName, in.Now,
 		nullString(in.Customer.TaxID.Type), nullString(in.Customer.TaxID.Number), in.Customer.SelfAsserted,
-		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID), nullString(in.Locale)).Scan(&paymentID)
+		nullString(in.Customer.Phone), nullString(in.AffiliateLinkID), nullString(in.Locale),
+		nullBool(in.Consent.PolicyAcceptance), nullBool(in.Consent.MarketingConsent), nullBool(in.Consent.NetworkingConsent),
+		nullString(in.ConsentEvidence.IP), nullString(in.ConsentEvidence.UserAgent), nullString(in.ConsentEvidence.OriginURL)).Scan(&paymentID)
 	if err != nil {
 		return "", err
 	}
@@ -319,7 +352,27 @@ type ApprovePaymentInput struct {
 	Now             time.Time
 	// UpsertCustomer resolves the sale's Customer within the transaction.
 	UpsertCustomer UpsertCustomer
+	// CaptureConsent writes the Consent Record for the answers this Payment has
+	// been holding since begin-checkout, inside the same transaction (#253).
+	//
+	// Optional in shape and required in practice: nil is what the reversal and
+	// import paths — which settle no checkout dialog — would pass, and what a
+	// Payment begun before migration 064 amounts to anyway, since a Payment
+	// holding three NULL answers has no capture act to evidence and is skipped.
+	CaptureConsent CaptureConsent
 }
+
+// CaptureConsent records the Consent Record and applies the consent state for a
+// checkout, inside the transaction that is committing its Ticket Sale. The sales
+// service supplies it, bound to the consent service, so the cross-module call
+// goes through that module's service exactly as UpsertCustomer does.
+//
+// Its error is fatal to the commit, deliberately. The alternative — recording the
+// sale and logging that the evidence could not be written — is precisely the
+// unevidenced processing this feature exists to abolish, and at this point in
+// the transaction nothing has been charged that a rollback would strand: the
+// caller marks the approved-without-sale incident it already knows how to mark.
+type CaptureConsent func(ctx context.Context, tx *sql.Tx, capture consent.Capture) error
 
 // ApprovedPayment is the outcome of ApprovePaymentAndCommitSale. When another
 // confirm settled the Payment first, AlreadySettled is set and nothing was
@@ -380,15 +433,29 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	// and copied onto the sale below, inside the one transaction that records it,
 	// exactly as the attribution above is.
 	var locale sql.NullString
+	// The consent answers this Payment has been holding since begin-checkout, and
+	// the circumstances they were given in (migration 064). Read here and turned
+	// into the immutable Consent Record below, inside the one transaction that
+	// records the sale — which is what makes "an abandoned Payment leaves no
+	// evidence" true by construction rather than by remembering to clean up.
+	//
+	// All three answers NULL means no capture act: a Payment begun before the
+	// dialog had a consent section, and nothing to evidence.
+	var consentPolicy, consentMarketing, consentNetworking sql.NullBool
+	var consentIP, consentUserAgent, consentOriginURL sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, event_id, organization_id, status, customer_email, customer_first_name, customer_last_name,
 		       customer_tax_id_type, customer_tax_id_number, customer_phone, customer_session_authorized,
-		       affiliate_link_id, locale
+		       affiliate_link_id, locale,
+		       consent_policy_acceptance, consent_marketing, consent_networking,
+		       consent_ip, consent_user_agent, consent_origin_url
 		FROM payments
 		WHERE client_transaction_id = $1
 		FOR UPDATE
 	`, in.ClientTransactionID).Scan(&paymentID, &eventID, &orgID, &status, &email, &firstName, &lastName,
-		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID, &locale)
+		&taxIDType, &taxIDNumber, &phone, &sessionAuthorized, &affiliateLinkID, &locale,
+		&consentPolicy, &consentMarketing, &consentNetworking,
+		&consentIP, &consentUserAgent, &consentOriginURL)
 	if err != nil {
 		return nil, err
 	}
@@ -475,6 +542,40 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		return nil, err
 	}
 
+	// The evidence, written where the Customer it names has just come into
+	// existence and the sale it evidences is already inserted. The order matters
+	// only in that all three are one transaction: nothing here may commit without
+	// the others, in either direction (ADR 0035, parent spec decision 30).
+	//
+	// "Was the email proven?" is the same flag that decides whether this buyer may
+	// overwrite a Verified Customer's Tax ID — the checkout ran under that
+	// Customer's own Customer Session — because it is the same question, asked
+	// once at begin-checkout and snapshotted here. A guest's answer is therefore
+	// unproven, and an optional tick from one becomes Pending Confirmation rather
+	// than a lawful basis for sending anything.
+	if in.CaptureConsent != nil && (consentPolicy.Valid || consentMarketing.Valid || consentNetworking.Valid) {
+		if err := in.CaptureConsent(ctx, tx, consent.Capture{
+			CustomerID: recorded[0].CustomerID,
+			// The address AS ASSERTED on the checkout form, which is not necessarily
+			// the Customer's stored one: a guest may have typed a stranger's.
+			Email:       email,
+			Channel:     consent.ChannelCheckout,
+			EmailProven: sessionAuthorized,
+			Answers: consent.Answers{
+				PolicyAcceptance:  nullableBool(consentPolicy),
+				MarketingConsent:  nullableBool(consentMarketing),
+				NetworkingConsent: nullableBool(consentNetworking),
+			},
+			Evidence: consent.Evidence{
+				IP:        consentIP.String,
+				UserAgent: consentUserAgent.String,
+				OriginURL: consentOriginURL.String,
+			},
+		}); err != nil {
+			return nil, err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE payments
 		SET status = 'approved',
@@ -491,6 +592,17 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		return nil, err
 	}
 	return &ApprovedPayment{Sale: &recorded[0]}, nil
+}
+
+// nullableBool restores a held consent answer to the *bool the consent
+// vocabulary speaks in, where nil means the box was not shown — a fact SQL NULL
+// carries and a plain bool cannot.
+func nullableBool(v sql.NullBool) *bool {
+	if !v.Valid {
+		return nil
+	}
+	answer := v.Bool
+	return &answer
 }
 
 // MarkPaymentFailed settles a pending Payment as failed (declined or
