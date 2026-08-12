@@ -89,7 +89,7 @@ func TestThePlaceholderTextIsVisiblyPlaceholder(t *testing.T) {
 
 	for _, locale := range policy.Locales {
 		doc, _ := policy.For(locale)
-		for _, marker := range []string{"[RUC]", "[correo PDP]"} {
+		for _, marker := range []string{"[correo PDP]", "[DIRECCIÓN]"} {
 			if !strings.Contains(doc.BodyMarkdown, marker) {
 				t.Errorf("locale %s body no longer shows the %s placeholder", locale, marker)
 			}

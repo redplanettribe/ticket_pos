@@ -1,8 +1,8 @@
-> **EDICIÓN PROVISIONAL.** Este texto no es asesoría legal y no ha sido revisado por un abogado. Cada marcador entre corchetes — `[RUC]`, `[correo PDP]`, `[DIRECCIÓN]` — se completa con el texto legal definitivo antes de la salida a producción, y solo entonces se publica la primera Versión de la Política real.
+> **EDICIÓN PROVISIONAL.** Este texto no es asesoría legal y no ha sido revisado por un abogado. Cada marcador entre corchetes — `[correo PDP]`, `[DIRECCIÓN]` — se completa con el texto legal definitivo antes de la salida a producción, y solo entonces se publica la primera Versión de la Política real.
 
 ## Quién trata sus datos
 
-El responsable del tratamiento de los datos personales descritos aquí es **REDPLANETTRIBE**, RUC **[RUC]**, con domicilio en **[DIRECCIÓN]**, que opera esta plataforma de venta de entradas (la "plataforma").
+El responsable del tratamiento de los datos personales descritos aquí es **REDPLANETTRIBE**, RUC **1793228468001**, con domicilio en **[DIRECCIÓN]**, que opera esta plataforma de venta de entradas (la "plataforma").
 
 Las consultas sobre esta política, y toda solicitud para ejercer los derechos enumerados más abajo, se dirigen al contacto de protección de datos en **[correo PDP]**.
 
