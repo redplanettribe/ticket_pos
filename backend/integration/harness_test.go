@@ -199,16 +199,20 @@ func resetDatabase(ctx context.Context, db *sql.DB) error {
 	}
 
 	// `policy_versions` is deliberately absent from that list, for the reason
-	// Preset Tags are: the placeholder edition is seeded by migration 060 and is
-	// the current Policy Version every test runs under. Truncating it would leave
-	// the platform with no policy in effect, which is a state production cannot
-	// reach and no test should be written against.
+	// Preset Tags are: the seeded editions are migrations (060 and 066), and the
+	// later of them is the current Policy Version every test runs under.
+	// Truncating it would leave the platform with no policy in effect, which is a
+	// state production cannot reach and no test should be written against.
 	//
 	// EDITIONS PUBLISHED BY A TEST ARE cleared, though: the re-gating test inserts
-	// a second row to prove that publishing one re-gates the customer base, and a
+	// a further row to prove that publishing one re-gates the customer base, and a
 	// row left behind would silently become the current edition for every test
 	// that ran afterwards.
-	if _, err := db.ExecContext(ctx, `DELETE FROM policy_versions WHERE label <> '0-placeholder'`); err != nil {
+	//
+	// The list is of the SEEDED labels rather than "everything but the
+	// placeholder", so that publishing an edition does not quietly delete it here
+	// and hand every test back to a superseded one.
+	if _, err := db.ExecContext(ctx, `DELETE FROM policy_versions WHERE label NOT IN ('0-placeholder', '1')`); err != nil {
 		return fmt.Errorf("clear published policy versions: %w", err)
 	}
 

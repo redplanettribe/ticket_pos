@@ -1,1 +1,1 @@
-I authorize **REDPLANETTRIBE** to send me marketing email — promotions, campaigns and partner content — including the weekly Follow Digest about the organizations and tags I follow. Optional, and I can withdraw it at any time.
+I authorize **Multiticketing** to send me marketing email — promotions, campaigns and partner content — including the weekly Follow Digest about the organizations and tags I follow. Optional, and I can withdraw it at any time.
