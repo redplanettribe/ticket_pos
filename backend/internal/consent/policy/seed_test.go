@@ -23,7 +23,11 @@ import (
 // Postgres, and fails on the machine of whoever edited the text rather than in
 // a container job downstream. The integration suite separately proves the row
 // that seed produces reaches the endpoint (backend/integration/policy_test.go).
-const seedMigration = "060_policy_versions.sql"
+// It follows the CURRENT edition, not the first one. Publishing an edition
+// moves this constant to that migration, and the superseded row's hash stays as
+// the record of a text this binary no longer serves — there is nothing left to
+// recompute it from, which is precisely why it may never be edited.
+const seedMigration = "066_policy_version_1.sql"
 
 var (
 	seedHashPattern  = regexp.MustCompile(`'([0-9a-f]{64})'`)
@@ -55,19 +59,20 @@ func TestSeededPolicyVersionHashMatchesTheEmbeddedArtifacts(t *testing.T) {
 	}
 }
 
-// The placeholder edition has to be recognisable as one. The real legal text is
-// a content drop before go-live, and a version label that did not say so is how
-// placeholder prose ends up quoted in an audit as though somebody had reviewed
-// it.
-func TestSeededPolicyVersionIsMarkedAsThePlaceholderEdition(t *testing.T) {
+// The current edition is the real one. This replaced a test that asserted the
+// opposite — that the seeded label still said `0-placeholder` — which existed to
+// stop placeholder prose being quoted in an audit as though counsel had seen it.
+// The legal text has landed, so the guard inverts: what would now be alarming is
+// the current edition being a placeholder again.
+func TestSeededPolicyVersionIsTheRealEdition(t *testing.T) {
 	t.Parallel()
 
 	match := seedLabelPattern.FindStringSubmatch(readSeedMigration(t))
 	if match == nil {
 		t.Fatalf("%s seeds no version label", seedMigration)
 	}
-	if label := match[1]; label != "0-placeholder" {
-		t.Fatalf("seeded version label = %q, want %q", label, "0-placeholder")
+	if label := match[1]; label != "1" {
+		t.Fatalf("seeded version label = %q, want %q", label, "1")
 	}
 }
 

@@ -63,11 +63,11 @@ func TestPrivacyPolicyIsPublicAndComplete(t *testing.T) {
 		t.Error("no request id on the envelope")
 	}
 
-	if payload.Version != "0-placeholder" {
-		t.Errorf("version = %q, want the seeded placeholder edition", payload.Version)
+	if payload.Version != "1" {
+		t.Errorf("version = %q, want the current edition", payload.Version)
 	}
-	if payload.EffectiveDate != "2026-08-01" {
-		t.Errorf("effective_date = %q, want 2026-08-01", payload.EffectiveDate)
+	if payload.EffectiveDate != "2026-08-12" {
+		t.Errorf("effective_date = %q, want 2026-08-12", payload.EffectiveDate)
 	}
 	if payload.Locale != "en" {
 		t.Errorf("locale = %q, want en", payload.Locale)
@@ -145,7 +145,7 @@ func TestPrivacyPolicyIsPublishedInSpanishUnderTheSameVersion(t *testing.T) {
 	if spanish.BodyMarkdown == english.BodyMarkdown {
 		t.Error("the Spanish policy is byte-identical to the English one")
 	}
-	if !strings.Contains(spanish.BodyMarkdown, "Quién trata sus datos") {
+	if !strings.Contains(spanish.BodyMarkdown, "Responsable del tratamiento") {
 		t.Error("the Spanish body does not read as Spanish")
 	}
 	if spanish.Version != english.Version || spanish.ContentHash != english.ContentHash {
@@ -154,18 +154,18 @@ func TestPrivacyPolicyIsPublishedInSpanishUnderTheSameVersion(t *testing.T) {
 	}
 }
 
-// The text is placeholder and says so where a reader can see it, not only in a
-// migration comment. This test is here to fail loudly if the real legal drop
-// ever lands WITHOUT a new Policy Version — at which point it should be deleted
-// in the same commit that publishes edition 1.
-func TestPrivacyPolicyStillShowsItsPlaceholders(t *testing.T) {
+// What the endpoint publishes is the REAL policy: it names its controller and
+// the address a rights request goes to, in both languages. This replaced the
+// test that asserted the published body still showed its bracketed placeholders,
+// which was written to be deleted in the commit that published edition 1.
+func TestPrivacyPolicyPublishesTheRealEdition(t *testing.T) {
 	env := setupTest(t)
 
 	for _, locale := range []string{"en", "es"} {
 		_, _, payload := getPrivacyPolicy(t, env, locale)
-		for _, marker := range []string{"[RUC]", "[correo PDP]"} {
-			if !strings.Contains(payload.BodyMarkdown, marker) {
-				t.Errorf("locale %s: the %s placeholder is gone from the published body", locale, marker)
+		for _, want := range []string{"REDPLANETTRIBE", "1793228468001", "info@redplanettribe.org"} {
+			if !strings.Contains(payload.BodyMarkdown, want) {
+				t.Errorf("locale %s: the published body does not carry %q", locale, want)
 			}
 		}
 	}

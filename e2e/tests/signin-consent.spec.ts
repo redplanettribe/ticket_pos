@@ -20,7 +20,7 @@ import { readPasscode } from "./support/passcode";
 
 const LOCALE = "en";
 
-// A fragment of the placeholder Short Notice, as the API serves it. It is
+// A fragment of the Short Notice, as the API serves it. It is
 // matched on rather than reproduced: the words belong to the Policy Version and
 // this suite must not be a second copy of them (ADR 0036).
 const SHORT_NOTICE_FRAGMENT = /processes your name, email address/;

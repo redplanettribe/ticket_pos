@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -81,17 +82,48 @@ func TestTheNetworkingLabelNamesBothAudiences(t *testing.T) {
 	}
 }
 
-// The shipped text is PLACEHOLDER and has to look like it, in the document
-// itself and not only in a migration comment. Nobody signs off on a privacy
-// policy they mistook for a finished one.
-func TestThePlaceholderTextIsVisiblyPlaceholder(t *testing.T) {
+// The published text IDENTIFIES ITS CONTROLLER and says where to write. This
+// replaced the test that asserted the opposite — that bracketed placeholders
+// were still visible — which existed to stop unreviewed prose being mistaken
+// for a finished policy. Edition 1 is the finished policy, so the guard
+// inverts: what would now be wrong is a body that named nobody.
+//
+// A notice that cannot say who is processing the data, or to whom a deletion
+// request goes, fails the thing a privacy notice is for, and it would fail it
+// silently — the page would still render, the hash would still verify, and only
+// a reader would find out.
+func TestThePublishedTextIdentifiesTheController(t *testing.T) {
 	t.Parallel()
 
 	for _, locale := range policy.Locales {
 		doc, _ := policy.For(locale)
-		for _, marker := range []string{"[RUC]", "[correo PDP]"} {
-			if !strings.Contains(doc.BodyMarkdown, marker) {
-				t.Errorf("locale %s body no longer shows the %s placeholder", locale, marker)
+		for _, want := range []string{"REDPLANETTRIBE", "1793228468001", "info@redplanettribe.org"} {
+			if !strings.Contains(doc.BodyMarkdown, want) {
+				t.Errorf("locale %s body does not carry %q", locale, want)
+			}
+			if !strings.Contains(doc.ShortNotice, want) {
+				t.Errorf("locale %s short notice does not carry %q", locale, want)
+			}
+		}
+	}
+}
+
+// No bracketed placeholder survives into the published editions. The drop filled
+// in the ones the placeholder text carried; this fails if a future edit
+// reintroduces one, or if a section of a legal document lands with a slot in it
+// that somebody meant to come back to.
+func TestThePublishedTextHasNoPlaceholdersLeft(t *testing.T) {
+	t.Parallel()
+
+	bracketed := regexp.MustCompile(`\[[A-ZÁÉÍÓÚÑ /]{4,}\]`)
+	for _, locale := range policy.Locales {
+		doc, _ := policy.For(locale)
+		for name, text := range map[string]string{
+			"body":         doc.BodyMarkdown,
+			"short notice": doc.ShortNotice,
+		} {
+			if found := bracketed.FindString(text); found != "" {
+				t.Errorf("locale %s %s still carries the placeholder %s", locale, name, found)
 			}
 		}
 	}
