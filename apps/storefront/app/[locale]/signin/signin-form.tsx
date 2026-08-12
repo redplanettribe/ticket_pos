@@ -169,14 +169,58 @@ function GoogleMark() {
 }
 
 /**
- * Two steps, one page, no navigation between them: entering an email swaps the
- * form for the passcode field with the email still in component state, matching
- * the Staff app's sign-in.
+ * One consent checkbox, drawn unticked, with its label as the API worded it.
  *
- * Every request this component makes is to a relative /api/customer/... route on
- * this same origin. It never addresses the Go API, and it never sees a session
- * token — the token lives in an httpOnly cookie the verify route sets (ADR 0008).
+ * The label is markdown from the Policy Version, so it is rendered rather than
+ * interpolated: it is part of the text the edition's fingerprint covers, and
+ * this component may not reword it. Only the "Optional" chip beside it belongs
+ * to this app, and it is there because the guidance requires an optional
+ * consent to LOOK optional — a box that reads like the required one beside it
+ * is not freely given.
+ *
+ * AT MODULE SCOPE, and it matters. Declared inside SignInForm it would be a new
+ * component type on every render, so React would unmount the subtree and mount
+ * a fresh one each time — throwing away the checkbox's DOM node, and with it
+ * the focus, mid-interaction. The chip's words arrive as a prop rather than
+ * from the translator in the enclosing scope, which is the whole reason it was
+ * nested in the first place.
  */
+function ConsentCheckbox({
+  id,
+  checked,
+  onChange,
+  label,
+  optionalLabel,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+  /** The "Optional" chip's words, or null on the required box. */
+  optionalLabel: string | null;
+}) {
+  return (
+    <label htmlFor={id} className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+      <input
+        id={id}
+        name={id}
+        type="checkbox"
+        className="mt-1 h-4 w-4 shrink-0"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="space-y-1">
+        {optionalLabel ? (
+          <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {optionalLabel}
+          </span>
+        ) : null}
+        <Markdown className="text-sm [&>p]:mt-0">{label}</Markdown>
+      </span>
+    </label>
+  );
+}
+
 export function SignInForm({
   next,
   initialEmail,
@@ -384,51 +428,6 @@ export function SignInForm({
   const showResend =
     step === "code" && !(error?.code != null && RESEND_REFUSED_ERRORS.has(error.code));
 
-  /**
-   * One optional checkbox, drawn unticked, with its label as the API worded it.
-   *
-   * The label is markdown from the Policy Version, so it is rendered rather than
-   * interpolated: it is part of the text the edition's fingerprint covers, and
-   * this component may not reword it. Only the "Optional" chip beside it belongs
-   * to this app, and it is there because the guidance requires an optional
-   * consent to LOOK optional — a box that reads like the required one beside it
-   * is not freely given.
-   */
-  function ConsentCheckbox({
-    id,
-    checked,
-    onChange,
-    label,
-    optional,
-  }: {
-    id: string;
-    checked: boolean;
-    onChange: (value: boolean) => void;
-    label: string;
-    optional: boolean;
-  }) {
-    return (
-      <label htmlFor={id} className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-        <input
-          id={id}
-          name={id}
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        <span className="space-y-1">
-          {optional ? (
-            <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t("consent.optional")}
-            </span>
-          ) : null}
-          <Markdown className="text-sm [&>p]:mt-0">{label}</Markdown>
-        </span>
-      </label>
-    );
-  }
-
   return (
     <Card>
       <CardHeader>
@@ -519,7 +518,8 @@ export function SignInForm({
               <>
                 {/*
                   The Short Notice, inline and in full, exactly as the API served
-                  it. It is capa 1 of the notice this person is about to accept,
+                  it. It is the layer of the notice this person is about to
+                  accept that must be read without asking for it,
                   and it is here rather than a link away because the guidance
                   requires the information to be present AT the moment of
                   capture. The link below is the rest of it.
@@ -545,7 +545,7 @@ export function SignInForm({
                     checked={policyAccepted}
                     onChange={setPolicyAccepted}
                     label={policy.consent_labels.policy_acceptance}
-                    optional={false}
+                    optionalLabel={null}
                   />
                 ) : null}
                 {consent?.boxes.marketing_consent ? (
@@ -554,7 +554,7 @@ export function SignInForm({
                     checked={marketingConsent}
                     onChange={setMarketingConsent}
                     label={policy.consent_labels.marketing_consent}
-                    optional
+                    optionalLabel={t("consent.optional")}
                   />
                 ) : null}
                 {consent?.boxes.networking_consent ? (
@@ -563,7 +563,7 @@ export function SignInForm({
                     checked={networkingConsent}
                     onChange={setNetworkingConsent}
                     label={policy.consent_labels.networking_consent}
-                    optional
+                    optionalLabel={t("consent.optional")}
                   />
                 ) : null}
 

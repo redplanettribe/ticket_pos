@@ -267,10 +267,19 @@ func TestCheckoutConsentSurvivesTheProviderRedirect(t *testing.T) {
 	}
 }
 
-// TestGuestUntickedOptionalBoxesAreAnExplicitNo: silence at a capture moment is
-// a No and is recorded as one — but an unproven No must not switch off a Digest
-// somebody else may be receiving.
-func TestGuestUntickedOptionalBoxesAreAnExplicitNo(t *testing.T) {
+// TestGuestUntickedOptionalBoxesAnswerNothing: a guest's silence is evidence of
+// what they were shown, and nothing at all about the person whose address they
+// typed.
+//
+// The record keeps the false, because the log's job is to say what happened on
+// the surface. The STATE does not move, because the state is the platform's
+// belief about a Customer and this act proves nothing about them. Were it
+// written as denied, two things would follow, both of which the feature exists
+// to prevent: the Follow Digest of a legacy subscriber would stop, since the
+// sender refuses a denial; and the real owner would never be asked again, since
+// Outstanding treats denied as answered. A stranger would have decided for them,
+// permanently, by leaving a box alone.
+func TestGuestUntickedOptionalBoxesAnswerNothing(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
@@ -289,11 +298,11 @@ func TestGuestUntickedOptionalBoxesAreAnExplicitNo(t *testing.T) {
 	}
 
 	state := readConsentState(t, env, "ana@example.com")
-	if state.MarketingConsent.String != "denied" {
-		t.Fatalf("marketing_consent = %q, want denied", state.MarketingConsent.String)
+	if state.MarketingConsent.Valid {
+		t.Fatalf("marketing_consent = %q, want unanswered", state.MarketingConsent.String)
 	}
-	if state.NetworkingConsent.String != "denied" {
-		t.Fatalf("networking_consent = %q, want denied", state.NetworkingConsent.String)
+	if state.NetworkingConsent.Valid {
+		t.Fatalf("networking_consent = %q, want unanswered", state.NetworkingConsent.String)
 	}
 	// The flag does not move on an UNPROVEN answer, in either direction. A
 	// stranger typing a legacy subscriber's address into a checkout must not be
@@ -301,6 +310,35 @@ func TestGuestUntickedOptionalBoxesAreAnExplicitNo(t *testing.T) {
 	if !state.DigestEnabled {
 		t.Fatal("digest_enabled = false after an unproven No; only a proven answer moves it")
 	}
+}
+
+// TestUnprovenNoLeavesTheOwnerStillToBeAsked is the half of the rule above that
+// the state assertions only imply: the person whose address was typed is still
+// owed both boxes, so the next time they are at the keyboard themselves they get
+// to answer for themselves.
+func TestUnprovenNoLeavesTheOwnerStillToBeAsked(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
+
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
+		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	// Ana signs in for the first time. She is not stopped for Policy Acceptance:
+	// the checkout above accepted the edition in effect, and that acceptance is a
+	// fact about the act rather than a claim on her inbox (ADR 0035).
+	verify := startSignIn(t, env, "ana@example.com")
+	if verify.ConsentRequired != nil {
+		t.Fatal("consent step for a Customer whose Policy Acceptance is already stamped at the current edition")
+	}
+
+	// Both optional boxes are still hers to answer. Had the guest's silence been
+	// recorded as her No, this would report nothing outstanding and she would
+	// never be offered either again.
+	assertBoxes(t, signedInConsentBoxes(t, env, verify.SessionID), false, true, true,
+		"a guest's silence answered nothing on her behalf")
 }
 
 // TestUnshownOptionalBoxesRecordNothing: a body that omits the optional boxes is

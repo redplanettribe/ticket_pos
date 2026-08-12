@@ -248,7 +248,7 @@ type Service struct {
 // Policy Acceptance and cannot record one without somewhere to write the
 // evidence, so it is a constructor argument rather than a knot tied afterwards —
 // a deployment that forgot it would be a deployment selling tickets without a
-// consent log, and that must not be reachable by omission.
+// Consent Record, and that must not be reachable by omission.
 func New(repo *repository.Repository, customers CustomerService, email platform.EmailSender, provider platform.PaymentProvider, storefrontBaseURL string, fees sales.FeeRates, consentCapturer ConsentCapturer, logger platform.Logger) *Service {
 	return &Service{
 		repo:              repo,

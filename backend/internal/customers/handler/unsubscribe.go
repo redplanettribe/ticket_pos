@@ -9,33 +9,6 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// requestEvidence is the prueba técnica of one capture act, derived from the
-// REQUEST and never from the body (#251, #256).
-//
-// A body a client composes could say anything; these are what the platform
-// observed, which is the only sense in which evidence of circumstances is worth
-// keeping. The IP comes from the platform's one agreed derivation — never a
-// handler's own reading of the forwarding chain — and the user agent and origin
-// are the browser's own headers as the Storefront BFF relayed them, since no
-// browser reaches this process directly (ADR 0008).
-//
-// It is one function because every capture surface in this package must derive
-// them identically: a surface that read X-Forwarded-For instead would put a
-// forgeable value in an evidence log, and it would be found out years later by
-// somebody who needed the row.
-//
-// The session is NOT here. Which session an act happened under is known to the
-// service and not to the request — the sign-in's record names the session it is
-// about to mint, and the Customer Area's names the one it authenticated — so the
-// caller fills that field in itself.
-func requestEvidence(r *http.Request) consent.Evidence {
-	return consent.Evidence{
-		IP:        platform.ClientIP(r),
-		UserAgent: r.UserAgent(),
-		OriginURL: r.Referer(),
-	}
-}
-
 // The Unsubscribe surface (#224, parent #215, ADR 0030): two routes for one
 // switch, reached by two people in two different situations.
 //
@@ -94,7 +67,7 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, err := h.svc.Unsubscribe(r.Context(), body.Token, requestEvidence(r))
+	view, err := h.svc.Unsubscribe(r.Context(), body.Token, consent.EvidenceFromRequest(r))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -133,7 +106,7 @@ func (h *Handler) SetDigestEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, err := h.svc.SetDigestEnabled(r.Context(), customerSessionToken(r), *body.Enabled, requestEvidence(r))
+	view, err := h.svc.SetDigestEnabled(r.Context(), customerSessionToken(r), *body.Enabled, consent.EvidenceFromRequest(r))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return

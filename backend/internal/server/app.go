@@ -253,7 +253,7 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// Online Sale may not complete without Policy Acceptance, and the evidence of
 	// it is written inside the transaction that records the sale, so a sales
 	// service built without one would be a service that sells tickets and keeps no
-	// consent log. It is built above, and the dependency runs one way only —
+	// Consent Records. It is built above, and the dependency runs one way only —
 	// consent knows nothing of sales.
 	salesService := salessvc.New(salesRepo, customersService, emailSender, paymentProvider, cfg.StorefrontBaseURL, feeRates, consentService, platformLogger)
 	if options.clock != nil {

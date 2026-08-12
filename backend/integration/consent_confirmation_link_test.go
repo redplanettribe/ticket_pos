@@ -163,8 +163,10 @@ func TestSaleConfirmationCarriesTheConfirmationLineOnlyWhenSomethingPends(t *tes
 func TestConfirmingGrantsThePendingWithFreshEvidence(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
-	// Marketing ticked, Networking left unticked: an explicit No that this press
-	// must not disturb.
+	// Marketing ticked, Networking left unticked. The guest's silence answered
+	// nothing — an unproven No writes no state, because it is not this person's
+	// answer to give — so Networking stays unanswered, and this press must leave
+	// it that way.
 	token := guestCheckoutPending(t, env, sessionID, "ana@example.com", "pending-fest", boolPtr(true), boolPtr(false))
 
 	before := readConsentState(t, env, "ana@example.com")
@@ -186,8 +188,8 @@ func TestConfirmingGrantsThePendingWithFreshEvidence(t *testing.T) {
 	}
 	// The other box was never in scope and is not touched: reading its absence
 	// from this act as an answer would turn a confirmation into a withdrawal.
-	if state.NetworkingConsent.String != "denied" {
-		t.Fatalf("networking_consent = %q, want the explicit No the checkout recorded, untouched", state.NetworkingConsent.String)
+	if state.NetworkingConsent.Valid {
+		t.Fatalf("networking_consent = %q, want the unanswered state the guest's silence left", state.NetworkingConsent.String)
 	}
 	// One switch (ADR 0034): a granted Marketing Consent IS the Follow Digest on.
 	if !state.DigestEnabled {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -97,8 +98,8 @@ func (h *Handler) SubmitConsent(w http.ResponseWriter, r *http.Request) {
 		MarketingConsent:  body.MarketingConsent,
 		NetworkingConsent: body.NetworkingConsent,
 		// The prueba técnica is derived from the REQUEST and never from the body —
-		// see requestEvidence, which every capture surface in this package shares.
-		Evidence: requestEvidence(r),
+		// see consent.EvidenceFromRequest, which every capture surface shares.
+		Evidence: consent.EvidenceFromRequest(r),
 	})
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)

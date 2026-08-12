@@ -192,11 +192,7 @@ func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
 	// No session id: this is the guest checkout, and the act it evidences is
 	// finished by a redirect back from a Payment Provider that no session
 	// outlives. What ties the evidence to what happened is the Ticket Sale.
-	input.ConsentEvidence = consent.Evidence{
-		IP:        platform.ClientIP(r),
-		UserAgent: r.UserAgent(),
-		OriginURL: r.Referer(),
-	}
+	input.ConsentEvidence = consent.EvidenceFromRequest(r)
 
 	result, err := h.svc.BeginCheckout(r.Context(), input)
 	if err != nil {

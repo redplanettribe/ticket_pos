@@ -43,12 +43,15 @@ import (
 //	                             recorded as one (ADR 0034). The write is
 //	                             unconditional: a proven owner supersedes
 //	                             anything a guest left behind.
-//	Optional box, not proven  -> ticked becomes Pending Confirmation, unticked
-//	                             becomes denied, and BOTH are written only where
-//	                             the owner has not answered — that is, over NULL
-//	                             or over another Pending Confirmation. A guest's
-//	                             answer never overwrites a state written under a
-//	                             proven session.
+//	Optional box, not proven  -> ticked becomes Pending Confirmation, written
+//	                             only where the owner has not answered — over
+//	                             NULL or over another Pending Confirmation, never
+//	                             over a state written under a proven session.
+//	                             UNTICKED WRITES NOTHING. Silence from somebody
+//	                             who has not proven the address is not a No; it is
+//	                             not an answer, and recording it as one would both
+//	                             silence the Digest and stop the real owner from
+//	                             ever being asked (see optionalStateWrite).
 //	Box not shown (nil)       -> nothing is written for it, and the Consent
 //	                             Record stores NULL. A Customer re-prompted after
 //	                             a Policy Version bump sees the required box
@@ -59,9 +62,11 @@ import (
 // denied turns it off, and everything else leaves it exactly as it was. Pending
 // Confirmation must not enable it — that is the whole of ADR 0035 — and an
 // unproven No must not disable it either, or a stranger typing a legacy
-// subscriber's address into a checkout could silence their Digest. The sender's
-// rule (send when granted, or when unanswered and the flag is on; never when
-// denied or pending) is what covers the gap that leaves.
+// subscriber's address into a checkout could silence their Digest. That second
+// half is enforced above, by an unproven No writing no state at all: leaving the
+// flag alone would not have been enough on its own, because the sender's rule
+// (send when granted, or when unanswered and the flag is on; never when denied
+// or pending) reads the consent state first and would have obeyed the denial.
 //
 // The Policy Version is resolved HERE, server-side, and is never a parameter.
 // Which edition somebody accepted is the platform's finding about the moment,
@@ -220,11 +225,24 @@ func optionalStateWrite(answer *bool, proven bool) repository.ConsentStateWrite 
 		}
 		return repository.ConsentStateWrite{State: state}
 	}
-	state := consent.StateDenied
-	if *answer {
-		state = consent.StatePendingConfirmation
+	if !*answer {
+		// An unproven No moves NOTHING. It is recorded in the evidence log like
+		// every other answer, and it is not allowed to become the platform's
+		// belief about a person who has not shown they are that person.
+		//
+		// Denied would be worse here than pending is for a tick, because denied
+		// is ANSWERED: it silences the Follow Digest under the sender's rule, and
+		// it stops the real owner from ever being asked again, since Outstanding
+		// reads exactly that. A stranger typing a legacy subscriber's address
+		// into a checkout and leaving the box alone would have ended their Digest
+		// and taken away the prompt that could have restored it.
+		//
+		// Silence from an unproven party is not a No; it is not an answer at all.
+		// The spec's "unticked is an explicit No" is about somebody answering for
+		// themselves, which is what the proven branch above does.
+		return repository.ConsentStateWrite{}
 	}
-	return repository.ConsentStateWrite{State: state, OnlyWhenUnanswered: true}
+	return repository.ConsentStateWrite{State: consent.StatePendingConfirmation, OnlyWhenUnanswered: true}
 }
 
 // digestLockstep is the Follow Digest flag's half of ADR 0034: one switch, two

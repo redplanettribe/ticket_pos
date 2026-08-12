@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
@@ -64,7 +65,7 @@ func (h *Handler) ConfirmConsent(w http.ResponseWriter, r *http.Request) {
 	// records: the platform's own reading of the client address, the browser's
 	// user agent, and the page the press happened on. Never the body — a body a
 	// client composes could say anything.
-	view, err := h.svc.ConfirmConsent(r.Context(), body.Token, requestEvidence(r))
+	view, err := h.svc.ConfirmConsent(r.Context(), body.Token, consent.EvidenceFromRequest(r))
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
