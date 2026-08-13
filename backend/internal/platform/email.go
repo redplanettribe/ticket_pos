@@ -135,6 +135,47 @@ type SaleReversalRefused struct {
 	Locale Locale
 }
 
+// ConsentWithdrawalConfirmation is the message a Customer receives when a
+// Consent Withdrawal actually took something away (#267, parent #265).
+//
+// IT IS TRANSACTIONAL MAIL, and that is the decision this type exists to make
+// structural rather than remembered. It is sent to somebody who has just
+// withdrawn Marketing Consent, on the same footing as a Sale Confirmation or a
+// One-time Passcode: nothing about it reads `digest_enabled` or a consent state,
+// because suppressing it would make the one act that must be confirmed the one
+// act met with silence. It sits on EmailSender's transactional half with the
+// receipts, never beside the Follow Digest, so it is not even reachable from the
+// marketing sending identity (ADR 0030).
+//
+// IT IS SENT ONLY WHEN SOMETHING MOVED. The decision is the consent module's —
+// a capture reports what it withdrew (consent.Receipt.Withdrawn) — and an act
+// that changed nothing composes no message at all. Nobody is written to about a
+// change that did not happen.
+//
+// WHAT IT NAMES TODAY IS MARKETING CONSENT, because the two surfaces that send
+// it withdraw Marketing Consent alone: the unsubscribe link at the foot of a
+// Follow Digest, and the Customer Area's digest toggle (ADR 0034 — one switch).
+// The copy says so in as many words rather than speaking of "your consents" in
+// the abstract, which would tell a reader less than they already knew. A later
+// surface that can withdraw Networking Consent must say what IT took away; the
+// honest way to add that is a field here and a sentence beside this one, never
+// this message sent for an act it does not describe.
+type ConsentWithdrawalConfirmation struct {
+	// To is the Customer's own stored address, which is the only address a
+	// withdrawal confirmation can be about: the act named a Customer, and the
+	// person entitled to learn that somebody acted on their behalf is whoever
+	// holds that inbox.
+	To string
+	// Locale is the language this is written in, ALREADY RESOLVED by the caller
+	// through platform.ResolveMailLocale (ADR 0033): no sale is involved, so it
+	// is the Customer's remembered Mail Locale, then English.
+	//
+	// A message about somebody's legal rights is the last one that may arrive in
+	// a language they cannot read, which is why this is resolved rather than
+	// defaulted at the send site.
+	Locale Locale
+}
+
 // The five Payout Request notices (#179 and #188, ADR 0026), and the platform's
 // first organizer-facing email: every message above this line is a Customer's
 // receipt or a staff sign-in code.
@@ -463,6 +504,12 @@ type EmailSender interface {
 	SendSaleConfirmation(ctx context.Context, confirmation SaleConfirmation) error
 	SendSaleVoided(ctx context.Context, voided SaleVoided) error
 	SendSaleReversalRefused(ctx context.Context, refused SaleReversalRefused) error
+	// SendConsentWithdrawalConfirmation delivers the confirmation of a Consent
+	// Withdrawal that actually took something away (#267). It is on the
+	// transactional half of this interface deliberately: it is sent to somebody
+	// who has just asked to stop receiving marketing, and is the one message that
+	// must arrive anyway.
+	SendConsentWithdrawalConfirmation(ctx context.Context, confirmation ConsentWithdrawalConfirmation) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
@@ -506,6 +553,16 @@ func (s *LoggingEmailSender) SendSaleVoided(_ context.Context, v SaleVoided) err
 // and testing.
 func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleReversalRefused) error {
 	s.Logger.Info("sale reversal refused notice sent", "email", r.To, "reference", r.Reference, "event", r.EventName)
+	return nil
+}
+
+// SendConsentWithdrawalConfirmation logs the Consent Withdrawal confirmation for
+// local development. The address and the language are logged and nothing else:
+// what a local developer needs from this line is that somebody was told, and in
+// which language — the rest of the message is the same two paragraphs every
+// time.
+func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, c ConsentWithdrawalConfirmation) error {
+	s.Logger.Info("consent withdrawal confirmation sent", "email", c.To, "locale", string(c.Locale))
 	return nil
 }
 
@@ -578,6 +635,11 @@ func (NoopEmailSender) SendSaleReversalRefused(_ context.Context, _ SaleReversal
 	return nil
 }
 
+// SendConsentWithdrawalConfirmation discards the Consent Withdrawal confirmation.
+func (NoopEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, _ ConsentWithdrawalConfirmation) error {
+	return nil
+}
+
 // SendPayoutRequestSubmitted discards the operator's submission notice.
 func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutRequestSubmitted) error {
 	return nil
@@ -624,6 +686,15 @@ type CaptureEmailSender struct {
 	SaleConfirmations []SaleConfirmation
 	VoidedSales       []SaleVoided
 	RefusedReversals  []SaleReversalRefused
+	// The Consent Withdrawal confirmations (#267), kept whole so a test can
+	// render Subject() and Text() and assert on the words the recipient reads —
+	// which is the only way the language, and the promise the copy is forbidden
+	// from making, are visible at all.
+	//
+	// Tests assert on the LENGTH as much as on the contents: the criterion that
+	// an act which moved nothing sends nothing cannot be told from a message's
+	// contents, only from there being none.
+	WithdrawalConfirmations []ConsentWithdrawalConfirmation
 	// The five Payout Request notices (#179, #188).
 	SubmittedPayoutRequests    []PayoutRequestSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
@@ -713,6 +784,18 @@ func (s *CaptureEmailSender) SendSaleReversalRefused(_ context.Context, r SaleRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.RefusedReversals = append(s.RefusedReversals, r)
+	return nil
+}
+
+// SendConsentWithdrawalConfirmation records a delivered Consent Withdrawal
+// confirmation.
+func (s *CaptureEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, c ConsentWithdrawalConfirmation) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.WithdrawalConfirmations = append(s.WithdrawalConfirmations, c)
 	return nil
 }
 
@@ -808,6 +891,16 @@ func (s *CaptureEmailSender) RefusedReversalNotices() []SaleReversalRefused {
 	defer s.mu.Unlock()
 	out := make([]SaleReversalRefused, len(s.RefusedReversals))
 	copy(out, s.RefusedReversals)
+	return out
+}
+
+// ConsentWithdrawalConfirmations returns a copy of the captured Consent
+// Withdrawal confirmations.
+func (s *CaptureEmailSender) ConsentWithdrawalConfirmations() []ConsentWithdrawalConfirmation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]ConsentWithdrawalConfirmation, len(s.WithdrawalConfirmations))
+	copy(out, s.WithdrawalConfirmations)
 	return out
 }
 
@@ -908,6 +1001,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.SaleConfirmations = nil
 	s.VoidedSales = nil
 	s.RefusedReversals = nil
+	s.WithdrawalConfirmations = nil
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil

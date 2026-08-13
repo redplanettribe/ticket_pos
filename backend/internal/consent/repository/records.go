@@ -276,8 +276,57 @@ func (r *Repository) StampConfirmedTx(ctx context.Context, tx *sql.Tx, customerI
 	return nil
 }
 
+// StampConfirmationSent records that the Customer was told about the Consent
+// Withdrawal one record performed: the moment the confirmation mail was handed
+// to the mail provider (#267, parent #265).
+//
+// It is the SECOND and last of the post-insert writes migration 061's restated
+// rule admits, and it satisfies that rule exactly as StampConfirmedTx does: null
+// until a later event about this act, written once, never changed, and altering
+// nothing the row says the person did. The answers, the channel, the prior
+// state and the circumstances are untouched — what is added is that the titular
+// was answered, which is the question a compliance officer must be able to
+// settle from the evidence rather than from a mail provider's retention window.
+//
+// IT IS NOT A GENERAL SENT-MAIL LOG and must never grow into one. It says
+// nothing about deliverability, nothing about a provider's message id, and
+// nothing about any message that is not the confirmation of the act this row
+// already describes.
+//
+// `WHERE confirmation_sent_at IS NULL` is what makes "written once" a property
+// of the table rather than of the caller's discipline. A second stamp on the
+// same record touches nothing and is not an error: the caller has already sent
+// what it sent, and refusing here would only turn a duplicate courtesy into a
+// failure of the act it annotates.
+//
+// It runs on its OWN connection and outside any transaction the withdrawal
+// used, deliberately. The mail is handed over after that transaction commits —
+// it has to be, or the platform would be telling somebody about a withdrawal
+// that could still roll back — so there is no transaction left to join. A
+// failure here is reported and must not be allowed to fail the withdrawal: null
+// then means "not sent", which is a true and useful thing for the log to say.
+func (r *Repository) StampConfirmationSent(ctx context.Context, recordID string, at time.Time) error {
+	const stamp = `
+		UPDATE consent_records SET confirmation_sent_at = $2
+		WHERE id = $1 AND confirmation_sent_at IS NULL
+	`
+	if _, err := r.db.Pool.ExecContext(ctx, stamp, recordID, at); err != nil {
+		return fmt.Errorf("stamp confirmation sent: %w", err)
+	}
+	return nil
+}
+
 // Append writes the Consent Record and applies the state it makes true, in ONE
-// TRANSACTION, and returns the record's id and the Customer's resulting state.
+// TRANSACTION, and returns the record's id, the state this act REPLACED and the
+// state it made true.
+//
+// The prior state is handed back rather than only written into the row because
+// the one question that cannot be answered from the resulting state is whether
+// this act took anything away: `denied` reads the same whether somebody gave
+// something up or refused for the second time (#267). It is the same
+// observation the row records, returned rather than re-read — a caller that
+// asked again afterwards would be reading a world the commit has already let
+// move on.
 //
 // The transaction is the point of this method existing at all. The log and the
 // state are two halves of one act: a record with no state change would gate a
@@ -296,22 +345,22 @@ func (r *Repository) StampConfirmedTx(ctx context.Context, tx *sql.Tx, customerI
 // early because it also OBSERVES the state before overwriting it (#266), and an
 // observation taken outside the lock would describe a world that had moved on by
 // the time the write landed.
-func (r *Repository) Append(ctx context.Context, record Record, state StateWrite) (string, CustomerConsentState, error) {
+func (r *Repository) Append(ctx context.Context, record Record, state StateWrite) (string, CustomerConsentState, CustomerConsentState, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
-		return "", CustomerConsentState{}, fmt.Errorf("begin consent capture: %w", err)
+		return "", CustomerConsentState{}, CustomerConsentState{}, fmt.Errorf("begin consent capture: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	recordID, resulting, err := r.AppendTx(ctx, tx, record, state)
+	recordID, prior, resulting, err := r.AppendTx(ctx, tx, record, state)
 	if err != nil {
-		return "", CustomerConsentState{}, err
+		return "", CustomerConsentState{}, CustomerConsentState{}, err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return "", CustomerConsentState{}, fmt.Errorf("commit consent capture: %w", err)
+		return "", CustomerConsentState{}, CustomerConsentState{}, fmt.Errorf("commit consent capture: %w", err)
 	}
-	return recordID, resulting, nil
+	return recordID, prior, resulting, nil
 }
 
 // AppendTx is Append's two writes inside a transaction the CALLER owns, for the
@@ -328,7 +377,7 @@ func (r *Repository) Append(ctx context.Context, record Record, state StateWrite
 // It takes *sql.Tx rather than an interface for the same reason the sale-commit
 // spine's UpsertCustomer seam does: this is a transaction handed across a module
 // boundary, and the type is the statement that it really is one.
-func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, state StateWrite) (string, CustomerConsentState, error) {
+func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, state StateWrite) (string, CustomerConsentState, CustomerConsentState, error) {
 	// WHAT THIS ACT IS ABOUT TO REPLACE, read under the Customer row's lock and
 	// immediately before the write that replaces it (#266).
 	//
@@ -346,7 +395,7 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 	// exist is refused here, before a row is inserted and rolled back.
 	prior, err := r.ConsentStateForUpdateTx(ctx, tx, record.CustomerID)
 	if err != nil {
-		return "", CustomerConsentState{}, err
+		return "", CustomerConsentState{}, CustomerConsentState{}, err
 	}
 
 	var recordID string
@@ -367,7 +416,7 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 		priorState(record.NetworkingConsent, prior.NetworkingConsent),
 	).Scan(&recordID)
 	if err != nil {
-		return "", CustomerConsentState{}, fmt.Errorf("append consent record: %w", err)
+		return "", CustomerConsentState{}, CustomerConsentState{}, fmt.Errorf("append consent record: %w", err)
 	}
 
 	// Every column here is written by a CASE that can decide to leave it exactly
@@ -409,13 +458,13 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 		state.DigestEnabled,
 	).Scan(&resulting.PolicyAcceptedAt, &resulting.PolicyVersionID, &marketing, &networking)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", CustomerConsentState{}, ErrCustomerNotFound
+		return "", CustomerConsentState{}, CustomerConsentState{}, ErrCustomerNotFound
 	}
 	if err != nil {
-		return "", CustomerConsentState{}, fmt.Errorf("apply consent state: %w", err)
+		return "", CustomerConsentState{}, CustomerConsentState{}, fmt.Errorf("apply consent state: %w", err)
 	}
 	resulting.MarketingConsent = consent.State(marketing.String)
 	resulting.NetworkingConsent = consent.State(networking.String)
 
-	return recordID, resulting, nil
+	return recordID, prior, resulting, nil
 }

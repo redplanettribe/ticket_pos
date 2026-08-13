@@ -151,6 +151,28 @@ func (s *ResendEmailSender) SendSaleReversalRefused(ctx context.Context, r SaleR
 	return nil
 }
 
+// SendConsentWithdrawalConfirmation delivers the confirmation that a Consent
+// Withdrawal took something away (#267).
+//
+// It goes out on the TRANSACTIONAL identity, which is the whole reason this
+// method is here rather than on the Digest half: the recipient has just
+// withdrawn Marketing Consent, and sending the confirmation of that act from the
+// marketing sending domain would be both the wrong domain and a bad joke.
+//
+// The failure is returned as well as logged, unlike the best-effort notices
+// above, because this send has a caller that must know: a Consent Record's
+// confirmation-sent stamp is written only where the provider actually took the
+// message, and a swallowed error would stamp evidence that nobody was ever sent
+// anything. Nothing about that failure reaches the withdrawal, which has already
+// committed.
+func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Context, c ConsentWithdrawalConfirmation) error {
+	if err := s.send(ctx, c.To, c.Subject(), c.Text()); err != nil {
+		s.logger.Error("resend send consent withdrawal confirmation failed", "email", c.To, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort: the request is recorded whether or
 // not anybody was told, and the pending count on the operator navigation is the
