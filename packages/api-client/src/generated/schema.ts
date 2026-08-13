@@ -376,8 +376,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit sign-in consent
-         * @description Finishes a sign-in that was held for consent: exchanges the short-lived, single-use `pending_consent_token` from a verify response for the Customer Session that verification withheld. Writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized. `policy_acceptance` is required: a submission without it is refused by the API with POLICY_ACCEPTANCE_REQUIRED, not merely disabled in a form. The optional `marketing_consent` and `networking_consent` default to false, and false is an explicit No — it records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034). Answers for boxes the Customer was not shown are ignored: standing optional answers are never churned. The Policy Version is resolved server-side and is never accepted from the request. An optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step leaves no session at all.
+         * Submit sign-in consent, or withdraw consent
+         * @description Spends the short-lived, single-use `pending_consent_token` from a verify response, or from the Consent Withdrawal passcode door, on ONE of two acts — decided by the API from the submission's contents and never by the form that sent it. POLICY ACCEPTANCE IS REQUIRED UNLESS EVERY ANSWER PRESENT IN THE SUBMISSION IS A DENIAL (ADR 0039). A submission mentioning `policy_acceptance` at all — true or false — one containing any grant, and one carrying no answer at all are all sign-in submissions, and a sign-in submission without acceptance is refused with POLICY_ACCEPTANCE_REQUIRED exactly as before; a submission whose only answers are `false` is a Consent Withdrawal and needs no acceptance, because an act that grants nothing, opens nothing and authorizes nothing has no processing for an acceptance to have informed anybody about. FINISHING A SIGN-IN writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized; `marketing_consent` and `networking_consent` default to false there, and false is an explicit No that records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034); answers for boxes the Customer was not shown are ignored, so standing optional answers are never churned; an optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes; the response carries `session` and `session_id`. WITHDRAWING carries no `policy_acceptance` and names only the consents to take away, each as `false` — an omitted consent is not on the submission and is left exactly as it stands, so a bare token withdraws nothing and is refused. It MINTS NO CUSTOMER SESSION: the response carries `withdrawal` with the state of each optional consent afterwards and what the act actually took away, and `session`, `session_id`, `consent_required` and `follow` are all null. It can only ever move a consent to `denied` — no submission on this path can grant a consent, accept a Policy Version or open a session — so an intercepted passcode buys nothing its owner cannot undo from their own account. A withdrawal that moved a consent out of `granted` or `pending_confirmation` writes its Consent Record with the prior state and is confirmed to the Customer by email in their Mail Locale; one that moved nothing records the act and sends nothing. The Policy Version is resolved server-side and is never accepted from the request. The token is spent whatever the outcome and whichever act was attempted, so a refused submission is restarted by proving the address again; abandoning the step records nothing and leaves no session at all.
          */
         post: {
             parameters: {
@@ -399,7 +399,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeCustomerVerifyOTP"];
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerConsentSubmission"];
                     };
                 };
                 /** @description Bad Request */
@@ -757,6 +757,77 @@ export interface paths {
                 };
                 /** @description Bad Request */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/consent/withdrawal/passcode/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prove email ownership to withdraw consent
+         * @description Redeems a Customer one-time passcode for the short-lived, single-use `pending_consent_token` that a Consent Withdrawal is submitted with, for a Customer who will not or cannot sign in (ADR 0039). IT MINTS NO CUSTOMER SESSION AND NEVER CAN — not for a Customer who owes a Policy Acceptance, and not for one who has accepted the current edition and would have been signed straight in by the ordinary verify — so proving an address in order to withdraw does not leave anybody logged in on a shared machine. The passcode is the ordinary Customer passcode requested at /api/v1/customer/auth/otp/request, redeemed here instead of at the verify: it is proof of email ownership either way, so the Customer record is created or reused and marked verified exactly as a sign-in would, and an optional `locale` is remembered as the Customer's Mail Locale, which is the language the withdrawal's confirmation email is written in. The token it returns is the same credential a held sign-in returns and is spent at the same endpoint, /api/v1/customer/auth/consent, where a submission whose every answer is a denial needs no `policy_acceptance` and one containing any grant still does. Nothing about a Customer is disclosed here: the response is the token and its expiry, never their consent state, and a wrong passcode fails exactly as it fails on the sign-in door.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Email and passcode */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.consentWithdrawalProofBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerConsentWithdrawalProof"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6648,16 +6719,24 @@ export interface components {
              */
             follow?: string;
             /**
-             * @description MarketingConsent and NetworkingConsent are the optional boxes. ABSENT IS
-             *     FALSE AND FALSE IS AN EXPLICIT NO — an unticked box that was shown is a
-             *     refusal, recorded as `denied`, and for Marketing that turns the Follow
-             *     Digest off (ADR 0034). This is the one place in the API where a missing
-             *     JSON field means something, and it means it because that is what the
-             *     surface means: the boxes are rendered unticked and a person who submits
-             *     without touching them has answered.
+             * @description MarketingConsent and NetworkingConsent are the optional boxes. On a sign-in
+             *     submission ABSENT IS FALSE AND FALSE IS AN EXPLICIT NO — an unticked box
+             *     that was shown is a refusal, recorded as `denied`, and for Marketing that
+             *     turns the Follow Digest off (ADR 0034). That is what the surface means: the
+             *     boxes are rendered unticked and a person who submits without touching them
+             *     has answered.
              *
              *     An answer for a box this Customer was not shown is ignored by the service,
              *     which recomputes what they were owed rather than trusting this body.
+             *
+             *     THEY ARE POINTERS SO THAT A WITHDRAWAL CAN BE TOLD FROM A SIGN-IN (#270,
+             *     ADR 0039), and nothing about the sign-in reading above changes: an absent
+             *     field still submits false there, because withdrawalOnly below sends a
+             *     submission carrying a Policy Acceptance down the same path it always took.
+             *     What the pointer buys is the OTHER submission — one with no acceptance in
+             *     it, naming the consents it takes away and nothing else — where absent has
+             *     to mean "not on this submission at all" rather than "answered No", or a
+             *     bare token would be a withdrawal of two consents nobody mentioned.
              */
             marketing_consent?: boolean;
             networking_consent?: boolean;
@@ -6667,8 +6746,30 @@ export interface components {
              * @description PolicyAcceptance is the required box. Absent is false, and false is
              *     refused: the API is the guarantee, the disabled submit button is a
              *     courtesy.
+             *
+             *     IT IS A POINTER SO THAT MENTIONING IT AT ALL MEANS SOMETHING (#270). A
+             *     submission carrying this field is a sign-in submission whatever it says —
+             *     `false` is a refusal of the policy, not a withdrawal of a consent — and it
+             *     follows the rules it always did. Only a submission that does not mention
+             *     Policy Acceptance at all can be the other act. The two readings agree
+             *     everywhere they overlap: absent is false on the sign-in path exactly as it
+             *     has always been.
              */
             policy_acceptance?: boolean;
+        };
+        "handler.consentWithdrawalProofBody": {
+            code?: string;
+            email?: string;
+            /**
+             * @description Locale is the language of the Storefront page the withdrawal is being made
+             *     from, remembered as the Customer's Mail Locale exactly as it is on the
+             *     sign-in door (ADR 0033). It matters more here than there: the confirmation
+             *     of the withdrawal is written in it, and a message about somebody's legal
+             *     rights is the last one that may arrive in a language they cannot read.
+             *     Optional, and a language the platform does not serve is dropped rather than
+             *     made a reason a person cannot exercise a right.
+             */
+            locale?: string;
         };
         "handler.coverUploadURLBody": {
             content_type?: string;
@@ -6948,6 +7049,13 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        "openapi.CustomerConsentSubmissionData": {
+            consent_required?: components["schemas"]["service.ConsentRequiredView"];
+            follow?: components["schemas"]["service.FollowView"];
+            session?: components["schemas"]["service.CustomerSessionView"];
+            session_id?: string;
+            withdrawal?: components["schemas"]["service.ConsentWithdrawalView"];
+        };
         "openapi.CustomerVerifyOTPData": {
             consent_required?: components["schemas"]["service.ConsentRequiredView"];
             session?: components["schemas"]["service.CustomerSessionView"];
@@ -6995,6 +7103,16 @@ export interface components {
         };
         "openapi.EnvelopeCustomerConsentConfirmation": {
             data?: components["schemas"]["service.ConsentConfirmationView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerConsentSubmission": {
+            data?: components["schemas"]["openapi.CustomerConsentSubmissionData"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerConsentWithdrawalProof": {
+            data?: components["schemas"]["service.ConsentWithdrawalProofView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -7385,6 +7503,38 @@ export interface components {
              *     server-side row (migration 063), so spending it destroys it.
              */
             pending_consent_token?: string;
+        };
+        "service.ConsentWithdrawalProofView": {
+            /**
+             * @description ExpiresAt is when it stops working, RFC 3339, published so a surface can
+             *     say "start again" rather than discovering it by being refused.
+             */
+            expires_at?: string;
+            /**
+             * @description PendingConsentToken is the single-use, short-lived proof of email
+             *     ownership. It is the same credential the sign-in door mints and is spent at
+             *     the same endpoint.
+             */
+            pending_consent_token?: string;
+        };
+        "service.ConsentWithdrawalView": {
+            /**
+             * @description MarketingConsent and NetworkingConsent are the states AFTER the act:
+             *     "granted", "denied", "pending_confirmation", or empty for a consent that
+             *     has never been answered and was not named by this submission.
+             */
+            marketing_consent?: string;
+            networking_consent?: string;
+            withdrew?: components["schemas"]["service.ConsentWithdrewView"];
+        };
+        /**
+         * @description Withdrew is what this act actually took away — a move out of `granted` or
+         *     `pending_confirmation` and into `denied`, decided inside the transaction
+         *     that observed the prior state (#266) and never recomputed out here.
+         */
+        "service.ConsentWithdrewView": {
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
         };
         "service.CustomerAreaView": {
             past?: components["schemas"]["service.TicketSaleView"][];

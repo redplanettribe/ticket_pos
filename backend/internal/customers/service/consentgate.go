@@ -290,24 +290,14 @@ func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Custom
 		return nil, nil
 	}
 
-	token, err := newSessionToken()
+	token, expiresAt, err := s.mintPendingConsent(ctx, customer.ID, customer.Email, now)
 	if err != nil {
-		return nil, err
-	}
-	pending := repository.PendingConsent{
-		ID:         token,
-		CustomerID: customer.ID,
-		Email:      customer.Email,
-		ExpiresAt:  now.Add(pendingConsentDuration),
-		CreatedAt:  now,
-	}
-	if err := s.repo.CreatePendingConsent(ctx, pending); err != nil {
 		return nil, err
 	}
 
 	return &ConsentRequiredView{
 		PendingConsentToken: token,
-		ExpiresAt:           pending.ExpiresAt.UTC().Format(time.RFC3339),
+		ExpiresAt:           expiresAt.UTC().Format(time.RFC3339),
 		Boxes: ConsentBoxesView{
 			// Always: this outcome exists because it is outstanding.
 			PolicyAcceptance:  true,
@@ -315,4 +305,36 @@ func (s *Service) gateOnConsent(ctx context.Context, customer *repository.Custom
 			NetworkingConsent: outstanding.NetworkingConsent,
 		},
 	}, nil
+}
+
+// mintPendingConsent holds one Proof of Email Ownership in suspension: a
+// short-lived, single-use row whose only purchase is a consent submission.
+//
+// It is the minting half of gateOnConsent, extracted so the Consent Withdrawal
+// surface can mint the SAME credential rather than invent a second one (#270,
+// ADR 0039). What it cannot do is decide WHETHER to mint: the sign-in door mints
+// one only when a Policy Acceptance is outstanding, and the withdrawal door
+// mints one unconditionally because it has no session to withhold. Folding that
+// decision in here would put two callers' policies in one function and make the
+// unconditional one look like a bypass of the other.
+//
+// The token is a session token's worth of entropy, from the same generator, and
+// it is the row's primary key — so spending it is a delete and there is nothing
+// left to replay (migration 063).
+func (s *Service) mintPendingConsent(ctx context.Context, customerID, email string, now time.Time) (string, time.Time, error) {
+	token, err := newSessionToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	pending := repository.PendingConsent{
+		ID:         token,
+		CustomerID: customerID,
+		Email:      email,
+		ExpiresAt:  now.Add(pendingConsentDuration),
+		CreatedAt:  now,
+	}
+	if err := s.repo.CreatePendingConsent(ctx, pending); err != nil {
+		return "", time.Time{}, err
+	}
+	return token, pending.ExpiresAt, nil
 }

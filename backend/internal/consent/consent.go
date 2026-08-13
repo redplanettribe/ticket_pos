@@ -15,8 +15,18 @@ import "time"
 type Channel string
 
 const (
-	// ChannelSignIn is the consent step between Proof of Email Ownership and a
-	// Customer Session — both doors, passcode and Google alike.
+	// ChannelSignIn is the consent step reached past Proof of Email Ownership —
+	// both doors, passcode and Google alike.
+	//
+	// It names the surface and not its outcome, which is why the Consent
+	// Withdrawal made on Proof of Email Ownership alone is recorded here too
+	// (#270): a passcode redeemed for a pending-consent token, spent at the
+	// consent submission endpoint, is this surface — it simply mints no Customer
+	// Session at the end of it. The two are still told apart from a single row
+	// without a seventh channel string: a sign-in consent step always records a
+	// Policy Acceptance and the session it minted, and a withdrawal records
+	// neither, so `policy_acceptance IS NULL AND session_id IS NULL` on this
+	// channel is that surface exactly.
 	ChannelSignIn Channel = "signin"
 	// ChannelCheckout is the online checkout, where a guest may be answering for
 	// an address they have not proven (ADR 0035).
