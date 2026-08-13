@@ -44,16 +44,42 @@ import (
 // change with no evidence beside it is the thing this feature exists to make
 // impossible.
 //
-// THE SCOPE LINE, because a future reader will be tempted to cross it here of
-// all places. This is truthful state and evidence on the two surfaces that
-// already existed, and it is NOT the revocation feature (#249, Out of Scope).
-// Nothing here writes a revocatoria record, sends a confirmation of the
-// withdrawal to the titular, propagates anything to the networking application
-// or to an ally, revokes Networking Consent, or serves any other PDP right. A
-// Customer switching their weekly email off is not making a rights request, and
-// building half of one on the back of a toggle would leave the platform
-// claiming a guarantee it does not keep. Those land as their own tickets, on
-// their own surfaces.
+// THE SCOPE LINE MOVED, and this comment is where a future reader will look, so
+// it says where it moved to (#265, #266). It used to read that nothing here was
+// the withdrawal feature: no evidence of a withdrawal as such, no confirmation
+// to the titular, no rights request. That was true of #256 and is no longer true
+// of this file, because #265 crossed the line ON PURPOSE and at this exact
+// point.
+//
+// WHAT CROSSED IT. An Unsubscribe IS a Consent Withdrawal — the Marketing-
+// specific, link-driven special case of one (CONTEXT.md) — and the platform now
+// says so rather than treating the resemblance as a coincidence. Every act
+// below therefore records what it TOOK AWAY as well as what it answered: the
+// Capture it performs writes each optional consent's state as it stood
+// immediately before, so a press that moved somebody out of `granted` is legible
+// as a withdrawal from the single row that performed it (#266). The Customer
+// will also be told by email that it happened, on every channel alike, which is
+// a later slice of #265 and is not in this file yet.
+//
+// WHAT STILL HAS NOT. The line has moved, not vanished, and the three things it
+// still holds back are worth naming because each is somebody's reasonable next
+// idea:
+//
+//   - NOTHING HERE REACHES A FOLLOW. Unsubscribing is a switch, not a purge, and
+//     the whole argument at the top of this file is unaffected by any of the
+//     above.
+//   - NOTHING HERE TOUCHES NETWORKING CONSENT. One box is shown and one box is
+//     answered; the other is nil — NOT SHOWN — and reading that nil as a refusal
+//     would turn an unsubscribe into a Withdraw All. Withdrawing everything is a
+//     deliberate act a Customer performs on `/privacy`, behind a dialog that
+//     tells them what it means.
+//   - NOTHING HERE PROPAGATES ANYWHERE. There is no networking application
+//     integration to propagate to; whoever builds one reads this platform's
+//     state live and caches nothing (ADR 0038).
+//
+// The word is WITHDRAWAL. `revoke` stays reserved for credentials — sessions,
+// in-flight pending consents — and the Spanish copy's "revocatoria" is counsel's
+// legal term rendered for a reader, not a second name for the concept.
 
 // unsubscribeLinkPath is the STOREFRONT route the link points at, never an API
 // one (ADR 0008), and it is a page rather than an endpoint for the reason the
@@ -179,8 +205,9 @@ func (s *Service) Unsubscribe(ctx context.Context, token string, evidence consen
 		// One box, and only one. Policy Acceptance and Networking Consent are nil
 		// — NOT SHOWN HERE — so this act neither accepts a policy nor touches a
 		// standing Networking Consent. Reading those nils as refusals would turn
-		// an unsubscribe into a withdrawal of everything, which is precisely the
-		// revocation feature this ticket does not build.
+		// an unsubscribe into a Withdraw All, which is a deliberate act performed
+		// somewhere a Customer has been told what it means, and never something a
+		// link in a footer does on their behalf.
 		Answers: consent.Answers{MarketingConsent: &declined},
 		// No SessionID: this route is session-less by contract, and an empty
 		// evidence field is recorded as "not collected" rather than as a blank.
