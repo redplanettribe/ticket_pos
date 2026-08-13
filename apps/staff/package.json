@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ticket-pos/locale": "workspace:*",
     "@ticket-pos/ui": "workspace:*",
     "next": "^15.3.3",
     "react": "^19.1.0",

@@ -14,6 +14,9 @@ importers:
 
   apps/staff:
     dependencies:
+      '@ticket-pos/locale':
+        specifier: workspace:*
+        version: link:../../packages/locale
       '@ticket-pos/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -60,6 +63,9 @@ importers:
 
   apps/storefront:
     dependencies:
+      '@ticket-pos/locale':
+        specifier: workspace:*
+        version: link:../../packages/locale
       '@ticket-pos/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -127,6 +133,15 @@ importers:
         version: 7.13.0(typescript@5.9.3)
       typescript:
         specifier: ^5.0.0
+        version: 5.9.3
+
+  packages/locale:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.1.1
+      typescript:
+        specifier: ^5.8.3
         version: 5.9.3
 
   packages/ui:
