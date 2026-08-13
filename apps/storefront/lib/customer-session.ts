@@ -618,6 +618,22 @@ export type Privacy = {
 };
 
 /**
+ * What one Withdraw All did (#269).
+ *
+ * IT REPORTS TWO DIFFERENT FACTS AND BOTH ARE NEEDED. `consents` is what is
+ * true now; `withdrew` is what the act actually TOOK AWAY, decided by the API
+ * inside the transaction that observed the prior state. They come apart exactly
+ * where it matters: a Customer whose consents were both already denied ends in
+ * the same states as one who just gave two things up, and only the second is
+ * sent a confirmation email — so a page reading the states alone would promise
+ * mail that the API correctly did not send.
+ */
+export type WithdrawAll = {
+  consents: OptionalConsents;
+  withdrew: { marketing_consent: boolean; networking_consent: boolean };
+};
+
+/**
  * Reads the signed-in Customer's privacy settings.
  *
  * A GET, AND THAT IS THE POINT. Rendering the Privacy page must write nothing:

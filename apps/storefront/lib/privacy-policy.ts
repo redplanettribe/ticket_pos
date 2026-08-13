@@ -15,3 +15,22 @@
  * other.
  */
 export const PRIVACY_POLICY_PATH = "/privacy-policy";
+
+/**
+ * The address to write to about personal data protection (#269).
+ *
+ * IT IS THE ONE THE PUBLISHED POLICY NAMES, and it is not this app's to choose.
+ * The policy gives it as the contact for the controller and the Data Protection
+ * Officer, and as the address for exercising every right over one's data —
+ * including the one this product deliberately does not implement, erasure. The
+ * Withdraw All disclosure is the only place in the product that points at that
+ * escalation route, so an address invented here would be an escalation route to
+ * nowhere.
+ *
+ * A constant rather than a message key, for the reason the brand name is one: it
+ * reads the same in every language, and copying it into each catalog is how one
+ * of them eventually comes to hold a different address from the legal text.
+ * Changing it means changing the policy first — the policy is the source, this
+ * is the citation.
+ */
+export const DATA_PROTECTION_EMAIL = "info@redplanettribe.org";

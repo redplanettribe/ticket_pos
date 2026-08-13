@@ -39,7 +39,8 @@ import (
 // different act with its own disclosure and its own single row (#269), and it
 // is deliberately not reachable from this method: a surface that could answer
 // both at once would let the page perform it without ever telling anybody what
-// it means.
+// it means. WithdrawAll below is that act, and it is a THIRD method rather than
+// a parameter on this one for exactly that reason.
 //
 // NO NEW WRITE PATH. Everything below goes through the consent module's
 // Capture, which writes the immutable Consent Record, the state it makes true
@@ -248,5 +249,115 @@ func (s *Service) SetOptionalConsent(ctx context.Context, sessionToken string, p
 	return &OptionalConsentsView{
 		MarketingConsent:  consentStateOnTheWire(receipt.MarketingConsent),
 		NetworkingConsent: consentStateOnTheWire(receipt.NetworkingConsent),
+	}, nil
+}
+
+// WithdrawAllView is what one Withdraw All did.
+//
+// It reports BOTH the resulting states and what the act TOOK AWAY, which are
+// different facts and both worth telling. `denied` is the same value whether
+// somebody has just given something up or was declining for the second time, so
+// a page that read only the states would tell a Customer whose consents were
+// already both denied that a confirmation is on its way to them — and none is,
+// because nothing moved.
+type WithdrawAllView struct {
+	// Consents is the pair as it now stands: the same shape every other act on
+	// this surface answers with, so the page cannot describe the same two facts
+	// in two ways.
+	Consents OptionalConsentsView `json:"consents"`
+	// Withdrew is what this act actually took away, decided inside the
+	// transaction that observed the prior state (#266) and never recomputed out
+	// here. It is the same shape and the same spelling the passcode-only surface
+	// publishes (#270), because it is the same question.
+	Withdrew ConsentWithdrewView `json:"withdrew"`
+}
+
+// WithdrawAll takes back every optional consent at once: ONE act, ONE Consent
+// Record, both optional consents denied.
+//
+// WHY IT IS ITS OWN METHOD AND ITS OWN ROUTE. Two calls to SetOptionalConsent
+// would leave the same Customer in the same state, and would be WRONG AS
+// EVIDENCE: the log would hold two rows saying somebody moved two controls,
+// where what happened was one person asking to be left alone. A compliance
+// officer reading the revocation register cannot recover that intent from two
+// rows and a shared timestamp, and must not have to guess at it. So the single
+// row is the deliverable here, not an optimisation — and it is why the
+// per-purpose route deliberately takes one purpose in its path and cannot
+// become this by accident (#268).
+//
+// IT CAN ONLY WITHDRAW, and that is a property of the code rather than a rule
+// to remember: the answers are built from deniedAnswer(), which has no variable
+// in it to flip, exactly as on the passcode-only surface (#270). Nothing here
+// takes a value from a caller, and the request that reaches this method carries
+// no body at all.
+//
+// POLICY ACCEPTANCE IS NOT TOUCHED and is nil — not shown on this act. It is
+// not withdrawable: it rests on a basis other than consent, and clearing it
+// would re-gate the person rather than free them (ADR 0038). "Everything" here
+// means every OPTIONAL consent, which is everything a Customer ever granted.
+//
+// NO NEW WRITE PATH, again. The single Capture writes the immutable Consent
+// Record, both states, and `digest_enabled` in lockstep with Marketing Consent —
+// one transaction, one statement (ADR 0034) — so the weekly Follow Digest goes
+// off with this act without a line here knowing that it does.
+//
+// THE DISCLOSURE IS NOT HERE, and there is nothing this method could do about
+// it. What Withdraw All means — that marketing and networking stop, that the
+// data is retained for the Tickets held and for legal and security obligations,
+// that the account, the Tickets and the transactional mail are unaffected, that
+// it can all be turned back on, and that IT IS NOT DELETION — is told to the
+// Customer by the dialog before they reach this at all. This method must never
+// be given a second caller that has not shown it.
+func (s *Service) WithdrawAll(ctx context.Context, sessionToken string, evidence consent.Evidence) (*WithdrawAllView, error) {
+	session, customer, err := s.fullSession(ctx, sessionToken)
+	if err != nil {
+		return nil, err
+	}
+
+	receipt, err := s.consent.Capture(ctx, consent.Capture{
+		CustomerID: customer.ID,
+		Email:      customer.Email,
+		Channel:    consent.ChannelAccountSettings,
+		// The session was established by Proof of Email Ownership, so this is the
+		// owner answering for themselves. It is what makes the denial STICK: an
+		// unproven No writes no state at all, which here would mean silently
+		// ignoring the withdrawal of every consent that had actually been granted.
+		EmailProven: true,
+		// BOTH BOXES, ANSWERED NO, IN ONE ACT — the whole of the ticket, and the
+		// one place in the platform where both optional answers are non-nil and
+		// false together. A Pending Confirmation somebody else left standing is
+		// settled as No by the same answers, which is the owner resolving it.
+		Answers: consent.Answers{
+			MarketingConsent:  deniedAnswer(),
+			NetworkingConsent: deniedAnswer(),
+		},
+		Evidence: consent.Evidence{
+			IP:        evidence.IP,
+			UserAgent: evidence.UserAgent,
+			// The session the act was made under, so this row and the sign-in's own
+			// tie together in the log.
+			SessionID: session.ID,
+			OriginURL: evidence.OriginURL,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// #267's mechanism, reused and asked nothing new. It sends only when the
+	// receipt says something moved, so a Customer who had already denied both is
+	// not written to — and where only one consent was actually standing, the mail
+	// names that one rather than claiming both were taken away.
+	s.confirmWithdrawal(ctx, customer, receipt)
+
+	return &WithdrawAllView{
+		Consents: OptionalConsentsView{
+			MarketingConsent:  consentStateOnTheWire(receipt.MarketingConsent),
+			NetworkingConsent: consentStateOnTheWire(receipt.NetworkingConsent),
+		},
+		Withdrew: ConsentWithdrewView{
+			MarketingConsent:  receipt.Withdrawn.MarketingConsent,
+			NetworkingConsent: receipt.Withdrawn.NetworkingConsent,
+		},
 	}, nil
 }

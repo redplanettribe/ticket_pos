@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle, PageHeader } from "@ticket-pos/ui"
 import { ConsentControl } from "@/components/consent-control";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
+import { WithdrawAllConsents } from "@/components/withdraw-all-consents";
 import { Link, redirect } from "@/i18n/navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
@@ -64,6 +65,14 @@ export async function generateMetadata({ params }: PrivacyPageProps): Promise<Me
  * beside the Follows because it explains what that list means, and this control
  * is here because a Customer looking for their privacy settings should not have
  * to know that marketing lives on a page about follows.
+ *
+ * WITHDRAW ALL IS A THIRD KIND OF THING ON THIS PAGE (#269), neither a read nor
+ * one of the controls. It takes back every optional consent in one act and one
+ * Consent Record, and it is the only thing here carrying a disclosure: counsel
+ * attaches a duty to the total withdrawal that the individual controls do not
+ * carry, so the dialog says what withdrawal does and does not mean before
+ * anything is written. Nothing about it may migrate into the controls above, and
+ * nothing above may grow a way to answer both consents at once.
  *
  * Policy Acceptance is read-only and has no control anywhere, because it is not
  * withdrawable: it is absent from counsel's withdrawal form, it gates the
@@ -138,10 +147,10 @@ export default async function PrivacyPage({ params }: PrivacyPageProps) {
 
             <section className="space-y-4">
               <h2 className="font-medium">{t("consentsHeading")}</h2>
-              {/* Two controls, each moving ONE consent. There is deliberately no
-                  single action here that answers both at once: withdrawing
-                  everything is its own act, behind a dialog that says what it
-                  does and does not mean, and it lands in #269. */}
+              {/* Two controls, each moving ONE consent. Neither of them can
+                  answer both at once: withdrawing everything is its own act,
+                  below, behind a dialog that says what it does and does not
+                  mean (#269). */}
               <ConsentControl
                 purpose="marketing"
                 state={privacy.data.consents.marketing_consent}
@@ -154,6 +163,24 @@ export default async function PrivacyPage({ params }: PrivacyPageProps) {
                 title={t("networkingTitle")}
                 description={t("networkingDescription")}
               />
+            </section>
+
+            {/* Withdraw All (#269): one act taking back every optional consent,
+                set apart from the controls above rather than sitting among them.
+
+                IT IS A DIFFERENT KIND OF THING AND MUST LOOK LIKE ONE. The
+                controls above move one consent each and are undone by pressing
+                them again; this is a single act with a disclosure attached to
+                it, and a Customer who wants to be left alone should find it
+                without having to reason about each purpose in turn. It is drawn
+                whatever the two states are, including where both already stand
+                denied: the API records that act truthfully and mails nobody, and
+                a button that vanished once it had been used would leave somebody
+                wondering whether it had worked. */}
+            <section className="space-y-3 rounded-lg border p-4">
+              <h2 className="font-medium">{t("withdrawAllHeading")}</h2>
+              <p className="text-muted-foreground text-sm">{t("withdrawAllLead")}</p>
+              <WithdrawAllConsents />
             </section>
 
             {/* What is true of this whole page, and it must stay true: it never
