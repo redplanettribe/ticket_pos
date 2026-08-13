@@ -143,6 +143,24 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// discriminator is how two answers quietly become one (ADR 0026 amendment).
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/failed", operator(http.HandlerFunc(h.MarkPayoutRequestFailed)))
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
+	// The Consent Withdrawal an Operator records on somebody's behalf (#271,
+	// parent #265): a form that arrived by post, or an email to the
+	// data-protection address.
+	//
+	// Keyed on the Customer's EMAIL ADDRESS, which is all an Operator holding a
+	// posted form has — the same argument that keys the sale lookup on a Sale
+	// Confirmation reference. It is not nested under an Organization and could
+	// not be: Customer identity on this platform is global and separate from
+	// staff (ADR 0010), so a Customer's consents belong to no venue and no
+	// Organization-scoped role may reach them. The operator allowlist on this
+	// namespace is the whole of the gate, and it refuses an Org Admin identically
+	// for an address that exists and one that does not.
+	mux.Handle("GET /api/v1/operator/customers/{email}/consent", operator(http.HandlerFunc(h.LookUpCustomerConsent)))
+	// The act itself, hanging off that lookup exactly as the Operator Reversal
+	// hangs off the sale lookup. A noun and not a verb, because what is being
+	// created is a record of a Consent Withdrawal — and pointedly singular in
+	// what it can do: this path can only ever take something away.
+	mux.Handle("POST /api/v1/operator/customers/{email}/consent/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.

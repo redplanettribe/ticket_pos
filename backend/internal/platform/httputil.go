@@ -127,6 +127,19 @@ func domainHTTPStatus(code string) int {
 	// and not only in the form — see consent.ErrPolicyAcceptanceRequired.
 	case "POLICY_ACCEPTANCE_REQUIRED":
 		return http.StatusBadRequest
+	// A capture on a withdraw-only channel that tried to grant something (#271).
+	// 400 beside its neighbour above and for the mirror reason: nothing about the
+	// caller is unauthorized — a Platform Operator is entitled to be here and
+	// entitled to withdraw — the request simply asks for the one thing this
+	// channel may never do. See consent.ErrConsentGrantNotPermitted.
+	case "CONSENT_GRANT_NOT_PERMITTED":
+		return http.StatusBadRequest
+	// An email address that names no Customer, answered only to a Platform
+	// Operator (#271). 404 because the address named a person and there is no
+	// such person; see customers.ErrCustomerNotFound for why this one surface is
+	// allowed to say so when nothing else on the platform is.
+	case "CUSTOMER_NOT_FOUND":
+		return http.StatusNotFound
 	// An unsubscribe token that does not verify is 400 and pointedly not the 401
 	// its Confirmation Link neighbour gets (#224, ADR 0030). A Confirmation Link
 	// mints a session, so a bad one is a failure to authenticate; unsubscribing

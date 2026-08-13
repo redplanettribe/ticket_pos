@@ -64,6 +64,16 @@ type ConsentGate interface {
 	// to reach any other row. The evidence log stays the consent module's, and
 	// this side may only annotate the act it just performed.
 	ConfirmationSent(ctx context.Context, recordID string, at time.Time) error
+	// CustomerConsent reports what is TRUE NOW about one Customer's consents
+	// (#271), for the Operator surface that must be able to say what a
+	// withdrawal would change before it changes it.
+	//
+	// A pure read, and the only one on this interface that is: nothing here can
+	// be turned into a write, and the states it returns are never handed back as
+	// answers. The distinction between unanswered and denied comes across intact
+	// because it is what the far side stores, and a surface that flattened them
+	// would report a refusal somebody never made.
+	CustomerConsent(ctx context.Context, customerID string) (consent.CustomerConsent, error)
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces, and it

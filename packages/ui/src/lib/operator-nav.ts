@@ -38,5 +38,14 @@ export function operatorNavItems({
     // Named for the act, not the collection: there is no sales browser here and
     // none is planned, so the entry promises a lookup rather than a list.
     { href: "/operator/sales", label: "Find a sale" },
+    // The Consent Withdrawal an operator records for somebody who wrote in
+    // (#271). It sits last for the same reason "Find a sale" sits above it and
+    // below the queue: it answers a request that has already arrived on paper,
+    // and nobody is waiting on this screen the way they wait on a payout.
+    //
+    // Named for the person it is about rather than for the act, because the
+    // page begins with finding them: an operator holding a posted form has an
+    // email address and nothing else.
+    { href: "/operator/consent", label: "Customer consent" },
   ];
 }

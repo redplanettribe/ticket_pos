@@ -45,6 +45,15 @@ type Record struct {
 	UserAgent sql.NullString
 	SessionID sql.NullString
 	OriginURL sql.NullString
+	// Who recorded this act on the Customer's behalf, and which artefact it
+	// answers (#271, migration 067). Both invalid on every act a Customer
+	// performed themselves, which is all of them but one channel: a Consent
+	// Withdrawal that arrived off-platform and was entered by a Platform
+	// Operator. Transcripts like every other field here — the service takes the
+	// email from the Staff Session and the reference from the Operator, and this
+	// package writes what it is handed.
+	RecordedBy       sql.NullString
+	RequestReference sql.NullString
 }
 
 // StateWrite is what one capture act makes true of the Customer, expressed as
@@ -405,9 +414,10 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 			customer_id, email, channel, captured_at, policy_version_id,
 			policy_acceptance, marketing_consent, networking_consent,
 			email_proven, ip, user_agent, session_id, origin_url,
-			prior_marketing_consent, prior_networking_consent
+			prior_marketing_consent, prior_networking_consent,
+			recorded_by, request_reference
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id
 	`,
 		record.CustomerID, record.Email, string(record.Channel), record.CapturedAt, record.PolicyVersionID,
@@ -415,6 +425,7 @@ func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, st
 		record.EmailProven, record.IP, record.UserAgent, record.SessionID, record.OriginURL,
 		priorState(record.MarketingConsent, prior.MarketingConsent),
 		priorState(record.NetworkingConsent, prior.NetworkingConsent),
+		record.RecordedBy, record.RequestReference,
 	).Scan(&recordID)
 	if err != nil {
 		return "", CustomerConsentState{}, CustomerConsentState{}, fmt.Errorf("append consent record: %w", err)

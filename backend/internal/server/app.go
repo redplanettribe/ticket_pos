@@ -345,9 +345,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	digestHandler := digesthandler.New(digestService)
 
 	// The Operator Dashboard is composed from the modules that own its data:
-	// identity for Organizations, catalog for Events, sales for money. It is
-	// wired last because it depends on all three and none of them on it.
-	operatorService := operatorsvc.New(identityService, catalogService, salesService)
+	// identity for Organizations, catalog for Events, sales for money, and
+	// customers for the Consent Withdrawal an Operator records on somebody's
+	// behalf (#271). It is wired last because it depends on all four and none of
+	// them on it.
+	operatorService := operatorsvc.New(identityService, catalogService, salesService, customersService)
 	operatorHandler := operatorhandler.New(operatorService)
 
 	return &App{

@@ -1796,6 +1796,158 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/customers/{email}/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Look up a Customer's consent state by email address
+         * @description Returns the Customer at an email address and their CURRENT consent state, across every Organization on the platform — Customer identity is global and separate from staff (ADR 0010), so a Customer's consents are the platform's relationship with them and no Organization may inspect them. The payload identifies the person before anybody acts on their behalf (id, email, name) and reports what a withdrawal would actually change: marketing_consent and networking_consent as granted, denied or pending_confirmation, and NULL where the Customer has never been asked — null is UNANSWERED and is a different fact from denied, published as the different fact it is so that nobody is shown a refusal they never made. pending_confirmation is a tick from somebody who never proved the address: standing against it, denied for sending, never expiring. policy_accepted_at is when they last accepted a Policy Version, null if never; it is shown and is NOT actionable, because Policy Acceptance is not withdrawable — it is absent from the withdrawal form, it gates the platform on a basis other than consent, and clearing it would re-gate the person rather than free them. withdrew is null here: a lookup takes nothing away. The address is matched on its normalised form, so case does not matter. READING WRITES NOTHING — no consent is captured and no Consent Record appears, because a lookup that recorded something would put an act in the evidence log that nobody performed. An address no Customer holds is 404 CUSTOMER_NOT_FOUND: an Operator is entitled to know, and that candour is bought by the door rather than granted by the answer — every caller the operator allowlist has not admitted is refused identically for an address that exists and one that does not. Platform Operator only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Customer email address (matched case-insensitively) */
+                    email: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorCustomerConsent"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/customers/{email}/consent/withdrawal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a Consent Withdrawal that arrived off the platform
+         * @description Records that a Customer withdrew an optional consent by a route other than the platform — counsel's printed form, or an email to the data-protection address — so that a request which arrived on paper can be honoured within the legal deadline without anybody editing the database by hand. THIS SURFACE CAN ONLY WITHDRAW, NEVER GRANT: marketing_consent and networking_consent accept false (withdraw) or absence (this form did not name this consent, and nothing is written for it), and a value of TRUE is refused with 400 CONSENT_GRANT_NOT_PERMITTED. The refusal is the API's rather than the form's — an Operator who could grant could manufacture the very consent they exist to honour the withdrawal of — and it is enforced in the platform's single consent-write path, so no caller escapes it. Because it can only withdraw, the proven-ness question that decides granted-or-pending on every other channel never arises here. At least one of the two consents must be named, and request_reference is REQUIRED: it names the inbound artefact (the dated form, the letter, the email) and is at most 500 characters. It is a POINTER TO EVIDENCE HELD ELSEWHERE rather than evidence itself — it is never parsed and nothing is ever decided from its contents. The act writes exactly ONE Consent Record on channel operator_request, carrying the state each consent was in immediately before it, the acting operator's email (taken from the Staff Session, NEVER from the body) and the reference — the pair that stops a staff action from ever being presented as somebody's own click. Marketing Consent and the Follow Digest move in lockstep in the same transaction (ADR 0034). Policy Acceptance is untouched: it is not withdrawable. The response reports the state AFTER the act and `withdrew`, which is what the act TOOK AWAY — not the same question as what it answered, since `denied` reads the same whether somebody just gave something up or was already refusing. The Customer receives the same withdrawal confirmation email as any other channel, at their own stored address and in their Mail Locale, ONLY when something actually moved; an act that changed nothing is still recorded and mails nobody. A failure to send never fails the withdrawal. Platform Operator only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Customer email address (matched case-insensitively) */
+                    email: string;
+                };
+                cookie?: never;
+            };
+            /** @description Which consents the artefact withdrew, and which artefact it was */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.recordConsentWithdrawalBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOperatorCustomerConsent"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/organizations": {
         parameters: {
             query?: never;
@@ -6752,6 +6904,11 @@ export interface components {
             promotional_price_cents?: number;
             starts_at?: string;
         };
+        "handler.recordConsentWithdrawalBody": {
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            request_reference?: string;
+        };
         "handler.recordPayoutBody": {
             amount_cents?: number;
             note?: string;
@@ -7085,6 +7242,11 @@ export interface components {
         };
         "openapi.EnvelopeOTPRequest": {
             data?: components["schemas"]["service.OTPRequestResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeOperatorCustomerConsent": {
+            data?: components["schemas"]["service.OperatorCustomerConsentView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -7662,6 +7824,35 @@ export interface components {
         "service.OTPRequestResult": {
             message?: string;
         };
+        "service.OperatorConsentStateView": {
+            marketing_consent?: string;
+            networking_consent?: string;
+            /**
+             * @description PolicyAcceptedAt is when this Customer last accepted a Policy Version,
+             *     RFC 3339, null where no acceptance was ever recorded.
+             *
+             *     It is shown and is NOT actionable. Policy Acceptance is not withdrawable
+             *     (ADR 0038): it is absent from counsel's form, it gates the platform on a
+             *     basis other than consent, and clearing it would re-gate the person rather
+             *     than free them.
+             */
+            policy_accepted_at?: string;
+        };
+        "service.OperatorCustomerConsentView": {
+            consent?: components["schemas"]["service.OperatorConsentStateView"];
+            customer?: components["schemas"]["service.OperatorCustomerIdentity"];
+            withdrew?: components["schemas"]["service.OperatorWithdrewView"];
+        };
+        "service.OperatorCustomerIdentity": {
+            email?: string;
+            /**
+             * @description FirstName and LastName as the platform holds them, so an Operator can
+             *     check the name on the form against the record before acting on it.
+             */
+            first_name?: string;
+            id?: string;
+            last_name?: string;
+        };
         "service.OperatorPayout": {
             amount_cents?: number;
             created_at?: string;
@@ -7796,6 +7987,20 @@ export interface components {
              *     is stated in; the two are never the same thing.
              */
             timezone?: string;
+        };
+        /**
+         * @description Withdrew is what the act on this request TOOK AWAY, and is null on the
+         *     lookup, which took nothing away because it performed nothing.
+         *
+         *     It is reported rather than left for the caller to infer from the state
+         *     beside it, because it cannot be inferred: `denied` reads the same whether
+         *     somebody just gave something up or was already refusing. It is also the
+         *     answer to "was anybody written to?" — the confirmation mail is sent on
+         *     exactly this predicate.
+         */
+        "service.OperatorWithdrewView": {
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
         };
         "service.Organization": {
             created_at?: string;
