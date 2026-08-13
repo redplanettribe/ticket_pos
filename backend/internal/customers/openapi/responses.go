@@ -159,6 +159,21 @@ type EnvelopeCustomerOptionalConsents struct {
 	RequestID string                       `json:"request_id"`
 }
 
+// EnvelopeCustomerWithdrawAll documents POST
+// /api/v1/customer/privacy/withdraw-all success responses (#269): what one
+// Withdraw All did.
+//
+// It is a shape of its own rather than the pair above, because this act has a
+// second thing to report: WHAT IT TOOK AWAY. The states alone cannot say it —
+// `denied` is the same value whether somebody has just given something up or
+// was declining for the second time — and it is the fact a surface needs in
+// order not to promise a confirmation email that the API correctly did not send.
+type EnvelopeCustomerWithdrawAll struct {
+	Data      service.WithdrawAllView `json:"data"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
+}
+
 // EnvelopeCustomerConsentConfirmation documents POST
 // /api/v1/customer/consent/confirm success responses (#255): what one press of
 // the confirmation link in a Sale Confirmation actually did.

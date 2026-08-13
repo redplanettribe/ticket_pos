@@ -320,6 +320,22 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// neither to read somebody's standing privacy settings nor to change them.
 	mux.Handle("GET /api/v1/customer/privacy", signedIn(http.HandlerFunc(h.Privacy)))
 	mux.Handle("PUT /api/v1/customer/privacy/consents/{purpose}", signedIn(http.HandlerFunc(h.SetOptionalConsent)))
+	// Withdraw All (#269): every optional consent taken back at once, ONE Consent
+	// Record with both denied.
+	//
+	// A ROUTE OF ITS OWN, and the separation is the ticket rather than an
+	// arrangement of URLs. The per-purpose route above cannot express this and
+	// must not learn to: two of its requests would leave the same Customer in the
+	// same state while writing evidence that says somebody moved two controls,
+	// where what happened was one person asking to be left alone — and the log
+	// cannot recover that intent afterwards from two rows and a shared timestamp.
+	//
+	// It is outside `consents/` because it names no consent: "everything" is not
+	// a purpose, and a third value in that path segment would be the first step
+	// back towards one endpoint that can do both.
+	//
+	// It takes NO BODY, so nothing a caller sends can turn it into a grant.
+	mux.Handle("POST /api/v1/customer/privacy/withdraw-all", signedIn(http.HandlerFunc(h.WithdrawAll)))
 	mux.Handle("POST /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.FollowOrganization)))
 	mux.Handle("DELETE /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.UnfollowOrganization)))
 	// Tag Follows (#218) join the same listing above rather than adding one of

@@ -108,3 +108,31 @@ func (h *Handler) SetOptionalConsent(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, view)
 }
+
+// WithdrawAll takes back every optional consent in one act.
+//
+// IT READS NO BODY AND THERE IS NOTHING TO READ. The act names nothing and
+// chooses nothing, so the request carries no field in which a caller could ask
+// for a grant, name a purpose or select one consent — which is what makes "this
+// route can only withdraw everything" a property of the contract rather than a
+// rule enforced somewhere below.
+//
+// @Summary      Withdraw every optional consent
+// @Description  Takes back EVERY optional consent in one act, writing exactly ONE Consent Record with both Marketing Consent and Networking Consent answered No and carrying the state each was in immediately before. It is a route of its own rather than two calls to the per-purpose control precisely so that the evidence says "this person asked for everything" rather than "this person happened to move two controls" — a distinction the log cannot recover afterwards from two rows and a shared timestamp. The request takes NO BODY: this endpoint can only ever withdraw, and nothing in it can express a grant. Policy Acceptance is untouched, because it is not withdrawable — it rests on a basis other than consent, and clearing it would re-gate the Customer rather than free them. Withdrawing Marketing Consent switches the weekly Follow Digest off in the same transaction and the same statement. A Pending Confirmation left standing by somebody else's tick is settled as No by the same act. THIS IS NOT DELETION AND PROCESSING DOES NOT STOP: the account keeps working, Tickets are unaffected, tickets can still be bought, Sale Confirmations, passcodes and reversal notices still arrive because they rest on contract rather than consent, and data is retained for the Tickets held and for legal and security obligations. Anything withdrawn can be granted again from the same page. The response reports both consents as they now stand AND what this act actually took away, which are different facts: `denied` reads the same whether a consent was just given up or was already refused. A confirmation email is sent, in the Customer's Mail Locale, naming only what actually moved — and nothing at all is sent when both consents were already denied, because nobody is told about a change that did not happen. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
+// @Tags         customer
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  openapi.EnvelopeCustomerWithdrawAll
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Router       /api/v1/customer/privacy/withdraw-all [post]
+func (h *Handler) WithdrawAll(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	view, err := h.svc.WithdrawAll(r.Context(), customerSessionToken(r), consent.EvidenceFromRequest(r))
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, view)
+}

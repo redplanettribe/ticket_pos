@@ -1403,6 +1403,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/privacy/withdraw-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw every optional consent
+         * @description Takes back EVERY optional consent in one act, writing exactly ONE Consent Record with both Marketing Consent and Networking Consent answered No and carrying the state each was in immediately before. It is a route of its own rather than two calls to the per-purpose control precisely so that the evidence says "this person asked for everything" rather than "this person happened to move two controls" — a distinction the log cannot recover afterwards from two rows and a shared timestamp. The request takes NO BODY: this endpoint can only ever withdraw, and nothing in it can express a grant. Policy Acceptance is untouched, because it is not withdrawable — it rests on a basis other than consent, and clearing it would re-gate the Customer rather than free them. Withdrawing Marketing Consent switches the weekly Follow Digest off in the same transaction and the same statement. A Pending Confirmation left standing by somebody else's tick is settled as No by the same act. THIS IS NOT DELETION AND PROCESSING DOES NOT STOP: the account keeps working, Tickets are unaffected, tickets can still be bought, Sale Confirmations, passcodes and reversal notices still arrive because they rest on contract rather than consent, and data is retained for the Tickets held and for legal and security obligations. Anything withdrawn can be granted again from the same page. The response reports both consents as they now stand AND what this act actually took away, which are different facts: `denied` reads the same whether a consent was just given up or was already refused. A confirmation email is sent, in the Customer's Mail Locale, naming only what actually moved — and nothing at all is sent when both consents were already denied, because nobody is told about a change that did not happen. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerWithdrawAll"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/profile": {
         parameters: {
             query?: never;
@@ -7467,6 +7524,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeCustomerWithdrawAll": {
+            data?: components["schemas"]["service.WithdrawAllView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeEventDetail": {
             data?: components["schemas"]["service.EventDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -7834,9 +7896,10 @@ export interface components {
             withdrew?: components["schemas"]["service.ConsentWithdrewView"];
         };
         /**
-         * @description Withdrew is what this act actually took away — a move out of `granted` or
-         *     `pending_confirmation` and into `denied`, decided inside the transaction
-         *     that observed the prior state (#266) and never recomputed out here.
+         * @description Withdrew is what this act actually took away, decided inside the
+         *     transaction that observed the prior state (#266) and never recomputed out
+         *     here. It is the same shape and the same spelling the passcode-only surface
+         *     publishes (#270), because it is the same question.
          */
         "service.ConsentWithdrewView": {
             marketing_consent?: boolean;
@@ -8296,7 +8359,11 @@ export interface components {
             marketing_consent?: boolean;
             networking_consent?: boolean;
         };
-        /** @description Consents is the pair the controls move. */
+        /**
+         * @description Consents is the pair as it now stands: the same shape every other act on
+         *     this surface answers with, so the page cannot describe the same two facts
+         *     in two ways.
+         */
         "service.OptionalConsentsView": {
             /**
              * @description MarketingConsent is "granted", "denied", "pending_confirmation" or
@@ -9182,6 +9249,10 @@ export interface components {
              */
             sale_status?: string;
             ticket_sale_id?: string;
+        };
+        "service.WithdrawAllView": {
+            consents?: components["schemas"]["service.OptionalConsentsView"];
+            withdrew?: components["schemas"]["service.ConsentWithdrewView"];
         };
         "storage.CoverUploadResult": {
             object_key?: string;
