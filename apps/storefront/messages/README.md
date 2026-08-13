@@ -17,9 +17,17 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `signin`       | The Customer Session sign-in flow                                  |
 | `customerArea` | A Customer's own tickets and the undo of a purchase                |
 | `myInfo`       | The Customer's own details                                         |
+| `privacySettings` | A Customer's own consents, at `/{locale}/privacy`               |
 | `privacy`      | The Privacy Policy page's chrome — never the policy itself         |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
 | `tags`         | Preset Tag names, which belong to no single surface either         |
+
+The two privacy namespaces are crossed over and it is worth reading twice:
+`privacy` is the **public** Privacy Policy page at `/{locale}/privacy-policy`,
+and `privacySettings` is a **signed-in** Customer's own consents at
+`/{locale}/privacy`. The names predate the routes; neither was renamed, because
+`privacy` is referenced by the page, the footer link and the sitemap and a
+rename would be a diff about nothing.
 
 Surface, rather than component, is the split that survives: a component moves
 between pages and gets reused by a surface that words it differently, but a

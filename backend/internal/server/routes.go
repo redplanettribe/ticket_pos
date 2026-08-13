@@ -269,6 +269,25 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// turn the Digest back ON — see service.SetDigestEnabled for why the
 	// unsubscribe link deliberately cannot.
 	mux.Handle("PUT /api/v1/customer/digest", signedIn(http.HandlerFunc(h.SetDigestEnabled)))
+	// The Privacy page (#268, parent #265): what this Customer has authorized,
+	// and a control per optional consent that moves it in EITHER direction.
+	//
+	// THE READ AND THE WRITES ARE DIFFERENT ROUTES so that rendering the page
+	// cannot record anything. Only a PUT below writes a Consent Record; a GET
+	// changes nothing, which is what stops "somebody read the page" from
+	// becoming "somebody refused" in the evidence log.
+	//
+	// ONE PURPOSE PER REQUEST, in the path. Moving a control is one act about
+	// one consent, and a route that could answer both at once would let the page
+	// perform a Withdraw All — a deliberate act, behind a dialog that says what
+	// it means, writing a single row (#269) — without anybody being told what
+	// they were doing.
+	//
+	// Both draw the same full-session line as the Digest toggle above: a
+	// Confirmation Link session is a forwarded receipt, and it is authority
+	// neither to read somebody's standing privacy settings nor to change them.
+	mux.Handle("GET /api/v1/customer/privacy", signedIn(http.HandlerFunc(h.Privacy)))
+	mux.Handle("PUT /api/v1/customer/privacy/consents/{purpose}", signedIn(http.HandlerFunc(h.SetOptionalConsent)))
 	mux.Handle("POST /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.FollowOrganization)))
 	mux.Handle("DELETE /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.UnfollowOrganization)))
 	// Tag Follows (#218) join the same listing above rather than adding one of

@@ -294,6 +294,11 @@ components:
         transfer_reference:
           type: string
       type: object
+    handler.optionalConsentBody:
+      properties:
+        granted:
+          type: boolean
+      type: object
     handler.payoutProfileBody:
       properties:
         account_holder_name:
@@ -756,6 +761,24 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/service.CustomerOTPRequestResult'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerOptionalConsents:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.OptionalConsentsView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeCustomerPrivacy:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.PrivacyView'
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -1900,6 +1923,18 @@ components:
             is stated in; the two are never the same thing.
           type: string
       type: object
+    service.OptionalConsentsView:
+      description: Consents is the pair the controls move.
+      properties:
+        marketing_consent:
+          description: |-
+            MarketingConsent is "granted", "denied", "pending_confirmation" or
+            "unanswered".
+          type: string
+        networking_consent:
+          description: NetworkingConsent is the same four.
+          type: string
+      type: object
     service.Organization:
       properties:
         created_at:
@@ -2350,6 +2385,26 @@ components:
           type: string
         version:
           description: Version is the label a human names this edition by ("0-placeholder").
+          type: string
+      type: object
+    service.PrivacyView:
+      properties:
+        consents:
+          $ref: '#/components/schemas/service.OptionalConsentsView'
+        policy_accepted_at:
+          description: |-
+            PolicyAcceptedAt is when that acceptance was recorded, RFC 3339, null
+            alongside a null version.
+          type: string
+        policy_version:
+          description: |-
+            PolicyVersion is the label of the edition THIS CUSTOMER ACCEPTED, which is
+            not necessarily the one in effect: a Customer who accepted a superseded
+            edition is told what they actually agreed to, and a page naming the current
+            one would claim they had seen a text nobody ever showed them.
+
+            Null where no acceptance is recorded, which a session minted before consent
+            capture existed can still reach.
           type: string
       type: object
     service.PromotionView:
@@ -3918,6 +3973,128 @@ paths:
       security:
       - BearerAuth: []
       summary: Follow a Tag
+      tags:
+      - customer
+  /api/v1/customer/privacy:
+    get:
+      description: 'Reports what the signed-in Customer has authorized: the Policy
+        Version they accepted and when, read-only, and the current state of each optional
+        consent. THIS READ WRITES NOTHING — rendering a settings page must leave the
+        platform exactly as it was, because a page that recorded a refusal when somebody
+        merely looked at it would turn "never asked" into "denied" for everyone who
+        opened it and did nothing. Each optional consent is one of four values, and
+        they mean four different things: `granted`, `denied`, `pending_confirmation`
+        (somebody who had not proven this address ticked the box, so it stands unresolved
+        and is not the owner''s answer) and `unanswered` (never asked, which is not
+        a refusal). `unanswered` exists on the wire only; the platform stores NULL,
+        because the absence of an answer is not a fourth kind of answer. The Policy
+        Version named is the edition THIS CUSTOMER ACCEPTED and not necessarily the
+        one in effect, so a Customer who accepted a superseded edition is told what
+        they actually agreed to; both policy fields are null where no acceptance was
+        ever recorded. Policy Acceptance carries no control anywhere: it is not withdrawable,
+        being absent from counsel''s withdrawal form and resting on a basis other
+        than consent. Requires a full Customer Session; a Confirmation Link session
+        is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt
+        is not authority to read somebody''s standing privacy settings.'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerPrivacy'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Read the Customer's privacy settings
+      tags:
+      - customer
+  /api/v1/customer/privacy/consents/{purpose}:
+    put:
+      description: Moves ONE optional consent — `marketing` or `networking`, named
+        in the path — to the state the body asks for, and answers with both as they
+        now stand. Moving it off is a CONSENT WITHDRAWAL and moving it on is an affirmative
+        grant behind a session established by Proof of Email Ownership; both directions
+        are offered deliberately, because every surface that can grant an optional
+        consent shows the box only while the state is unanswered, so a one-way page
+        would leave a Customer who withdrew by mistake with no route back at all.
+        Exactly one Consent Record is written per request, under the `account_settings`
+        channel, carrying the state each optional consent was in immediately before
+        and the technical proof of the act. Only the named consent is answered; the
+        other and the Policy Acceptance box are recorded as not shown, so nothing
+        standing is churned. Withdrawing Marketing Consent switches the weekly Follow
+        Digest off with it, in the same transaction and the same statement — they
+        are one switch and cannot drift. A withdrawal that actually took something
+        away, out of `granted` or `pending_confirmation`, is confirmed to the Customer
+        by email in their Mail Locale; a grant sends nothing, and neither does answering
+        No to a consent that was already denied, because nobody is told about a change
+        that did not happen. A Customer whose consent sits in `pending_confirmation`
+        settles it either way here by answering for themselves. Takes a state rather
+        than a flip, so a retried or double-tapped request means the same thing once.
+        Requires a full Customer Session; a Confirmation Link session is refused with
+        CUSTOMER_SESSION_SCOPE_INSUFFICIENT. A purpose this API does not recognise
+        is VALIDATION_FAILED — Policy Acceptance is deliberately not one of them,
+        because it is not withdrawable.
+      parameters:
+      - description: Which optional consent to move
+        in: path
+        name: purpose
+        required: true
+        schema:
+          enum:
+          - marketing
+          - networking
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.optionalConsentBody'
+                description: The state the Customer is asking for
+                summary: body
+        description: The state the Customer is asking for
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeCustomerOptionalConsents'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: Grant or withdraw one optional consent
       tags:
       - customer
   /api/v1/customer/profile:

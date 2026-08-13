@@ -38,6 +38,12 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
   // The Following list is the Customer Area's third surface (#218): everything
   // the Customer Follows, in one place, with unfollow available there.
   const following = useTranslations("following");
+  // The Privacy page is the Customer Area's fourth surface (#268, parent #265):
+  // what this Customer has agreed to, and the controls that change it. It is in
+  // the menu because a privacy setting nobody can find is most of the way to not
+  // having one — and because the parent spec's whole complaint is that consent
+  // could only be changed by accident of history, from a page about follows.
+  const privacy = useTranslations("privacySettings");
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,6 +139,9 @@ export function CustomerMenu({ email, firstName, lastName, avatarUrl }: Customer
             onClick={() => setOpen(false)}
           >
             {following("title")}
+          </Link>
+          <Link href="/privacy" role="menuitem" className={itemClass} onClick={() => setOpen(false)}>
+            {privacy("title")}
           </Link>
           <div className="my-1 border-t" />
           <button

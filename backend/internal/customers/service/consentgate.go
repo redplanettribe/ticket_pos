@@ -64,6 +64,18 @@ type ConsentGate interface {
 	// to reach any other row. The evidence log stays the consent module's, and
 	// this side may only annotate the act it just performed.
 	ConfirmationSent(ctx context.Context, recordID string, at time.Time) error
+	// PrivacyState reports what a Customer has authorized — the Policy Version
+	// they accepted and when, and each optional consent's current state — for
+	// the Customer Area's Privacy page (#268).
+	//
+	// THE FOURTH ARRIVAL, AND THE ONLY ONE THAT IS PURELY A READ. It exists
+	// beside Outstanding rather than inside it because the two ask opposite
+	// questions: Outstanding asks which boxes a person must be SHOWN, which is
+	// what a capture surface renders from, and this asks what is TRUE about
+	// them, which is what a settings surface reports. A caller cannot reach a
+	// write through it, so the page it serves cannot record anything by being
+	// looked at.
+	PrivacyState(ctx context.Context, customerID string) (consent.PrivacyState, error)
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces, and it
