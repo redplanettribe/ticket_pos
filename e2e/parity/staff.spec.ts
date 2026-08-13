@@ -73,6 +73,30 @@ test("Staff reaches the API from inside the parity network", async ({ request })
   expect(envelope.data).toBeNull();
 });
 
+test("Staff answers the create intent on the sign-in page", async ({ page }) => {
+  // The Storefront's "Create an event" invitation lands here. /login is a public
+  // path, so middleware returns before it clears any query and the hint
+  // survives; lib/login-copy turns it into the card's copy. This asserts the
+  // wiring - that the resolved copy actually reaches the rendered heading.
+  await page.goto("/login?intent=create");
+
+  await expect(page.getByRole("heading", { name: /create your event/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^sign in$/i })).toHaveCount(0);
+  // Still the same door: the passcode form is what it leads to.
+  await expect(page.getByLabel(/email/i)).toBeVisible();
+});
+
+test("Staff leaves the sign-in page alone without the create intent", async ({ page }) => {
+  // The door every existing Member uses daily, and the values a stale bookmark
+  // or a mangled link can produce. None of them may change what it says.
+  for (const search of ["", "?intent=", "?intent=join", "?intent=create&intent=create"]) {
+    await page.goto(`/login${search}`);
+
+    await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /create your event/i })).toHaveCount(0);
+  }
+});
+
 test("Staff shows the Multiticketing brand on the sign-in page", async ({ page }) => {
   // The authed sidebar lockup needs a real session (an emailed passcode the
   // parity stack cannot supply), so the reachable branded surface is the
