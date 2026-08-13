@@ -7,7 +7,7 @@ A point-of-sale system for organizations to create events, define ticket types, 
 **Organization**:
 A group such as a promoter, venue, or company that owns Events and has members.
 Has an optional Logo.
-Read as **Organizer** wherever the Storefront speaks to a Customer about one — "events from organizers everywhere", "contact the organizer". The public has no use for the word Organization, and Organizer is the word it has been given on every public page; staff surfaces, code and prose keep Organization. This is the Organization seen from outside, not a second concept, and it does not license calling a Member an organizer — see Event Owner.
+Read as **Organizer** wherever the Storefront speaks to a Customer about one — "events from organizers everywhere", "contact the organizer". The public has no use for the word Organization, and Organizer is the word it has been given on every public page; staff surfaces name the entity Organization, as do identifiers everywhere. This is the Organization seen from outside, not a second concept — so prose may name it Organizer when it is that outside view being discussed — and it does not license calling a Member an organizer, see Event Owner.
 _Avoid_: Account, workspace, team
 
 **Logo**:

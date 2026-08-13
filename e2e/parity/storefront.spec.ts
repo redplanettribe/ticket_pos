@@ -133,9 +133,17 @@ test("Storefront footer invites a reader to create an event on the staff app", a
   // that was never threaded through renders no link and no error.
   await page.goto(`/${LOCALE}`);
 
-  const link = page.getByRole("link", { name: "Create an event" });
+  // Scoped to the footer on purpose: the explorer is the one page that also
+  // carries the invitation in its header, under the same accessible name, so an
+  // unscoped locator matches twice and trips strict mode.
+  const link = page.locator("footer").getByRole("link", { name: "Create an event" });
   await expect(link).toBeVisible();
-  await expect(link).toHaveAttribute("href", /^http:\/\/localhost:64604\/login\?intent=create$/);
+  // The shape, not the origin. Which host the container was handed is
+  // docker-compose.prod.yml's business and differs from the STAFF_URL this
+  // suite reaches staff on; pinning it here would make a compose port change
+  // look like a broken invitation. What must hold is that the href is absolute
+  // - it leaves this app - and carries the intent the staff card reads.
+  await expect(link).toHaveAttribute("href", /^https?:\/\/.+\/login\?intent=create$/);
 });
 
 test("Storefront sends an address naming no language into a Locale", async ({ page }) => {

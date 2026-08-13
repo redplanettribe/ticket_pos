@@ -87,14 +87,15 @@ test("Staff answers the create intent on the sign-in page", async ({ page }) => 
 });
 
 test("Staff leaves the sign-in page alone without the create intent", async ({ page }) => {
-  // The door every existing Member uses daily, and the values a stale bookmark
-  // or a mangled link can produce. None of them may change what it says.
-  for (const search of ["", "?intent=", "?intent=join", "?intent=create&intent=create"]) {
-    await page.goto(`/login${search}`);
+  // The door every existing Member uses daily. Which values fall through to
+  // today's copy is lib/login-copy.test.ts's exhaustive matrix, not this
+  // layer's (docs/testing.md, "E2E must not re-assert exhaustive domain
+  // rules"); what belongs here is that the resolved default still reaches the
+  // rendered page when nothing asked for anything else.
+  await page.goto("/login");
 
-    await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /create your event/i })).toHaveCount(0);
-  }
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /create your event/i })).toHaveCount(0);
 });
 
 test("Staff shows the Multiticketing brand on the sign-in page", async ({ page }) => {
