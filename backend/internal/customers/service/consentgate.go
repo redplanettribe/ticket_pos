@@ -55,6 +55,15 @@ type ConsentGate interface {
 	// ConfirmPending resolves whatever of a pressed link's scope is still
 	// pending, and reports what that press actually did.
 	ConfirmPending(ctx context.Context, confirmation consent.Confirmation) (consent.ConfirmationResult, error)
+	// ConfirmationSent records that the Customer was told about the Consent
+	// Withdrawal one Consent Record performed (#267).
+	//
+	// The third arrival on this interface, and the narrowest: one record, one
+	// timestamp. It names a record this module was handed by Capture moments
+	// earlier and can say nothing else about it — no way to unsay it, and no way
+	// to reach any other row. The evidence log stays the consent module's, and
+	// this side may only annotate the act it just performed.
+	ConfirmationSent(ctx context.Context, recordID string, at time.Time) error
 }
 
 // SignInOutcome is what a completed Proof of Email Ownership produces, and it

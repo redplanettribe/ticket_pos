@@ -184,6 +184,65 @@ type Receipt struct {
 	// when still unanswered.
 	MarketingConsent  State
 	NetworkingConsent State
+	// Withdrawn is what this act TOOK AWAY, and it is the whole of the question
+	// "was this a Consent Withdrawal?" answered where it can be answered
+	// correctly: inside the transaction that observed the prior state under the
+	// Customer row's lock (#266).
+	//
+	// A caller cannot compute it for itself and must not try. The states above
+	// say what is true now, and "denied" is the same value whether the person
+	// just gave something up or was declining for the second time — which is
+	// exactly the distinction that decides whether anybody is written to (#267).
+	Withdrawn Withdrawn
+}
+
+// Withdrawn is which optional consents one capture act took away.
+//
+// It is a different question from the answers and a different question from the
+// resulting state, and it is a type of its own for the reason Pending is: the
+// three are told apart by name at every call site, and a bool pair called
+// "denied" would be indistinguishable from the answers beside it.
+//
+// The Consent Withdrawal is the whole vocabulary here — never revocation, which
+// stays this platform's word for destroying a credential (ADR 0038).
+type Withdrawn struct {
+	MarketingConsent  bool
+	NetworkingConsent bool
+}
+
+// Any reports whether this act took anything away at all, which is the
+// predicate the confirmation mail is sent on (#267, parent #265). An act that
+// moved nothing writes its Consent Record and sends nothing: nobody is told
+// about a change that did not happen.
+func (w Withdrawn) Any() bool {
+	return w.MarketingConsent || w.NetworkingConsent
+}
+
+// Withdrew reports whether moving one optional consent from before to after
+// took something away.
+//
+// THE CONDITION IS A MOVE OUT OF GRANTED OR PENDING CONFIRMATION AND INTO
+// DENIED, and each half of that is load-bearing:
+//
+//   - Out of `granted` is the ordinary withdrawal, and out of
+//     `pending_confirmation` is one too: somebody's tick was standing against
+//     this address, the platform was still holding it as unresolved, and the
+//     owner has now settled it as No. Something the person had not asked for
+//     stopped being possible, and they are entitled to be told it did.
+//   - Into `denied` is what tells a withdrawal from a GRANT. A press of the
+//     confirmation link moves a consent out of `pending_confirmation` too — into
+//     `granted` — and that is the opposite act. Testing only the origin would
+//     confirm a double opt-in as though it were a withdrawal.
+//
+// Everything else moved nothing worth telling anybody about: denied to denied
+// is somebody switching off a switch that was already off, and an unanswered
+// consent answered No for the first time is a refusal rather than a withdrawal
+// (the guidance's revocation register asks for exactly this distinction).
+func Withdrew(before, after State) bool {
+	if after != StateDenied {
+		return false
+	}
+	return before == StateGranted || before == StatePendingConfirmation
 }
 
 // Outstanding is which boxes a person still has to be shown, and is the one

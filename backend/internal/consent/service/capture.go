@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/consent/repository"
@@ -147,11 +148,11 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	}
 
 	var recordID string
-	var resulting repository.CustomerConsentState
+	var prior, resulting repository.CustomerConsentState
 	if tx != nil {
-		recordID, resulting, err = s.repo.AppendTx(ctx, tx, record, state)
+		recordID, prior, resulting, err = s.repo.AppendTx(ctx, tx, record, state)
 	} else {
-		recordID, resulting, err = s.repo.Append(ctx, record, state)
+		recordID, prior, resulting, err = s.repo.Append(ctx, record, state)
 	}
 	if err != nil {
 		return consent.Receipt{}, err
@@ -164,7 +165,37 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		PolicyVersionLabel: version.Label,
 		MarketingConsent:   resulting.MarketingConsent,
 		NetworkingConsent:  resulting.NetworkingConsent,
+		// What this act TOOK AWAY, decided here and nowhere else (#267). Both
+		// halves of the comparison come from the one transaction that observed
+		// them under the Customer row's lock — the state as it stood, and the
+		// state the same statement made true — so a surface cannot get a
+		// different answer by asking again afterwards, and cannot get one at all
+		// by inspecting the answers it sent.
+		Withdrawn: consent.Withdrawn{
+			MarketingConsent:  consent.Withdrew(prior.MarketingConsent, resulting.MarketingConsent),
+			NetworkingConsent: consent.Withdrew(prior.NetworkingConsent, resulting.NetworkingConsent),
+		},
 	}, nil
+}
+
+// ConfirmationSent records that the Customer was told about the Consent
+// Withdrawal a Consent Record performed (#267, parent #265).
+//
+// It is deliberately as narrow as a method can be: one record, one timestamp,
+// no way to say anything else about it and no way to unsay it. The surface that
+// sent the mail calls it AFTER the provider took the message, which is the
+// moment the stamp is about — this platform records that it handed the message
+// over, not that anybody read it, and there is no delivery fact here to be
+// tempted into storing.
+//
+// A failure to stamp must not fail the withdrawal or the send. The withdrawal
+// is the act, the mail is the courtesy that follows it, and this is an
+// annotation on evidence that already stands without it.
+func (s *Service) ConfirmationSent(ctx context.Context, recordID string, at time.Time) error {
+	if recordID == "" {
+		return errors.New("consent confirmation sent: no record")
+	}
+	return s.repo.StampConfirmationSent(ctx, recordID, at)
 }
 
 // Outstanding reports which boxes a Customer must still be shown: the predicate

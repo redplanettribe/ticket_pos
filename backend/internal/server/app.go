@@ -228,7 +228,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	customersService := customerssvc.New(customersRepo, otpService, platformLogger, customerssvc.ConfirmationLinkConfig{
 		Secret:            confirmationLinkSecret,
 		StorefrontBaseURL: cfg.StorefrontBaseURL,
-	}, storefrontGoogle, consentService).WithObjectStorage(objectStorage)
+	}, storefrontGoogle, consentService).
+		WithObjectStorage(objectStorage).
+		// The Consent Withdrawal confirmation goes out on the TRANSACTIONAL
+		// sender (#267): it is sent to somebody who has just withdrawn Marketing
+		// Consent, so the one identity it must never travel on is the Digest's.
+		// emailSender is the split sender, which routes only the Digest away.
+		WithEmailSender(emailSender)
 	if options.clock != nil {
 		customersService = customersService.WithClock(options.clock)
 	}
