@@ -7,6 +7,8 @@ import (
 
 	"github.com/peter/ticket_pos/backend/internal/consent"
 	"github.com/peter/ticket_pos/backend/internal/customers"
+	"github.com/peter/ticket_pos/backend/internal/customers/repository"
+	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
 // Unsubscribing from the Follow Digest (#224, parent #215, ADR 0030).
@@ -44,16 +46,49 @@ import (
 // change with no evidence beside it is the thing this feature exists to make
 // impossible.
 //
-// THE SCOPE LINE, because a future reader will be tempted to cross it here of
-// all places. This is truthful state and evidence on the two surfaces that
-// already existed, and it is NOT the revocation feature (#249, Out of Scope).
-// Nothing here writes a revocatoria record, sends a confirmation of the
-// withdrawal to the titular, propagates anything to the networking application
-// or to an ally, revokes Networking Consent, or serves any other PDP right. A
-// Customer switching their weekly email off is not making a rights request, and
-// building half of one on the back of a toggle would leave the platform
-// claiming a guarantee it does not keep. Those land as their own tickets, on
-// their own surfaces.
+// THE SCOPE LINE MOVED, and this comment is where a future reader will look, so
+// it says where it moved to (#265, #266). It used to read that nothing here was
+// the withdrawal feature: no evidence of a withdrawal as such, no confirmation
+// to the titular, no rights request. That was true of #256 and is no longer true
+// of this file, because #265 crossed the line ON PURPOSE and at this exact
+// point.
+//
+// WHAT CROSSED IT. An Unsubscribe IS a Consent Withdrawal — the Marketing-
+// specific, link-driven special case of one (CONTEXT.md) — and the platform now
+// says so rather than treating the resemblance as a coincidence. Every act
+// below therefore records what it TOOK AWAY as well as what it answered: the
+// Capture it performs writes each optional consent's state as it stood
+// immediately before, so a press that moved somebody out of `granted` is legible
+// as a withdrawal from the single row that performed it (#266).
+//
+// AND THE CUSTOMER IS TOLD (#267). Both entry points below now confirm by email
+// that a withdrawal happened — but only when the act actually took something
+// away, which the receipt reports and neither entry point decides for itself.
+// That mail is TRANSACTIONAL and is sent even to somebody who has just withdrawn
+// Marketing Consent, which is not a contradiction of the paragraph above about
+// this switch reaching no transactional mail: the switch still reaches none, and
+// this is the confirmation OF the switch being thrown. Handing it to the
+// provider stamps the evidence. See confirmWithdrawal.
+//
+// WHAT STILL HAS NOT. The line has moved, not vanished, and the three things it
+// still holds back are worth naming because each is somebody's reasonable next
+// idea:
+//
+//   - NOTHING HERE REACHES A FOLLOW. Unsubscribing is a switch, not a purge, and
+//     the whole argument at the top of this file is unaffected by any of the
+//     above.
+//   - NOTHING HERE TOUCHES NETWORKING CONSENT. One box is shown and one box is
+//     answered; the other is nil — NOT SHOWN — and reading that nil as a refusal
+//     would turn an unsubscribe into a Withdraw All. Withdrawing everything is a
+//     deliberate act a Customer performs on `/privacy`, behind a dialog that
+//     tells them what it means.
+//   - NOTHING HERE PROPAGATES ANYWHERE. There is no networking application
+//     integration to propagate to; whoever builds one reads this platform's
+//     state live and caches nothing (ADR 0038).
+//
+// The word is WITHDRAWAL. `revoke` stays reserved for credentials — sessions,
+// in-flight pending consents — and the Spanish copy's "revocatoria" is counsel's
+// legal term rendered for a reader, not a second name for the concept.
 
 // unsubscribeLinkPath is the STOREFRONT route the link points at, never an API
 // one (ADR 0008), and it is a page rather than an endpoint for the reason the
@@ -167,7 +202,7 @@ func (s *Service) Unsubscribe(ctx context.Context, token string, evidence consen
 	}
 
 	declined := false
-	if _, err := s.consent.Capture(ctx, consent.Capture{
+	receipt, err := s.consent.Capture(ctx, consent.Capture{
 		CustomerID: customer.ID,
 		// The Customer's own stored address, because that is the only address this
 		// surface could be about: the link was mailed to it, and nobody typed
@@ -179,16 +214,109 @@ func (s *Service) Unsubscribe(ctx context.Context, token string, evidence consen
 		// One box, and only one. Policy Acceptance and Networking Consent are nil
 		// — NOT SHOWN HERE — so this act neither accepts a policy nor touches a
 		// standing Networking Consent. Reading those nils as refusals would turn
-		// an unsubscribe into a withdrawal of everything, which is precisely the
-		// revocation feature this ticket does not build.
+		// an unsubscribe into a Withdraw All, which is a deliberate act performed
+		// somewhere a Customer has been told what it means, and never something a
+		// link in a footer does on their behalf.
 		Answers: consent.Answers{MarketingConsent: &declined},
 		// No SessionID: this route is session-less by contract, and an empty
 		// evidence field is recorded as "not collected" rather than as a blank.
 		Evidence: evidence,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
+
+	// AND THE CUSTOMER IS TOLD, which on this surface matters more than on any
+	// other (#267). A press here authenticates nobody and the link is in every
+	// Digest the person ever received, so this mail is how the address's real
+	// owner finds out that somebody — a colleague forwarded the Digest, a mail
+	// client prefetched past a POST it should not have — acted on their behalf.
+	// It goes to the Customer's own stored address for exactly that reason.
+	s.confirmWithdrawal(ctx, customer, receipt)
+
 	return &DigestSubscriptionView{DigestEnabled: false}, nil
+}
+
+// confirmWithdrawal tells the Customer that a Consent Withdrawal took something
+// away, and records on the evidence that they were told (#267, parent #265).
+//
+// IT RETURNS NOTHING, AND THAT IS THE CONTRACT. A failure to send must not fail
+// the withdrawal: the withdrawal is the thing that had to happen, it has already
+// committed by the time this is called, and refusing the request now would tell
+// a person who asked for quiet that their request failed when it did not. Every
+// failure is logged instead, at error level, because a confirmation nobody got
+// and nobody noticed is the one this feature exists to prevent.
+//
+// IT SENDS ONLY WHEN SOMETHING MOVED, and it does not decide that for itself.
+// The receipt says what the act withdrew, computed inside the transaction that
+// observed the state it replaced (consent.Receipt.Withdrawn) — a caller that
+// reasoned from its own answer would mail everybody who switched off a switch
+// that was already off, which is a change that did not happen.
+//
+// NOTHING HERE READS A CONSENT STATE OR `digest_enabled`. This is transactional
+// mail on the same footing as a Sale Confirmation or a passcode, sent to
+// somebody who has just asked to stop receiving marketing precisely because
+// suppressing it would make the one act that must be confirmed the one act met
+// with silence. A "respect the Customer's preferences" check added here later
+// would be the bug.
+//
+// The stamp is written only where the provider actually took the message, so
+// `confirmation_sent_at` says "this platform handed the confirmation over" and
+// never "we composed one". Null means not sent, which is a true and useful thing
+// for the evidence to say.
+func (s *Service) confirmWithdrawal(ctx context.Context, customer *repository.Customer, receipt consent.Receipt) {
+	if !receipt.Withdrawn.Any() {
+		return
+	}
+	if s.email == nil {
+		// A deployment with no sender still performed the withdrawal, and says so
+		// loudly rather than leaving a Customer silently unconfirmed — the same
+		// posture UnconfiguredDigestSender takes for the same reason.
+		s.logger.Error("consent withdrawal not confirmed: no email sender is configured",
+			"customer_id", customer.ID,
+			"record_id", receipt.RecordID,
+		)
+		return
+	}
+
+	if err := s.email.SendConsentWithdrawalConfirmation(ctx, platform.ConsentWithdrawalConfirmation{
+		// The Customer's own stored address, never one a request named: this mail
+		// is about what the platform recorded against that Customer, and the
+		// unsubscribe link carries no address at all.
+		To: customer.Email,
+		// No sale is involved, so the chain is the remembered Mail Locale and then
+		// English (ADR 0033). A message about somebody's rights is the last one
+		// that may arrive in a language they cannot read.
+		Locale: platform.ResolveMailLocale("", customer.MailLocale),
+		// What the act TOOK AWAY, which is what the message names (#270). From the
+		// receipt and never from the answers a surface submitted: the two differ
+		// exactly where somebody switched off a switch that was already off, and
+		// the message would then name a change that did not happen. Both entry
+		// points in this file can only ever withdraw Marketing Consent, so both
+		// still produce the marketing wording — this is what lets the passcode-only
+		// surface, which can also withdraw Networking Consent, say what IT took
+		// away through the same call.
+		MarketingConsent:  receipt.Withdrawn.MarketingConsent,
+		NetworkingConsent: receipt.Withdrawn.NetworkingConsent,
+	}); err != nil {
+		s.logger.Error("consent withdrawal confirmation could not be sent",
+			"customer_id", customer.ID,
+			"record_id", receipt.RecordID,
+			"error", err,
+		)
+		return
+	}
+
+	if err := s.consent.ConfirmationSent(ctx, receipt.RecordID, s.now()); err != nil {
+		// The Customer HAS been told; only the annotation failed. Logged and left,
+		// because failing the withdrawal over it would undo an act that happened
+		// and a mail that has already gone out.
+		s.logger.Error("consent withdrawal confirmation could not be stamped on the evidence",
+			"customer_id", customer.ID,
+			"record_id", receipt.RecordID,
+			"error", err,
+		)
+	}
 }
 
 // SetDigestEnabled is the Customer Area's toggle: the other entry point, and the
@@ -221,7 +349,7 @@ func (s *Service) SetDigestEnabled(ctx context.Context, sessionToken string, ena
 	}
 
 	answer := enabled
-	if _, err := s.consent.Capture(ctx, consent.Capture{
+	receipt, err := s.consent.Capture(ctx, consent.Capture{
 		CustomerID:  customer.ID,
 		Email:       customer.Email,
 		Channel:     consent.ChannelAccountSettings,
@@ -238,9 +366,17 @@ func (s *Service) SetDigestEnabled(ctx context.Context, sessionToken string, ena
 			SessionID: session.ID,
 			OriginURL: evidence.OriginURL,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
+
+	// Switching it OFF is a Consent Withdrawal and is confirmed like any other
+	// (#267). Switching it on is a grant and sends nothing, which is not a
+	// special case written here: the receipt reports what the act withdrew, and a
+	// grant withdrew nothing.
+	s.confirmWithdrawal(ctx, customer, receipt)
+
 	return &DigestSubscriptionView{DigestEnabled: enabled}, nil
 }
 

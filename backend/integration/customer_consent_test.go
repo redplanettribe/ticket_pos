@@ -50,6 +50,16 @@ type consentRecordRow struct {
 	UserAgent         sql.NullString
 	SessionID         sql.NullString
 	OriginURL         sql.NullString
+	// What each optional consent's state was IMMEDIATELY BEFORE this act
+	// (#266). Invalid where the box was not shown, exactly as the answer beside
+	// it is — and also where it was shown for the first time, which the answer
+	// column tells apart.
+	PriorMarketingConsent  sql.NullString
+	PriorNetworkingConsent sql.NullString
+	// When the Customer was told about the Consent Withdrawal this act performed
+	// (#267). Invalid on every act that took nothing away, which is most of them,
+	// and on a withdrawal whose confirmation the provider refused.
+	ConfirmationSentAt sql.NullTime
 }
 
 // customerConsentState is what is TRUE NOW about one Customer, as against the
@@ -111,7 +121,9 @@ func readConsentRecords(t *testing.T, env *testEnv, email string) []consentRecor
 	rows, err := env.db.Query(`
 		SELECT r.email, r.channel, r.captured_at, r.policy_version_id,
 		       r.policy_acceptance, r.marketing_consent, r.networking_consent,
-		       r.email_proven, r.confirmed_at, r.ip, r.user_agent, r.session_id, r.origin_url
+		       r.email_proven, r.confirmed_at, r.ip, r.user_agent, r.session_id, r.origin_url,
+		       r.prior_marketing_consent, r.prior_networking_consent,
+		       r.confirmation_sent_at
 		FROM consent_records r
 		JOIN customers c ON c.id = r.customer_id
 		WHERE c.email = $1
@@ -127,7 +139,9 @@ func readConsentRecords(t *testing.T, env *testEnv, email string) []consentRecor
 		var r consentRecordRow
 		if err := rows.Scan(&r.Email, &r.Channel, &r.CapturedAt, &r.PolicyVersionID,
 			&r.PolicyAcceptance, &r.MarketingConsent, &r.NetworkingConsent,
-			&r.EmailProven, &r.ConfirmedAt, &r.IP, &r.UserAgent, &r.SessionID, &r.OriginURL); err != nil {
+			&r.EmailProven, &r.ConfirmedAt, &r.IP, &r.UserAgent, &r.SessionID, &r.OriginURL,
+			&r.PriorMarketingConsent, &r.PriorNetworkingConsent,
+			&r.ConfirmationSentAt); err != nil {
 			t.Fatalf("scan consent record: %v", err)
 		}
 		records = append(records, r)

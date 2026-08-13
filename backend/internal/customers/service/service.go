@@ -71,6 +71,18 @@ type Service struct {
 	// organizations is identity's: this module owns who Follows what, not what a
 	// Tag is.
 	tags TagResolver
+	// email delivers the one message this module sends: the confirmation that a
+	// Consent Withdrawal took something away (#267). Every other mail about a
+	// Customer is composed by the module that owns the act it is about — sales
+	// sends the receipt, the otp service sends the passcode — and this is the
+	// same rule, not an exception to it: both withdrawal surfaces live here.
+	//
+	// Optional, and the degradation is deliberate. A deployment without one still
+	// performs every withdrawal and simply confirms none of them, because the
+	// withdrawal is the thing that had to happen and refusing it for want of a
+	// mail sender would trade a right for a courtesy. It is wired in
+	// server.buildApp exactly as every real deployment wires the others.
+	email platform.EmailSender
 }
 
 // ReversalRequestResolver asks the Payment Provider again about the Reversal
@@ -144,6 +156,20 @@ func (s *Service) WithPaymentReversal(reversal platform.PaymentReversal) *Servic
 // which is what every deployment did before #157.
 func (s *Service) WithReversalRequests(resolver ReversalRequestResolver) *Service {
 	s.reversals = resolver
+	return s
+}
+
+// WithEmailSender attaches the sender the Consent Withdrawal confirmation goes
+// out on (#267). Same chaining shape as WithObjectStorage.
+//
+// It is the TRANSACTIONAL sender, which is not a detail: the confirmation is
+// sent to somebody who has just withdrawn Marketing Consent, and a deployment
+// that handed this the Digest identity would be sending the proof that marketing
+// stopped from the marketing domain (ADR 0030). The split sender routes only
+// SendFollowDigest away, so passing the wired EmailSender is already the right
+// answer and there is nothing here to get wrong.
+func (s *Service) WithEmailSender(sender platform.EmailSender) *Service {
+	s.email = sender
 	return s
 }
 

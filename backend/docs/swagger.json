@@ -134,7 +134,7 @@
                         "type": "string"
                     },
                     "marketing_consent": {
-                        "description": "MarketingConsent and NetworkingConsent are the optional boxes. ABSENT IS\nFALSE AND FALSE IS AN EXPLICIT NO — an unticked box that was shown is a\nrefusal, recorded as `denied`, and for Marketing that turns the Follow\nDigest off (ADR 0034). This is the one place in the API where a missing\nJSON field means something, and it means it because that is what the\nsurface means: the boxes are rendered unticked and a person who submits\nwithout touching them has answered.\n\nAn answer for a box this Customer was not shown is ignored by the service,\nwhich recomputes what they were owed rather than trusting this body.",
+                        "description": "MarketingConsent and NetworkingConsent are the optional boxes. On a sign-in\nsubmission ABSENT IS FALSE AND FALSE IS AN EXPLICIT NO — an unticked box\nthat was shown is a refusal, recorded as `denied`, and for Marketing that\nturns the Follow Digest off (ADR 0034). That is what the surface means: the\nboxes are rendered unticked and a person who submits without touching them\nhas answered.\n\nAn answer for a box this Customer was not shown is ignored by the service,\nwhich recomputes what they were owed rather than trusting this body.\n\nTHEY ARE POINTERS SO THAT A WITHDRAWAL CAN BE TOLD FROM A SIGN-IN (#270,\nADR 0039), and nothing about the sign-in reading above changes: an absent\nfield still submits false there, because withdrawalOnly below sends a\nsubmission carrying a Policy Acceptance down the same path it always took.\nWhat the pointer buys is the OTHER submission — one with no acceptance in\nit, naming the consents it takes away and nothing else — where absent has\nto mean \"not on this submission at all\" rather than \"answered No\", or a\nbare token would be a withdrawal of two consents nobody mentioned.",
                         "type": "boolean"
                     },
                     "networking_consent": {
@@ -145,8 +145,23 @@
                         "type": "string"
                     },
                     "policy_acceptance": {
-                        "description": "PolicyAcceptance is the required box. Absent is false, and false is\nrefused: the API is the guarantee, the disabled submit button is a\ncourtesy.",
+                        "description": "PolicyAcceptance is the required box. Absent is false, and false is\nrefused: the API is the guarantee, the disabled submit button is a\ncourtesy.\n\nIT IS A POINTER SO THAT MENTIONING IT AT ALL MEANS SOMETHING (#270). A\nsubmission carrying this field is a sign-in submission whatever it says —\n`false` is a refusal of the policy, not a withdrawal of a consent — and it\nfollows the rules it always did. Only a submission that does not mention\nPolicy Acceptance at all can be the other act. The two readings agree\neverywhere they overlap: absent is false on the sign-in path exactly as it\nhas always been.",
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.consentWithdrawalProofBody": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "locale": {
+                        "description": "Locale is the language of the Storefront page the withdrawal is being made\nfrom, remembered as the Customer's Mail Locale exactly as it is on the\nsign-in door (ADR 0033). It matters more here than there: the confirmation\nof the withdrawal is written in it, and a message about somebody's legal\nrights is the last one that may arrive in a language they cannot read.\nOptional, and a language the platform does not serve is dropped rather than\nmade a reason a person cannot exercise a right.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -304,6 +319,14 @@
                 },
                 "type": "object"
             },
+            "handler.optionalConsentBody": {
+                "properties": {
+                    "granted": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "handler.payoutProfileBody": {
                 "properties": {
                     "account_holder_name": {
@@ -350,6 +373,20 @@
                         "type": "integer"
                     },
                     "starts_at": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.recordConsentWithdrawalBody": {
+                "properties": {
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    },
+                    "request_reference": {
                         "type": "string"
                     }
                 },
@@ -714,6 +751,26 @@
                 },
                 "type": "object"
             },
+            "openapi.CustomerConsentSubmissionData": {
+                "properties": {
+                    "consent_required": {
+                        "$ref": "#/components/schemas/service.ConsentRequiredView"
+                    },
+                    "follow": {
+                        "$ref": "#/components/schemas/service.FollowView"
+                    },
+                    "session": {
+                        "$ref": "#/components/schemas/service.CustomerSessionView"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "withdrawal": {
+                        "$ref": "#/components/schemas/service.ConsentWithdrawalView"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.CustomerVerifyOTPData": {
                 "properties": {
                     "consent_required": {
@@ -858,6 +915,34 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeCustomerConsentSubmission": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/openapi.CustomerConsentSubmissionData"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerConsentWithdrawalProof": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.ConsentWithdrawalProofView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeCustomerDigestSubscription": {
                 "properties": {
                     "data": {
@@ -942,6 +1027,34 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeCustomerOptionalConsents": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OptionalConsentsView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerPrivacy": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.PrivacyView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeCustomerProfile": {
                 "properties": {
                     "data": {
@@ -988,6 +1101,20 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/openapi.CustomerVerifyOTPData"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeCustomerWithdrawAll": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.WithdrawAllView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1108,6 +1235,20 @@
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.OTPRequestResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeOperatorCustomerConsent": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OperatorCustomerConsentView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -1757,6 +1898,46 @@
                 },
                 "type": "object"
             },
+            "service.ConsentWithdrawalProofView": {
+                "properties": {
+                    "expires_at": {
+                        "description": "ExpiresAt is when it stops working, RFC 3339, published so a surface can\nsay \"start again\" rather than discovering it by being refused.",
+                        "type": "string"
+                    },
+                    "pending_consent_token": {
+                        "description": "PendingConsentToken is the single-use, short-lived proof of email\nownership. It is the same credential the sign-in door mints and is spent at\nthe same endpoint.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ConsentWithdrawalView": {
+                "properties": {
+                    "marketing_consent": {
+                        "description": "MarketingConsent and NetworkingConsent are the states AFTER the act:\n\"granted\", \"denied\", \"pending_confirmation\", or empty for a consent that\nhas never been answered and was not named by this submission.",
+                        "type": "string"
+                    },
+                    "networking_consent": {
+                        "type": "string"
+                    },
+                    "withdrew": {
+                        "$ref": "#/components/schemas/service.ConsentWithdrewView"
+                    }
+                },
+                "type": "object"
+            },
+            "service.ConsentWithdrewView": {
+                "description": "Withdrew is what this act actually took away, decided inside the\ntransaction that observed the prior state (#266) and never recomputed out\nhere. It is the same shape and the same spelling the passcode-only surface\npublishes (#270), because it is the same question.",
+                "properties": {
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "service.CustomerAreaView": {
                 "properties": {
                     "past": {
@@ -2179,6 +2360,53 @@
                 },
                 "type": "object"
             },
+            "service.OperatorConsentStateView": {
+                "properties": {
+                    "marketing_consent": {
+                        "type": "string"
+                    },
+                    "networking_consent": {
+                        "type": "string"
+                    },
+                    "policy_accepted_at": {
+                        "description": "PolicyAcceptedAt is when this Customer last accepted a Policy Version,\nRFC 3339, null where no acceptance was ever recorded.\n\nIt is shown and is NOT actionable. Policy Acceptance is not withdrawable\n(ADR 0038): it is absent from counsel's form, it gates the platform on a\nbasis other than consent, and clearing it would re-gate the person rather\nthan free them.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorCustomerConsentView": {
+                "properties": {
+                    "consent": {
+                        "$ref": "#/components/schemas/service.OperatorConsentStateView"
+                    },
+                    "customer": {
+                        "$ref": "#/components/schemas/service.OperatorCustomerIdentity"
+                    },
+                    "withdrew": {
+                        "$ref": "#/components/schemas/service.OperatorWithdrewView"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorCustomerIdentity": {
+                "properties": {
+                    "email": {
+                        "type": "string"
+                    },
+                    "first_name": {
+                        "description": "FirstName and LastName as the platform holds them, so an Operator can\ncheck the name on the form against the record before acting on it.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.OperatorPayout": {
                 "properties": {
                     "amount_cents": {
@@ -2331,6 +2559,32 @@
                     },
                     "timezone": {
                         "description": "Timezone is the EVENT's own zone, which interprets its schedule. It is not\nthe platform's Ecuadorian clock, which is what the Reversal Window's cutoff\nis stated in; the two are never the same thing.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OperatorWithdrewView": {
+                "description": "Withdrew is what the act on this request TOOK AWAY, and is null on the\nlookup, which took nothing away because it performed nothing.\n\nIt is reported rather than left for the caller to infer from the state\nbeside it, because it cannot be inferred: `denied` reads the same whether\nsomebody just gave something up or was already refusing. It is also the\nanswer to \"was anybody written to?\" — the confirmation mail is sent on\nexactly this predicate.",
+                "properties": {
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OptionalConsentsView": {
+                "description": "Consents is the pair as it now stands: the same shape every other act on\nthis surface answers with, so the page cannot describe the same two facts\nin two ways.",
+                "properties": {
+                    "marketing_consent": {
+                        "description": "MarketingConsent is \"granted\", \"denied\", \"pending_confirmation\" or\n\"unanswered\".",
+                        "type": "string"
+                    },
+                    "networking_consent": {
+                        "description": "NetworkingConsent is the same four.",
                         "type": "string"
                     }
                 },
@@ -2814,6 +3068,22 @@
                     },
                     "version": {
                         "description": "Version is the label a human names this edition by (\"0-placeholder\").",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.PrivacyView": {
+                "properties": {
+                    "consents": {
+                        "$ref": "#/components/schemas/service.OptionalConsentsView"
+                    },
+                    "policy_accepted_at": {
+                        "description": "PolicyAcceptedAt is when that acceptance was recorded, RFC 3339, null\nalongside a null version.",
+                        "type": "string"
+                    },
+                    "policy_version": {
+                        "description": "PolicyVersion is the label of the edition THIS CUSTOMER ACCEPTED, which is\nnot necessarily the one in effect: a Customer who accepted a superseded\nedition is told what they actually agreed to, and a page naming the current\none would claim they had seen a text nobody ever showed them.\n\nNull where no acceptance is recorded, which a session minted before consent\ncapture existed can still reach.",
                         "type": "string"
                     }
                 },
@@ -3507,6 +3777,17 @@
                 },
                 "type": "object"
             },
+            "service.WithdrawAllView": {
+                "properties": {
+                    "consents": {
+                        "$ref": "#/components/schemas/service.OptionalConsentsView"
+                    },
+                    "withdrew": {
+                        "$ref": "#/components/schemas/service.ConsentWithdrewView"
+                    }
+                },
+                "type": "object"
+            },
             "storage.CoverUploadResult": {
                 "properties": {
                     "object_key": {
@@ -3879,7 +4160,7 @@
         },
         "/api/v1/customer/auth/consent": {
             "post": {
-                "description": "Finishes a sign-in that was held for consent: exchanges the short-lived, single-use `pending_consent_token` from a verify response for the Customer Session that verification withheld. Writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized. `policy_acceptance` is required: a submission without it is refused by the API with POLICY_ACCEPTANCE_REQUIRED, not merely disabled in a form. The optional `marketing_consent` and `networking_consent` default to false, and false is an explicit No — it records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034). Answers for boxes the Customer was not shown are ignored: standing optional answers are never churned. The Policy Version is resolved server-side and is never accepted from the request. An optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes. The token is spent whatever the outcome, so a refused submission is restarted by signing in again; abandoning the step leaves no session at all.",
+                "description": "Spends the short-lived, single-use `pending_consent_token` from a verify response, or from the Consent Withdrawal passcode door, on ONE of two acts — decided by the API from the submission's contents and never by the form that sent it. POLICY ACCEPTANCE IS REQUIRED UNLESS EVERY ANSWER PRESENT IN THE SUBMISSION IS A DENIAL (ADR 0039). A submission mentioning `policy_acceptance` at all — true or false — one containing any grant, and one carrying no answer at all are all sign-in submissions, and a sign-in submission without acceptance is refused with POLICY_ACCEPTANCE_REQUIRED exactly as before; a submission whose only answers are `false` is a Consent Withdrawal and needs no acceptance, because an act that grants nothing, opens nothing and authorizes nothing has no processing for an acceptance to have informed anybody about. FINISHING A SIGN-IN writes the immutable Consent Record first — answers, channel, Policy Version, and the technical proof (IP, user agent, session, origin URL) — and mints the session on the far side of it, so nobody is ever signed in without evidence of what they authorized; `marketing_consent` and `networking_consent` default to false there, and false is an explicit No that records `denied` and, for marketing, switches the weekly Follow Digest off (ADR 0034); answers for boxes the Customer was not shown are ignored, so standing optional answers are never churned; an optional `follow` carries a Follow intent, honoured against the session this call mints exactly as on the verify routes; the response carries `session` and `session_id`. WITHDRAWING carries no `policy_acceptance` and names only the consents to take away, each as `false` — an omitted consent is not on the submission and is left exactly as it stands, so a bare token withdraws nothing and is refused. It MINTS NO CUSTOMER SESSION: the response carries `withdrawal` with the state of each optional consent afterwards and what the act actually took away, and `session`, `session_id`, `consent_required` and `follow` are all null. It can only ever move a consent to `denied` — no submission on this path can grant a consent, accept a Policy Version or open a session — so an intercepted passcode buys nothing its owner cannot undo from their own account. A withdrawal that moved a consent out of `granted` or `pending_confirmation` writes its Consent Record with the prior state and is confirmed to the Customer by email in their Mail Locale; one that moved nothing records the act and sends nothing. The Policy Version is resolved server-side and is never accepted from the request. The token is spent whatever the outcome and whichever act was attempted, so a refused submission is restarted by proving the address again; abandoning the step records nothing and leaves no session at all.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3905,7 +4186,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerVerifyOTP"
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerConsentSubmission"
                                 }
                             }
                         },
@@ -3932,7 +4213,7 @@
                         "description": "Unauthorized"
                     }
                 },
-                "summary": "Submit sign-in consent",
+                "summary": "Submit sign-in consent, or withdraw consent",
                 "tags": [
                     "customer"
                 ]
@@ -4249,6 +4530,77 @@
                     }
                 },
                 "summary": "Confirm a pending consent from a Sale Confirmation link",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/consent/withdrawal/passcode/verify": {
+            "post": {
+                "description": "Redeems a Customer one-time passcode for the short-lived, single-use `pending_consent_token` that a Consent Withdrawal is submitted with, for a Customer who will not or cannot sign in (ADR 0039). IT MINTS NO CUSTOMER SESSION AND NEVER CAN — not for a Customer who owes a Policy Acceptance, and not for one who has accepted the current edition and would have been signed straight in by the ordinary verify — so proving an address in order to withdraw does not leave anybody logged in on a shared machine. The passcode is the ordinary Customer passcode requested at /api/v1/customer/auth/otp/request, redeemed here instead of at the verify: it is proof of email ownership either way, so the Customer record is created or reused and marked verified exactly as a sign-in would, and an optional `locale` is remembered as the Customer's Mail Locale, which is the language the withdrawal's confirmation email is written in. The token it returns is the same credential a held sign-in returns and is spent at the same endpoint, /api/v1/customer/auth/consent, where a submission whose every answer is a denial needs no `policy_acceptance` and one containing any grant still does. Nothing about a Customer is disclosed here: the response is the token and its expiry, never their consent state, and a wrong passcode fails exactly as it fails on the sign-in door.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.consentWithdrawalProofBody",
+                                        "summary": "body",
+                                        "description": "Email and passcode"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Email and passcode",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerConsentWithdrawalProof"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
+                    }
+                },
+                "summary": "Prove email ownership to withdraw consent",
                 "tags": [
                     "customer"
                 ]
@@ -4681,6 +5033,189 @@
                     }
                 ],
                 "summary": "Follow a Tag",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/privacy": {
+            "get": {
+                "description": "Reports what the signed-in Customer has authorized: the Policy Version they accepted and when, read-only, and the current state of each optional consent. THIS READ WRITES NOTHING — rendering a settings page must leave the platform exactly as it was, because a page that recorded a refusal when somebody merely looked at it would turn \"never asked\" into \"denied\" for everyone who opened it and did nothing. Each optional consent is one of four values, and they mean four different things: `granted`, `denied`, `pending_confirmation` (somebody who had not proven this address ticked the box, so it stands unresolved and is not the owner's answer) and `unanswered` (never asked, which is not a refusal). `unanswered` exists on the wire only; the platform stores NULL, because the absence of an answer is not a fourth kind of answer. The Policy Version named is the edition THIS CUSTOMER ACCEPTED and not necessarily the one in effect, so a Customer who accepted a superseded edition is told what they actually agreed to; both policy fields are null where no acceptance was ever recorded. Policy Acceptance carries no control anywhere: it is not withdrawable, being absent from counsel's withdrawal form and resting on a basis other than consent. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to read somebody's standing privacy settings.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerPrivacy"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Read the Customer's privacy settings",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/privacy/consents/{purpose}": {
+            "put": {
+                "description": "Moves ONE optional consent — `marketing` or `networking`, named in the path — to the state the body asks for, and answers with both as they now stand. Moving it off is a CONSENT WITHDRAWAL and moving it on is an affirmative grant behind a session established by Proof of Email Ownership; both directions are offered deliberately, because every surface that can grant an optional consent shows the box only while the state is unanswered, so a one-way page would leave a Customer who withdrew by mistake with no route back at all. Exactly one Consent Record is written per request, under the `account_settings` channel, carrying the state each optional consent was in immediately before and the technical proof of the act. Only the named consent is answered; the other and the Policy Acceptance box are recorded as not shown, so nothing standing is churned. Withdrawing Marketing Consent switches the weekly Follow Digest off with it, in the same transaction and the same statement — they are one switch and cannot drift. A withdrawal that actually took something away, out of `granted` or `pending_confirmation`, is confirmed to the Customer by email in their Mail Locale; a grant sends nothing, and neither does answering No to a consent that was already denied, because nobody is told about a change that did not happen. A Customer whose consent sits in `pending_confirmation` settles it either way here by answering for themselves. Takes a state rather than a flip, so a retried or double-tapped request means the same thing once. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. A purpose this API does not recognise is VALIDATION_FAILED — Policy Acceptance is deliberately not one of them, because it is not withdrawable.",
+                "parameters": [
+                    {
+                        "description": "Which optional consent to move",
+                        "in": "path",
+                        "name": "purpose",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "marketing",
+                                "networking"
+                            ],
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.optionalConsentBody",
+                                        "summary": "body",
+                                        "description": "The state the Customer is asking for"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The state the Customer is asking for",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerOptionalConsents"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Grant or withdraw one optional consent",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/privacy/withdraw-all": {
+            "post": {
+                "description": "Takes back EVERY optional consent in one act, writing exactly ONE Consent Record with both Marketing Consent and Networking Consent answered No and carrying the state each was in immediately before. It is a route of its own rather than two calls to the per-purpose control precisely so that the evidence says \"this person asked for everything\" rather than \"this person happened to move two controls\" — a distinction the log cannot recover afterwards from two rows and a shared timestamp. The request takes NO BODY: this endpoint can only ever withdraw, and nothing in it can express a grant. Policy Acceptance is untouched, because it is not withdrawable — it rests on a basis other than consent, and clearing it would re-gate the Customer rather than free them. Withdrawing Marketing Consent switches the weekly Follow Digest off in the same transaction and the same statement. A Pending Confirmation left standing by somebody else's tick is settled as No by the same act. THIS IS NOT DELETION AND PROCESSING DOES NOT STOP: the account keeps working, Tickets are unaffected, tickets can still be bought, Sale Confirmations, passcodes and reversal notices still arrive because they rest on contract rather than consent, and data is retained for the Tickets held and for legal and security obligations. Anything withdrawn can be granted again from the same page. The response reports both consents as they now stand AND what this act actually took away, which are different facts: `denied` reads the same whether a consent was just given up or was already refused. A confirmation email is sent, in the Customer's Mail Locale, naming only what actually moved — and nothing at all is sent when both consents were already denied, because nobody is told about a change that did not happen. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeCustomerWithdrawAll"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Withdraw every optional consent",
                 "tags": [
                     "customer"
                 ]
@@ -5232,6 +5767,170 @@
                 "summary": "Pursue stuck Reversal Requests",
                 "tags": [
                     "internal"
+                ]
+            }
+        },
+        "/api/v1/operator/customers/{email}/consent": {
+            "get": {
+                "description": "Returns the Customer at an email address and their CURRENT consent state, across every Organization on the platform — Customer identity is global and separate from staff (ADR 0010), so a Customer's consents are the platform's relationship with them and no Organization may inspect them. The payload identifies the person before anybody acts on their behalf (id, email, name) and reports what a withdrawal would actually change: marketing_consent and networking_consent as granted, denied or pending_confirmation, and NULL where the Customer has never been asked — null is UNANSWERED and is a different fact from denied, published as the different fact it is so that nobody is shown a refusal they never made. pending_confirmation is a tick from somebody who never proved the address: standing against it, denied for sending, never expiring. policy_accepted_at is when they last accepted a Policy Version, null if never; it is shown and is NOT actionable, because Policy Acceptance is not withdrawable — it is absent from the withdrawal form, it gates the platform on a basis other than consent, and clearing it would re-gate the person rather than free them. withdrew is null here: a lookup takes nothing away. The address is matched on its normalised form, so case does not matter. READING WRITES NOTHING — no consent is captured and no Consent Record appears, because a lookup that recorded something would put an act in the evidence log that nobody performed. An address no Customer holds is 404 CUSTOMER_NOT_FOUND: an Operator is entitled to know, and that candour is bought by the door rather than granted by the answer — every caller the operator allowlist has not admitted is refused identically for an address that exists and one that does not. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Customer email address (matched case-insensitively)",
+                        "in": "path",
+                        "name": "email",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerConsent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Look up a Customer's consent state by email address",
+                "tags": [
+                    "operator"
+                ]
+            }
+        },
+        "/api/v1/operator/customers/{email}/consent/withdrawal": {
+            "post": {
+                "description": "Records that a Customer withdrew an optional consent by a route other than the platform — counsel's printed form, or an email to the data-protection address — so that a request which arrived on paper can be honoured within the legal deadline without anybody editing the database by hand. THIS SURFACE CAN ONLY WITHDRAW, NEVER GRANT: marketing_consent and networking_consent accept false (withdraw) or absence (this form did not name this consent, and nothing is written for it), and a value of TRUE is refused with 400 CONSENT_GRANT_NOT_PERMITTED. The refusal is the API's rather than the form's — an Operator who could grant could manufacture the very consent they exist to honour the withdrawal of — and it is enforced in the platform's single consent-write path, so no caller escapes it. Because it can only withdraw, the proven-ness question that decides granted-or-pending on every other channel never arises here. At least one of the two consents must be named, and request_reference is REQUIRED: it names the inbound artefact (the dated form, the letter, the email) and is at most 500 characters. It is a POINTER TO EVIDENCE HELD ELSEWHERE rather than evidence itself — it is never parsed and nothing is ever decided from its contents. The act writes exactly ONE Consent Record on channel operator_request, carrying the state each consent was in immediately before it, the acting operator's email (taken from the Staff Session, NEVER from the body) and the reference — the pair that stops a staff action from ever being presented as somebody's own click. Marketing Consent and the Follow Digest move in lockstep in the same transaction (ADR 0034). Policy Acceptance is untouched: it is not withdrawable. The response reports the state AFTER the act and `withdrew`, which is what the act TOOK AWAY — not the same question as what it answered, since `denied` reads the same whether somebody just gave something up or was already refusing. The Customer receives the same withdrawal confirmation email as any other channel, at their own stored address and in their Mail Locale, ONLY when something actually moved; an act that changed nothing is still recorded and mails nobody. A failure to send never fails the withdrawal. Platform Operator only.",
+                "parameters": [
+                    {
+                        "description": "Customer email address (matched case-insensitively)",
+                        "in": "path",
+                        "name": "email",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.recordConsentWithdrawalBody",
+                                        "summary": "body",
+                                        "description": "Which consents the artefact withdrew, and which artefact it was"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Which consents the artefact withdrew, and which artefact it was",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOperatorCustomerConsent"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record a Consent Withdrawal that arrived off the platform",
+                "tags": [
+                    "operator"
                 ]
             }
         },

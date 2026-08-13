@@ -50,6 +50,12 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		// mails live in inboxes for years. A path that vanished from the spec
 		// would be a Pending Confirmation nobody can ever clear.
 		"/api/v1/customer/consent/confirm",
+		// The Consent Withdrawal surface's passcode door (#270, parent #265,
+		// ADR 0039), asserted because it is the one door that must never mint a
+		// Customer Session: a route that quietly disappeared from the spec would
+		// leave the withdrawal-without-signing-in flow reachable only through the
+		// sign-in door, which is the situation the ADR exists to end.
+		"/api/v1/customer/consent/withdrawal/passcode/verify",
 		"/api/v1/customer/auth/session",
 		"/api/v1/customer/auth/logout",
 		"/api/v1/customer/ticket-sales",
@@ -90,6 +96,8 @@ func TestCustomerOpenAPIContract(t *testing.T) {
 		"openapi.EnvelopeCustomerFollow",
 		"openapi.EnvelopeCustomerFollowSuggestions",
 		"openapi.EnvelopeCustomerConsentConfirmation",
+		"openapi.EnvelopeCustomerConsentSubmission",
+		"openapi.EnvelopeCustomerConsentWithdrawalProof",
 	} {
 		if _, ok := doc.Components.Schemas[schema]; !ok {
 			t.Fatalf("missing typed envelope schema %s", schema)

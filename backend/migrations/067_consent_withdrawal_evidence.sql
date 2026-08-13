@@ -1,0 +1,175 @@
+-- What a capture act CHANGED, and the columns a Consent Withdrawal will need
+-- (#266, parent #265).
+--
+-- The word is WITHDRAWAL and never revocation. `revoke` is already this
+-- platform's verb for killing a credential — a Customer Session, an in-flight
+-- `pending_consents` row — and those are structurally the opposite of this:
+-- revoking a credential destroys a thing, while withdrawing a consent RECORDS
+-- ANOTHER ACT. One word for one concept, so that a future reader grepping for
+-- `revoke` finds only the credentials and never wonders which is meant. The
+-- Spanish copy counsel supplied says "revocatoria" and is free to; the
+-- ubiquitous language governs the code, not the translation.
+--
+-- THE PROBLEM THIS SOLVES. Migration 061's log answers "what did this person
+-- do?" one row at a time and answers it well. It cannot answer "did this person
+-- TAKE SOMETHING BACK?" from one row at all: a row saying `marketing_consent =
+-- false` is a refusal, and whether it was a first-time No or the withdrawal of a
+-- consent granted two years earlier can only be decided by finding the previous
+-- row that answered the same box and reading the two in order. That
+-- reconstruction is exactly what the guidance's revocation register asks the
+-- platform to be able to do without, and it degrades as the log grows: the
+-- neighbouring row may be on another channel, may have left the box unshown, and
+-- on a shared `captured_at` may not even be orderable. Recording the state each
+-- box was in IMMEDIATELY BEFORE the act makes a withdrawal legible from the
+-- single row that performed it — `granted -> denied` — which is both what a
+-- compliance report needs and what every later slice of #265 reads to decide
+-- whether anything was actually taken away.
+--
+-- It is not a cache of the log and cannot drift from it. It is an observation
+-- made under the same row lock, in the same transaction, as the state write it
+-- precedes; there is no second write that could later disagree, because there is
+-- no second write at all.
+
+-- THE PRIOR STATE OF EACH OPTIONAL CONSENT, one column per consent, carrying
+-- the same vocabulary as the `customers` columns they were copied from
+-- (migration 062) because they are literally the value those columns held.
+--
+-- NULL CARRIES THE SAME MEANING IT CARRIES FOR THE ANSWERS BESIDE IT: the box
+-- was not shown on this surface, so there was no prior state to have. An
+-- unsubscribe link answers marketing alone, and reading a null prior networking
+-- state as "they had nothing" would invent a fact about a box nobody rendered.
+--
+-- The one apparent ambiguity is not one. Null also arises where the box WAS
+-- shown and had never been answered — the ordinary case for a first sign-in —
+-- and the pair of columns disambiguates it without a fourth value: the answer
+-- column is NULL when the box was not shown and NOT NULL when it was. Reading
+-- `marketing_consent IS NOT NULL AND prior_marketing_consent IS NULL` gives
+-- "asked for the first time" exactly, and adding an 'unanswered' string here to
+-- say the same thing would put a value in this column that migration 062
+-- deliberately refuses to store in the column it mirrors.
+--
+-- NOT BACKFILLED, and there is nothing truthful to backfill with. Every row
+-- written before this migration recorded no prior state because none was
+-- observed, and deriving one now by walking the log is precisely the
+-- reconstruction these columns exist to abolish — it would also be a guess
+-- presented in an evidence table as an observation. Rows older than this
+-- migration read null on both, which is the honest answer: nobody looked.
+--
+-- The two columns are separate rather than one JSON blob for the reason the
+-- three answers are three columns: a compliance query filters on one consent at
+-- a time, a CHECK can police a closed vocabulary, and a nullable text column is
+-- readable in `psql` by the person who will actually be asked to produce this
+-- evidence.
+ALTER TABLE consent_records ADD COLUMN prior_marketing_consent TEXT
+    CHECK (prior_marketing_consent IN ('granted', 'denied', 'pending_confirmation'));
+ALTER TABLE consent_records ADD COLUMN prior_networking_consent TEXT
+    CHECK (prior_networking_consent IN ('granted', 'denied', 'pending_confirmation'));
+
+-- WHEN THE CUSTOMER WAS TOLD. Stamped once, when the withdrawal confirmation
+-- mail is handed to the provider; null until then and null forever on every act
+-- that sent nothing, which is most of them.
+--
+-- It is written by a later ticket and by nothing here. It lands now because the
+-- alternative is four migrations against one table for one decision, and because
+-- the immutability argument in migration 061 has to be restated to accommodate
+-- it — which is better done once, deliberately, than discovered under deadline
+-- by whoever adds the column.
+--
+-- WHY THIS IS A COLUMN AND NOT A SENT-MAIL LOG, which this platform has
+-- deliberately never built and does not build here. A sent-mail log is a table
+-- of MESSAGES: every mail the platform ever handed to a provider, retained,
+-- indexed, and answering questions about delivery. This is one nullable
+-- timestamp answering one question about one act that already has a row —
+-- "was the titular told about THIS withdrawal?" — which a compliance officer
+-- must be able to answer from the evidence itself rather than by asking a mail
+-- provider what it still has in its retention window. The distinction is not
+-- stylistic: a message log would grow without bound and would need its own
+-- retention policy, its own PII decisions and its own deletion story, and none
+-- of those questions arise for an annotation on a row that already holds the
+-- address it is about.
+--
+-- A send that fails must NOT fail the withdrawal. The withdrawal is the thing
+-- that had to happen; the mail is the courtesy that follows it, and null here
+-- means "not sent", which is a true and useful thing for the log to say.
+ALTER TABLE consent_records ADD COLUMN confirmation_sent_at TIMESTAMPTZ;
+
+-- WHO RECORDED IT, for the one kind of act no Customer performed: a withdrawal
+-- that arrived by email or on paper and was entered by a Platform Operator on
+-- the Customer's behalf.
+--
+-- NULL FOR EVERY ACT A CUSTOMER PERFORMED THEMSELVES, which is every act the
+-- platform has recorded to date and the overwhelming majority it ever will. The
+-- null is the assertion that nobody stood between the person and the record —
+-- and its presence is the assertion that somebody did, which is exactly the
+-- distinction that stops a staff action ever being presented as the person's own
+-- click.
+--
+-- AN EMAIL, AND NOT A FOREIGN KEY, which is a deliberate departure from every
+-- other tie on this table and needs its argument made rather than assumed.
+--
+-- There is nothing here to reference. A Platform Operator is an email on an
+-- allowlist (migration 024, ADR 0015) exercising an ordinary Staff Session;
+-- authority is orthogonal to Membership, so an operator may hold no `members`
+-- row at all, and the operator routes carry no Active Member in context — the
+-- only identifier such a handler has is the Staff Session's email. A
+-- `members (id)` reference would therefore be a column the one surface that
+-- needs to write it cannot fill.
+--
+-- Referencing `platform_operators (id)` instead would be worse, and migration
+-- 024 already argued this exact question and answered it: revoking operator
+-- authority IS a DELETE from that table, so ON DELETE RESTRICT would make an
+-- operator who has ever recorded a withdrawal impossible to remove from the
+-- allowlist without destroying evidence, and ON DELETE SET NULL would erase the
+-- attribution at precisely the moment somebody wanted it. `payouts.recorded_by`
+-- and `payout_requests.requested_by`/`resolved_by` are plain emails for these
+-- reasons; recording an act a staff member performed out of band is the same
+-- problem, and it gets the same answer here.
+--
+-- The email is taken from the Staff Session and NEVER from a request body, as it
+-- is everywhere else this platform records an operator. A CHECK forbids the
+-- empty string, so "recorded by nobody" has exactly one spelling — NULL — rather
+-- than two.
+ALTER TABLE consent_records ADD COLUMN recorded_by TEXT CHECK (recorded_by <> '');
+
+-- WHICH ARTEFACT THE ACT ANSWERS: the Operator's own naming of the form, the
+-- email or the letter they are holding while they record it.
+--
+-- IT IS A POINTER TO EVIDENCE HELD ELSEWHERE, NOT EVIDENCE ITSELF, and the
+-- distinction is the whole justification for the only uncontrolled string in
+-- this table. Everything else here is something the platform OBSERVED — a
+-- server clock, a resolved Policy Version, an answer as it arrived. This is a
+-- human's note saying where the paper is. It is not parsed, not validated
+-- beyond being text, and nothing is ever decided from its contents; a query that
+-- branched on it would be treating a filing reference as a fact about consent.
+--
+-- Free text rather than a foreign key to an uploaded document because the
+-- platform stores no such documents and building somewhere to put them is a
+-- filing system, not a consent feature. Nullable because every Customer-
+-- performed act answers no artefact at all.
+ALTER TABLE consent_records ADD COLUMN request_reference TEXT;
+
+-- THE CHANNEL VOCABULARY GAINS `operator_request`: the act a Platform Operator
+-- records on behalf of a Customer who wrote in.
+--
+-- It is a channel and not a flag beside one, because it is the surface the act
+-- happened on and that is precisely what this column names. A compliance report
+-- asking "where did our withdrawals come from?" then answers itself by grouping
+-- one column, and the one channel on which the actor was not the Customer is
+-- visible without joining anything — which is what stops a staff action from
+-- ever being reported as somebody's own click. `recorded_by` says WHO; this says
+-- WHAT KIND OF ACT it was, and only the pair is the full sentence.
+--
+-- The note migration 061 makes about this vocabulary living in two places stays
+-- true and is the reason this statement has a sibling: consent.Channel and its
+-- Valid() are widened in the same change, and a sixth string added to one and
+-- not the other is a capture the service refuses or a row the database refuses.
+ALTER TABLE consent_records DROP CONSTRAINT consent_records_channel_check;
+ALTER TABLE consent_records ADD CONSTRAINT consent_records_channel_check
+    CHECK (channel IN ('signin', 'checkout', 'account_settings', 'unsubscribe_link', 'email_confirmation', 'operator_request'));
+
+-- No index on any of these. They are read as part of the row they annotate,
+-- which is already reached by the one index this table carries, and the
+-- withdrawal report a compliance officer runs once a quarter is a scan of a
+-- small table rather than a reason to maintain an index on every capture — the
+-- same argument migration 061 makes for `channel`, unchanged by there now being
+-- more to report on.

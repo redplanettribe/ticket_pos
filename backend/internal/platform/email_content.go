@@ -479,6 +479,129 @@ func (r SaleReversalRefused) Text() string {
 		r.CustomerName, r.EventName, r.Reference)
 }
 
+// The Consent Withdrawal confirmation (#267, parent #265, ADR 0033) — the mail
+// that tells a Customer their withdrawal happened.
+//
+// It is the only message here whose CONTENT IS CONSTRAINED BY LAW AND BY TRUTH
+// in equal measure, and three rules decide every sentence of it.
+//
+// IT MUST NOT CLAIM THAT PROCESSING HAS STOPPED. Counsel's clarifying email
+// calls the post-withdrawal condition "passive", and CONTEXT.md scopes that word
+// to consent: this platform keeps doing contract-based processing for anybody
+// holding a Ticket, and keeps sending Sale Confirmations, passcodes and reversal
+// notices. Copy promising that data stopped being processed would be untrue, so
+// the second paragraph says what CONTINUES before it is asked.
+//
+// IT NAMES WHAT WAS WITHDRAWN AND THAT IT CAN BE TURNED BACK ON. A confirmation
+// that a person cannot act on is a notification; the last line is what makes it
+// a right the reader still holds. It says "from your account" without naming a
+// page, because the surface that can do it is the Customer Area today and #265
+// adds another — and a mail sitting in an inbox for a year must not be the thing
+// that pins a URL.
+//
+// IT DOES NOT ACCUSE ANYBODY OF ANYTHING. "You, or someone using this address"
+// is the Sale Confirmation's own phrasing for the same problem, and it is here
+// for a sharper reason: the unsubscribe link is the one surface ANYBODY holding
+// a forwarded Digest can press, so this mail is precisely how an address's real
+// owner learns that somebody acted on their behalf. Wording it as "you asked us
+// to" would tell that reader something false in the one message written to
+// correct it.
+//
+// IT GREETS NOBODY BY NAME, as the passcode does not. This is a message about
+// somebody's rights over an address, sent to that address, and a name adds
+// nothing to it — while an act performed through the unsubscribe link
+// authenticates nobody, so the platform saying "Hi Ana" would be dressing an
+// unauthenticated press as a recognised person.
+//
+// The Spanish says REVOCATORIA, which is the word counsel's form uses and the
+// word a Customer holding that form will look for. The ubiquitous language
+// governs the code — Consent Withdrawal, never revocation — and translations
+// render it (ADR 0038).
+var (
+	consentWithdrawalSubjectCopy = translated(
+		"Your Marketing Consent has been withdrawn",
+		"Se revocó su consentimiento de marketing",
+	)
+	// One block in both languages, greeting and all, for the reason the receipt's
+	// opening is one: the second paragraph only makes sense as a correction to
+	// what the first might be read to imply, and splitting them would let one be
+	// translated without the other.
+	consentWithdrawalTextCopy = translated(
+		"You, or someone using this address, withdrew the Marketing Consent recorded for this address. We have stopped sending marketing email to it, including the weekly digest of what you follow.\n\nNothing else changes. Your account and any tickets you hold are unaffected, you can still buy tickets, and you will still receive purchase confirmations, sign-in passcodes and notices about your purchases. We continue to hold your data for the tickets you hold and for our legal and security obligations.\n\nYou can turn marketing email back on at any time from your account.",
+		"Usted, o alguien que usó esta dirección, revocó el consentimiento de marketing registrado para esta dirección. Hemos dejado de enviarle correos de marketing, incluido el resumen semanal de lo que usted sigue.\n\nNada más cambia. Su cuenta y las entradas que tenga no se ven afectadas, puede seguir comprando entradas y seguirá recibiendo las confirmaciones de compra, los códigos de acceso y los avisos sobre sus compras. Seguimos conservando sus datos para las entradas que tiene y para cumplir nuestras obligaciones legales y de seguridad.\n\nPuede volver a activar los correos de marketing cuando quiera desde su cuenta.",
+	)
+	// The two wordings a surface able to withdraw Networking Consent needs
+	// (#270), written to the rules above rather than assembled from the marketing
+	// one. THE SECOND PARAGRAPH IS THE SAME SENTENCE IN ALL THREE and is repeated
+	// verbatim rather than concatenated at send time: it is the paragraph that
+	// keeps this platform's promise about what continues, and a message about
+	// somebody's rights is not a place to build sentences out of parts.
+	//
+	// What networking withdrawal actually stops is stated as visibility to other
+	// attendees and nothing more, because that is all it can be: nothing
+	// publishes Networking Consent to any external system and nothing caches it,
+	// so there is no propagation to promise and none to have failed (ADR 0038).
+	consentWithdrawalNetworkingSubjectCopy = translated(
+		"Your Networking Consent has been withdrawn",
+		"Se revocó su consentimiento de networking",
+	)
+	consentWithdrawalNetworkingTextCopy = translated(
+		"You, or someone using this address, withdrew the Networking Consent recorded for this address. Your profile is no longer shown to other people attending the same events.\n\nNothing else changes. Your account and any tickets you hold are unaffected, you can still buy tickets, and you will still receive purchase confirmations, sign-in passcodes and notices about your purchases. We continue to hold your data for the tickets you hold and for our legal and security obligations.\n\nYou can turn networking back on at any time from your account.",
+		"Usted, o alguien que usó esta dirección, revocó el consentimiento de networking registrado para esta dirección. Su perfil ya no se muestra a otras personas que asisten a los mismos eventos.\n\nNada más cambia. Su cuenta y las entradas que tenga no se ven afectadas, puede seguir comprando entradas y seguirá recibiendo las confirmaciones de compra, los códigos de acceso y los avisos sobre sus compras. Seguimos conservando sus datos para las entradas que tiene y para cumplir nuestras obligaciones legales y de seguridad.\n\nPuede volver a activar el networking cuando quiera desde su cuenta.",
+	)
+	consentWithdrawalBothSubjectCopy = translated(
+		"Your consents have been withdrawn",
+		"Se revocaron sus consentimientos",
+	)
+	consentWithdrawalBothTextCopy = translated(
+		"You, or someone using this address, withdrew the Marketing Consent and the Networking Consent recorded for this address. We have stopped sending marketing email to it, including the weekly digest of what you follow, and your profile is no longer shown to other people attending the same events.\n\nNothing else changes. Your account and any tickets you hold are unaffected, you can still buy tickets, and you will still receive purchase confirmations, sign-in passcodes and notices about your purchases. We continue to hold your data for the tickets you hold and for our legal and security obligations.\n\nYou can turn either of them back on at any time from your account.",
+		"Usted, o alguien que usó esta dirección, revocó el consentimiento de marketing y el consentimiento de networking registrados para esta dirección. Hemos dejado de enviarle correos de marketing, incluido el resumen semanal de lo que usted sigue, y su perfil ya no se muestra a otras personas que asisten a los mismos eventos.\n\nNada más cambia. Su cuenta y las entradas que tenga no se ven afectadas, puede seguir comprando entradas y seguirá recibiendo las confirmaciones de compra, los códigos de acceso y los avisos sobre sus compras. Seguimos conservando sus datos para las entradas que tiene y para cumplir nuestras obligaciones legales y de seguridad.\n\nPuede volver a activar cualquiera de ellos cuando quiera desde su cuenta.",
+	)
+)
+
+// Subject is the Consent Withdrawal confirmation's subject line, in the
+// Customer's Mail Locale.
+//
+// It says what happened rather than what the mail is about, because a reader who
+// never opens it has still been told the one fact this message exists to
+// deliver — and a reader who did not perform the act has been told it in the
+// only line they are certain to see.
+func (c ConsentWithdrawalConfirmation) Subject() string {
+	if c.MarketingConsent && c.NetworkingConsent {
+		return consentWithdrawalBothSubjectCopy.in(c.Locale)
+	}
+	if c.NetworkingConsent {
+		return consentWithdrawalNetworkingSubjectCopy.in(c.Locale)
+	}
+	return consentWithdrawalSubjectCopy.in(c.Locale)
+}
+
+// Text is the confirmation's body: what was withdrawn, what continues anyway,
+// and how to undo it.
+//
+// It interpolates nothing. One of three whole messages is CHOSEN by what the act
+// took away, and none of them is assembled: a message about somebody's rights is
+// not a place to build sentences out of parts, and a first paragraph stitched
+// from clauses would have to be translated as clauses.
+//
+// The marketing-only wording is the one #267 shipped, unchanged, because the
+// acts that produce it are unchanged — the unsubscribe link and the digest
+// toggle can still withdraw nothing else.
+//
+// The fall-through is marketing-only rather than a fourth "something was
+// withdrawn" message, and the case is unreachable: this is composed only where
+// a receipt reported that something moved (see confirmWithdrawal), so at least
+// one flag is always set.
+func (c ConsentWithdrawalConfirmation) Text() string {
+	if c.MarketingConsent && c.NetworkingConsent {
+		return consentWithdrawalBothTextCopy.in(c.Locale)
+	}
+	if c.NetworkingConsent {
+		return consentWithdrawalNetworkingTextCopy.in(c.Locale)
+	}
+	return consentWithdrawalTextCopy.in(c.Locale)
+}
+
 // The weekly Follow Digest (#220, parent #215, ADR 0030). It reads unlike every
 // other message here for two reasons, and both are worth stating before the
 // code.

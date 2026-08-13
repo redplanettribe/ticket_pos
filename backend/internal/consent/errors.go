@@ -62,3 +62,24 @@ func ErrNoCurrentPolicyVersion() apperror.DomainError {
 		nil,
 	)
 }
+
+// ErrConsentGrantNotPermitted is returned when a capture on a withdraw-only
+// channel tries to grant something (#271, parent #265).
+//
+// THE REFUSAL IS THE API'S, NOT THE FORM'S. The Operator surface offers no way
+// to grant a consent, and that on its own would be a statement about a page
+// rather than a guarantee about the platform: a page has no say over what a
+// curl command sends. An Operator who could grant could manufacture the very
+// consent they exist to honour the withdrawal of, so the refusal lives in the
+// one consent-write path and every caller of it meets the same wall.
+//
+// 400 rather than 403: nothing about the caller is unauthorized — an Operator is
+// entitled to be here and entitled to withdraw — the request simply asks for
+// something no channel of this kind may ever do.
+func ErrConsentGrantNotPermitted() apperror.DomainError {
+	return apperror.New(
+		"CONSENT_GRANT_NOT_PERMITTED",
+		"Consent cannot be granted on this surface. It can only be withdrawn.",
+		nil,
+	)
+}

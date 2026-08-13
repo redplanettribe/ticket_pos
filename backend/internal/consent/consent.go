@@ -7,13 +7,26 @@ import "time"
 // The vocabulary is defined here in full although #251 writes only
 // ChannelSignIn: the checkout, the Customer Area toggle, the unsubscribe link
 // and the confirmation link each land in their own ticket and each needs a name
-// nobody has to invent under deadline. Migration 061's CHECK constraint carries
-// the same five strings; adding a sixth means changing both.
+// nobody has to invent under deadline. The database's CHECK constraint carries
+// the same strings — migration 061's five, widened to six by 067 — and the
+// vocabulary living in two places is the price of a CHECK over an ENUM: adding
+// a seventh means changing both, and changing one alone is either a capture the
+// service refuses or a row the database refuses.
 type Channel string
 
 const (
-	// ChannelSignIn is the consent step between Proof of Email Ownership and a
-	// Customer Session — both doors, passcode and Google alike.
+	// ChannelSignIn is the consent step reached past Proof of Email Ownership —
+	// both doors, passcode and Google alike.
+	//
+	// It names the surface and not its outcome, which is why the Consent
+	// Withdrawal made on Proof of Email Ownership alone is recorded here too
+	// (#270): a passcode redeemed for a pending-consent token, spent at the
+	// consent submission endpoint, is this surface — it simply mints no Customer
+	// Session at the end of it. The two are still told apart from a single row
+	// without a seventh channel string: a sign-in consent step always records a
+	// Policy Acceptance and the session it minted, and a withdrawal records
+	// neither, so `policy_acceptance IS NULL AND session_id IS NULL` on this
+	// channel is that surface exactly.
 	ChannelSignIn Channel = "signin"
 	// ChannelCheckout is the online checkout, where a guest may be answering for
 	// an address they have not proven (ADR 0035).
@@ -28,6 +41,33 @@ const (
 	// that resolves a Pending Confirmation — clicking it from the inbox being
 	// itself the proof of ownership (ADR 0035).
 	ChannelEmailConfirmation Channel = "email_confirmation"
+	// ChannelOperatorRequest is a Consent Withdrawal that arrived off-platform —
+	// by email or on paper — and was recorded by a Platform Operator on the
+	// Customer's behalf (#266, parent #265).
+	//
+	// IT IS THE ONE CHANNEL ON WHICH THE ACTOR IS NOT THE CUSTOMER, which is why
+	// it is a channel of its own rather than a flag beside another: a compliance
+	// report grouping this column must never present a staff action as somebody's
+	// own click, and that is only structural if the surface itself is named. The
+	// record it writes also carries who recorded it and which artefact it
+	// answers, which no other channel has.
+	//
+	// It can only ever withdraw. An Operator cannot manufacture consent, so the
+	// proven-ness question that decides granted-or-pending everywhere else never
+	// arises here.
+	ChannelOperatorRequest Channel = "operator_request"
+	// ChannelPasscodeWithdrawal is the surface where a Consent Withdrawal is made
+	// on Proof of Email Ownership alone — a passcode redeemed for a
+	// pending-consent token and spent on a denials-only submission, minting no
+	// Customer Session and demanding no Policy Acceptance (ADR 0039, #270).
+	//
+	// It is a channel of its own rather than `signin` because the compliance
+	// question the column exists to answer is WHICH SURFACE, and this is a
+	// different surface from the sign-in consent step even though it comes
+	// through the same door. Telling the two apart by the absence of a Policy
+	// Acceptance and a session id worked, but it put a surface's identity into a
+	// predicate over other columns' nulls — see migration 068.
+	ChannelPasscodeWithdrawal Channel = "passcode_withdrawal"
 )
 
 // Valid reports whether the channel is one the storage vocabulary recognises. A
@@ -35,7 +75,8 @@ const (
 // the database's CHECK, so the failure names the bug rather than the row.
 func (c Channel) Valid() bool {
 	switch c {
-	case ChannelSignIn, ChannelCheckout, ChannelAccountSettings, ChannelUnsubscribeLink, ChannelEmailConfirmation:
+	case ChannelSignIn, ChannelCheckout, ChannelAccountSettings, ChannelUnsubscribeLink,
+		ChannelEmailConfirmation, ChannelOperatorRequest, ChannelPasscodeWithdrawal:
 		return true
 	}
 	return false
@@ -140,6 +181,29 @@ type Capture struct {
 	Answers Answers
 	// Evidence is the circumstances.
 	Evidence Evidence
+	// RecordedBy is the staff member who entered this act on the Customer's
+	// behalf, and is EMPTY ON EVERY ACT A CUSTOMER PERFORMED THEMSELVES — which
+	// is every act the platform has recorded to date and the overwhelming
+	// majority it ever will (#271, migration 067).
+	//
+	// It is an email, taken from the Staff Session and never from a request body,
+	// exactly as every other operator attribution on this platform is. Its
+	// emptiness is the assertion that nobody stood between the person and the
+	// record; its presence is the assertion that somebody did, which is what
+	// stops a staff action from ever being presented as somebody's own click.
+	RecordedBy string
+	// RequestReference names the inbound artefact this act answers: the dated
+	// form, the letter, the email to the data-protection address.
+	//
+	// IT IS A POINTER TO EVIDENCE HELD ELSEWHERE, NOT EVIDENCE ITSELF. Everything
+	// else on a Consent Record is something the platform OBSERVED; this is a
+	// human's note saying where the paper is. It is never parsed and nothing is
+	// ever decided from its contents — a rule that branched on it would be
+	// treating a filing reference as a fact about consent.
+	//
+	// Empty on every act a Customer performed themselves, which answers no
+	// artefact at all.
+	RequestReference string
 }
 
 // Receipt is what the platform recorded, returned to the surface that captured
@@ -165,6 +229,65 @@ type Receipt struct {
 	// when still unanswered.
 	MarketingConsent  State
 	NetworkingConsent State
+	// Withdrawn is what this act TOOK AWAY, and it is the whole of the question
+	// "was this a Consent Withdrawal?" answered where it can be answered
+	// correctly: inside the transaction that observed the prior state under the
+	// Customer row's lock (#266).
+	//
+	// A caller cannot compute it for itself and must not try. The states above
+	// say what is true now, and "denied" is the same value whether the person
+	// just gave something up or was declining for the second time — which is
+	// exactly the distinction that decides whether anybody is written to (#267).
+	Withdrawn Withdrawn
+}
+
+// Withdrawn is which optional consents one capture act took away.
+//
+// It is a different question from the answers and a different question from the
+// resulting state, and it is a type of its own for the reason Pending is: the
+// three are told apart by name at every call site, and a bool pair called
+// "denied" would be indistinguishable from the answers beside it.
+//
+// The Consent Withdrawal is the whole vocabulary here — never revocation, which
+// stays this platform's word for destroying a credential (ADR 0038).
+type Withdrawn struct {
+	MarketingConsent  bool
+	NetworkingConsent bool
+}
+
+// Any reports whether this act took anything away at all, which is the
+// predicate the confirmation mail is sent on (#267, parent #265). An act that
+// moved nothing writes its Consent Record and sends nothing: nobody is told
+// about a change that did not happen.
+func (w Withdrawn) Any() bool {
+	return w.MarketingConsent || w.NetworkingConsent
+}
+
+// Withdrew reports whether moving one optional consent from before to after
+// took something away.
+//
+// THE CONDITION IS A MOVE OUT OF GRANTED OR PENDING CONFIRMATION AND INTO
+// DENIED, and each half of that is load-bearing:
+//
+//   - Out of `granted` is the ordinary withdrawal, and out of
+//     `pending_confirmation` is one too: somebody's tick was standing against
+//     this address, the platform was still holding it as unresolved, and the
+//     owner has now settled it as No. Something the person had not asked for
+//     stopped being possible, and they are entitled to be told it did.
+//   - Into `denied` is what tells a withdrawal from a GRANT. A press of the
+//     confirmation link moves a consent out of `pending_confirmation` too — into
+//     `granted` — and that is the opposite act. Testing only the origin would
+//     confirm a double opt-in as though it were a withdrawal.
+//
+// Everything else moved nothing worth telling anybody about: denied to denied
+// is somebody switching off a switch that was already off, and an unanswered
+// consent answered No for the first time is a refusal rather than a withdrawal
+// (the guidance's revocation register asks for exactly this distinction).
+func Withdrew(before, after State) bool {
+	if after != StateDenied {
+		return false
+	}
+	return before == StateGranted || before == StatePendingConfirmation
 }
 
 // Outstanding is which boxes a person still has to be shown, and is the one

@@ -220,3 +220,25 @@ func ErrConfirmationLinkUnavailable() apperror.DomainError {
 func ErrPendingConsentInvalid() apperror.DomainError {
 	return apperror.New("PENDING_CONSENT_INVALID", "This sign-in has expired. Please sign in again.", nil)
 }
+
+// ErrCustomerNotFound is returned when an email address names no Customer on
+// this platform (#271).
+//
+// IT IS AN ORACLE, AND THAT IS WHY IT HAS EXACTLY ONE CALLER: the Platform
+// Operator's consent lookup, behind the operator allowlist. Everything else on
+// this platform that takes an email refuses to say — the passcode request
+// endpoint answers identically for an address it knows and one it has never
+// seen (ADR 0035), precisely so that nobody can enumerate who is here.
+//
+// The candour is bought by the door rather than granted by the answer. An
+// Operator holding a posted withdrawal form is entitled to know whether the
+// address on it belongs to anybody, and being told plainly beats being shown a
+// blank record they might then act on. Anybody the allowlist has not admitted is
+// refused BEFORE this is reached, and refused identically for an address that
+// exists and one that does not — which is the same posture the operator sale
+// lookup holds for a Sale Confirmation reference.
+//
+// 404: the address named a person, and there is no such person.
+func ErrCustomerNotFound() apperror.DomainError {
+	return apperror.New("CUSTOMER_NOT_FOUND", "No Customer on this platform has that email address.", nil)
+}

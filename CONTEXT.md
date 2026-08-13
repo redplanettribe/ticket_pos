@@ -465,6 +465,23 @@ The signed link carried in a Sale Confirmation that resolves a Pending Confirmat
 Named apart from the Confirmation Link, which grants access to one Ticket Sale: the two are different tokens with different purposes and neither opens what the other does. It confirms only the boxes the mail it travelled in offered, and only where they are still pending — a decision the owner has made since always outranks it.
 _Avoid_: Confirmation Link (unqualified), opt-in link, verification link, double opt-in link
 
+**Consent Withdrawal**:
+A capture act that takes an optional consent back, moving it to denied — one word for the concept in code, schema, tests and English prose.
+Not a new mechanism and not a new state: it is an ordinary capture whose answers are No, written through the same single consent-write path, leaving the same Consent Record with the same technical proof. What makes it identifiable is the record's prior state — the same row says both what was answered and what it replaced, so `granted → denied` is legible without reading the log in order.
+Never applies to Policy Acceptance, which rests on a basis other than consent and whose withdrawal would re-gate the person rather than free them. Costs nothing: Tickets, the account, future purchases and all transactional mail are untouched, and anything withdrawn can be granted again.
+_Avoid_: Revocation, revoke, revocatoria (in code), opt-out (as the concept), consent deletion, unsubscribe (unless it is the Marketing link)
+
+**Withdraw All**:
+The single act withdrawing every optional consent at once, leaving one Consent Record that says the Customer asked for everything rather than two that say they moved two controls.
+Not deletion and not account closure — a Customer who withdraws everything keeps their Tickets, their account and their receipts. Offered only where the person has been told what it does and does not mean.
+_Avoid_: Delete my data, close account, opt out of everything, unsubscribe all, erasure
+
+**Passive**:
+A description of a Customer whose optional consents all stand denied: no consent-based processing, contract-based processing untouched.
+Always scoped to consent. Data is still held and still processed for the Tickets the person holds and for legal and security obligations, so copy promising that processing has stopped would be untrue.
+A description and never a stored flag: it is read off the consent states, because a column recording it would be a second place for the same fact to be kept and a first place for it to disagree.
+_Avoid_: Inactive, dormant, opted out, anonymized, deleted, suppressed
+
 ## Following
 
 **Follow**:
@@ -491,9 +508,10 @@ Distinct from Unsubscribing, which leaves every Follow standing and changes only
 _Avoid_: Unsave, remove favorite, mute
 
 **Unsubscribe**:
-Turning a Customer's Follow Digest off while leaving every Follow intact — which, the Digest and Marketing Consent being one switch (ADR 0034), is also declining Marketing Consent.
-Reversible from the Customer Area, reachable from any Digest without signing in, and never a way to lose a list: a Customer who wants quiet keeps what they Followed. Touches no transactional mail — Sale Confirmations and One-time Passcodes arrive either way.
-_Avoid_: Opt out, mute, disable notifications, delete follows
+The Marketing-specific, link-driven special case of a Consent Withdrawal: turning a Customer's Follow Digest off while leaving every Follow intact — which, the Digest and Marketing Consent being one switch (ADR 0034), is declining Marketing Consent.
+A Consent Withdrawal in every respect that matters, and named separately only because the surface is: it is the one reachable from a footer by anybody holding the email, without signing in. It writes the same Consent Record through the same write path, records what it took away, and is confirmed the same way. It withdraws Marketing Consent alone — never Networking Consent, which is what distinguishes it from Withdraw All.
+Reversible from the Customer Area, and never a way to lose a list: a Customer who wants quiet keeps what they Followed. Touches no transactional mail — Sale Confirmations and One-time Passcodes arrive either way.
+_Avoid_: Opt out, mute, disable notifications, delete follows, revoke
 
 **Mail Locale**:
 The language mail to a Customer is written in, remembered from the Storefront they last signed in on.

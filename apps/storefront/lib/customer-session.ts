@@ -579,3 +579,72 @@ export type FollowSuggestions = {
 export async function getFollowSuggestions(): Promise<SessionOutcome<FollowSuggestions>> {
   return readWithSession<FollowSuggestions>("/api/v1/customer/follow-suggestions");
 }
+
+/**
+ * One optional consent's state, as the API reports it (#268, parent #265).
+ *
+ * FOUR VALUES, AND THEY MEAN FOUR DIFFERENT THINGS. Two of them are not answers
+ * at all: `unanswered` is a question this Customer was never asked, and
+ * `pending_confirmation` is somebody else's tick — a guest typed this address at
+ * a checkout and ticked the box, so the platform is holding it unresolved
+ * (ADR 0035). Neither may be drawn as a refusal. A boolean here would collapse
+ * three of the four into "off" and have the page tell a Customer they had
+ * declined something nobody ever asked them about.
+ *
+ * `unanswered` exists on the wire only. The platform stores NULL, because the
+ * absence of an answer is not a fourth kind of answer.
+ */
+export type ConsentState = "granted" | "denied" | "pending_confirmation" | "unanswered";
+
+/** The two optional consents, which are the only two a Customer can move. */
+export type OptionalConsents = {
+  marketing_consent: ConsentState;
+  networking_consent: ConsentState;
+};
+
+/**
+ * The Privacy page's read: what this Customer has authorized.
+ *
+ * The Policy Version is THE ONE THEY ACCEPTED and not the one in effect, so a
+ * Customer who accepted a superseded edition is told what they actually agreed
+ * to. Both policy fields are null together where no acceptance was ever
+ * recorded, and neither has a control beside it: Policy Acceptance is not
+ * withdrawable.
+ */
+export type Privacy = {
+  policy_version: string | null;
+  policy_accepted_at: string | null;
+  consents: OptionalConsents;
+};
+
+/**
+ * What one Withdraw All did (#269).
+ *
+ * IT REPORTS TWO DIFFERENT FACTS AND BOTH ARE NEEDED. `consents` is what is
+ * true now; `withdrew` is what the act actually TOOK AWAY, decided by the API
+ * inside the transaction that observed the prior state. They come apart exactly
+ * where it matters: a Customer whose consents were both already denied ends in
+ * the same states as one who just gave two things up, and only the second is
+ * sent a confirmation email — so a page reading the states alone would promise
+ * mail that the API correctly did not send.
+ */
+export type WithdrawAll = {
+  consents: OptionalConsents;
+  withdrew: { marketing_consent: boolean; networking_consent: boolean };
+};
+
+/**
+ * Reads the signed-in Customer's privacy settings.
+ *
+ * A GET, AND THAT IS THE POINT. Rendering the Privacy page must write nothing:
+ * a settings surface that recorded a refusal because somebody read it would
+ * convert "never asked" into "denied" for everybody who opened it and did
+ * nothing. Only moving a control writes anything, and that goes through the BFF
+ * route beside this, never through here.
+ *
+ * Like every other Customer Area read, the request carries no identifier of
+ * whose settings these are: the session is the only scope.
+ */
+export async function getPrivacy(): Promise<SessionOutcome<Privacy>> {
+  return readWithSession<Privacy>("/api/v1/customer/privacy");
+}

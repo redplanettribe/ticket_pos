@@ -105,11 +105,15 @@ type Service struct {
 	organizations Organizations
 	events        Events
 	money         Money
+	// consents is the Consent Withdrawal surface's half, and the first thing
+	// this service composes that is about a person rather than about money
+	// (#271). See consent.go.
+	consents Consents
 }
 
-// New returns an operator service over the three owning modules.
-func New(organizations Organizations, events Events, money Money) *Service {
-	return &Service{organizations: organizations, events: events, money: money}
+// New returns an operator service over the four owning modules.
+func New(organizations Organizations, events Events, money Money, consents Consents) *Service {
+	return &Service{organizations: organizations, events: events, money: money, consents: consents}
 }
 
 // PlatformSummary is the Operator Dashboard's headline: the platform's money,

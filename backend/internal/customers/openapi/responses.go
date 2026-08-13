@@ -133,6 +133,47 @@ type EnvelopeCustomerDigestSubscription struct {
 	RequestID string                         `json:"request_id"`
 }
 
+// EnvelopeCustomerPrivacy documents GET /api/v1/customer/privacy success
+// responses (#268): what the signed-in Customer has authorized.
+//
+// The Policy Version pair is read-only and has no write counterpart anywhere,
+// because Policy Acceptance is not withdrawable — which is why this envelope
+// has no request shape mirroring it.
+type EnvelopeCustomerPrivacy struct {
+	Data      service.PrivacyView `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeCustomerOptionalConsents documents PUT
+// /api/v1/customer/privacy/consents/{purpose} success responses (#268): both
+// optional consents as they stand after one control was moved.
+//
+// It reports the PAIR although one request moves one of them, because the page
+// that asked is drawing both and the states are the platform's finding rather
+// than the request's echo. It is the same shape the read above embeds, so a
+// page and the act it just performed cannot describe the two facts differently.
+type EnvelopeCustomerOptionalConsents struct {
+	Data      service.OptionalConsentsView `json:"data"`
+	Error     *platform.APIError           `json:"error"`
+	RequestID string                       `json:"request_id"`
+}
+
+// EnvelopeCustomerWithdrawAll documents POST
+// /api/v1/customer/privacy/withdraw-all success responses (#269): what one
+// Withdraw All did.
+//
+// It is a shape of its own rather than the pair above, because this act has a
+// second thing to report: WHAT IT TOOK AWAY. The states alone cannot say it —
+// `denied` is the same value whether somebody has just given something up or
+// was declining for the second time — and it is the fact a surface needs in
+// order not to promise a confirmation email that the API correctly did not send.
+type EnvelopeCustomerWithdrawAll struct {
+	Data      service.WithdrawAllView `json:"data"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
+}
+
 // EnvelopeCustomerConsentConfirmation documents POST
 // /api/v1/customer/consent/confirm success responses (#255): what one press of
 // the confirmation link in a Sale Confirmation actually did.
@@ -146,6 +187,49 @@ type EnvelopeCustomerConsentConfirmation struct {
 	Data      service.ConsentConfirmationView `json:"data"`
 	Error     *platform.APIError              `json:"error"`
 	RequestID string                          `json:"request_id"`
+}
+
+// CustomerConsentSubmissionData is returned by the consent submission endpoint,
+// which spends one pending-consent token on one of two acts (#270, ADR 0039).
+//
+// It has THREE SHAPES and a client must handle each: the session a finished
+// sign-in mints, `consent_required` — which this endpoint does not currently
+// return, and which is here because the payload is the verify's — and
+// `withdrawal`, the Consent Withdrawal a denials-only submission performed.
+//
+// `withdrawal` is null on every sign-in submission and every other field is null
+// beside it, INCLUDING `session_id`: a withdrawal made on Proof of Email
+// Ownership alone mints no Customer Session, and a client that reads a missing
+// session as a failed sign-in would report a successful withdrawal as a broken
+// one.
+type CustomerConsentSubmissionData struct {
+	Session         *service.CustomerSessionView   `json:"session"`
+	SessionID       string                         `json:"session_id"`
+	Follow          *service.FollowView            `json:"follow"`
+	ConsentRequired *service.ConsentRequiredView   `json:"consent_required"`
+	Withdrawal      *service.ConsentWithdrawalView `json:"withdrawal"`
+}
+
+// EnvelopeCustomerConsentSubmission documents POST
+// /api/v1/customer/auth/consent success responses.
+type EnvelopeCustomerConsentSubmission struct {
+	Data      CustomerConsentSubmissionData `json:"data"`
+	Error     *platform.APIError            `json:"error"`
+	RequestID string                        `json:"request_id"`
+}
+
+// EnvelopeCustomerConsentWithdrawalProof documents POST
+// /api/v1/customer/consent/withdrawal/passcode/verify success responses: the
+// Proof of Email Ownership a Consent Withdrawal runs on, held in suspension.
+//
+// Its own shape rather than the verify's, because what is NOT in it is the
+// point: no session, no session id, and no boxes. The passcode door of the
+// withdrawal surface can return nothing else, which is what makes "no Customer
+// Session is minted" visible in the contract rather than only in the code.
+type EnvelopeCustomerConsentWithdrawalProof struct {
+	Data      service.ConsentWithdrawalProofView `json:"data"`
+	Error     *platform.APIError                 `json:"error"`
+	RequestID string                             `json:"request_id"`
 }
 
 // EnvelopeCustomerFollow documents POST

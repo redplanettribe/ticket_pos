@@ -11,19 +11,47 @@
 -- we send them a campaign? — is answered from the state, never from this table.
 -- Nothing here is on a read path that a person waits for.
 --
--- NEVER UPDATED. NEVER DELETED. This is the property the whole feature rests
--- on, so it is worth being explicit about what it forbids: no UPDATE to correct
--- a mistyped answer (record the correction as a new act), no DELETE to tidy up
--- a test row in production, no "fix the timestamp" after an incident. An
--- evidence log that can be edited is not evidence — a compliance officer
--- holding a row from it must be able to say that it is what the system observed
--- at the time, and every write path that could have altered it afterwards is a
--- reason they cannot. The rule is enforced in the shape of the repository's API
--- rather than by a database trigger: internal/consent/repository offers an
--- insert and reads, and there is no method that updates or deletes a row here.
--- A trigger was considered and rejected — it would refuse the one legitimate
--- future write, a `confirmed_at` stamp, and buying immutability by making the
--- double opt-in impossible is the wrong trade. See the column's note below.
+-- WHAT THE ROW SAYS HAPPENED IS NEVER ALTERED, AND NO ROW IS EVER DELETED. This
+-- is the property the whole feature rests on, so it is worth being explicit
+-- about what it forbids: no UPDATE to correct a mistyped answer (record the
+-- correction as a new act), no DELETE to tidy up a test row in production, no
+-- "fix the timestamp" after an incident. An evidence log that can be edited is
+-- not evidence — a compliance officer holding a row from it must be able to say
+-- that it is what the system observed at the time, and every write path that
+-- could have altered it afterwards is a reason they cannot.
+--
+-- THE ONE RULE THAT ADMITS ANY POST-INSERT WRITE, stated as a rule rather than
+-- as a list of exceptions, because it has already had to be widened once (#266)
+-- and a special case that grows is a special case that was never the real
+-- shape:
+--
+--   A column here may be written after insert only if it is NULL until some
+--   LATER EVENT ABOUT THIS ACT occurs, is then written ONCE and never changed
+--   or cleared, and CHANGES NOTHING THE ROW SAYS THE PERSON DID.
+--
+-- Two columns satisfy it and they are the only two: `confirmed_at`, which
+-- records that the act was later corroborated from the address itself, and
+-- `confirmation_sent_at` (migration 067), which records that its subject was
+-- later told about it. Neither is an answer, a channel, a clock reading of the
+-- act, or a piece of technical proof; each is an annotation saying what happened
+-- NEXT, and the transcript underneath is byte-for-byte what it was at insert.
+-- The rule's third clause is what makes that checkable rather than a promise: a
+-- proposed column that would edit an answer, restate when the act occurred, or
+-- revise the circumstances fails it outright, whatever it is called.
+--
+-- The alternative for both — a side table of annotations — buys strict
+-- append-only at the cost of a join for questions ("was this tick ever
+-- confirmed?", "was the titular told?") that are about one row and nothing else,
+-- and it is not a trade this table makes. It is emphatically NOT a licence to
+-- build a general log of sent mail on the back of the second stamp; see the
+-- argument on that column in migration 067.
+--
+-- The rule is enforced in the shape of the repository's API rather than by a
+-- database trigger: internal/consent/repository offers an insert, reads, and one
+-- narrow single-purpose method per stamp, and there is no method that updates
+-- anything else or deletes a row here. A trigger was considered and rejected —
+-- it would refuse the legitimate stamps too, and buying immutability by making
+-- the double opt-in impossible is the wrong trade.
 --
 -- A tick that changes nothing still writes a row (CONTEXT.md, "Consent
 -- Record"): a guest who ticks marketing for an address they have not proven
@@ -59,7 +87,8 @@ CREATE TABLE consent_records (
     -- `email_confirmation` when a Pending Confirmation is resolved by the link
     -- in a Sale Confirmation (ADR 0035). Naming them all now is cheap and makes
     -- the vocabulary one decision rather than four; a later channel is a
-    -- migration that widens this CHECK.
+    -- migration that widens this CHECK. One since has: migration 067 adds
+    -- `operator_request`, so the constraint below is no longer the live one.
     --
     -- CHECK rather than an ENUM type, following the house style every other
     -- constrained string column here uses (mail_locale, sale locale, payout
@@ -104,14 +133,15 @@ CREATE TABLE consent_records (
     -- double opt-in that lands with the Sale Confirmation's confirmation link.
     -- Null for every row #251 writes.
     --
-    -- IT IS THE ONE COLUMN HERE THAT IS EVER WRITTEN AFTER INSERT, and it is a
-    -- deliberate, single, one-way exception to the immutability above: null to
-    -- a timestamp, once. It does not alter what the row says happened; it
-    -- records that the act it describes was later corroborated. The alternative
-    -- — a second table of confirmations — buys strict append-only at the cost of
-    -- a join for a question ("was this tick ever confirmed?") that is about this
-    -- row and nothing else. When that write path lands it will be its own
-    -- narrow repository method, not a general update.
+    -- IT IS ONE OF THE TWO COLUMNS HERE EVER WRITTEN AFTER INSERT, under the
+    -- one-way rule stated above: null to a timestamp, once, never back. It does
+    -- not alter what the row says happened; it records that the act it describes
+    -- was later CORROBORATED. Its sibling under the same rule is
+    -- `confirmation_sent_at` (migration 067), which records that the act's
+    -- subject was later TOLD — corroborated and answered being the only two
+    -- things that may be said about an act after the fact without touching it.
+    -- Each has its own narrow repository method naming its own column; neither
+    -- is a general update.
     confirmed_at TIMESTAMPTZ,
     -- The technical proof the guidance's evidence template requires, where it is
     -- the row headed "Prueba técnica" — named here once so the column can be

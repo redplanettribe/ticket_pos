@@ -143,6 +143,24 @@ func registerOperatorRoutes(mux *http.ServeMux, app *App) {
 	// discriminator is how two answers quietly become one (ADR 0026 amendment).
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/failed", operator(http.HandlerFunc(h.MarkPayoutRequestFailed)))
 	mux.Handle("POST /api/v1/operator/payout-requests/{requestID}/decline", operator(http.HandlerFunc(h.DeclinePayoutRequest)))
+	// The Consent Withdrawal an Operator records on somebody's behalf (#271,
+	// parent #265): a form that arrived by post, or an email to the
+	// data-protection address.
+	//
+	// Keyed on the Customer's EMAIL ADDRESS, which is all an Operator holding a
+	// posted form has — the same argument that keys the sale lookup on a Sale
+	// Confirmation reference. It is not nested under an Organization and could
+	// not be: Customer identity on this platform is global and separate from
+	// staff (ADR 0010), so a Customer's consents belong to no venue and no
+	// Organization-scoped role may reach them. The operator allowlist on this
+	// namespace is the whole of the gate, and it refuses an Org Admin identically
+	// for an address that exists and one that does not.
+	mux.Handle("GET /api/v1/operator/customers/{email}/consent", operator(http.HandlerFunc(h.LookUpCustomerConsent)))
+	// The act itself, hanging off that lookup exactly as the Operator Reversal
+	// hangs off the sale lookup. A noun and not a verb, because what is being
+	// created is a record of a Consent Withdrawal — and pointedly singular in
+	// what it can do: this path can only ever take something away.
+	mux.Handle("POST /api/v1/operator/customers/{email}/consent/withdrawal", operator(http.HandlerFunc(h.RecordCustomerConsentWithdrawal)))
 }
 
 // registerCustomerRoutes wires the Storefront's Customer identity surface.
@@ -202,6 +220,20 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// what confirmed it was a robot. Registering the method alone is what makes
 	// the router answer a bare GET with 405 rather than with an act.
 	mux.HandleFunc("POST /api/v1/customer/consent/confirm", h.ConfirmConsent)
+	// The Consent Withdrawal surface's passcode door (#270, parent #265,
+	// ADR 0039). Unauthenticated like the two above, and for a reason of its own:
+	// the person it exists for is the one who has just been told that to withdraw
+	// their consent they must first accept a policy, and demanding the session
+	// that demand comes from would be the same refusal wearing a hat.
+	//
+	// IT MINTS NO CUSTOMER SESSION. It redeems a passcode for the same
+	// short-lived, single-use pending-consent token a held sign-in returns, and
+	// that token is spent at the consent submission route above — where a
+	// submission whose every answer is a denial needs no Policy Acceptance and one
+	// containing any grant still does. A passcode intercepted on this route
+	// therefore buys the ability to switch somebody's consent OFF, which its owner
+	// can switch back on from their own account, and nothing else.
+	mux.HandleFunc("POST /api/v1/customer/consent/withdrawal/passcode/verify", h.ProveEmailForConsentWithdrawal)
 
 	// signedIn gates a route on a valid Customer Session and extends its sliding
 	// window. Everything behind it is scoped to the Customer on that session.
@@ -269,6 +301,41 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// turn the Digest back ON — see service.SetDigestEnabled for why the
 	// unsubscribe link deliberately cannot.
 	mux.Handle("PUT /api/v1/customer/digest", signedIn(http.HandlerFunc(h.SetDigestEnabled)))
+	// The Privacy page (#268, parent #265): what this Customer has authorized,
+	// and a control per optional consent that moves it in EITHER direction.
+	//
+	// THE READ AND THE WRITES ARE DIFFERENT ROUTES so that rendering the page
+	// cannot record anything. Only a PUT below writes a Consent Record; a GET
+	// changes nothing, which is what stops "somebody read the page" from
+	// becoming "somebody refused" in the evidence log.
+	//
+	// ONE PURPOSE PER REQUEST, in the path. Moving a control is one act about
+	// one consent, and a route that could answer both at once would let the page
+	// perform a Withdraw All — a deliberate act, behind a dialog that says what
+	// it means, writing a single row (#269) — without anybody being told what
+	// they were doing.
+	//
+	// Both draw the same full-session line as the Digest toggle above: a
+	// Confirmation Link session is a forwarded receipt, and it is authority
+	// neither to read somebody's standing privacy settings nor to change them.
+	mux.Handle("GET /api/v1/customer/privacy", signedIn(http.HandlerFunc(h.Privacy)))
+	mux.Handle("PUT /api/v1/customer/privacy/consents/{purpose}", signedIn(http.HandlerFunc(h.SetOptionalConsent)))
+	// Withdraw All (#269): every optional consent taken back at once, ONE Consent
+	// Record with both denied.
+	//
+	// A ROUTE OF ITS OWN, and the separation is the ticket rather than an
+	// arrangement of URLs. The per-purpose route above cannot express this and
+	// must not learn to: two of its requests would leave the same Customer in the
+	// same state while writing evidence that says somebody moved two controls,
+	// where what happened was one person asking to be left alone — and the log
+	// cannot recover that intent afterwards from two rows and a shared timestamp.
+	//
+	// It is outside `consents/` because it names no consent: "everything" is not
+	// a purpose, and a third value in that path segment would be the first step
+	// back towards one endpoint that can do both.
+	//
+	// It takes NO BODY, so nothing a caller sends can turn it into a grant.
+	mux.Handle("POST /api/v1/customer/privacy/withdraw-all", signedIn(http.HandlerFunc(h.WithdrawAll)))
 	mux.Handle("POST /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.FollowOrganization)))
 	mux.Handle("DELETE /api/v1/customer/follows/organizations/{slug}", signedIn(http.HandlerFunc(h.UnfollowOrganization)))
 	// Tag Follows (#218) join the same listing above rather than adding one of
