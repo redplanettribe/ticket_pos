@@ -44,11 +44,49 @@ type ActiveMemberView struct {
 	Role                string  `json:"role"`
 }
 
+// StaffMeView is what /api/v1/staff/me answers: the Active Member context the
+// staff app resolves on every render, and the Staff Locale of the person doing
+// the reading.
+//
+// The two are joined here rather than in two calls because the app already makes
+// this one on every render, so the language arrives on a request that was
+// happening anyway. They are joined here and NOT on ActiveMemberView because the
+// Active Member is per-Organization and the Staff Locale is emphatically not:
+// putting a language on the membership is the shape this feature exists to
+// avoid, and this view is where the two facts meet without either claiming the
+// other's scope.
+type StaffMeView struct {
+	MemberID            string  `json:"member_id"`
+	OrganizationID      string  `json:"organization_id"`
+	OrganizationName    string  `json:"organization_name"`
+	OrganizationSlug    string  `json:"organization_slug"`
+	OrganizationLogoURL *string `json:"organization_logo_url"`
+	Role                string  `json:"role"`
+	// Locale is the person's Staff Locale, or null when they have stated none.
+	// Null is not "English": it says nobody has chosen, which is what lets the
+	// next sign-in record a detected language instead of finding one already
+	// there. A reader with null renders in English all the same.
+	Locale *string `json:"locale"`
+}
+
+// StaffLocaleView is the Staff Locale of the signed-in person, as the write
+// endpoint reports it back. Never null: a write always states one.
+type StaffLocaleView struct {
+	Locale string `json:"locale"`
+}
+
 // SessionView is the public session representation.
 type SessionView struct {
 	Email        string            `json:"email"`
 	ActiveMember *ActiveMemberView `json:"active_member"`
 	Memberships  []MembershipView  `json:"memberships"`
+	// Locale is the Staff Locale of the person this session belongs to, or null
+	// when they have stated none. It sits beside Email and IsPlatformOperator
+	// because it is a fact about the PERSON, not about the Organization they are
+	// currently looking at — which is also why it is reported here and not on
+	// ActiveMember: a Platform Operator who is a Member of nothing has no Active
+	// Member to hang it on, and still has a language.
+	Locale *string `json:"locale"`
 	// IsPlatformOperator says whether this session's email is on the platform
 	// operator allowlist, so the staff app knows whether to render the Operator
 	// Dashboard navigation. It is a hint for the UI, never the gate: the
@@ -125,7 +163,11 @@ func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*OTPR
 
 // VerifyOTP validates a staff-purpose passcode and creates a Staff Session.
 // A passcode issued for any other purpose is not accepted here.
-func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*SessionView, string, error) {
+//
+// detectedLocale is the language the login page was rendered in, as the caller
+// detected it. It is remembered as the person's Staff Locale if they have none,
+// and ignored otherwise — see signInProvenEmail.
+func (s *Service) VerifyOTP(ctx context.Context, email, code, detectedLocale string) (*SessionView, string, error) {
 	email = platform.NormalizeEmail(email)
 	now := s.now()
 
@@ -133,7 +175,7 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*SessionVi
 		return nil, "", err
 	}
 
-	return s.signInProvenEmail(ctx, email, now)
+	return s.signInProvenEmail(ctx, email, detectedLocale, now)
 }
 
 // signInProvenEmail is what every Proof of Email Ownership converges on: the
@@ -146,11 +188,33 @@ func (s *Service) VerifyOTP(ctx context.Context, email, code string) (*SessionVi
 // session view. That is also why the auth-fork cannot vary by sign-in method —
 // by the time anything decides where to land somebody, the method is gone.
 //
+// detectedLocale is what the caller detected before anyone was signed in — a
+// cookie, then an Accept-Language, then English — and this is the one moment it
+// is worth writing down. A sign-in carries evidence that a box office sale does
+// not (ADR 0033 left the Sale Locale absent precisely because there was none):
+// the browser stated a preference, a login page was rendered in it, and the
+// person read that page and proceeded. Weak evidence, and it is treated as weak
+// — it is written only when the person has NO Staff Locale, and never over one
+// (repository.RememberStaffLocale). That is what makes somebody's app and
+// somebody's mail agree without them ever finding a setting.
+//
+// A language this platform does not serve, or none at all, records nothing: a
+// missing or malformed locale must never fail a sign-in, so it is dropped
+// through platform.ParseLocale rather than refused. Nor is failing to write it
+// worth refusing a session over — the person is proven and the session is what
+// they came for, so a write error is logged and the sign-in continues.
+//
 // The email must already be normalised and proven by the caller.
-func (s *Service) signInProvenEmail(ctx context.Context, email string, now time.Time) (*SessionView, string, error) {
+func (s *Service) signInProvenEmail(ctx context.Context, email, detectedLocale string, now time.Time) (*SessionView, string, error) {
 	sessionID, err := newSessionToken()
 	if err != nil {
 		return nil, "", err
+	}
+
+	if parsed, ok := platform.ParseLocale(detectedLocale); ok {
+		if err := s.repo.RememberStaffLocale(ctx, email, string(parsed), now); err != nil {
+			s.logger.Error("remember staff locale", "error", err)
+		}
 	}
 
 	session := repository.Session{
@@ -277,8 +341,9 @@ func (s *Service) SelectOrganization(ctx context.Context, sessionID, memberID st
 	return s.buildSessionView(ctx, session)
 }
 
-// GetStaffMe returns the active member context for staff workflow routes.
-func (s *Service) GetStaffMe(ctx context.Context, sessionID string) (*ActiveMemberView, error) {
+// GetStaffMe returns the active member context for staff workflow routes, and
+// the Staff Locale of the person reading them.
+func (s *Service) GetStaffMe(ctx context.Context, sessionID string) (*StaffMeView, error) {
 	session, err := s.loadActiveSession(ctx, sessionID, true)
 	if err != nil {
 		return nil, err
@@ -294,7 +359,55 @@ func (s *Service) GetStaffMe(ctx context.Context, sessionID string) (*ActiveMemb
 	if view.ActiveMember == nil {
 		return nil, identity.ErrNoActiveMember()
 	}
-	return view.ActiveMember, nil
+	return &StaffMeView{
+		MemberID:            view.ActiveMember.MemberID,
+		OrganizationID:      view.ActiveMember.OrganizationID,
+		OrganizationName:    view.ActiveMember.OrganizationName,
+		OrganizationSlug:    view.ActiveMember.OrganizationSlug,
+		OrganizationLogoURL: view.ActiveMember.OrganizationLogoURL,
+		Role:                view.ActiveMember.Role,
+		Locale:              view.Locale,
+	}, nil
+}
+
+// SetStaffLocale records the language the signed-in person chose.
+//
+// It is keyed on the session's email and on nothing else, which is what makes
+// this endpoint reachable by everybody who needs it: no Active Member is
+// consulted, so a Platform Operator belonging to no Organization can set one,
+// and an Event Staff member can set their own without an Org Admin's permission.
+// A personal preference is not an Organization's setting.
+//
+// The locale must already be one this platform serves; the handler refuses
+// anything else before this is called. That strictness is the opposite of the
+// sign-in path's, and deliberately: a detected language is a guess worth
+// dropping silently, a chosen one is a request that must not fail quietly.
+func (s *Service) SetStaffLocale(ctx context.Context, sessionID string, locale platform.Locale) (*StaffLocaleView, error) {
+	session, err := s.loadActiveSession(ctx, sessionID, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.SetStaffLocale(ctx, session.Email, string(locale), s.now()); err != nil {
+		return nil, err
+	}
+	return &StaffLocaleView{Locale: string(locale)}, nil
+}
+
+// StaffLocale is the Staff Locale stored for an email address, or the empty
+// string when nobody at that address has stated one.
+//
+// It takes an ADDRESS and not a session on purpose. Its callers outside this
+// package compose mail, and the recipient of a Payout Request notice is a
+// recorded email string attached to no Member id and no session — which is the
+// whole reason this preference is keyed the way it is. The empty string is
+// absence, not English: the caller applies the English floor itself.
+func (s *Service) StaffLocale(ctx context.Context, email string) (string, error) {
+	locale, found, err := s.repo.GetStaffLocale(ctx, platform.NormalizeEmail(email))
+	if err != nil || !found {
+		return "", err
+	}
+	return locale, nil
 }
 
 // Logout destroys a session.
@@ -343,10 +456,18 @@ func (s *Service) buildSessionView(ctx context.Context, session *repository.Sess
 		return nil, err
 	}
 
+	locale, hasLocale, err := s.repo.GetStaffLocale(ctx, session.Email)
+	if err != nil {
+		return nil, err
+	}
+
 	view := &SessionView{
 		Email:              session.Email,
 		Memberships:        make([]MembershipView, 0, len(memberships)),
 		IsPlatformOperator: isOperator,
+	}
+	if hasLocale {
+		view.Locale = &locale
 	}
 	for _, m := range memberships {
 		view.Memberships = append(view.Memberships, MembershipView{

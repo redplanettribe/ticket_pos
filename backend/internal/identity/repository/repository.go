@@ -117,6 +117,58 @@ func (r *Repository) ListMemberships(ctx context.Context, email string) ([]Membe
 	return memberships, rows.Err()
 }
 
+// GetStaffLocale returns the Staff Locale stored for an email address, and
+// whether one is stored at all.
+//
+// The second return is the whole point of this signature. Absence is a real
+// answer here and it is NOT English: nobody is given a language by being
+// invited, imported or paid out, so a person with no row has stated nothing and
+// a sign-in is still free to record what it detects. The caller falls to the
+// English floor for its own reasons; it does not learn that from here.
+func (r *Repository) GetStaffLocale(ctx context.Context, email string) (string, bool, error) {
+	var locale string
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT locale FROM staff_locales WHERE email = $1
+	`, email).Scan(&locale)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return locale, true, nil
+}
+
+// SetStaffLocale records a language a person chose, replacing whatever was
+// there. This is the switcher's write, and a deliberate choice outranks
+// everything, including a deliberate choice made a minute ago.
+func (r *Repository) SetStaffLocale(ctx context.Context, email, locale string, now time.Time) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		INSERT INTO staff_locales (email, locale, created_at, updated_at)
+		VALUES ($1, $2, $3, $3)
+		ON CONFLICT (email) DO UPDATE SET locale = EXCLUDED.locale, updated_at = EXCLUDED.updated_at
+	`, email, locale, now)
+	return err
+}
+
+// RememberStaffLocale records a language DETECTED at sign-in, and only when the
+// person has none.
+//
+// DO NOTHING rather than DO UPDATE, and that is the difference between this and
+// SetStaffLocale. What a sign-in carries is a browser header and the fact that
+// somebody read a login page in that language and carried on — enough to spare a
+// new Spanish speaker from hunting for a setting written in English, and nowhere
+// near enough to overrule a person who has already used the switcher. Someone
+// who chose Spanish and then signs in from an English laptop stays in Spanish.
+func (r *Repository) RememberStaffLocale(ctx context.Context, email, locale string, now time.Time) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		INSERT INTO staff_locales (email, locale, created_at, updated_at)
+		VALUES ($1, $2, $3, $3)
+		ON CONFLICT (email) DO NOTHING
+	`, email, locale, now)
+	return err
+}
+
 // OrganizationSlugExists reports whether a slug is already taken.
 func (r *Repository) OrganizationSlugExists(ctx context.Context, slug string) (bool, error) {
 	var exists bool

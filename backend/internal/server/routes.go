@@ -461,6 +461,14 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 			),
 		),
 	)
+	// The Staff Locale write, and note what it is NOT wrapped in: no
+	// LoadActiveMember and no role gate. The language belongs to the person, not
+	// to the Organization they are looking at, so a Platform Operator who is a
+	// Member of nothing must be able to set one and an Event Staff member must
+	// not need an Org Admin to do it for them. A Staff Session is the whole
+	// requirement, which is why it registers bare like the memberships routes
+	// above rather than behind the staff middleware chain.
+	mux.HandleFunc("PUT /api/v1/staff/me/locale", h.SetStaffLocale)
 
 	orgAdmin := func(handler http.Handler) http.Handler {
 		return identitymiddleware.SessionAuth(svc)(

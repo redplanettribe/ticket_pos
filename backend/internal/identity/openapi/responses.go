@@ -62,7 +62,14 @@ type EnvelopeMembershipList struct {
 
 // EnvelopeStaffMe documents GET /api/v1/staff/me success responses.
 type EnvelopeStaffMe struct {
-	Data      service.ActiveMemberView `json:"data"`
-	Error     *platform.APIError       `json:"error"`
-	RequestID string                   `json:"request_id"`
+	Data      service.StaffMeView `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeStaffLocale documents PUT /api/v1/staff/me/locale success responses.
+type EnvelopeStaffLocale struct {
+	Data      service.StaffLocaleView `json:"data"`
+	Error     *platform.APIError      `json:"error"`
+	RequestID string                  `json:"request_id"`
 }

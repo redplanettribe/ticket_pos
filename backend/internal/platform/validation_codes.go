@@ -119,6 +119,11 @@ const (
 	CodeInvalidRegistrationURL = "INVALID_REGISTRATION_URL"
 	// CodeInvalidCurrency — "must be a supported ISO 4217 currency code".
 	CodeInvalidCurrency = "INVALID_CURRENCY"
+	// CodeInvalidLocale — "must be en or es". A language this platform is not
+	// written in, named where somebody CHOSE one: the Staff Locale write. The
+	// sign-in routes take a locale too and refuse nothing, because a browser's
+	// guess is worth dropping and a person's choice is not.
+	CodeInvalidLocale = "INVALID_LOCALE"
 	// CodeInvalidRole — "must be org_admin, event_owner, or event_staff" and the
 	// narrower assignment set. One code: both say "not a role you may set here",
 	// and the message names the set that applies.
