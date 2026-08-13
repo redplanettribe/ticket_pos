@@ -5,7 +5,8 @@
     "breadcrumbLabel": "Ruta de navegación",
     "closeLabel": "Cerrar",
     "languageSwitcherLabel": "Idioma",
-    "privacyPolicy": "Política de Privacidad"
+    "privacyPolicy": "Política de Privacidad",
+    "createEvent": "Crea tu evento"
   },
   "explorer": {
     "metaTitle": "{brand} — Descubrir eventos",

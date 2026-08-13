@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { BRAND_NAME } from "@/lib/brand";
+import { createEventCtaHref } from "@/lib/create-event-cta";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { PRIVACY_POLICY_PATH } from "@/lib/privacy-policy";
 
@@ -45,10 +46,13 @@ export async function StorefrontShell(
     | "languageSwitcher"
     | "privacyHref"
     | "privacyLabel"
+    | "footerLinkHref"
+    | "footerLinkLabel"
   >,
 ) {
   const locale = toAppLocale(await getLocale());
   const t = await getTranslations("shell");
+  const ctaHref = createEventCtaHref();
   return (
     <BaseStorefrontShell
       {...props}
@@ -64,6 +68,23 @@ export async function StorefrontShell(
       // place that knows which language is being read.
       privacyHref={localizedPath(locale, PRIVACY_POLICY_PATH)}
       privacyLabel={t("privacyPolicy")}
+      // The "Create an event" invitation, on every page's footer and not a
+      // prop a page may pass, for the same reason. This is the quiet, always-
+      // present half of the CTA — and on a phone, where the header button is
+      // hidden, the only half.
+      //
+      // Deliberately NOT the locale-aware Link the rest of this app uses: the
+      // destination is an absolute URL on another origin (the staff app), so
+      // there is no locale to carry and no route for Next to know about. When
+      // no staff origin is configured the href is undefined, the shell renders
+      // no link, and the footer is exactly as it was — a missing invitation
+      // rather than a broken one (lib/create-event-cta.ts).
+      //
+      // The label is localized here even though the page it opens is English
+      // only; a Spanish reader meets the language cliff on arrival, not in the
+      // Storefront's own chrome.
+      footerLinkHref={ctaHref}
+      footerLinkLabel={ctaHref ? t("createEvent") : undefined}
       // Only the header with an Organization in it draws a logo; without a name
       // there is nothing to interpolate and the package's own fallback is the
       // better answer.

@@ -5,7 +5,8 @@
     "breadcrumbLabel": "Breadcrumb",
     "closeLabel": "Close",
     "languageSwitcherLabel": "Language",
-    "privacyPolicy": "Privacy Policy"
+    "privacyPolicy": "Privacy Policy",
+    "createEvent": "Create an event"
   },
   "explorer": {
     "metaTitle": "{brand} — Discover events",

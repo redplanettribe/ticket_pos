@@ -126,6 +126,18 @@ test("Storefront shows a subtle Powered by Multiticketing footer", async ({ page
   await expect(link).toHaveAttribute("href", /multiticketing/i);
 });
 
+test("Storefront footer invites a reader to create an event on the staff app", async ({ page }) => {
+  // The href is computed from STAFF_BASE_URL at request time, which the parity
+  // compose file supplies (docker-compose.prod.yml). Unit tests own the
+  // computation; this asserts it reaches rendered output at all — a shell prop
+  // that was never threaded through renders no link and no error.
+  await page.goto(`/${LOCALE}`);
+
+  const link = page.getByRole("link", { name: "Create an event" });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", /^http:\/\/localhost:64604\/login\?intent=create$/);
+});
+
 test("Storefront sends an address naming no language into a Locale", async ({ page }) => {
   // The middleware is a separate bundle in the standalone image, and an image
   // shipped without it serves "/" as a 404 rather than as the explorer. A 200

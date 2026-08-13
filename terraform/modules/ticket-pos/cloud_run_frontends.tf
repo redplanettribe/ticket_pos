@@ -111,6 +111,23 @@ resource "google_cloud_run_v2_service" "storefront" {
         value = var.storefront_domain != null ? "https://${var.storefront_domain}" : ""
       }
 
+      # The staff app's origin, which the Storefront needs for one thing only:
+      # the "Create an event" invitation in its footer, pointing at the staff
+      # sign-in page. Runtime-only (never NEXT_PUBLIC), like the two above.
+      #
+      # Mounted only when a staff domain is mapped. Absent, the Storefront
+      # renders no invitation at all — a missing link rather than a link into
+      # nowhere (apps/storefront/lib/create-event-cta.ts). Omitted rather than
+      # set to "" because there is no address to approximate here: an unmapped
+      # staff app has no public origin.
+      dynamic "env" {
+        for_each = var.staff_domain == null ? [] : [1]
+        content {
+          name  = "STAFF_BASE_URL"
+          value = "https://${var.staff_domain}"
+        }
+      }
+
       # The public half of the storefront Google OAuth client (google_oauth.tf).
       # A client ID is public information — it travels in the authorization URL
       # the browser follows — and the /start route is a server route handler, so
