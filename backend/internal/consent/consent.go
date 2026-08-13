@@ -7,8 +7,11 @@ import "time"
 // The vocabulary is defined here in full although #251 writes only
 // ChannelSignIn: the checkout, the Customer Area toggle, the unsubscribe link
 // and the confirmation link each land in their own ticket and each needs a name
-// nobody has to invent under deadline. Migration 061's CHECK constraint carries
-// the same five strings; adding a sixth means changing both.
+// nobody has to invent under deadline. The database's CHECK constraint carries
+// the same strings — migration 061's five, widened to six by 067 — and the
+// vocabulary living in two places is the price of a CHECK over an ENUM: adding
+// a seventh means changing both, and changing one alone is either a capture the
+// service refuses or a row the database refuses.
 type Channel string
 
 const (
@@ -28,6 +31,21 @@ const (
 	// that resolves a Pending Confirmation — clicking it from the inbox being
 	// itself the proof of ownership (ADR 0035).
 	ChannelEmailConfirmation Channel = "email_confirmation"
+	// ChannelOperatorRequest is a Consent Withdrawal that arrived off-platform —
+	// by email or on paper — and was recorded by a Platform Operator on the
+	// Customer's behalf (#266, parent #265).
+	//
+	// IT IS THE ONE CHANNEL ON WHICH THE ACTOR IS NOT THE CUSTOMER, which is why
+	// it is a channel of its own rather than a flag beside another: a compliance
+	// report grouping this column must never present a staff action as somebody's
+	// own click, and that is only structural if the surface itself is named. The
+	// record it writes also carries who recorded it and which artefact it
+	// answers, which no other channel has.
+	//
+	// It can only ever withdraw. An Operator cannot manufacture consent, so the
+	// proven-ness question that decides granted-or-pending everywhere else never
+	// arises here.
+	ChannelOperatorRequest Channel = "operator_request"
 )
 
 // Valid reports whether the channel is one the storage vocabulary recognises. A
@@ -35,7 +53,8 @@ const (
 // the database's CHECK, so the failure names the bug rather than the row.
 func (c Channel) Valid() bool {
 	switch c {
-	case ChannelSignIn, ChannelCheckout, ChannelAccountSettings, ChannelUnsubscribeLink, ChannelEmailConfirmation:
+	case ChannelSignIn, ChannelCheckout, ChannelAccountSettings, ChannelUnsubscribeLink,
+		ChannelEmailConfirmation, ChannelOperatorRequest:
 		return true
 	}
 	return false

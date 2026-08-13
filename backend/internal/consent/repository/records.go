@@ -15,10 +15,18 @@ import (
 //
 // THERE IS NO UPDATE AND NO DELETE FOR THIS TYPE anywhere in this package, and
 // that absence is the enforcement of the append-only rule migration 061 states.
-// It is a shape rather than a trigger deliberately — a trigger would also
-// refuse the one legitimate later write, the double opt-in's `confirmed_at`
-// stamp — so the guarantee lives where the writes are: this package offers
-// Append and reads, and nothing else.
+// It is a shape rather than a trigger deliberately — a trigger would also refuse
+// the legitimate later writes, the one-way stamps that record that an act was
+// corroborated or answered — so the guarantee lives where the writes are: this
+// package offers Append, reads, and one narrow method per stamp.
+//
+// The prior state of each optional consent is NOT a field here, and its absence
+// is deliberate. Every other field is a transcript of something the caller
+// observed and hands over verbatim; the prior state is an observation only this
+// package can make, because it is true only at the instant between taking the
+// Customer row's lock and writing over it. A caller that passed one in would be
+// passing a reading taken before it held the lock — which for the checkout is
+// minutes before, across a Payment Provider redirect. AppendTx reads it itself.
 type Record struct {
 	CustomerID      string
 	Email           string
@@ -92,6 +100,26 @@ type CustomerConsentState struct {
 	PolicyVersionID   sql.NullString
 	MarketingConsent  consent.State
 	NetworkingConsent consent.State
+}
+
+// priorState is one optional consent's prior-state column: what the state was
+// immediately before this act, or SQL NULL where there was nothing to say.
+//
+// It MIRRORS THE NULLNESS OF THE ANSWER BESIDE IT, which is the whole of the
+// rule. An answer that is NULL means the box was not shown on this surface, and
+// a surface that did not ask has not replaced anything — recording the standing
+// state there would put a fact about an untouched consent into the evidence for
+// an act that never touched it, and an unsubscribe would read as though it had
+// considered Networking Consent and left it alone.
+//
+// The second null is the unanswered state itself, which `customers` stores as
+// NULL and this column copies as NULL rather than inventing a fourth word for.
+// The two nulls are told apart by the answer column, not here (migration 067).
+func priorState(answer sql.NullBool, state consent.State) sql.NullString {
+	if !answer.Valid || state == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(state), Valid: true}
 }
 
 // ErrCustomerNotFound reports that the Customer a capture named does not exist.
@@ -183,12 +211,15 @@ const (
 // created has now been confirmed from the address itself.
 //
 // THIS IS THE ONLY WRITE IN THIS PACKAGE THAT TOUCHES AN EXISTING
-// consent_records ROW, and it is the single one-way exception migration 061
-// reserved: null to a timestamp, once, on one column. It does not alter what
+// consent_records ROW, and it satisfies the one rule migration 061 allows a
+// post-insert write to satisfy: null to a timestamp, once, on a column that
+// records something that happened LATER ABOUT this act. It does not alter what
 // the row says happened — the tick, the channel, the circumstances and the
 // answers are exactly as they were — it records that the act the row describes
-// was later corroborated. Nothing else may ever be updated here, which is why
-// this is a narrow method naming one column rather than a general update.
+// was later corroborated. The rule admits exactly one other column,
+// `confirmation_sent_at` (migration 067), which has no writer yet and will get a
+// narrow method of its own naming its own column when it does. Nothing else may
+// ever be updated here, which is why neither is a general update.
 //
 // IT STAMPS THE MOST RECENT UNCONFIRMED TICK AND NOT ALL OF THEM. A person
 // whose address three separate guests typed has three rows, each a tick nobody
@@ -254,12 +285,17 @@ func (r *Repository) StampConfirmedTx(ctx context.Context, tx *sql.Tx, customerI
 // the unevidenced consent this feature exists to abolish. Neither is a state
 // the platform may be found in, so they commit together or not at all.
 //
-// The single UPDATE ... RETURNING then does something the two-statement version
-// cannot: it applies every conditional write and reads back the result under
-// one row lock, so two capture acts racing on the same Customer — a checkout
-// committing while its buyer answers in another tab — cannot interleave into a
-// state neither of them asked for, and neither can report a state that was
-// never true.
+// The single UPDATE ... RETURNING then does something a read-then-write version
+// cannot: it applies every conditional write and reads back the result in one
+// statement, so what is reported is what the row holds rather than what the
+// caller hoped, and no capture can report a state that was never true.
+//
+// Racing captures on one Customer — a checkout committing while its buyer
+// answers in another tab — are serialised by the Customer row's lock, which
+// AppendTx takes on its first statement and holds to commit. It takes it that
+// early because it also OBSERVES the state before overwriting it (#266), and an
+// observation taken outside the lock would describe a world that had moved on by
+// the time the write landed.
 func (r *Repository) Append(ctx context.Context, record Record, state StateWrite) (string, CustomerConsentState, error) {
 	tx, err := r.db.Pool.BeginTx(ctx, nil)
 	if err != nil {
@@ -293,20 +329,42 @@ func (r *Repository) Append(ctx context.Context, record Record, state StateWrite
 // spine's UpsertCustomer seam does: this is a transaction handed across a module
 // boundary, and the type is the statement that it really is one.
 func (r *Repository) AppendTx(ctx context.Context, tx *sql.Tx, record Record, state StateWrite) (string, CustomerConsentState, error) {
+	// WHAT THIS ACT IS ABOUT TO REPLACE, read under the Customer row's lock and
+	// immediately before the write that replaces it (#266).
+	//
+	// The lock is the whole reason this is a separate statement rather than a
+	// subquery inside the INSERT below. Taking it here rather than at the UPDATE
+	// moves the moment this transaction starts excluding other captures EARLIER,
+	// which is exactly what is wanted: two acts racing on the same Customer — a
+	// checkout committing while its buyer answers in another tab — now serialise
+	// across the whole read-then-write, so neither can record a prior state that
+	// the other had already replaced. Without it the observation would be of a
+	// world that changed before the write landed, and a `granted -> denied` in
+	// the log would be a guess.
+	//
+	// It also gives a better failure: a capture naming a Customer who does not
+	// exist is refused here, before a row is inserted and rolled back.
+	prior, err := r.ConsentStateForUpdateTx(ctx, tx, record.CustomerID)
+	if err != nil {
+		return "", CustomerConsentState{}, err
+	}
+
 	var recordID string
-	var err error
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO consent_records (
 			customer_id, email, channel, captured_at, policy_version_id,
 			policy_acceptance, marketing_consent, networking_consent,
-			email_proven, ip, user_agent, session_id, origin_url
+			email_proven, ip, user_agent, session_id, origin_url,
+			prior_marketing_consent, prior_networking_consent
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id
 	`,
 		record.CustomerID, record.Email, string(record.Channel), record.CapturedAt, record.PolicyVersionID,
 		record.PolicyAcceptance, record.MarketingConsent, record.NetworkingConsent,
 		record.EmailProven, record.IP, record.UserAgent, record.SessionID, record.OriginURL,
+		priorState(record.MarketingConsent, prior.MarketingConsent),
+		priorState(record.NetworkingConsent, prior.NetworkingConsent),
 	).Scan(&recordID)
 	if err != nil {
 		return "", CustomerConsentState{}, fmt.Errorf("append consent record: %w", err)
