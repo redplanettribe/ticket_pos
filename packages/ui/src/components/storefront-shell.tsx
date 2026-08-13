@@ -52,6 +52,22 @@ type StorefrontShellProps = {
    */
   privacyHref?: string;
   privacyLabel?: string;
+  /**
+   * One more footer link, after Privacy Policy: where it points and what it
+   * says.
+   *
+   * Both optional and BOTH required to render, for the reason the privacy pair
+   * is. This one is the "Create an event" invitation into the staff app, whose
+   * address is runtime configuration the Storefront may not have — so absence
+   * is the ordinary case, not an error, and an absent link leaves the footer
+   * byte for byte as it was: no separator, no gap, no placeholder. Staff passes
+   * neither and is untouched.
+   *
+   * Unlike homeHref and privacyHref this is an absolute cross-origin URL, which
+   * is why the caller resolves it rather than composing a path.
+   */
+  footerLinkHref?: string;
+  footerLinkLabel?: string;
 };
 
 export function StorefrontShell({
@@ -66,6 +82,8 @@ export function StorefrontShell({
   homeHref = "/",
   privacyHref,
   privacyLabel,
+  footerLinkHref,
+  footerLinkLabel,
 }: StorefrontShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -104,6 +122,16 @@ export function StorefrontShell({
               </span>
               <a href={privacyHref} className="hover:text-foreground">
                 {privacyLabel}
+              </a>
+            </>
+          ) : null}
+          {footerLinkHref && footerLinkLabel ? (
+            <>
+              <span aria-hidden className="px-2">
+                ·
+              </span>
+              <a href={footerLinkHref} className="hover:text-foreground">
+                {footerLinkLabel}
               </a>
             </>
           ) : null}

@@ -126,6 +126,26 @@ test("Storefront shows a subtle Powered by Multiticketing footer", async ({ page
   await expect(link).toHaveAttribute("href", /multiticketing/i);
 });
 
+test("Storefront footer invites a reader to create an event on the staff app", async ({ page }) => {
+  // The href is computed from STAFF_BASE_URL at request time, which the parity
+  // compose file supplies (docker-compose.prod.yml). Unit tests own the
+  // computation; this asserts it reaches rendered output at all — a shell prop
+  // that was never threaded through renders no link and no error.
+  await page.goto(`/${LOCALE}`);
+
+  // Scoped to the footer on purpose: the explorer is the one page that also
+  // carries the invitation in its header, under the same accessible name, so an
+  // unscoped locator matches twice and trips strict mode.
+  const link = page.locator("footer").getByRole("link", { name: "Create an event" });
+  await expect(link).toBeVisible();
+  // The shape, not the origin. Which host the container was handed is
+  // docker-compose.prod.yml's business and differs from the STAFF_URL this
+  // suite reaches staff on; pinning it here would make a compose port change
+  // look like a broken invitation. What must hold is that the href is absolute
+  // - it leaves this app - and carries the intent the staff card reads.
+  await expect(link).toHaveAttribute("href", /^https?:\/\/.+\/login\?intent=create$/);
+});
+
 test("Storefront sends an address naming no language into a Locale", async ({ page }) => {
   // The middleware is a separate bundle in the standalone image, and an image
   // shipped without it serves "/" as a 404 rather than as the explorer. A 200

@@ -128,6 +128,11 @@ services:
       # Server-side calls stay on the Compose network. This one is read at
       # runtime, so it belongs here rather than in build args.
       API_URL: http://api:8080
+      # The parity staff app's PUBLISHED origin (64604, see the staff service
+      # below) — the address a browser following the footer's "Create an event"
+      # invitation can actually reach, not the Compose network name. The parity
+      # Storefront spec asserts the link carries it.
+      STAFF_BASE_URL: http://localhost:64604
       # The parity API above runs with no PAYPHONE_* credentials, so it selects
       # the stub Payment Provider — but this is a production build, where the
       # stub's payment interstitial is a 404 unless explicitly opted into

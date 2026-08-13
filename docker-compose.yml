@@ -140,6 +140,11 @@ services:
       # stack already sets it; dev was the one place a crawler-facing route
       # could not be looked at.
       STOREFRONT_BASE_URL: http://localhost:64300
+      # The staff app's PUBLISHED origin (64301), for the footer's "Create an
+      # event" invitation. The published port, not the container port, because
+      # this address is followed by a browser. Set here so a developer walking
+      # the invitation lands on their own staff app and never on production.
+      STAFF_BASE_URL: http://localhost:64301
       # The public half of the dev OAuth client. The redirect URI is the
       # PUBLISHED port (64300), not the container port — it is what the browser
       # follows, and it must match the Console registration byte for byte.

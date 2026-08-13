@@ -14,10 +14,17 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { applyAuthFork } from "@/lib/auth-fork";
+import type { SignInCopy } from "@/lib/login-copy";
 
 type Step = "email" | "code";
 
 type LoginFormProps = {
+  /**
+   * The card's title and its description on the email step, resolved by the
+   * page from the `intent` parameter. Every arrival that is not the Storefront's
+   * create invitation resolves to today's copy, so this is not a branch here.
+   */
+  copy: SignInCopy;
   /**
    * True when the Member was just bounced back from a Google Sign-In that did
    * not complete. Which failure it was is deliberately not knowable here.
@@ -73,7 +80,7 @@ type Envelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-export function LoginForm({ googleFailed, googleSignInHref }: LoginFormProps) {
+export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -147,11 +154,12 @@ export function LoginForm({ googleFailed, googleSignInHref }: LoginFormProps) {
 
   return (
     <AuthCard
-      title="Sign in"
+      title={copy.title}
+      // The code step describes the mailbox the passcode went to, whatever
+      // brought the visitor here: once a passcode has been sent, the only useful
+      // sentence is where to find it.
       description={
-        step === "email"
-          ? "Enter your email to receive a one-time passcode."
-          : `Enter the 6-digit passcode sent to ${email}.`
+        step === "email" ? copy.description : `Enter the 6-digit passcode sent to ${email}.`
       }
     >
       {googleFailed && !error ? (

@@ -1,0 +1,103 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { CREATE_INTENT, DEFAULT_SIGN_IN_COPY, resolveSignInCopy } from "./login-copy.ts";
+
+/**
+ * Today's copy, written out here rather than imported, so that this file is the
+ * thing that fails when somebody edits the default. The strings are the ones
+ * app/login/login-form.tsx rendered before the intent parameter existed.
+ */
+const TODAYS_COPY = {
+  title: "Sign in",
+  description: "Enter your email to receive a one-time passcode.",
+};
+
+test("today's copy is exactly what the sign-in card said before this feature", () => {
+  assert.deepEqual(DEFAULT_SIGN_IN_COPY, TODAYS_COPY);
+});
+
+test("the create intent yields copy naming the event and the organization", () => {
+  const copy = resolveSignInCopy(CREATE_INTENT);
+
+  assert.equal(copy.title, "Create your event");
+  assert.notEqual(copy.description, TODAYS_COPY.description);
+  // The three steps a stranger is promised, in order: sign in, then the
+  // organization, then the published event (issue #262).
+  assert.match(copy.description, /sign(ing)? in/i);
+  assert.match(copy.description, /organization/i);
+  assert.match(copy.description, /event/i);
+  // One or two sentences, not a page of marketing.
+  assert.ok(copy.description.split(". ").length <= 2, copy.description);
+});
+
+test("the create intent is the literal value the Storefront link carries", () => {
+  assert.equal(CREATE_INTENT, "create");
+  assert.deepEqual(resolveSignInCopy("create"), resolveSignInCopy(CREATE_INTENT));
+});
+
+// --- the case that actually matters ---------------------------------------
+//
+// A query parameter must never alter the door every existing Member uses daily.
+// Absent, unknown, empty and malformed values each yield today's copy
+// byte-for-byte.
+
+test("an absent intent yields today's copy", () => {
+  assert.deepEqual(resolveSignInCopy(undefined), TODAYS_COPY);
+});
+
+test("an unknown intent yields today's copy", () => {
+  for (const intent of ["join", "signup", "Create", "CREATE", "creates", "create-event"]) {
+    assert.deepEqual(resolveSignInCopy(intent), TODAYS_COPY, intent);
+  }
+});
+
+test("an empty or whitespace-only intent yields today's copy", () => {
+  for (const intent of ["", " ", "   ", "\t", "\n"]) {
+    assert.deepEqual(resolveSignInCopy(intent), TODAYS_COPY, JSON.stringify(intent));
+  }
+});
+
+test("a malformed intent yields today's copy rather than throwing", () => {
+  // Next hands back an array when the parameter is repeated, and a hand-mangled
+  // URL can produce anything at all.
+  const malformed: Array<string | string[] | undefined> = [
+    ["create", "create"],
+    ["create"],
+    ["join", "create"],
+    [],
+    "create=create",
+    "create ",
+    " create",
+    "create&intent=create",
+    "%63reate",
+    "<script>alert(1)</script>",
+    "create\0",
+    "a".repeat(10_000),
+  ];
+
+  for (const intent of malformed) {
+    assert.deepEqual(resolveSignInCopy(intent), TODAYS_COPY, JSON.stringify(intent));
+  }
+});
+
+test("a value that is not a string at all yields today's copy", () => {
+  // The page reads searchParams, which is typed but not validated at runtime.
+  const notStrings = [null, 0, 1, true, {}, { toString: () => "create" }, () => "create"];
+
+  for (const intent of notStrings) {
+    assert.deepEqual(
+      resolveSignInCopy(intent as unknown as string | undefined),
+      TODAYS_COPY,
+      String(intent),
+    );
+  }
+});
+
+test("the copy returned is never the same object twice, so no caller can mutate it", () => {
+  const first = resolveSignInCopy(undefined);
+  const second = resolveSignInCopy(undefined);
+
+  assert.deepEqual(first, second);
+  assert.notEqual(first, second);
+});

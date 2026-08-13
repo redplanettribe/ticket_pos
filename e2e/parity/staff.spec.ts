@@ -73,6 +73,31 @@ test("Staff reaches the API from inside the parity network", async ({ request })
   expect(envelope.data).toBeNull();
 });
 
+test("Staff answers the create intent on the sign-in page", async ({ page }) => {
+  // The Storefront's "Create an event" invitation lands here. /login is a public
+  // path, so middleware returns before it clears any query and the hint
+  // survives; lib/login-copy turns it into the card's copy. This asserts the
+  // wiring - that the resolved copy actually reaches the rendered heading.
+  await page.goto("/login?intent=create");
+
+  await expect(page.getByRole("heading", { name: /create your event/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^sign in$/i })).toHaveCount(0);
+  // Still the same door: the passcode form is what it leads to.
+  await expect(page.getByLabel(/email/i)).toBeVisible();
+});
+
+test("Staff leaves the sign-in page alone without the create intent", async ({ page }) => {
+  // The door every existing Member uses daily. Which values fall through to
+  // today's copy is lib/login-copy.test.ts's exhaustive matrix, not this
+  // layer's (docs/testing.md, "E2E must not re-assert exhaustive domain
+  // rules"); what belongs here is that the resolved default still reaches the
+  // rendered page when nothing asked for anything else.
+  await page.goto("/login");
+
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /create your event/i })).toHaveCount(0);
+});
+
 test("Staff shows the Multiticketing brand on the sign-in page", async ({ page }) => {
   // The authed sidebar lockup needs a real session (an emailed passcode the
   // parity stack cannot supply), so the reachable branded surface is the
