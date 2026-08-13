@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { APIError, callBackend } from "@/lib/api";
-import { resolveAuthForkRedirectPath } from "@/lib/auth-fork";
+import { signedInLandingPath } from "@/lib/auth-fork";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 const publicPaths = ["/login"];
@@ -49,14 +49,62 @@ async function fetchSession(sessionToken: string): Promise<SessionData | null> {
   }
 }
 
+/**
+ * The sign-in page, which is public but not indifferent to who is asking.
+ *
+ * A visitor already holding a Staff Session must not be shown the sign-in form.
+ * Until the Storefront's "Create an event" invitation (#259) put a button
+ * pointing straight at /login, essentially nothing led anyone here while signed
+ * in, so the form rendering unconditionally went unnoticed. Through that button
+ * it became the common case, and it reads as though the staff app had signed
+ * the person out — when in truth their session was never consulted. The cookie
+ * is sent (SameSite=Lax, and this is a top-level navigation); nothing looked.
+ *
+ * The session is resolved only when a cookie is actually present, so the
+ * ordinary signed-out arrival — still the overwhelming majority, and the whole
+ * point of the invitation — costs exactly what it did before: no API call.
+ */
+async function handleSignInPage(request: NextRequest) {
+  const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionToken) {
+    return NextResponse.next();
+  }
+
+  let session: SessionData | null;
+  try {
+    session = await fetchSession(sessionToken);
+  } catch {
+    // Everywhere else a transport failure surfaces rather than masquerading as
+    // "signed out", because there it would silently downgrade authority. Here
+    // it must not: 500 on /login breaks the one page a person uses to recover
+    // from anything, and the fallback grants nothing — it shows the form.
+    return NextResponse.next();
+  }
+
+  if (!session) {
+    // A stale or rejected cookie: the form is already the right page, but the
+    // dead cookie should not survive to be re-sent on every later request.
+    const response = NextResponse.next();
+    response.cookies.delete(SESSION_COOKIE_NAME);
+    return response;
+  }
+
+  const landingUrl = request.nextUrl.clone();
+  landingUrl.pathname = signedInLandingPath(session);
+  // `intent` selected the copy of a card this visitor is no longer being shown,
+  // and every other redirect here drops the query too.
+  landingUrl.search = "";
+  return NextResponse.redirect(landingUrl);
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
-  if (publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
-    return NextResponse.next();
+  if (isPathMatch(pathname, publicPaths)) {
+    return handleSignInPage(request);
   }
 
   if (isPathMatch(pathname, legacyOnboardingPaths)) {
@@ -116,11 +164,7 @@ export async function middleware(request: NextRequest) {
 
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.search = "";
-  // A pure operator has no Membership to fork on, so the create-organization
-  // prompt would be a dead end. Land them on the dashboard they actually have.
-  redirectUrl.pathname = session.is_platform_operator
-    ? "/operator"
-    : resolveAuthForkRedirectPath(session);
+  redirectUrl.pathname = signedInLandingPath(session);
   return NextResponse.redirect(redirectUrl);
 }
 

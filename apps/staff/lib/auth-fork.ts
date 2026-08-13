@@ -30,6 +30,35 @@ export function resolveAuthForkRedirectPath(session: SessionForkInput): string {
   return fork.path;
 }
 
+export type SignedInLandingInput = SessionForkInput & {
+  /** True when this session's email is on the platform operator allowlist. */
+  is_platform_operator?: boolean;
+};
+
+/**
+ * Where a request already carrying a valid Staff Session belongs.
+ *
+ * This is the fork above with the operator exception folded in, extracted so
+ * that the two callers in middleware.ts cannot drift apart: the visitor who
+ * asks for a page their session does not fit, and the visitor who asks for the
+ * sign-in page while already signed in. Both are answering the same question —
+ * "this person is authenticated, where do they go?" — and a signed-in Member
+ * bounced off /login must land exactly where the same Member lands when the
+ * middleware redirects them anywhere else.
+ *
+ * The operator exception is ADR 0015: operator authority is orthogonal to
+ * Membership, so a pure operator has no Membership to fork on and the
+ * create-organization prompt would be a dead end. Their dashboard is /operator.
+ * An operator who *does* hold an active Membership is an ordinary Member here
+ * and forks like one.
+ */
+export function signedInLandingPath(session: SignedInLandingInput): string {
+  if (!session.active_member && session.is_platform_operator) {
+    return "/operator";
+  }
+  return resolveAuthForkRedirectPath(session);
+}
+
 export async function applyAuthFork(
   session: SessionForkInput,
 ): Promise<{ path: string; error?: string }> {
