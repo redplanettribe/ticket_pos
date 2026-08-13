@@ -576,6 +576,12 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// an Event assignment in a way a paginated screen is not, and this one
 	// concentrates every buyer's email and Tax ID for the Event (#236).
 	mux.Handle("GET /api/v1/staff/events/{id}/sales/export", eventOwnerOrAdmin(http.HandlerFunc(sh.ExportSales)))
+	// Sales Trends takes the same guard, and for the plainest reason of the
+	// three: it IS the Event's money, drawn day by day (#275). Door staff hired
+	// for the evening have no business reading the shape of the Event's takings,
+	// and the staff app hides the tab from them rather than offering something
+	// that would refuse them.
+	mux.Handle("GET /api/v1/staff/events/{id}/sales/trends", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesTrends)))
 
 	// Affiliate Links: the Event's promotion surface. Full-access only — an
 	// Event Staff hired for the door has no business minting links that credit

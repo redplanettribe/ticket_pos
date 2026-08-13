@@ -312,15 +312,21 @@ type EventTicketType struct {
 	// refusal must be decided from the same row the price came from. nil is a
 	// distinct value and not a zero: no arithmetic may be done on "not rationed".
 	MaxPerCustomer *int
+	// SortOrder is the Ticket Type's place in the Event's catalog, the order an
+	// Org Admin arranged it in. It rides along because a surface that names the
+	// catalog back to staff — Sales Trends' legend — must state the position as
+	// well as the order it happened to receive the rows in, so a client can
+	// colour a Ticket Type by its place and keep that colour across loads.
+	SortOrder int
 }
 
 // ListEventTicketTypes returns the Event's Ticket Types with their Promotion
-// slots, for import template generation and validation and for online checkout
-// pricing.
+// slots, in catalog display order, for import template generation and
+// validation, for online checkout pricing, and for the Sales Trends legend.
 func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID string) ([]EventTicketType, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT tt.id, tt.name, tt.price_cents, tt.capacity, tt.sold_count,
-		       tt.max_per_customer,
+		       tt.sort_order, tt.max_per_customer,
 		       p.promotional_price_cents, p.starts_at, p.ends_at
 		FROM ticket_types tt
 		LEFT JOIN ticket_type_promotions p ON p.ticket_type_id = tt.id
@@ -340,7 +346,7 @@ func (r *Repository) ListEventTicketTypes(ctx context.Context, orgID, eventID st
 		var startsAt, endsAt sql.NullTime
 		if err := rows.Scan(
 			&tt.ID, &tt.Name, &tt.PriceCents, &tt.Capacity, &tt.SoldCount,
-			&maxPerCustomer,
+			&tt.SortOrder, &maxPerCustomer,
 			&promotionalPriceCents, &startsAt, &endsAt,
 		); err != nil {
 			return nil, err
@@ -1417,13 +1423,21 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 	return out, total, nil
 }
 
-// lineNetProceedsSQL is this package's name for the one Net Proceeds definition
-// (sales.LineNetProceedsSQL): quantity × (what the Customer paid − the Platform
-// Fee − the Fee IVA withheld), read off the snapshot the line froze at sale
-// time. It serves the Event's sales summary and the Organization's Withdrawable
-// Balance here; the affiliates module sums the same expression for an Affiliate
-// Link's attributed figures, so the arithmetic cannot drift between the
-// surfaces that show it (ADR 0014).
+// lineNetProceedsSQL is this package's name for the one per-line money
+// definition (sales.LineNetProceedsSQL): quantity × (what the Customer paid −
+// the Platform Fee − the Fee IVA withheld), read off the snapshot the line froze
+// at sale time. It serves the Event's sales summary and the Organization's
+// Withdrawable Balance here; the affiliates module sums the same expression for
+// an Affiliate Link's attributed figures, so the arithmetic cannot drift between
+// the surfaces that show it (ADR 0014).
+//
+// It now means two different things, told apart ONLY by whether a channel filter
+// accompanies it (ADR 0040). With `ts.channel = 'online'` it is Net Proceeds:
+// what the platform will hand over. Without one it is Takings: what the Event
+// made on whatever channel it sold, because in-person and imported lines carry
+// zero fee snapshots and the subtraction leaves the full price. The filter is
+// therefore load-bearing at every call site — a caller that forgets it is not
+// computing Net Proceeds, it is computing Takings under the wrong name.
 const lineNetProceedsSQL = sales.LineNetProceedsSQL
 
 // SalesSummaryRow is the Sales tab's stat strip, read straight off the Event's

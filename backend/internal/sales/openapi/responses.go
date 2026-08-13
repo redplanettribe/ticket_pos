@@ -43,6 +43,15 @@ type EnvelopeSalesSummary struct {
 	RequestID string               `json:"request_id"`
 }
 
+// EnvelopeSalesTrends documents GET /staff/events/{id}/sales/trends success
+// responses: the Event's whole day × Ticket Type matrix, with Takings rather
+// than Net Proceeds as its money figure (ADR 0040).
+type EnvelopeSalesTrends struct {
+	Data      service.SalesTrends `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
 // EnvelopePayoutProfile documents GET and PUT /staff/organization/payout-profile
 // success responses. The data is nullable in practice — an Organization that has
 // never recorded a Payout Profile reads back `null` — which the generated schema

@@ -294,6 +294,18 @@ _Avoid_: Fee mode, pricing mode, pass-through flag
 What an Online Sale leaves for the Organization once the Platform Fee and Fee IVA are withheld: the amount collected minus both. Under `pass_on` Fee Handling this equals exactly the ticket price the Organization set. Only Online Sales produce Net Proceeds — money from other Sales Channels never passes through the platform.
 _Avoid_: Net revenue, earnings, take-home
 
+**Takings**:
+What a Ticket Sale earned the Organization, on whatever Sales Channel it sold: the Net Proceeds of an Online Sale, and the full price of a sale the platform took no cut of. Answers "what did this Event make", where Net Proceeds answers "what will the platform hand over" — so under `pass_on` Fee Handling, the default, Takings is exactly the price the Organization set, wherever the ticket sold (ADR 0040).
+Stated in the Organization's currency, and dropped by a Sale Reversal like every other money figure. Not a claim on the platform: an Organization can never ask to be paid its Takings, because the door money and the imported money are already in its own pocket — the Withdrawable Balance is what the platform owes.
+Summable at any grain the question needs: a day of an Event, a Ticket Type, an Event entire.
+_Avoid_: Revenue, gross, earnings, income, sales (as a word for money), Net Proceeds (as a loose synonym)
+
+**Sales Trends**:
+The staff surface for reading how an Event's sales moved over time: one bar per day, split by Ticket Type, shown twice over — once counting tickets and once counting Takings — so a day's size and its composition are read in one look.
+Answers which days sold and what sold on them; the Sales list answers what one Ticket Sale was. Reads a sale on the day it was made rather than the day it was recorded, so a Sale Import of last year's history lands in last year.
+Restricted to Org Admins and Event Owners, the guard the Event's money already carries, rather than the Sales list's.
+_Avoid_: Report, analytics, dashboard, sales graph, chart (as the surface's name)
+
 **Payout**:
 A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.
 May answer a Payout Request or stand alone: an Organization that asked is settled by fulfilling its request, and one that asked through some other conversation is settled by recording the Payout directly. Neither route changes what a Payout is.
@@ -318,7 +330,7 @@ Its Tax ID identifies the Organization being paid, not a buyer — the same two 
 _Avoid_: Bank details, payment method, payout account, billing info
 
 **Withdrawable Balance**:
-What the platform owes an Organization: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. Signed, not clamped — a sale reversed after it was paid out leaves the Organization owing the platform, and the figure says so. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event earned" rather than "what has the platform yet to hand over".
+What the platform owes an Organization: the sum of Net Proceeds across its active Online Sales, minus all recorded Payouts. Signed, not clamped — a sale reversed after it was paid out leaves the Organization owing the platform, and the figure says so. An Organization-level figure; each Event separately shows its own accumulated Net Proceeds, which answers "what has this Event sent through the platform" rather than "what has the platform yet to hand over". What an Event earned across every Sales Channel is its Takings, which is a larger figure wherever the Event sold anywhere but online.
 What is owed, not what can be asked for today: money the platform holds but has not yet cleared is owed all the same. The Payable Balance is the part that can be asked for.
 _Avoid_: Available funds, wallet, account balance
 

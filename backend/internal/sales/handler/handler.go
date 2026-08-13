@@ -400,6 +400,38 @@ func (h *Handler) GetSalesSummary(w http.ResponseWriter, r *http.Request) {
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, summary)
 }
 
+// GetSalesTrends returns the Event's per-day tickets and Takings by Ticket Type
+// for the Sales Trends tab.
+//
+// @Summary      Get an Event's Sales Trends
+// @Description  Returns everything the Sales Trends tab draws, in one request: the Event's selling life as a CONTIGUOUS run of days, each split by Ticket Type into tickets sold and Takings earned. `timezone` is the Event's own zone (UTC where it carries none) and days are bucketed in it, resolved by the same helper the Sales Export uses, so a late-night sale falls on the day it felt like locally and matches the Sales list and the Sales Export. Bucketing reads `sold_at` — the day the sale was MADE — never `created_at`, so a Sale Import of last year's history lands on last year's days instead of spiking on the upload day. `days` runs from the first sale's day to the earlier of today and the Event's end, zero-filled: every calendar day in the span is present and a day that sold nothing carries an empty `lines` array. Within a day, a Ticket Type that sold nothing is OMITTED rather than sent as a zero. `ticket_types` is the Event's whole catalog in display order (`sort_order`), including Ticket Types that have sold nothing, so a legend built from it is stable and colours stay put across loads; names are the current catalog names, as the Sales Export's columns are. `takings_cents` is TAKINGS (ADR 0040) — what the sale earned the Organization on whatever Sales Channel it sold: the Net Proceeds of an Online Sale, and the full price of a sale the platform took no cut of, since in-person and imported lines carry zero fee snapshots. It is deliberately NOT the Sales tab's `net_proceeds_cents`, which is online-only, and it will legitimately exceed it on any Event that sold anywhere but online; both surfaces name their figure. Free Ticket Types contribute quantity and nothing to Takings. Reversed sales are excluded from every quantity and every Takings figure, as they are from every other aggregate, and `reversed_count` states how many of the Event's Ticket Sales are reversed, across the whole Event and independent of the span. `currency` is the Organization's. There is no pagination and no filtering — this is a bounded aggregate, not a list, and the surface deliberately does not obey the Sales list's filters (whose status filter can select reversed sales). An Event that has sold nothing returns an empty `days` array with its catalog still stated. Restricted to Org Admins and Event Owners — the guard the Event's money already carries; Event Staff are refused.
+// @Tags         staff
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Event ID"
+// @Success      200  {object}  openapi.EnvelopeSalesTrends
+// @Failure      400  {object}  platform.Envelope
+// @Failure      401  {object}  platform.Envelope
+// @Failure      403  {object}  platform.Envelope
+// @Failure      404  {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/trends [get]
+func (h *Handler) GetSalesTrends(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return
+	}
+
+	trends, err := h.svc.EventSalesTrends(r.Context(), actorFromRequest(r), eventID)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, trends)
+}
+
 // parseSalesFilters validates the Sales list filter query params, returning the
 // service params and any field errors (invalid enum values and malformed dates
 // are rejected per the repo's VALIDATION_FAILED convention). Blank/absent

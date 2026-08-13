@@ -1190,6 +1190,15 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopeSalesTrends:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.SalesTrends'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopeSession:
       properties:
         data:
@@ -3086,6 +3095,44 @@ components:
         sales_count:
           type: integer
       type: object
+    service.SalesTrends:
+      properties:
+        currency:
+          description: Currency is the Organization's currency, which Takings is denominated
+            in.
+          type: string
+        days:
+          description: |-
+            Days is every calendar day from the first sale to the end of the span,
+            contiguous and zero-filled: a silent day is present carrying no lines, so
+            a quiet fortnight reads as a quiet fortnight rather than as two adjacent
+            bars. Empty on an Event that has sold nothing.
+          items:
+            $ref: '#/components/schemas/service.TrendsDay'
+          type: array
+          uniqueItems: false
+        reversed_count:
+          description: |-
+            ReversedCount is how many of the Event's Ticket Sales are reversed, across
+            the whole Event. Reversed sales are excluded from every figure above, so
+            this is what tells an organizer a bar shrank rather than letting it shrink
+            silently (ADR 0018).
+          type: integer
+        ticket_types:
+          description: |-
+            TicketTypes is the Event's WHOLE catalog in display order, including types
+            that have sold nothing, so a legend built from it is stable and its chip
+            set does not change shape as sales arrive.
+          items:
+            $ref: '#/components/schemas/service.TrendsTicketType'
+          type: array
+          uniqueItems: false
+        timezone:
+          description: |-
+            Timezone is the zone the days are counted in — the Event's own, or UTC
+            where it carries none — stated so the reader knows whose day a day is.
+          type: string
+      type: object
     service.SessionView:
       properties:
         active_member:
@@ -3283,6 +3330,34 @@ components:
           type: integer
         updated_at:
           type: string
+      type: object
+    service.TrendsDay:
+      properties:
+        date:
+          type: string
+        lines:
+          items:
+            $ref: '#/components/schemas/service.TrendsLine'
+          type: array
+          uniqueItems: false
+      type: object
+    service.TrendsLine:
+      properties:
+        quantity:
+          type: integer
+        takings_cents:
+          type: integer
+        ticket_type_id:
+          type: string
+      type: object
+    service.TrendsTicketType:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sort_order:
+          type: integer
       type: object
     service.UnresolvedReversal:
       properties:
@@ -7746,6 +7821,83 @@ paths:
       security:
       - BearerAuth: []
       summary: Get an Event's sales summary
+      tags:
+      - staff
+  /api/v1/staff/events/{id}/sales/trends:
+    get:
+      description: 'Returns everything the Sales Trends tab draws, in one request:
+        the Event''s selling life as a CONTIGUOUS run of days, each split by Ticket
+        Type into tickets sold and Takings earned. `timezone` is the Event''s own
+        zone (UTC where it carries none) and days are bucketed in it, resolved by
+        the same helper the Sales Export uses, so a late-night sale falls on the day
+        it felt like locally and matches the Sales list and the Sales Export. Bucketing
+        reads `sold_at` — the day the sale was MADE — never `created_at`, so a Sale
+        Import of last year''s history lands on last year''s days instead of spiking
+        on the upload day. `days` runs from the first sale''s day to the earlier of
+        today and the Event''s end, zero-filled: every calendar day in the span is
+        present and a day that sold nothing carries an empty `lines` array. Within
+        a day, a Ticket Type that sold nothing is OMITTED rather than sent as a zero.
+        `ticket_types` is the Event''s whole catalog in display order (`sort_order`),
+        including Ticket Types that have sold nothing, so a legend built from it is
+        stable and colours stay put across loads; names are the current catalog names,
+        as the Sales Export''s columns are. `takings_cents` is TAKINGS (ADR 0040)
+        — what the sale earned the Organization on whatever Sales Channel it sold:
+        the Net Proceeds of an Online Sale, and the full price of a sale the platform
+        took no cut of, since in-person and imported lines carry zero fee snapshots.
+        It is deliberately NOT the Sales tab''s `net_proceeds_cents`, which is online-only,
+        and it will legitimately exceed it on any Event that sold anywhere but online;
+        both surfaces name their figure. Free Ticket Types contribute quantity and
+        nothing to Takings. Reversed sales are excluded from every quantity and every
+        Takings figure, as they are from every other aggregate, and `reversed_count`
+        states how many of the Event''s Ticket Sales are reversed, across the whole
+        Event and independent of the span. `currency` is the Organization''s. There
+        is no pagination and no filtering — this is a bounded aggregate, not a list,
+        and the surface deliberately does not obey the Sales list''s filters (whose
+        status filter can select reversed sales). An Event that has sold nothing returns
+        an empty `days` array with its catalog still stated. Restricted to Org Admins
+        and Event Owners — the guard the Event''s money already carries; Event Staff
+        are refused.'
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeSalesTrends'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Get an Event's Sales Trends
       tags:
       - staff
   /api/v1/staff/events/{id}/tags:

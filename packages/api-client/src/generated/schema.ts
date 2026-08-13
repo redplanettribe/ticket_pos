@@ -5403,6 +5403,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/sales/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an Event's Sales Trends
+         * @description Returns everything the Sales Trends tab draws, in one request: the Event's selling life as a CONTIGUOUS run of days, each split by Ticket Type into tickets sold and Takings earned. `timezone` is the Event's own zone (UTC where it carries none) and days are bucketed in it, resolved by the same helper the Sales Export uses, so a late-night sale falls on the day it felt like locally and matches the Sales list and the Sales Export. Bucketing reads `sold_at` — the day the sale was MADE — never `created_at`, so a Sale Import of last year's history lands on last year's days instead of spiking on the upload day. `days` runs from the first sale's day to the earlier of today and the Event's end, zero-filled: every calendar day in the span is present and a day that sold nothing carries an empty `lines` array. Within a day, a Ticket Type that sold nothing is OMITTED rather than sent as a zero. `ticket_types` is the Event's whole catalog in display order (`sort_order`), including Ticket Types that have sold nothing, so a legend built from it is stable and colours stay put across loads; names are the current catalog names, as the Sales Export's columns are. `takings_cents` is TAKINGS (ADR 0040) — what the sale earned the Organization on whatever Sales Channel it sold: the Net Proceeds of an Online Sale, and the full price of a sale the platform took no cut of, since in-person and imported lines carry zero fee snapshots. It is deliberately NOT the Sales tab's `net_proceeds_cents`, which is online-only, and it will legitimately exceed it on any Event that sold anywhere but online; both surfaces name their figure. Free Ticket Types contribute quantity and nothing to Takings. Reversed sales are excluded from every quantity and every Takings figure, as they are from every other aggregate, and `reversed_count` states how many of the Event's Ticket Sales are reversed, across the whole Event and independent of the span. `currency` is the Organization's. There is no pagination and no filtering — this is a bounded aggregate, not a list, and the surface deliberately does not obey the Sales list's filters (whose status filter can select reversed sales). An Event that has sold nothing returns an empty `days` array with its catalog still stated. Restricted to Org Admins and Event Owners — the guard the Event's money already carries; Event Staff are refused.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeSalesTrends"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/tags": {
         parameters: {
             query?: never;
@@ -7684,6 +7762,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeSalesTrends": {
+            data?: components["schemas"]["service.SalesTrends"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeSession": {
             data?: components["schemas"]["service.SessionView"];
             error?: components["schemas"]["platform.APIError"];
@@ -9080,6 +9163,35 @@ export interface components {
             net_proceeds_cents?: number;
             sales_count?: number;
         };
+        "service.SalesTrends": {
+            /** @description Currency is the Organization's currency, which Takings is denominated in. */
+            currency?: string;
+            /**
+             * @description Days is every calendar day from the first sale to the end of the span,
+             *     contiguous and zero-filled: a silent day is present carrying no lines, so
+             *     a quiet fortnight reads as a quiet fortnight rather than as two adjacent
+             *     bars. Empty on an Event that has sold nothing.
+             */
+            days?: components["schemas"]["service.TrendsDay"][];
+            /**
+             * @description ReversedCount is how many of the Event's Ticket Sales are reversed, across
+             *     the whole Event. Reversed sales are excluded from every figure above, so
+             *     this is what tells an organizer a bar shrank rather than letting it shrink
+             *     silently (ADR 0018).
+             */
+            reversed_count?: number;
+            /**
+             * @description TicketTypes is the Event's WHOLE catalog in display order, including types
+             *     that have sold nothing, so a legend built from it is stable and its chip
+             *     set does not change shape as sales arrive.
+             */
+            ticket_types?: components["schemas"]["service.TrendsTicketType"][];
+            /**
+             * @description Timezone is the zone the days are counted in — the Event's own, or UTC
+             *     where it carries none — stated so the reader knows whose day a day is.
+             */
+            timezone?: string;
+        };
         "service.SessionView": {
             active_member?: components["schemas"]["service.ActiveMemberView"];
             email?: string;
@@ -9227,6 +9339,20 @@ export interface components {
             sold_count?: number;
             sort_order?: number;
             updated_at?: string;
+        };
+        "service.TrendsDay": {
+            date?: string;
+            lines?: components["schemas"]["service.TrendsLine"][];
+        };
+        "service.TrendsLine": {
+            quantity?: number;
+            takings_cents?: number;
+            ticket_type_id?: string;
+        };
+        "service.TrendsTicketType": {
+            id?: string;
+            name?: string;
+            sort_order?: number;
         };
         "service.UnresolvedReversal": {
             attempt_count?: number;
