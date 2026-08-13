@@ -152,14 +152,16 @@ type SaleReversalRefused struct {
 // that changed nothing composes no message at all. Nobody is written to about a
 // change that did not happen.
 //
-// WHAT IT NAMES TODAY IS MARKETING CONSENT, because the two surfaces that send
-// it withdraw Marketing Consent alone: the unsubscribe link at the foot of a
-// Follow Digest, and the Customer Area's digest toggle (ADR 0034 — one switch).
-// The copy says so in as many words rather than speaking of "your consents" in
-// the abstract, which would tell a reader less than they already knew. A later
-// surface that can withdraw Networking Consent must say what IT took away; the
-// honest way to add that is a field here and a sentence beside this one, never
-// this message sent for an act it does not describe.
+// IT NAMES WHAT WAS ACTUALLY WITHDRAWN, which is why the two flags below are
+// here (#270). #267 shipped with Marketing Consent alone because the two
+// surfaces that could withdraw anything withdrew nothing else — the unsubscribe
+// link at the foot of a Follow Digest and the Customer Area's digest toggle (ADR
+// 0034, one switch) — and said in as many words that a later surface able to
+// withdraw Networking Consent must say what IT took away, by a field here and a
+// sentence beside that one, never by this message being sent for an act it does
+// not describe. The passcode-only withdrawal surface is that surface, and this
+// is that field: the copy is chosen from what moved, and the marketing-only
+// wording is unchanged for the acts that produce it.
 type ConsentWithdrawalConfirmation struct {
 	// To is the Customer's own stored address, which is the only address a
 	// withdrawal confirmation can be about: the act named a Customer, and the
@@ -174,6 +176,17 @@ type ConsentWithdrawalConfirmation struct {
 	// a language they cannot read, which is why this is resolved rather than
 	// defaulted at the send site.
 	Locale Locale
+	// MarketingConsent and NetworkingConsent are WHAT THIS ACT TOOK AWAY, and
+	// they decide which of the three wordings the reader gets. They are the
+	// receipt's Withdrawn (consent.Receipt), never the answers a surface
+	// submitted: a person who switched off a consent that was already off is not
+	// written to at all, so a message that named it would be reporting a change
+	// that did not happen.
+	//
+	// At least one is true wherever this message is composed, because the caller
+	// sends nothing when nothing moved.
+	MarketingConsent  bool
+	NetworkingConsent bool
 }
 
 // The five Payout Request notices (#179 and #188, ADR 0026), and the platform's

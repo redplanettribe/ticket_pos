@@ -288,6 +288,16 @@ func (s *Service) confirmWithdrawal(ctx context.Context, customer *repository.Cu
 		// English (ADR 0033). A message about somebody's rights is the last one
 		// that may arrive in a language they cannot read.
 		Locale: platform.ResolveMailLocale("", customer.MailLocale),
+		// What the act TOOK AWAY, which is what the message names (#270). From the
+		// receipt and never from the answers a surface submitted: the two differ
+		// exactly where somebody switched off a switch that was already off, and
+		// the message would then name a change that did not happen. Both entry
+		// points in this file can only ever withdraw Marketing Consent, so both
+		// still produce the marketing wording — this is what lets the passcode-only
+		// surface, which can also withdraw Networking Consent, say what IT took
+		// away through the same call.
+		MarketingConsent:  receipt.Withdrawn.MarketingConsent,
+		NetworkingConsent: receipt.Withdrawn.NetworkingConsent,
 	}); err != nil {
 		s.logger.Error("consent withdrawal confirmation could not be sent",
 			"customer_id", customer.ID,

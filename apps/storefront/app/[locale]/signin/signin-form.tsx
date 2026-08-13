@@ -536,6 +536,22 @@ export function SignInForm({
                 >
                   {loading ? t("signingIn") : t("consent.submit")}
                 </Button>
+
+                {/*
+                  The way out for somebody who came here to take a consent BACK
+                  (#270, ADR 0039). This step is where the platform used to say
+                  "to withdraw your consent, first accept this" — a new Policy
+                  Version re-gates everybody, including the person whose whole
+                  errand is to disagree — so the alternative is offered at
+                  exactly the moment the demand is made. It leads to a surface
+                  that needs no acceptance and mints no session; nothing about
+                  this form changes if they ignore it.
+                */}
+                <p className="text-muted-foreground text-center text-sm">
+                  <Link href="/withdraw-consent" className="underline underline-offset-4">
+                    {t("consent.withdrawInstead")}
+                  </Link>
+                </p>
               </>
             ) : (
               /*

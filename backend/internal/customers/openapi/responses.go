@@ -174,6 +174,49 @@ type EnvelopeCustomerConsentConfirmation struct {
 	RequestID string                          `json:"request_id"`
 }
 
+// CustomerConsentSubmissionData is returned by the consent submission endpoint,
+// which spends one pending-consent token on one of two acts (#270, ADR 0039).
+//
+// It has THREE SHAPES and a client must handle each: the session a finished
+// sign-in mints, `consent_required` — which this endpoint does not currently
+// return, and which is here because the payload is the verify's — and
+// `withdrawal`, the Consent Withdrawal a denials-only submission performed.
+//
+// `withdrawal` is null on every sign-in submission and every other field is null
+// beside it, INCLUDING `session_id`: a withdrawal made on Proof of Email
+// Ownership alone mints no Customer Session, and a client that reads a missing
+// session as a failed sign-in would report a successful withdrawal as a broken
+// one.
+type CustomerConsentSubmissionData struct {
+	Session         *service.CustomerSessionView   `json:"session"`
+	SessionID       string                         `json:"session_id"`
+	Follow          *service.FollowView            `json:"follow"`
+	ConsentRequired *service.ConsentRequiredView   `json:"consent_required"`
+	Withdrawal      *service.ConsentWithdrawalView `json:"withdrawal"`
+}
+
+// EnvelopeCustomerConsentSubmission documents POST
+// /api/v1/customer/auth/consent success responses.
+type EnvelopeCustomerConsentSubmission struct {
+	Data      CustomerConsentSubmissionData `json:"data"`
+	Error     *platform.APIError            `json:"error"`
+	RequestID string                        `json:"request_id"`
+}
+
+// EnvelopeCustomerConsentWithdrawalProof documents POST
+// /api/v1/customer/consent/withdrawal/passcode/verify success responses: the
+// Proof of Email Ownership a Consent Withdrawal runs on, held in suspension.
+//
+// Its own shape rather than the verify's, because what is NOT in it is the
+// point: no session, no session id, and no boxes. The passcode door of the
+// withdrawal surface can return nothing else, which is what makes "no Customer
+// Session is minted" visible in the contract rather than only in the code.
+type EnvelopeCustomerConsentWithdrawalProof struct {
+	Data      service.ConsentWithdrawalProofView `json:"data"`
+	Error     *platform.APIError                 `json:"error"`
+	RequestID string                             `json:"request_id"`
+}
+
 // EnvelopeCustomerFollow documents POST
 // /api/v1/customer/follows/organizations/{slug} success responses: the one
 // Follow, in exactly the shape it takes inside the list above.

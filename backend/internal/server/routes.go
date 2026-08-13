@@ -202,6 +202,20 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// what confirmed it was a robot. Registering the method alone is what makes
 	// the router answer a bare GET with 405 rather than with an act.
 	mux.HandleFunc("POST /api/v1/customer/consent/confirm", h.ConfirmConsent)
+	// The Consent Withdrawal surface's passcode door (#270, parent #265,
+	// ADR 0039). Unauthenticated like the two above, and for a reason of its own:
+	// the person it exists for is the one who has just been told that to withdraw
+	// their consent they must first accept a policy, and demanding the session
+	// that demand comes from would be the same refusal wearing a hat.
+	//
+	// IT MINTS NO CUSTOMER SESSION. It redeems a passcode for the same
+	// short-lived, single-use pending-consent token a held sign-in returns, and
+	// that token is spent at the consent submission route above — where a
+	// submission whose every answer is a denial needs no Policy Acceptance and one
+	// containing any grant still does. A passcode intercepted on this route
+	// therefore buys the ability to switch somebody's consent OFF, which its owner
+	// can switch back on from their own account, and nothing else.
+	mux.HandleFunc("POST /api/v1/customer/consent/withdrawal/passcode/verify", h.ProveEmailForConsentWithdrawal)
 
 	// signedIn gates a route on a valid Customer Session and extends its sliding
 	// window. Everything behind it is scoped to the Customer on that session.
