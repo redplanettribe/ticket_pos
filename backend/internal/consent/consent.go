@@ -56,6 +56,18 @@ const (
 	// proven-ness question that decides granted-or-pending everywhere else never
 	// arises here.
 	ChannelOperatorRequest Channel = "operator_request"
+	// ChannelPasscodeWithdrawal is the surface where a Consent Withdrawal is made
+	// on Proof of Email Ownership alone — a passcode redeemed for a
+	// pending-consent token and spent on a denials-only submission, minting no
+	// Customer Session and demanding no Policy Acceptance (ADR 0039, #270).
+	//
+	// It is a channel of its own rather than `signin` because the compliance
+	// question the column exists to answer is WHICH SURFACE, and this is a
+	// different surface from the sign-in consent step even though it comes
+	// through the same door. Telling the two apart by the absence of a Policy
+	// Acceptance and a session id worked, but it put a surface's identity into a
+	// predicate over other columns' nulls — see migration 068.
+	ChannelPasscodeWithdrawal Channel = "passcode_withdrawal"
 )
 
 // Valid reports whether the channel is one the storage vocabulary recognises. A
@@ -64,7 +76,7 @@ const (
 func (c Channel) Valid() bool {
 	switch c {
 	case ChannelSignIn, ChannelCheckout, ChannelAccountSettings, ChannelUnsubscribeLink,
-		ChannelEmailConfirmation, ChannelOperatorRequest:
+		ChannelEmailConfirmation, ChannelOperatorRequest, ChannelPasscodeWithdrawal:
 		return true
 	}
 	return false

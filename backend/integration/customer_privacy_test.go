@@ -372,6 +372,12 @@ func TestNetworkingConsentMovesInBothDirectionsFromThePrivacyPage(t *testing.T) 
 	}
 
 	// And back again, which is the door that exists nowhere else.
+	//
+	// An hour later, so the two acts are distinguishable by their own timestamps.
+	// The evidence log is read in captured_at order and the tiebreaker is a random
+	// UUID, so two acts sharing this suite's fixed clock come back in either order
+	// — which would make the assertion below a coin toss rather than a test.
+	setSignInClock(t, env, env.fixedClock.Add(time.Hour))
 	granted := setOptionalConsent(t, env, token, "networking", true)
 	wantConsents(t, granted, "granted", "granted",
 		"a Customer who withdrew Networking Consent by mistake can turn it back on")

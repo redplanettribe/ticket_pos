@@ -233,11 +233,11 @@ func TestWithdrawalRecordsTheEvidenceAndTheProof(t *testing.T) {
 		t.Fatalf("denials-only submission status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	records := consentRecordsOn(t, env, "ana@example.com", "signin")
-	if len(records) != 2 {
-		t.Fatalf("signin records = %d, want the sign-in and the withdrawal", len(records))
+	records := consentRecordsOn(t, env, "ana@example.com", "passcode_withdrawal")
+	if len(records) != 1 {
+		t.Fatalf("passcode withdrawal records = %d, want the withdrawal alone — the sign-in is filed under its own surface", len(records))
 	}
-	record := records[1]
+	record := records[0]
 
 	if record.Email != "ana@example.com" {
 		t.Fatalf("record email = %q", record.Email)
@@ -315,7 +315,7 @@ func TestWithdrawalWithoutSigningInIsConfirmedByEmail(t *testing.T) {
 		t.Fatalf("the confirmation claims marketing was withdrawn, which this act did not do; body:\n%s", confirmation.Text())
 	}
 	// And the evidence records that they were told, on the row the act wrote.
-	records := consentRecordsOn(t, env, "ana@example.com", "signin")
+	records := consentRecordsOn(t, env, "ana@example.com", "passcode_withdrawal")
 	withdrawal := records[len(records)-1]
 	if !withdrawal.ConfirmationSentAt.Valid {
 		t.Fatalf("the withdrawal record carries no confirmation_sent_at: %+v", withdrawal)
@@ -347,14 +347,14 @@ func TestWithdrawalThatMovedNothingIsRecordedAndSendsNothing(t *testing.T) {
 	wantNoWithdrawalConfirmation(t, env, "ana@example.com",
 		"both consents were already denied, so the act took nothing away")
 
-	records := consentRecordsOn(t, env, "ana@example.com", "signin")
-	if len(records) != 2 {
-		t.Fatalf("signin records = %d, want the sign-in and the act that moved nothing", len(records))
+	records := consentRecordsOn(t, env, "ana@example.com", "passcode_withdrawal")
+	if len(records) != 1 {
+		t.Fatalf("passcode withdrawal records = %d, want the act that moved nothing", len(records))
 	}
-	if records[1].ConfirmationSentAt.Valid {
-		t.Fatalf("confirmation_sent_at is stamped on an act that sent nothing: %+v", records[1])
+	if records[0].ConfirmationSentAt.Valid {
+		t.Fatalf("confirmation_sent_at is stamped on an act that sent nothing: %+v", records[0])
 	}
-	wantPrior(t, records[1], "denied", "denied")
+	wantPrior(t, records[0], "denied", "denied")
 }
 
 // TestSubmissionContainingAGrantIsStillRefusedWithoutAcceptance is the OTHER
@@ -532,9 +532,14 @@ func TestWithdrawalTokenIsSpentWhateverTheOutcome(t *testing.T) {
 		withdrawalSubmission(refused.PendingConsentToken, false, true), consentEvidenceHeaders())
 	assertAPIError(t, resp, body, http.StatusUnauthorized, "PENDING_CONSENT_INVALID")
 
-	// The one withdrawal that succeeded is the only act in the log for it.
-	if records := consentRecordsOn(t, env, "ana@example.com", "signin"); len(records) != 2 {
-		t.Fatalf("signin records = %d, want the sign-in and the single withdrawal", len(records))
+	// The one withdrawal that succeeded is the only act in the log for it, and it
+	// is filed under its own surface rather than under the door it came through
+	// (migration 068).
+	if records := consentRecordsOn(t, env, "ana@example.com", "passcode_withdrawal"); len(records) != 1 {
+		t.Fatalf("passcode withdrawal records = %d, want the single withdrawal", len(records))
+	}
+	if records := consentRecordsOn(t, env, "ana@example.com", "signin"); len(records) != 1 {
+		t.Fatalf("signin records = %d, want only the sign-in", len(records))
 	}
 	if n := countPendingConsents(t, env); n != 0 {
 		t.Fatalf("pending consents = %d, want 0 — every token here has been spent", n)
@@ -557,6 +562,9 @@ func TestAbandonedWithdrawalSurfaceRecordsNothing(t *testing.T) {
 	}
 	if records := consentRecordsOn(t, env, "ana@example.com", "signin"); len(records) != 1 {
 		t.Fatalf("signin records = %d, want only the sign-in — being offered a withdrawal is not making one", len(records))
+	}
+	if records := consentRecordsOn(t, env, "ana@example.com", "passcode_withdrawal"); len(records) != 0 {
+		t.Fatalf("passcode withdrawal records = %d, want none — the tab was closed", len(records))
 	}
 	wantNoWithdrawalConfirmation(t, env, "ana@example.com", "nothing was withdrawn")
 }

@@ -268,19 +268,14 @@ func (s *Service) WithdrawConsent(ctx context.Context, withdrawal ConsentWithdra
 		// The address as this proof established it, from the pending row rather
 		// than from the Customer, exactly as the sign-in consent step takes it.
 		Email: pending.Email,
-		// The `signin` channel, because that is the door this act came through: a
-		// passcode redeemed for a pending-consent token, spent at the consent
-		// submission endpoint. It is not a channel of its own because #266 fixed
-		// the storage vocabulary for the whole of #265 and did not mint one, and
-		// inventing a seventh string here would mean a migration widening the
-		// CHECK in a slice that needs no schema change (see the report on #270).
-		//
-		// The rows are still told apart without one: a sign-in consent step always
-		// records a Policy Acceptance and the session it minted, and this act
-		// records neither — `channel = 'signin' AND policy_acceptance IS NULL AND
-		// session_id IS NULL` is this surface exactly, and nothing else can look
-		// like it.
-		Channel: consent.ChannelSignIn,
+		// This surface's own channel (migration 068). It comes through the same
+		// door as the sign-in consent step — a passcode redeemed for a
+		// pending-consent token — but it is not that surface: it demands no Policy
+		// Acceptance and mints no session, and the compliance question `channel`
+		// exists to answer is which surface an act came from. Recording it as
+		// `signin` and telling the two apart by the absence of an acceptance and a
+		// session id was correct and is no longer necessary.
+		Channel: consent.ChannelPasscodeWithdrawal,
 		// A passcode was redeemed to get the token that reached this line, so the
 		// address is proven — passed explicitly rather than inferred from the
 		// channel, as everywhere else. It is what makes the denial STICK: an
