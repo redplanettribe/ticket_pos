@@ -3,6 +3,7 @@ import { Heart } from "lucide-react";
 import { getTranslations } from "next-intl/server";
 
 import { Link } from "@/i18n/navigation";
+import { createEventCtaHref } from "@/lib/create-event-cta";
 import { getCustomerSession } from "@/lib/customer-session";
 
 import { CustomerMenu } from "./customer-menu";
@@ -17,13 +18,17 @@ import { SignInLink } from "./sign-in-link";
  * present, getCustomerSession returns immediately without calling the API, so
  * browsing Events, Storefront listings, and the global explorer costs exactly
  * what it did before this existed.
+ *
+ * `createEventCta` is opt-in and asked for by exactly one page — see
+ * CreateEventCta for why it is not simply always on.
  */
-export async function HeaderCustomerNav() {
+export async function HeaderCustomerNav({ createEventCta = false }: { createEventCta?: boolean }) {
   const session = await getCustomerSession();
 
   if (session.status !== "ok") {
     return (
       <div className="flex items-center gap-1">
+        {createEventCta ? <CreateEventCta /> : null}
         <FollowingLink />
         <SignInLink />
       </div>
@@ -32,6 +37,7 @@ export async function HeaderCustomerNav() {
 
   return (
     <div className="flex items-center gap-1">
+      {createEventCta ? <CreateEventCta /> : null}
       <FollowingLink />
       <CustomerMenu
         email={session.data.email}
@@ -40,6 +46,53 @@ export async function HeaderCustomerNav() {
         avatarUrl={session.data.avatar_url}
       />
     </div>
+  );
+}
+
+/**
+ * The invitation to become an Organizer, in the header of the global explorer
+ * and nowhere else (#261, parent #259).
+ *
+ * ASKED FOR PER PAGE, never on by default. An Organization page and an Event
+ * page carry that Organization's name and exist to sell its tickets; the
+ * platform advertising for itself over the Organizer's shoulder, next to a
+ * buyer part-way into a checkout, is precisely what this must not do. The
+ * explorer is the one page that belongs to the platform rather than to a
+ * particular Organization, so it is the one page that gets to say this. Making
+ * the prop default to false means a new page has to decide, and a page that
+ * never thinks about it keeps the header it has.
+ *
+ * REMOVED below `sm` rather than shrunk. The Following link can drop its word
+ * and keep its heart because a heart still means something on its own; "create
+ * an event" has no glyph anybody would read as that, and the header is a single
+ * row that also carries the mark. The footer link — which every page has — is
+ * the path on a narrow screen, so nothing is lost by taking this one away.
+ *
+ * DRAWN THE SAME signed in or out, on purpose: holding a Customer Session says
+ * nothing about whether somebody has an event to run, and hiding the invitation
+ * from the people already using the platform would hide it from the likeliest
+ * Organizers on it.
+ *
+ * A plain `<a>` and not the locale-aware `Link`: this is an absolute address on
+ * another origin, and the staff app has its own idea of language.
+ *
+ * `outline` weight, between the ghost controls beside it and the solid primary
+ * that belongs to buying a ticket — noticeable without competing with the thing
+ * the visitor actually came for.
+ *
+ * No href, no button: an unconfigured staff origin leaves this header byte for
+ * byte the one it was before this existed (lib/create-event-cta.ts).
+ */
+async function CreateEventCta() {
+  const href = createEventCtaHref();
+  if (!href) return null;
+
+  const t = await getTranslations("shell");
+
+  return (
+    <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+      <a href={href}>{t("createEvent")}</a>
+    </Button>
   );
 }
 

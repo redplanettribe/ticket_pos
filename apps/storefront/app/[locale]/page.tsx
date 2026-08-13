@@ -78,7 +78,10 @@ export default async function HomePage({ params, searchParams }: HomePageProps) 
   const t = await getTranslations("explorer");
 
   return (
-    <StorefrontShell customerNav={<HeaderCustomerNav />}>
+    // The explorer is the platform's own page rather than any Organization's,
+    // which is why it is the only header that asks for the "Create an event"
+    // invitation (#261).
+    <StorefrontShell customerNav={<HeaderCustomerNav createEventCta />}>
       <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 sm:py-12">
         <PageHeader title={t("title")} description={t("subtitle")} />
         <ExplorerFilters presetTags={presetTags ?? []} followedTagKeys={followedTagKeys} />
