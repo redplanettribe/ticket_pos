@@ -210,16 +210,17 @@ const (
 // StampConfirmedTx records that the Pending Confirmation one earlier act
 // created has now been confirmed from the address itself.
 //
-// THIS IS THE ONLY WRITE IN THIS PACKAGE THAT TOUCHES AN EXISTING
+// THIS IS ONE OF EXACTLY TWO WRITES IN THIS PACKAGE THAT TOUCH AN EXISTING
 // consent_records ROW, and it satisfies the one rule migration 061 allows a
 // post-insert write to satisfy: null to a timestamp, once, on a column that
 // records something that happened LATER ABOUT this act. It does not alter what
 // the row says happened — the tick, the channel, the circumstances and the
 // answers are exactly as they were — it records that the act the row describes
 // was later corroborated. The rule admits exactly one other column,
-// `confirmation_sent_at` (migration 067), which has no writer yet and will get a
-// narrow method of its own naming its own column when it does. Nothing else may
-// ever be updated here, which is why neither is a general update.
+// `confirmation_sent_at` (migration 067), written by StampConfirmationSent to
+// record that the act's subject was later TOLD — a narrow method of its own
+// naming its own column, for the same reason this one is. Nothing else may ever
+// be updated here, which is why neither is a general update.
 //
 // IT STAMPS THE MOST RECENT UNCONFIRMED TICK AND NOT ALL OF THEM. A person
 // whose address three separate guests typed has three rows, each a tick nobody
