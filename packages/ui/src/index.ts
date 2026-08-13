@@ -7,6 +7,7 @@ export {
 } from "./components/charts/chart-legend-chips";
 export { ChartScrollArea, type ChartScrollAreaProps } from "./components/charts/chart-scroll-area";
 export {
+  CHART_PLOT_INSET,
   StackedBarChart,
   type StackedBarChartProps,
   type StackedBarDatum,

@@ -45,6 +45,17 @@ export type StackedBarChartProps = {
    */
   yMax: number;
   /**
+   * Where the Y axis puts its labels. Owned by the caller for the same reason
+   * `yMax` is: left to the library, the step is chosen independently of the top
+   * of the axis, so the last two labels can end up almost touching and the gaps
+   * between them unequal.
+   *
+   * Used by the drawn axis and by the pinned copy alike — they are one axis
+   * shown twice, and a tick in one that is missing from the other would label
+   * the bars with a lie.
+   */
+  yTicks?: number[];
+  /**
    * The width in pixels of the plotting area alone — the part that holds the
    * bars, not the Y axis.
    *
@@ -120,6 +131,17 @@ const CHART_MARGIN = { top: 8, right: 8, bottom: 8, left: 0 } as const;
  */
 const X_AXIS_HEIGHT = 30;
 
+/**
+ * How much horizontal room a chart spends on what is not the plot: the Y axis on
+ * the left, and the margin on the right.
+ *
+ * Exported so a caller sizing its plot to the room available can subtract it.
+ * Without it the caller would have to guess, and a guess that is too small draws
+ * a chart narrower than the space it was given — which reads, correctly, as the
+ * chart being shoved to one side of its card.
+ */
+export const CHART_PLOT_INSET = Y_AXIS_WIDTH + CHART_MARGIN.right;
+
 const AXIS_TICK = { fontSize: 12 } as const;
 
 /**
@@ -191,6 +213,7 @@ export function StackedBarChart({
   data,
   series,
   yMax,
+  yTicks,
   plotWidth,
   formatValue,
   formatTickValue,
@@ -218,7 +241,7 @@ export function StackedBarChart({
         className="sticky left-0 z-10 shrink-0 overflow-hidden bg-card"
         style={{ width: Y_AXIS_WIDTH, height, marginRight: -Y_AXIS_WIDTH }}
       >
-        <PinnedYAxis yMax={yMax} formatTick={formatTick} height={height} />
+        <PinnedYAxis yMax={yMax} yTicks={yTicks} formatTick={formatTick} height={height} />
       </div>
       <div role="img" aria-label={ariaLabel} className="shrink-0" style={{ width, height }}>
         <BarChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
@@ -236,6 +259,7 @@ export function StackedBarChart({
             // selection rather than to the whole catalog.
             {...Y_AXIS_PROPS}
             domain={[0, yMax]}
+            ticks={yTicks}
             tickFormatter={formatTick}
           />
           <Tooltip
@@ -286,10 +310,12 @@ export function StackedBarChart({
  */
 function PinnedYAxis({
   yMax,
+  yTicks,
   formatTick,
   height,
 }: {
   yMax: number;
+  yTicks?: number[];
   formatTick: (value: number) => string;
   height: number;
 }) {
@@ -314,13 +340,22 @@ function PinnedYAxis({
         axisLine={false}
         height={X_AXIS_HEIGHT}
       />
-      <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} tickFormatter={formatTick} />
+      <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} ticks={yTicks} tickFormatter={formatTick} />
+      {/* An invisible bar, and the reason this axis has any ticks at all.
+          Recharts builds a Y axis's scale from the graphical items plotted
+          against it; a chart with an axis and nothing to plot renders the axis
+          line and no tick labels, however explicit its domain. So the pinned
+          copy carries one transparent zero-height bar purely to be something the
+          axis is an axis of. Remove it and the strip goes blank — and because it
+          is opaque and sits over the real axis, the chart loses its scale
+          entirely rather than falling back to the one underneath. */}
+      <Bar dataKey="value" fill="none" isAnimationActive={false} />
     </BarChart>
   );
 }
 
-/** One nameless bucket, so the pinned axis has a chart to be an axis of. */
-const PINNED_AXIS_DATA = [{ label: "" }];
+/** One nameless, valueless bucket, so the pinned axis has a chart to be an axis of. */
+const PINNED_AXIS_DATA = [{ label: "", value: 0 }];
 
 type StackedBarTooltipProps = {
   series: StackedBarSeries[];
