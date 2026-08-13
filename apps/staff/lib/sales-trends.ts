@@ -114,6 +114,24 @@ export function drawnTicketTypes(
 }
 
 /**
+ * colorSlotFor is the palette slot a Ticket Type draws in: its position in the
+ * whole catalog, which arrives in display order.
+ *
+ * Position rather than the Ticket Type's own sort_order, though sort_order is
+ * what puts the catalog in that order. sort_order defaults to 0 in the schema,
+ * so an Organization that never reordered its Ticket Types has every one of
+ * them at 0 — keying colour on it directly would draw the entire stack in a
+ * single colour and make the chart unreadable for exactly the Events nobody has
+ * fussed over. Position carries the same order and cannot tie.
+ *
+ * Keyed on the whole catalog, never on the drawn subset, so a Ticket Type keeps
+ * its colour whichever chips are switched off.
+ */
+export function colorSlotFor(catalog: readonly TrendsTicketType[], id: string): number {
+  return catalog.findIndex((type) => type.id === id);
+}
+
+/**
  * trendsSeries turns the day × Ticket Type matrix into one datum per day for
  * the chosen measure, carrying only the selected Ticket Types.
  *
@@ -138,7 +156,11 @@ export function trendsSeries(
         continue;
       }
       const value = line[measure];
-      values[line.ticket_type_id] = value;
+      // Accumulate rather than assign. The endpoint groups by (day, Ticket Type),
+      // so today a type appears at most once in a day — but a second line would
+      // then silently replace the first rather than sum with it, and the chart
+      // would understate the day with nothing failing.
+      values[line.ticket_type_id] += value;
       total += value;
     }
     return { key: day.date, label: formatTrendsDay(day.date), values, total };

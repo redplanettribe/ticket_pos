@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Card,
   CardContent,
   CardDescription,
@@ -18,6 +21,7 @@ import {
 
 import { reversedCountLabel } from "@/lib/sales-api";
 import {
+  colorSlotFor,
   drawnTicketTypes,
   fetchSalesTrends,
   formatTakings,
@@ -85,14 +89,17 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
 
   const catalog = useMemo(() => trends?.ticket_types ?? [], [trends]);
 
-  // Colour is keyed on the catalog's sort_order, never on position in the drawn
-  // set: a Ticket Type keeps its colour whichever chips are off and whenever the
-  // tab is opened, which is what lets staff learn the chart.
+  // Colour is keyed on position in the whole catalog, never on position in the
+  // drawn set: a Ticket Type keeps its colour whichever chips are off and
+  // whenever the tab is opened, which is what lets staff learn the chart.
+  //
+  // Position rather than sort_order itself, because sort_order defaults to 0 and
+  // an Organization that never reordered its catalog has every Ticket Type at 0
+  // — which would draw the whole stack in one colour and make the chart
+  // unreadable for exactly the Events nobody has fussed over. The catalog
+  // arrives in display order, so position carries that order without the ties.
   const colorOf = useCallback(
-    (id: string) => {
-      const type = catalog.find((entry) => entry.id === id);
-      return chartSeriesColor(type?.sort_order ?? 0);
-    },
+    (id: string) => chartSeriesColor(colorSlotFor(catalog, id)),
     [catalog],
   );
 
@@ -133,7 +140,10 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
         {loading ? (
           <Skeleton className="h-80 w-full" />
         ) : loadError ? (
-          <p className="text-sm text-muted-foreground">Couldn&apos;t load sales trends: {loadError}</p>
+          <Alert variant="destructive">
+            <AlertTitle>Could not load sales trends</AlertTitle>
+            <AlertDescription>{loadError}</AlertDescription>
+          </Alert>
         ) : !trends ? null : (
           <>
             {hasSales(trends) ? (

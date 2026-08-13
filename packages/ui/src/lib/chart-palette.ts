@@ -39,6 +39,3 @@ export function chartSeriesColor(index: number): string {
   const slot = Math.trunc(index) % CHART_PALETTE.length;
   return CHART_PALETTE[slot < 0 ? slot + CHART_PALETTE.length : slot];
 }
-
-/** How many distinct colours the palette holds before it repeats. */
-export const CHART_PALETTE_SIZE = CHART_PALETTE.length;

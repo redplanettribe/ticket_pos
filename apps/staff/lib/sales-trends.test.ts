@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { formatPriceCents } from "./events-api.ts";
 import {
+  colorSlotFor,
   drawnTicketTypes,
   formatTakings,
   formatTakingsTick,
@@ -369,6 +370,30 @@ test("an Event that has sold nothing has nothing to chart", () => {
   // too — and a span of silent days is just as empty as no span at all.
   assert.equal(hasSales(trends([{ date: "2026-08-02", lines: [] }])), false);
   assert.equal(hasSales(trends(DAYS)), true);
+});
+
+test("every Ticket Type draws in a slot of its own, even when the catalog never set an order", () => {
+  // sort_order defaults to 0 in the schema, so an Organization that never
+  // reordered its Ticket Types has every one of them at 0. Keying colour on
+  // sort_order itself would give this whole catalog one colour and a stack
+  // nobody could read.
+  const unordered = [
+    { id: "tt_a", name: "Early Bird", sort_order: 0 },
+    { id: "tt_b", name: "General Admission", sort_order: 0 },
+    { id: "tt_c", name: "VIP", sort_order: 0 },
+  ];
+  const slots = unordered.map((type) => colorSlotFor(unordered, type.id));
+  assert.deepEqual(slots, [0, 1, 2]);
+  assert.equal(new Set(slots).size, unordered.length);
+});
+
+test("a Ticket Type keeps its slot whichever chips are switched off", () => {
+  // The slot is read off the whole catalog, never the drawn subset, so
+  // deselecting a type must not recolour the ones still on screen.
+  const before = CATALOG.map((type) => colorSlotFor(CATALOG, type.id));
+  const drawn = drawnTicketTypes(CATALOG, ["tt_vip"]);
+  assert.equal(colorSlotFor(CATALOG, "tt_vip"), before[2]);
+  assert.equal(drawn.length, 1);
 });
 
 function trends(days: TrendsDay[]): SalesTrends {
