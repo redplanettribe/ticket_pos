@@ -1,5 +1,16 @@
 export { AuthCard } from "./components/auth-card";
 export { Breadcrumb, type BreadcrumbItem } from "./components/breadcrumb";
+export {
+  ChartLegendChips,
+  type ChartLegendChip,
+  type ChartLegendChipsProps,
+} from "./components/charts/chart-legend-chips";
+export {
+  StackedBarChart,
+  type StackedBarChartProps,
+  type StackedBarDatum,
+  type StackedBarSeries,
+} from "./components/charts/stacked-bar-chart";
 export { EventShell } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
@@ -54,6 +65,7 @@ export { Skeleton } from "./components/ui/skeleton";
 export { toast } from "sonner";
 export { Toaster } from "./components/ui/sonner";
 export { Textarea } from "./components/ui/textarea";
+export { chartSeriesColor, CHART_PALETTE_SIZE } from "./lib/chart-palette";
 export { isNavItemActive, isOnOperatorSurface } from "./lib/nav-active";
 export { eventNavItems } from "./lib/event-nav";
 export { cn } from "./lib/utils";
