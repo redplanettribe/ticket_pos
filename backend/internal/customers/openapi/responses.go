@@ -133,6 +133,32 @@ type EnvelopeCustomerDigestSubscription struct {
 	RequestID string                         `json:"request_id"`
 }
 
+// EnvelopeCustomerPrivacy documents GET /api/v1/customer/privacy success
+// responses (#268): what the signed-in Customer has authorized.
+//
+// The Policy Version pair is read-only and has no write counterpart anywhere,
+// because Policy Acceptance is not withdrawable — which is why this envelope
+// has no request shape mirroring it.
+type EnvelopeCustomerPrivacy struct {
+	Data      service.PrivacyView `json:"data"`
+	Error     *platform.APIError  `json:"error"`
+	RequestID string              `json:"request_id"`
+}
+
+// EnvelopeCustomerOptionalConsents documents PUT
+// /api/v1/customer/privacy/consents/{purpose} success responses (#268): both
+// optional consents as they stand after one control was moved.
+//
+// It reports the PAIR although one request moves one of them, because the page
+// that asked is drawing both and the states are the platform's finding rather
+// than the request's echo. It is the same shape the read above embeds, so a
+// page and the act it just performed cannot describe the two facts differently.
+type EnvelopeCustomerOptionalConsents struct {
+	Data      service.OptionalConsentsView `json:"data"`
+	Error     *platform.APIError           `json:"error"`
+	RequestID string                       `json:"request_id"`
+}
+
 // EnvelopeCustomerConsentConfirmation documents POST
 // /api/v1/customer/consent/confirm success responses (#255): what one press of
 // the confirmation link in a Sale Confirmation actually did.

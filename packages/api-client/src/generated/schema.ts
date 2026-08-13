@@ -1201,6 +1201,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/privacy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the Customer's privacy settings
+         * @description Reports what the signed-in Customer has authorized: the Policy Version they accepted and when, read-only, and the current state of each optional consent. THIS READ WRITES NOTHING — rendering a settings page must leave the platform exactly as it was, because a page that recorded a refusal when somebody merely looked at it would turn "never asked" into "denied" for everyone who opened it and did nothing. Each optional consent is one of four values, and they mean four different things: `granted`, `denied`, `pending_confirmation` (somebody who had not proven this address ticked the box, so it stands unresolved and is not the owner's answer) and `unanswered` (never asked, which is not a refusal). `unanswered` exists on the wire only; the platform stores NULL, because the absence of an answer is not a fourth kind of answer. The Policy Version named is the edition THIS CUSTOMER ACCEPTED and not necessarily the one in effect, so a Customer who accepted a superseded edition is told what they actually agreed to; both policy fields are null where no acceptance was ever recorded. Policy Acceptance carries no control anywhere: it is not withdrawable, being absent from counsel's withdrawal form and resting on a basis other than consent. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to read somebody's standing privacy settings.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerPrivacy"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/privacy/consents/{purpose}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Grant or withdraw one optional consent
+         * @description Moves ONE optional consent — `marketing` or `networking`, named in the path — to the state the body asks for, and answers with both as they now stand. Moving it off is a CONSENT WITHDRAWAL and moving it on is an affirmative grant behind a session established by Proof of Email Ownership; both directions are offered deliberately, because every surface that can grant an optional consent shows the box only while the state is unanswered, so a one-way page would leave a Customer who withdrew by mistake with no route back at all. Exactly one Consent Record is written per request, under the `account_settings` channel, carrying the state each optional consent was in immediately before and the technical proof of the act. Only the named consent is answered; the other and the Policy Acceptance box are recorded as not shown, so nothing standing is churned. Withdrawing Marketing Consent switches the weekly Follow Digest off with it, in the same transaction and the same statement — they are one switch and cannot drift. A withdrawal that actually took something away, out of `granted` or `pending_confirmation`, is confirmed to the Customer by email in their Mail Locale; a grant sends nothing, and neither does answering No to a consent that was already denied, because nobody is told about a change that did not happen. A Customer whose consent sits in `pending_confirmation` settles it either way here by answering for themselves. Takes a state rather than a flip, so a retried or double-tapped request means the same thing once. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT. A purpose this API does not recognise is VALIDATION_FAILED — Policy Acceptance is deliberately not one of them, because it is not withdrawable.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Which optional consent to move */
+                    purpose: "marketing" | "networking";
+                };
+                cookie?: never;
+            };
+            /** @description The state the Customer is asking for */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.optionalConsentBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeCustomerOptionalConsents"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/profile": {
         parameters: {
             query?: never;
@@ -6734,6 +6865,9 @@ export interface components {
         "handler.markProcessingBody": {
             transfer_reference?: string;
         };
+        "handler.optionalConsentBody": {
+            granted?: boolean;
+        };
         "handler.payoutProfileBody": {
             account_holder_name?: string;
             account_number?: string;
@@ -7025,6 +7159,16 @@ export interface components {
         };
         "openapi.EnvelopeCustomerOTPRequest": {
             data?: components["schemas"]["service.CustomerOTPRequestResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerOptionalConsents": {
+            data?: components["schemas"]["service.OptionalConsentsView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeCustomerPrivacy": {
+            data?: components["schemas"]["service.PrivacyView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -7797,6 +7941,16 @@ export interface components {
              */
             timezone?: string;
         };
+        /** @description Consents is the pair the controls move. */
+        "service.OptionalConsentsView": {
+            /**
+             * @description MarketingConsent is "granted", "denied", "pending_confirmation" or
+             *     "unanswered".
+             */
+            marketing_consent?: string;
+            /** @description NetworkingConsent is the same four. */
+            networking_consent?: string;
+        };
         "service.Organization": {
             created_at?: string;
             currency?: string;
@@ -8118,6 +8272,24 @@ export interface components {
             short_notice?: string;
             /** @description Version is the label a human names this edition by ("0-placeholder"). */
             version?: string;
+        };
+        "service.PrivacyView": {
+            consents?: components["schemas"]["service.OptionalConsentsView"];
+            /**
+             * @description PolicyAcceptedAt is when that acceptance was recorded, RFC 3339, null
+             *     alongside a null version.
+             */
+            policy_accepted_at?: string;
+            /**
+             * @description PolicyVersion is the label of the edition THIS CUSTOMER ACCEPTED, which is
+             *     not necessarily the one in effect: a Customer who accepted a superseded
+             *     edition is told what they actually agreed to, and a page naming the current
+             *     one would claim they had seen a text nobody ever showed them.
+             *
+             *     Null where no acceptance is recorded, which a session minted before consent
+             *     capture existed can still reach.
+             */
+            policy_version?: string;
         };
         /**
          * @description Promotion is the Ticket Type's one Promotion slot, or null when it is
