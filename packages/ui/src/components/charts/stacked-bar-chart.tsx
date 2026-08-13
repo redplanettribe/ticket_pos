@@ -1,15 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 
 import { cn } from "../../lib/utils";
 
@@ -52,6 +44,23 @@ export type StackedBarChartProps = {
    * whatever recharts inferred.
    */
   yMax: number;
+  /**
+   * The width in pixels of the plotting area alone — the part that holds the
+   * bars, not the Y axis.
+   *
+   * The chart is drawn at exactly this width rather than stretched to its
+   * container, because a bucket must keep a minimum width however many buckets
+   * there are: squeezing a year of days into a card makes every bar a sliver,
+   * and widening the bucket to fix that would mean a bar stood for a different
+   * span at different ranges. So the caller multiplies its bucket count by the
+   * width a bucket is owed, and the chart overflows if that is more than there
+   * is room for.
+   *
+   * A chart drawn this way must be placed inside a horizontally scrolling
+   * element (`ChartScrollArea`): the Y axis pins itself to that element's left
+   * edge, so without one there is nothing for it to pin to.
+   */
+  plotWidth: number;
   /** Renders a value for the tooltip, where a reader wants it exact. */
   formatValue: (value: number) => string;
   /**
@@ -86,8 +95,82 @@ export type StackedBarChartProps = {
  *
  * Callers whose labels would not fit shorten the label (`formatTickValue`)
  * rather than widening the axis.
+ *
+ * It is now load-bearing twice over: it is also the width of the strip the axis
+ * is pinned in while the plot scrolls, so a measured axis would leave the strip
+ * either short of the axis or over the bars.
  */
 const Y_AXIS_WIDTH = 64;
+
+/**
+ * The space around the plot area, shared by the drawn chart and the pinned copy
+ * of its Y axis so the two cannot drift apart vertically.
+ *
+ * `left` is zero on purpose: the Y axis is the only thing between the plot area
+ * and the chart's left edge, so the pinned copy is exactly `Y_AXIS_WIDTH` wide
+ * and covers exactly what it should. A left margin would have to be added to
+ * that width in two places and would eventually be added to one.
+ */
+const CHART_MARGIN = { top: 8, right: 8, bottom: 8, left: 0 } as const;
+
+/**
+ * The height the X axis always takes. Recharts defaults to this; stating it
+ * makes the drawn chart and the pinned axis agree by construction rather than
+ * by both happening to inherit the same default.
+ */
+const X_AXIS_HEIGHT = 30;
+
+const AXIS_TICK = { fontSize: 12 } as const;
+
+/**
+ * The roughest spacing an X tick label is allowed, in pixels.
+ *
+ * Ticks are thinned by a plain numeric interval rather than by recharts'
+ * `preserveStartEnd`, which measures every label to find collisions — a
+ * per-render DOM measurement per bucket, which is what turns a chart of several
+ * hundred days from slow-to-draw into slow-to-scroll.
+ */
+const X_TICK_MIN_GAP = 72;
+
+/**
+ * The widest a single bar is drawn, however much room its bucket has.
+ *
+ * A short span keeps a readable plot area (its caller floors the width), and
+ * without a cap the few bars in it would inflate to fill that room — a fortnight
+ * of sales drawn as five fat slabs, which reads as a different chart from the
+ * same Event three months later. The bucket gets the space; the bar does not
+ * take all of it.
+ */
+const MAX_BAR_SIZE = 48;
+
+/**
+ * The Y axis, spelled once and rendered twice: in the chart, where it
+ * establishes the scale, and in the pinned copy the reader actually reads.
+ *
+ * Shared rather than duplicated because the two must be the same axis — a tick
+ * that moved in one and not the other would label the bars with a lie.
+ */
+const Y_AXIS_PROPS = {
+  allowDecimals: false,
+  tickLine: false,
+  axisLine: false,
+  width: Y_AXIS_WIDTH,
+  tick: AXIS_TICK,
+} as const;
+
+/**
+ * How many buckets to skip between X tick labels, so labels stay about
+ * `X_TICK_MIN_GAP` apart whatever the bucket count is.
+ *
+ * Recharts counts an interval of 0 as "label every bucket".
+ */
+function xTickInterval(bucketCount: number, plotWidth: number): number {
+  if (bucketCount <= 0 || plotWidth <= 0) {
+    return 0;
+  }
+  const bucketWidth = plotWidth / bucketCount;
+  return Math.max(0, Math.ceil(X_TICK_MIN_GAP / bucketWidth) - 1);
+}
 
 /**
  * StackedBarChart draws one bar per bucket, segmented by series in the order
@@ -97,11 +180,18 @@ const Y_AXIS_WIDTH = 64;
  * Ticket Types, only of buckets, categories and a formatter. Sales Trends plots
  * tickets through one instance and Takings through a second, and the two differ
  * by their data and their formatters alone.
+ *
+ * It draws at a width its caller decides (`plotWidth`) rather than at whatever
+ * width it is given, and pins its Y axis over the left edge of the scrolling
+ * element it sits in, so a span too long to fit is read by scrolling rather than
+ * by squinting. Two such charts placed in one scroll area therefore scroll
+ * together and stay aligned without either knowing about the other.
  */
 export function StackedBarChart({
   data,
   series,
   yMax,
+  plotWidth,
   formatValue,
   formatTickValue,
   totalLabel,
@@ -111,28 +201,41 @@ export function StackedBarChart({
   className,
 }: StackedBarChartProps) {
   const formatTick = formatTickValue ?? formatValue;
+  // The Y axis sits to the left of the plot area and the right margin to the
+  // right of it, so the drawing is wider than the plot the caller asked for.
+  // Adding them here keeps `plotWidth` an honest statement about the buckets.
+  const width = Y_AXIS_WIDTH + plotWidth + CHART_MARGIN.right;
   return (
-    <div className={cn("w-full", className)} role="img" aria-label={ariaLabel} style={{ height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} syncId={syncId} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+    <div className={cn("relative flex w-max", className)} style={{ height }}>
+      {/* The axis the reader reads. It is a second drawing of the same axis
+          rather than a relocation of the first, because recharts owns where a
+          tick lands and the only way to be sure two axes agree about that is to
+          let it decide both. It is opaque so the bars pass behind it, and
+          `aria-hidden` because the chart beside it already carries the accessible
+          name — a screen reader has no use for a second, mute copy. */}
+      <div
+        aria-hidden
+        className="sticky left-0 z-10 shrink-0 overflow-hidden bg-card"
+        style={{ width: Y_AXIS_WIDTH, height, marginRight: -Y_AXIS_WIDTH }}
+      >
+        <PinnedYAxis yMax={yMax} formatTick={formatTick} height={height} />
+      </div>
+      <div role="img" aria-label={ariaLabel} className="shrink-0" style={{ width, height }}>
+        <BarChart width={width} height={height} data={data} syncId={syncId} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
           <XAxis
             dataKey="label"
             tickLine={false}
             axisLine={false}
-            interval="preserveStartEnd"
-            minTickGap={16}
-            tick={{ fontSize: 12 }}
+            height={X_AXIS_HEIGHT}
+            interval={xTickInterval(data.length, plotWidth)}
+            tick={AXIS_TICK}
           />
           <YAxis
             // Pinned to the caller's yMax so the axis answers to the current
             // selection rather than to the whole catalog.
+            {...Y_AXIS_PROPS}
             domain={[0, yMax]}
-            allowDecimals={false}
-            tickLine={false}
-            axisLine={false}
-            width={Y_AXIS_WIDTH}
-            tick={{ fontSize: 12 }}
             tickFormatter={formatTick}
           />
           <Tooltip
@@ -155,14 +258,69 @@ export function StackedBarChart({
               name={entry.name}
               stackId="stack"
               fill={entry.color}
+              maxBarSize={MAX_BAR_SIZE}
               isAnimationActive={false}
             />
           ))}
         </BarChart>
-      </ResponsiveContainer>
+      </div>
     </div>
   );
 }
+
+/**
+ * The pinned Y axis: the same axis as the chart's own, drawn again in a strip
+ * that stays put while the plot scrolls under it.
+ *
+ * It is a whole recharts chart rather than a handful of positioned labels
+ * because tick placement is recharts' arithmetic — where the ticks for
+ * `[0, yMax]` fall, and where the plot area starts once the margins and the X
+ * axis have taken their space. Reimplementing that here would work until a
+ * version bump moved a tick by a pixel and quietly mislabelled every bar.
+ *
+ * Everything that decides the vertical geometry is shared with the chart
+ * (`CHART_MARGIN`, `X_AXIS_HEIGHT`, `Y_AXIS_PROPS`, `height`) and nothing that
+ * decides it depends on width, so the two agree whatever the span. It carries a
+ * single datum and no bars: the X axis must be present to take up its space,
+ * but it has nothing to say and its ticks are off.
+ */
+function PinnedYAxis({
+  yMax,
+  formatTick,
+  height,
+}: {
+  yMax: number;
+  formatTick: (value: number) => string;
+  height: number;
+}) {
+  // Wide enough that the plot area is a positive width — recharts needs
+  // somewhere to put a chart — and clipped back to the axis by the strip above.
+  const width = Y_AXIS_WIDTH + 8 + CHART_MARGIN.right;
+  return (
+    <BarChart
+      width={width}
+      height={height}
+      data={PINNED_AXIS_DATA}
+      margin={CHART_MARGIN}
+      // Off, because recharts otherwise makes its canvas focusable and keyboard
+      // navigable — and a focus stop hidden from assistive technology is a trap
+      // rather than a courtesy. The chart beside this one keeps its own.
+      accessibilityLayer={false}
+    >
+      <XAxis
+        dataKey="label"
+        tick={false}
+        tickLine={false}
+        axisLine={false}
+        height={X_AXIS_HEIGHT}
+      />
+      <YAxis {...Y_AXIS_PROPS} domain={[0, yMax]} tickFormatter={formatTick} />
+    </BarChart>
+  );
+}
+
+/** One nameless bucket, so the pinned axis has a chart to be an axis of. */
+const PINNED_AXIS_DATA = [{ label: "" }];
 
 type StackedBarTooltipProps = {
   series: StackedBarSeries[];

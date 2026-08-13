@@ -9,8 +9,11 @@ import {
   formatTrendsDay,
   hasSales,
   toggleTicketTypeSelection,
+  trendsPlotWidth,
   trendsSeries,
   trendsYMax,
+  TRENDS_MIN_BAR_WIDTH,
+  TRENDS_MIN_PLOT_WIDTH,
   type SalesTrends,
   type TrendsDay,
   type TrendsTicketType,
@@ -246,6 +249,66 @@ test("deselecting a Ticket Type rescales the Takings axis on its own terms", () 
 
 function datum(total: number) {
   return { key: "d", label: "d", values: { only: total }, total };
+}
+
+// --- how wide a span is drawn --------------------------------------------
+
+// A card is somewhere around this wide. The point of every test below is that
+// the number plays no part in the arithmetic: a plot sized to the room it is
+// given is a plot that compresses as the Event ages.
+const A_CARD = 800;
+
+test("a day is owed the same room at every range", () => {
+  const young = trendsPlotWidth(30);
+  const old = trendsPlotWidth(400);
+  assert.equal(young / 30, TRENDS_MIN_BAR_WIDTH);
+  assert.equal(old / 400, TRENDS_MIN_BAR_WIDTH);
+  // Which is the whole argument against rebucketing: a reader who learned the
+  // chart on the young Event is reading the same object on the old one.
+  assert.equal(young / 30, old / 400);
+});
+
+test("a span longer than the card grows past it rather than compressing into it", () => {
+  assert.ok(trendsPlotWidth(400) > A_CARD);
+  // Sized by the span, not by the window: a wider window buys no extra days and
+  // a narrower one loses none.
+  assert.equal(trendsPlotWidth(400), 400 * TRENDS_MIN_BAR_WIDTH);
+});
+
+test("a span the card can hold takes only the room it needs", () => {
+  // Three weeks fits, so there is nothing to scroll — and it is drawn at three
+  // weeks' width rather than stretched across the card.
+  assert.ok(trendsPlotWidth(21) < A_CARD);
+  assert.equal(trendsPlotWidth(21), 21 * TRENDS_MIN_BAR_WIDTH);
+});
+
+test("a few days still get a plot to sit in", () => {
+  // A two-day-old Event drawn two days wide reads as a broken chart rather than
+  // as a new Event. The floor is room, not fatter bars: the chart caps a bar's
+  // width, so these are ordinary bars with space around them.
+  assert.equal(trendsPlotWidth(2), TRENDS_MIN_PLOT_WIDTH);
+  assert.equal(trendsPlotWidth(0), TRENDS_MIN_PLOT_WIDTH);
+});
+
+test("several hundred days is several hundred bars, one per day", () => {
+  const span = longSpan(400);
+  const data = trendsSeries(span, ALL, "quantity");
+  // No bucket is ever shared between two days, at any length of span.
+  assert.equal(data.length, span.length);
+  assert.equal(new Set(data.map((entry) => entry.key)).size, span.length);
+  assert.equal(trendsPlotWidth(span.length), span.length * TRENDS_MIN_BAR_WIDTH);
+});
+
+/** A contiguous, zero-filled span of `count` days, as the API sends one. */
+function longSpan(count: number): TrendsDay[] {
+  const start = Date.UTC(2026, 0, 1);
+  return Array.from({ length: count }, (_, index) => {
+    const day = new Date(start + index * 86_400_000).toISOString().slice(0, 10);
+    return {
+      date: day,
+      lines: [{ ticket_type_id: "tt_ga", quantity: index % 7, takings_cents: (index % 7) * 2_500 }],
+    };
+  });
 }
 
 // --- Takings in the Organization's currency -------------------------------

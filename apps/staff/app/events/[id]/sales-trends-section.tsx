@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
   ChartLegendChips,
+  ChartScrollArea,
   Skeleton,
   chartSeriesColor,
   type ChartLegendChip,
@@ -23,6 +24,7 @@ import {
   formatTakingsTick,
   hasSales,
   toggleTicketTypeSelection,
+  trendsPlotWidth,
   type SalesTrends,
 } from "@/lib/sales-trends";
 
@@ -176,32 +178,48 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
  * comparison is between two figures for the same day, so the days must share a
  * horizontal position, and a narrow screen therefore degrades into reading one
  * chart and then the other rather than into a broken layout.
+ *
+ * That horizontal position is why both are drawn at one width, worked out here
+ * from the span, and why both are drawn inside one scrolling window. A window
+ * each would need their offsets kept equal by hand, and the day under the
+ * pointer in the upper chart would sooner or later stop being the day under it
+ * in the lower one. One window has one offset and cannot disagree with itself.
  */
 function TrendsCharts({ trends, series }: { trends: SalesTrends; series: StackedBarSeries[] }) {
+  const plotWidth = trendsPlotWidth(trends.days.length);
   return (
-    <div className="space-y-6">
-      <TrendsChart
-        title="Tickets sold"
-        description="How much stock moved each day, stacked by Ticket Type."
-        days={trends.days}
-        series={series}
-        measure="quantity"
-        formatValue={formatTickets}
-        totalLabel="Total tickets"
-        syncId={TRENDS_SYNC_ID}
-      />
-      <TrendsChart
-        title="Takings"
-        description="What this Event made each day, stacked by Ticket Type."
-        note={TAKINGS_NOTE}
-        days={trends.days}
-        series={series}
-        measure="takings_cents"
-        formatValue={(value) => formatTakings(value, trends.currency)}
-        formatTickValue={(value) => formatTakingsTick(value, trends.currency)}
-        totalLabel="Total takings"
-        syncId={TRENDS_SYNC_ID}
-      />
+    <div className="space-y-2">
+      <ChartScrollArea ariaLabel="Sales Trends charts — scroll sideways to move through the Event's selling period">
+        <div className="w-max space-y-6">
+          <TrendsChart
+            title="Tickets sold"
+            description="How much stock moved each day, stacked by Ticket Type."
+            days={trends.days}
+            series={series}
+            plotWidth={plotWidth}
+            measure="quantity"
+            formatValue={formatTickets}
+            totalLabel="Total tickets"
+            syncId={TRENDS_SYNC_ID}
+          />
+          <TrendsChart
+            title="Takings"
+            description="What this Event made each day, stacked by Ticket Type."
+            days={trends.days}
+            series={series}
+            plotWidth={plotWidth}
+            measure="takings_cents"
+            formatValue={(value) => formatTakings(value, trends.currency)}
+            formatTickValue={(value) => formatTakingsTick(value, trends.currency)}
+            totalLabel="Total takings"
+            syncId={TRENDS_SYNC_ID}
+          />
+        </div>
+      </ChartScrollArea>
+      {/* Beneath the scrolling window rather than inside it. A paragraph laid out
+          across a plot several thousand pixels wide would be one very long line
+          the reader had to scroll to finish, and this one is here to be read. */}
+      <p className="text-xs text-muted-foreground">{TAKINGS_NOTE}</p>
     </div>
   );
 }

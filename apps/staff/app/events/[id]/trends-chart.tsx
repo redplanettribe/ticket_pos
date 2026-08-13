@@ -21,10 +21,12 @@ type TrendsChartProps = {
   /** The drawn Ticket Types with their colours, in catalog display order. */
   series: StackedBarSeries[];
   /**
-   * A short paragraph beneath the bars, for a figure that needs defending
-   * against a reasonable misreading. Absent on a chart that speaks for itself.
+   * How wide to draw the plot area. Handed down rather than worked out here so
+   * that every chart on the surface is drawn at one width: two charts that each
+   * sized themselves would agree today and disagree the first time one of them
+   * was given a day the other did not have.
    */
-  note?: string;
+  plotWidth: number;
   /** Which figure to plot: tickets sold, or Takings. */
   measure: TrendsMeasure;
   /** Renders a figure exactly, for the tooltip. */
@@ -49,13 +51,17 @@ type TrendsChartProps = {
  *
  * The selection itself lives above this component for the same reason: one chip
  * row must drive both charts, and state held here could only drive one.
+ *
+ * It renders inside the surface's shared scroll area, which is why its heading
+ * pins itself to the left: a heading that scrolled away with the bars would
+ * leave a reader four months into a long span looking at an unlabelled chart.
  */
 export function TrendsChart({
   title,
   description,
-  note,
   days,
   series,
+  plotWidth,
   measure,
   formatValue,
   formatTickValue,
@@ -69,21 +75,22 @@ export function TrendsChart({
   const yMax = useMemo(() => trendsYMax(data), [data]);
 
   return (
-    <section className="space-y-1">
-      <h3 className="text-sm font-medium">{title}</h3>
-      <p className="text-xs text-muted-foreground">{description}</p>
+    <section className="w-max">
+      <div className="sticky left-0 w-max space-y-1 bg-card pb-2 pr-4">
+        <h3 className="text-sm font-medium">{title}</h3>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
       <StackedBarChart
-        className="pt-2"
         data={data}
         series={series}
         yMax={yMax}
+        plotWidth={plotWidth}
         formatValue={formatValue}
         formatTickValue={formatTickValue}
         totalLabel={totalLabel}
         syncId={syncId}
         ariaLabel={`${title}, one bar per day, stacked by Ticket Type`}
       />
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
     </section>
   );
 }

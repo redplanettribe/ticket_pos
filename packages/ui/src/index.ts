@@ -5,6 +5,7 @@ export {
   type ChartLegendChip,
   type ChartLegendChipsProps,
 } from "./components/charts/chart-legend-chips";
+export { ChartScrollArea, type ChartScrollAreaProps } from "./components/charts/chart-scroll-area";
 export {
   StackedBarChart,
   type StackedBarChartProps,

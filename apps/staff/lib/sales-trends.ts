@@ -145,6 +145,50 @@ export function trendsSeries(
   });
 }
 
+/**
+ * The horizontal room one day is owed, in pixels.
+ *
+ * This is the number that makes a long selling period scroll instead of
+ * compress. An Event on sale for a year has some hundreds of days in it, and
+ * they cannot all be legible bars inside a card; the two ways out are to give a
+ * bar less room or to make a bar mean more than a day. The second was rejected
+ * during design (#278): a bar standing for a day at one range and a week at
+ * another means a reader who learned the chart on a young Event misreads it on
+ * an old one, and misreads it without noticing. So a day keeps its width, the
+ * plot grows past the card, and the reader scrolls.
+ */
+export const TRENDS_MIN_BAR_WIDTH = 24;
+
+/**
+ * The narrowest the plot area is ever drawn, whatever the span.
+ *
+ * A three-day-old Event is three days wide — around seventy pixels — which reads
+ * as a rendering fault rather than as a young Event. The floor gives those days
+ * somewhere to sit. It does not make their bars any fatter: the chart caps a bar
+ * at a maximum width, so a short span is a few normal bars spread out rather
+ * than a few slabs, which is what keeps a bar looking like the same object at
+ * every range.
+ */
+export const TRENDS_MIN_PLOT_WIDTH = 360;
+
+/**
+ * trendsPlotWidth is how wide the plotting area must be to give every day of the
+ * span its own room — the width both charts are drawn at, so that a day sits at
+ * the same horizontal position in each.
+ *
+ * It answers to the day count alone and never to the width available. That is
+ * the point: a plot sized to its container is a plot that compresses, and one
+ * sized to its contents is one that scrolls. It also means a span that fits
+ * takes only the room it needs and leaves the rest of the card empty, rather
+ * than stretching a fortnight across it.
+ */
+export function trendsPlotWidth(dayCount: number): number {
+  if (dayCount <= 0) {
+    return TRENDS_MIN_PLOT_WIDTH;
+  }
+  return Math.max(dayCount * TRENDS_MIN_BAR_WIDTH, TRENDS_MIN_PLOT_WIDTH);
+}
+
 /** The tick steps a Y axis is allowed to round up to, per decade. Chosen so the
  * axis lands on numbers a person reads without counting: 1, 2, 5, 10, 20 … */
 const NICE_STEPS = [1, 2, 2.5, 5, 10];
