@@ -114,6 +114,11 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 	if !capture.Channel.Valid() {
 		return consent.Receipt{}, fmt.Errorf("consent capture: unknown channel %q", capture.Channel)
 	}
+	// A withdraw-only channel may not grant, and the refusal is the write path's
+	// rather than any surface's (#271). See refuseGrantOnOperatorRequest.
+	if err := refuseGrantOnOperatorRequest(capture); err != nil {
+		return consent.Receipt{}, err
+	}
 
 	version, err := s.repo.CurrentPolicyVersion(ctx)
 	if errors.Is(err, repository.ErrNoCurrentPolicyVersion) {
@@ -138,6 +143,12 @@ func (s *Service) capture(ctx context.Context, tx *sql.Tx, capture consent.Captu
 		UserAgent:         nullString(capture.Evidence.UserAgent),
 		SessionID:         nullString(capture.Evidence.SessionID),
 		OriginURL:         nullString(capture.Evidence.OriginURL),
+		// Null on every act a Customer performed themselves, which is every
+		// channel but the Operator's (#271). Empty becomes SQL NULL rather than
+		// the empty string, so "recorded by nobody" has exactly one spelling —
+		// which is also what migration 067's CHECK insists on.
+		RecordedBy:       nullString(capture.RecordedBy),
+		RequestReference: nullString(capture.RequestReference),
 	}
 
 	state := repository.StateWrite{

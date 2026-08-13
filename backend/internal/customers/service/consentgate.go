@@ -65,8 +65,7 @@ type ConsentGate interface {
 	// this side may only annotate the act it just performed.
 	ConfirmationSent(ctx context.Context, recordID string, at time.Time) error
 	// PrivacyState reports what a Customer has authorized — the Policy Version
-	// they accepted and when, and each optional consent's current state — for
-	// the Customer Area's Privacy page (#268).
+	// they accepted and when, and each optional consent's current state.
 	//
 	// THE FOURTH ARRIVAL, AND THE ONLY ONE THAT IS PURELY A READ. It exists
 	// beside Outstanding rather than inside it because the two ask opposite
@@ -75,6 +74,14 @@ type ConsentGate interface {
 	// them, which is what a settings surface reports. A caller cannot reach a
 	// write through it, so the page it serves cannot record anything by being
 	// looked at.
+	//
+	// IT SERVES BOTH SURFACES THAT REPORT RATHER THAN ASK — the Customer's own
+	// Privacy page (#268) and the Operator's view of what a withdrawal would
+	// change before it changes it (#271). The two arrived independently and were
+	// nearly the same read; they are one method because the question is one
+	// question, and a second spelling of it would be a second thing to keep true.
+	// What differs between them is who may call and what is drawn, neither of
+	// which is this interface's business.
 	PrivacyState(ctx context.Context, customerID string) (consent.PrivacyState, error)
 }
 

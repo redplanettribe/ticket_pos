@@ -14,13 +14,20 @@ test("the operator sees each job of the dashboard as its own destination, in ord
     "Organizations",
     "Payout Requests",
     "Find a sale",
+    "Customer consent",
   ]);
 });
 
 test("the entries point at the operator surface", () => {
   assert.deepEqual(
     operatorNavItems({}).map((item) => item.href),
-    ["/operator", "/operator/organizations", "/operator/payout-requests", "/operator/sales"],
+    [
+      "/operator",
+      "/operator/organizations",
+      "/operator/payout-requests",
+      "/operator/sales",
+      "/operator/consent",
+    ],
   );
 });
 
@@ -48,19 +55,23 @@ test("reading the sale a lookup found lights Find a sale alone", () => {
   assert.deepEqual(activeLabels("/operator/sales/TP-J7K2QX9M"), ["Find a sale"]);
 });
 
+test("the consent surface lights Customer consent alone", () => {
+  assert.deepEqual(activeLabels("/operator/consent"), ["Customer consent"]);
+});
+
 // --- the pending count -----------------------------------------------------
 
 test("the pending count is worn by Payout Requests and by nothing else", () => {
   const items = operatorNavItems({ payoutRequestBadge: "3" });
   assert.deepEqual(
     items.map((item) => item.badge ?? null),
-    [null, null, "3", null],
+    [null, null, "3", null, null],
   );
 });
 
 test("nothing waiting means no entry wears anything", () => {
   assert.deepEqual(
     operatorNavItems({ payoutRequestBadge: null }).map((item) => item.badge ?? null),
-    [null, null, null, null],
+    [null, null, null, null, null],
   );
 });

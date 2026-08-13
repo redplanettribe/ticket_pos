@@ -169,6 +169,29 @@ type Capture struct {
 	Answers Answers
 	// Evidence is the circumstances.
 	Evidence Evidence
+	// RecordedBy is the staff member who entered this act on the Customer's
+	// behalf, and is EMPTY ON EVERY ACT A CUSTOMER PERFORMED THEMSELVES — which
+	// is every act the platform has recorded to date and the overwhelming
+	// majority it ever will (#271, migration 067).
+	//
+	// It is an email, taken from the Staff Session and never from a request body,
+	// exactly as every other operator attribution on this platform is. Its
+	// emptiness is the assertion that nobody stood between the person and the
+	// record; its presence is the assertion that somebody did, which is what
+	// stops a staff action from ever being presented as somebody's own click.
+	RecordedBy string
+	// RequestReference names the inbound artefact this act answers: the dated
+	// form, the letter, the email to the data-protection address.
+	//
+	// IT IS A POINTER TO EVIDENCE HELD ELSEWHERE, NOT EVIDENCE ITSELF. Everything
+	// else on a Consent Record is something the platform OBSERVED; this is a
+	// human's note saying where the paper is. It is never parsed and nothing is
+	// ever decided from its contents — a rule that branched on it would be
+	// treating a filing reference as a fact about consent.
+	//
+	// Empty on every act a Customer performed themselves, which answers no
+	// artefact at all.
+	RequestReference string
 }
 
 // Receipt is what the platform recorded, returned to the surface that captured
