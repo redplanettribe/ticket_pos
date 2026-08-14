@@ -74,7 +74,9 @@ type StaffPageShellProps = {
  * speaks for, but the panel around them is chrome, and chrome is what `shell`
  * speaks for.
  */
-async function shellLabels(): Promise<{ staff: StaffShellLabels; operator: OperatorShellLabels }> {
+async function shellLabels(
+  organizationName: string,
+): Promise<{ staff: StaffShellLabels; operator: OperatorShellLabels }> {
   const t = await getTranslations("shell");
   const sidebar = {
     skipToContent: t("skipToContent"),
@@ -87,6 +89,7 @@ async function shellLabels(): Promise<{ staff: StaffShellLabels; operator: Opera
   return {
     staff: {
       organizationHeading: t("organizationHeading"),
+      organizationLogoAlt: t("organizationLogoAlt", { organization: organizationName }),
       nav: {
         dashboard: t("navDashboard"),
         events: t("navEvents"),
@@ -111,10 +114,14 @@ async function shellLabels(): Promise<{ staff: StaffShellLabels; operator: Opera
 }
 
 export async function StaffPageShell({ activePath, children }: StaffPageShellProps) {
-  const [session, labels] = await Promise.all([loadSession(), shellLabels()]);
+  const session = await loadSession();
   // The product's own name, and therefore not copy: it reads as coined in both
   // languages, the same rule an Organization's name follows.
   const organizationName = session?.active_member?.organization_name ?? "Multiticketing";
+  // After the session rather than beside it, because the logo's alt text names
+  // the Organization. loadSession is cache()d and already resolved by the time
+  // this runs, so the wait costs nothing.
+  const labels = await shellLabels(organizationName);
   const organizationLogoUrl = session?.active_member?.organization_logo_url ?? null;
   // Asked for only when the switcher will render it. A non-operator would be
   // refused by the API anyway; not asking is the cheaper way to say the same.

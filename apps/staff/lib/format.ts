@@ -147,14 +147,38 @@ export function formatInstant(
   return new Intl.DateTimeFormat(staffIntlLocale(locale), { ...options, timeZone }).format(date);
 }
 
-/** A moment as a date alone — "Mar 1, 2026" / "1 mar 2026" — in a stated zone. */
+/**
+ * The staff date, spelled the way docs/design/foundation.md requires: a weekday
+ * in front of a medium date — "Sun, Jul 12, 2026" / "dom, 12 jul 2026".
+ *
+ * Written out field by field rather than as `dateStyle: "medium"`, because that
+ * style drops the weekday in both languages and the standard asks for it.
+ */
+const STAFF_DATE: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+};
+
+/** A moment as a date alone — "Sun, Jul 12, 2026" / "dom, 12 jul 2026" — in a stated zone. */
 export function formatDate(value: Instant, timeZone: string, locale: AppLocale): string | null {
-  return formatInstant(value, timeZone, locale, { dateStyle: "medium" });
+  return formatInstant(value, timeZone, locale, STAFF_DATE);
 }
 
-/** A moment as a date and a time — the form most staff tables want. */
+/**
+ * A moment as a date and a time — the form most staff tables want.
+ *
+ * The time is spelled field by field rather than as `timeStyle: "short"`,
+ * because Intl refuses to mix a style with the individual date fields above
+ * and throws rather than ignoring one of them.
+ */
 export function formatDateTime(value: Instant, timeZone: string, locale: AppLocale): string | null {
-  return formatInstant(value, timeZone, locale, { dateStyle: "medium", timeStyle: "short" });
+  return formatInstant(value, timeZone, locale, {
+    ...STAFF_DATE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 /** A moment as an hour alone, in a stated zone. */

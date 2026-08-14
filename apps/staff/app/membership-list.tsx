@@ -21,10 +21,16 @@ export type Membership = {
  */
 export function MembershipDetails({ membership }: { membership: Membership }) {
   const roleName = useRoleName();
+  const t = useTranslations("shell");
 
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <OrgAvatar logoUrl={membership.organization_logo_url} name={membership.organization_name} shape="tile" />
+      <OrgAvatar
+        logoUrl={membership.organization_logo_url}
+        name={membership.organization_name}
+        alt={t("organizationLogoAlt", { organization: membership.organization_name })}
+        shape="tile"
+      />
       <div className="min-w-0">
         <p className="font-medium">{membership.organization_name}</p>
         {/*

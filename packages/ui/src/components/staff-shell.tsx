@@ -19,6 +19,15 @@ import { SidebarShell, type SidebarLabels, type SidebarNavItem } from "./sidebar
 export type StaffShellLabels = {
   /** The eyebrow above the Organization's name — "Organization". */
   organizationHeading: string;
+  /**
+   * The Organization logo's alt text, already naming the Organization.
+   *
+   * Required for the same reason the rest of this type is: `OrgAvatar` defaults
+   * it to an English sentence, and a string read aloud is as much copy as a
+   * visible one — it is simply the kind no sighted reviewer of a Spanish page
+   * ever catches.
+   */
+  organizationLogoAlt: string;
   /** One word per `StaffNavKey`, in the reader's language. */
   nav: Record<StaffNavKey, string>;
   sidebar: SidebarLabels;
@@ -89,13 +98,13 @@ export function StaffShell({
             onClick={handleOrganizationClick}
             className="mt-1 flex w-full items-center gap-2 text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
           >
-            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
+            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} alt={labels.organizationLogoAlt} shape="inline" />
             <span className="truncate">{organizationName}</span>
             {organizationBadge ? <span className="ml-auto shrink-0">{organizationBadge}</span> : null}
           </button>
         ) : (
           <p className="mt-1 flex items-center gap-2 font-semibold">
-            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
+            <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} alt={labels.organizationLogoAlt} shape="inline" />
             <span className="truncate">{organizationName}</span>
             {organizationBadge ? <span className="ml-auto shrink-0">{organizationBadge}</span> : null}
           </p>
@@ -106,7 +115,7 @@ export function StaffShell({
 
   const mobileHeader = (
     <p className="flex min-w-0 items-center gap-2 font-semibold">
-      <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} shape="inline" />
+      <OrgAvatar logoUrl={organizationLogoUrl} name={organizationName} alt={labels.organizationLogoAlt} shape="inline" />
       <span className="truncate">{organizationName}</span>
     </p>
   );

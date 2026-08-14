@@ -48,7 +48,9 @@
     "selectOrganizationFailed": "No se pudo seleccionar esa organización.",
     "roleOrgAdmin": "Administrador de la organización",
     "roleEventOwner": "Responsable del evento",
-    "roleEventStaff": "Personal del evento"
+    "roleEventStaff": "Personal del evento",
+    "organizationLogoAlt": "Logotipo de {organization}",
+    "organizationLogoAltUnnamed": "Logotipo de la organización"
   },
   "login": {
     "title": "Iniciar sesión",
@@ -362,7 +364,8 @@
     "title": "Punto de venta",
     "description": "Ventas presenciales, en la puerta.",
     "inProgressTitle": "El punto de venta está en desarrollo",
-    "inProgressDescription": "Elija un evento, seleccione los tipos de entrada y cobre en la puerta."
+    "inProgressDescription": "Elija un evento, seleccione los tipos de entrada y cobre en la puerta.",
+    "inProgressBadge": "Próximamente"
   },
   "sales": {
     "title": "Ventas",

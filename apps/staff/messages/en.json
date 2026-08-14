@@ -48,7 +48,9 @@
     "selectOrganizationFailed": "Could not select that organization.",
     "roleOrgAdmin": "Org Admin",
     "roleEventOwner": "Event Owner",
-    "roleEventStaff": "Event Staff"
+    "roleEventStaff": "Event Staff",
+    "organizationLogoAlt": "{organization} logo",
+    "organizationLogoAltUnnamed": "Organization logo"
   },
   "login": {
     "title": "Sign in",
@@ -362,7 +364,8 @@
     "title": "Point of sale",
     "description": "In-person sales, at the door.",
     "inProgressTitle": "The point of sale is under development",
-    "inProgressDescription": "Pick an Event, choose Ticket Types, and take payment at the door."
+    "inProgressDescription": "Pick an Event, choose Ticket Types, and take payment at the door.",
+    "inProgressBadge": "Coming soon"
   },
   "sales": {
     "title": "Sales",

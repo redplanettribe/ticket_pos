@@ -20,7 +20,11 @@ export default async function POSPage() {
     <StaffPageShell activePath="/pos">
       <div className="mx-auto max-w-4xl space-y-6">
         <PageHeader title={t("title")} description={t("description")} />
-        <InProgressPanel title={t("inProgressTitle")} description={t("inProgressDescription")} />
+        <InProgressPanel
+          title={t("inProgressTitle")}
+          description={t("inProgressDescription")}
+          badge={t("inProgressBadge")}
+        />
       </div>
     </StaffPageShell>
   );
