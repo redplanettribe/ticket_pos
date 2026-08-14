@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { formatCalendarDay } from "./format.ts";
 import {
   exceedsWithdrawableBalance,
   formatPaidAtDate,
@@ -9,13 +10,31 @@ import {
 } from "./payouts.ts";
 
 // --- paid-at rendering ----------------------------------------------------
+//
+// The organizer's Payouts page draws its own paid-at day now, through
+// formatCalendarDay in the reader's Staff Locale. What is left here is the
+// Operator Dashboard's English wrapper (#292), and what is worth asserting about
+// it is the property that outlives the language: a calendar day is not an
+// instant, and must not be shifted by one.
 
 test("formatPaidAtDate renders the calendar day, not a UTC-shifted instant", () => {
-  assert.equal(formatPaidAtDate("2026-03-01"), new Date(2026, 2, 1).toLocaleDateString());
+  // "2026-03-01" through the Date constructor is UTC midnight, which is the 28th
+  // of February everywhere west of Greenwich — which is where this platform
+  // sells. The day that goes in is the day that comes out.
+  assert.equal(formatPaidAtDate("2026-03-01"), formatCalendarDay("2026-03-01", "en"));
+  assert.match(formatPaidAtDate("2026-03-01"), /Mar 1, 2026/);
 });
 
 test("formatPaidAtDate passes a malformed value through untouched", () => {
   assert.equal(formatPaidAtDate("not-a-date"), "not-a-date");
+});
+
+test("formatPaidAtDate no longer follows the machine it is read on", () => {
+  // It ended in a bare toLocaleDateString(), which is the BROWSER's locale and
+  // not a language anything in the application chose (ADR 0041). It is English
+  // now because the Operator Dashboard is, deliberately and in one place.
+  assert.equal(formatPaidAtDate("2026-12-25"), formatCalendarDay("2026-12-25", "en"));
+  assert.notEqual(formatPaidAtDate("2026-12-25"), formatCalendarDay("2026-12-25", "es"));
 });
 
 // --- overdraft warning ----------------------------------------------------

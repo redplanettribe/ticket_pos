@@ -3,11 +3,28 @@
 // (see payout-profile.test.ts) and can be reused by any surface that shows an
 // account number.
 
-/** The two account types an Ecuadorian bank offers, in the Spanish the receiving bank's form uses. */
+/**
+ * The two account types an Ecuadorian bank offers, as the API states them.
+ *
+ * These are tokens, and the words for them are `payouts.accountTypeAhorros` and
+ * its sibling — which happen to read the same in both catalogs, because they are
+ * the words the receiving bank's own form uses. An English-speaking organizer
+ * filling in an Ecuadorian bank form is looking at "Ahorros" on the paper in
+ * front of them, and a screen that said "Savings" would be asking them to
+ * translate their own bank's vocabulary in order to answer.
+ */
 export const ACCOUNT_TYPES = ["ahorros", "corriente"] as const;
 
-/** The Tax ID Types a beneficiary may hold. Never `passport`: the party being paid holds an Ecuadorian bank account. */
+export type PayoutAccountType = (typeof ACCOUNT_TYPES)[number];
+
+/**
+ * The Tax ID Types a beneficiary may hold. Never `passport`: the party being
+ * paid holds an Ecuadorian bank account (ADR 0026). Tokens again, worded by
+ * `payouts.taxIdTypeCedula` and `payouts.taxIdTypeRuc`.
+ */
 export const PAYOUT_TAX_ID_TYPES = ["cedula", "ruc"] as const;
+
+export type PayoutTaxIDType = (typeof PAYOUT_TAX_ID_TYPES)[number];
 
 /**
  * Strips the separators an organizer brings with them when they copy an account

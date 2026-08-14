@@ -171,8 +171,7 @@ export const SUPPORTED_CURRENCIES = [
  * NOT FOR A MIGRATED SURFACE. `Intl` with no locale follows the BROWSER's, which
  * is the bug ADR 0041 exists to fix — use `formatMoney` from lib/format.ts, which
  * demands the Staff Locale. This stays only for the surfaces that have not been
- * migrated yet (payouts, the Operator Dashboard, sales and imports); it goes when
- * the last of them does.
+ * migrated yet (the Operator Dashboard); it goes when the last of them does.
  */
 export function formatPriceCents(priceCents: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {

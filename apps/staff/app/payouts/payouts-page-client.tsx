@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import { Alert, AlertDescription, AlertTitle, Card, CardContent } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents } from "@/lib/events-api";
-import { payableBalanceExplanation } from "@/lib/payable-balance";
-import { formatPaidAtDate } from "@/lib/payouts";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { formatCalendarDay, formatMoney } from "@/lib/format";
+import { payableBalance } from "@/lib/payable-balance";
 
 import { PayoutRequestsSection } from "./payout-requests-section";
 
@@ -38,22 +41,38 @@ type PayoutsSummary = {
 
 type APIEnvelope<T> = {
   data: T | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; details?: Record<string, unknown> } | null;
 };
 
+/**
+ * The refusal is carried as an ApiError so its CODE survives the throw, which is
+ * what lets the alert below say the API's verdict in the reader's language
+ * (ADR 0023, ADR 0041). It used to be a bare Error, and the page told a
+ * permission refusal apart from every other one by looking for the word
+ * "permission" inside the sentence — which worked only for as long as there was
+ * exactly one language, and read the message the API happens to write today as
+ * though it were a contract.
+ */
 async function fetchJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { "Content-Type": "application/json" } });
   const envelope = (await response.json()) as APIEnvelope<T>;
   if (!response.ok || envelope.error) {
-    throw new Error(envelope.error?.message ?? "Request failed");
+    throw new ApiError(
+      envelope.error?.message ?? "",
+      envelope.error?.code,
+      envelope.error?.details,
+    );
   }
   if (envelope.data === null) {
-    throw new Error("Empty response");
+    throw new ApiError("", "INTERNAL_ERROR");
   }
   return envelope.data;
 }
 
 export function PayoutsPageClient() {
+  const t = useTranslations("payouts");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [payouts, setPayouts] = useState<PayoutsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -66,15 +85,21 @@ export function PayoutsPageClient() {
       setPayouts(await fetchJSON<PayoutsSummary>("/api/settings/organization/payouts"));
       setForbidden(false);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load payouts";
-      if (message.toLowerCase().includes("permission")) {
+      // Getting paid is Org-Admin-only on the server as well as in the nav, so
+      // a refusal here is its own answer rather than a failure to report: the
+      // page says who may read this, and does not offer to retry.
+      if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
         setForbidden(true);
       } else {
-        setError(message);
+        setError(
+          (loadError instanceof ApiError ? apiErrorMessage(errorCopy, loadError) : null) ??
+            t("loadFailed"),
+        );
       }
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -82,14 +107,14 @@ export function PayoutsPageClient() {
   }, [load]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading payouts...</p>;
+    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
 
   if (forbidden) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Access denied</AlertTitle>
-        <AlertDescription>You need Org Admin access to manage payouts.</AlertDescription>
+        <AlertTitle>{t("accessDeniedTitle")}</AlertTitle>
+        <AlertDescription>{t("accessDenied")}</AlertDescription>
       </Alert>
     );
   }
@@ -97,11 +122,17 @@ export function PayoutsPageClient() {
   if (error || !payouts) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load payouts</AlertTitle>
-        <AlertDescription>{error ?? "Unknown error"}</AlertDescription>
+        <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
+        <AlertDescription>{error ?? t("loadFailed")}</AlertDescription>
       </Alert>
     );
   }
+
+  const balance = payableBalance(
+    payouts.withdrawable_balance_cents,
+    payouts.payable_balance_cents,
+  );
+  const money = (cents: number) => formatMoney(cents, payouts.currency, locale);
 
   return (
     <Card>
@@ -120,28 +151,36 @@ export function PayoutsPageClient() {
         <div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <p className="text-sm text-muted-foreground">Withdrawable balance</p>
+              <p className="text-sm text-muted-foreground">{t("withdrawableBalance")}</p>
               <p className="text-3xl font-semibold tabular-nums">
-                {formatPriceCents(payouts.withdrawable_balance_cents, payouts.currency)}
+                {money(payouts.withdrawable_balance_cents)}
               </p>
-              <p className="text-xs text-muted-foreground">Everything your online sales have earned you so far.</p>
+              <p className="text-xs text-muted-foreground">{t("withdrawableBalanceHint")}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Payable balance</p>
+              <p className="text-sm text-muted-foreground">{t("payableBalance")}</p>
               <p className="text-3xl font-semibold tabular-nums">
-                {formatPriceCents(payouts.payable_balance_cents, payouts.currency)}
+                {money(payouts.payable_balance_cents)}
               </p>
-              <p className="text-xs text-muted-foreground">
-                Sales clear overnight, so today&apos;s are not here yet.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("payableBalanceHint")}</p>
             </div>
           </div>
+          {/*
+            The gap between the two figures, in words, in the reader's language —
+            three sentences, one per state, chosen by lib/payable-balance.ts and
+            said by the catalog. The amounts inside them are drawn in the
+            ORGANIZATION's currency whichever language that is: a locale decides
+            the marks around a number and never which money it counts (ADR 0041).
+          */}
           <p className="mt-4 text-sm text-muted-foreground">
-            {payableBalanceExplanation(
-              payouts.withdrawable_balance_cents,
-              payouts.payable_balance_cents,
-              (cents) => formatPriceCents(cents, payouts.currency),
-            )}
+            {balance.state === "nothing_cleared"
+              ? t("balanceNothingCleared")
+              : balance.state === "all_cleared"
+                ? t("balanceAllCleared", { payable: money(balance.payableCents) })
+                : t("balanceSomeUncleared", {
+                    payable: money(balance.payableCents),
+                    uncleared: money(balance.unclearedCents),
+                  })}
           </p>
         </div>
 
@@ -160,9 +199,9 @@ export function PayoutsPageClient() {
         />
 
         <div className="space-y-3">
-          <p className="text-sm font-medium">Payout history</p>
+          <p className="text-sm font-medium">{t("historyTitle")}</p>
           {payouts.payouts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No payouts recorded yet.</p>
+            <p className="text-sm text-muted-foreground">{t("historyEmpty")}</p>
           ) : (
             <div className="space-y-3">
               {payouts.payouts.map((payout) => (
@@ -171,12 +210,17 @@ export function PayoutsPageClient() {
                   className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="font-medium tabular-nums">
-                      {formatPriceCents(payout.amount_cents, payouts.currency)}
-                    </p>
+                    <p className="font-medium tabular-nums">{money(payout.amount_cents)}</p>
                     {payout.note ? <p className="text-sm text-muted-foreground">{payout.note}</p> : null}
                   </div>
-                  <p className="text-sm text-muted-foreground">{formatPaidAtDate(payout.paid_at)}</p>
+                  {/*
+                    A calendar day, not an instant, and drawn as one: "2026-03-01"
+                    through the Date constructor is UTC midnight, which is the
+                    28th of February everywhere this platform sells.
+                  */}
+                  <p className="text-sm text-muted-foreground">
+                    {formatCalendarDay(payout.paid_at, locale)}
+                  </p>
                 </div>
               ))}
             </div>

@@ -2,18 +2,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import { Button, FormField, Input, toast } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents, parsePriceToCents } from "@/lib/events-api";
+import { apiErrorMessage, fieldErrorMessages } from "@/lib/api-errors";
+import { ApiError, parsePriceToCents } from "@/lib/events-api";
+import { PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
 import { maskAccountNumber, normalizeAccountNumber } from "@/lib/payout-profile";
 import {
-  TRANSFER_FAILED_NEXT_STEP,
+  type PayoutRequestAmountProblem,
+  type PayoutRequestStatus,
   isCancellable,
   isOutstanding,
   payoutRequestAmountProblem,
-  payoutRequestStatusLabel,
-  resolutionSentence,
-  transferSentSentence,
+  payoutRequestStatusToken,
+  resolutionNotice,
 } from "@/lib/payout-requests";
 
 import {
@@ -85,13 +89,30 @@ type PayoutRequest = {
 };
 
 /**
- * How this section renders a date, in the viewer's own locale, passed into the
- * pure helpers that write prose around one. Stated once so the date under
- * "Processing" and the date on every history row are the same rendering.
+ * The `payouts` catalog key each Payout Request status is said with.
+ *
+ * ONE KEY PER STATE, READ BY EVERY SCREEN THAT DRAWS ONE. That is the whole of
+ * how a status comes to have exactly one Spanish word: the outstanding card, the
+ * request history and the notice email that links here all say *En proceso* for
+ * `processing` because there is one place the word can come from. A per-screen
+ * rendering is how a reader ends up having to work out whether two words mean
+ * one state.
  */
-function formatDate(date: Date): string {
-  return date.toLocaleDateString();
-}
+const STATUS_KEYS = {
+  pending: "requestStatusPending",
+  processing: "requestStatusProcessing",
+  paid: "requestStatusPaid",
+  declined: "requestStatusDeclined",
+  cancelled: "requestStatusCancelled",
+  failed: "requestStatusFailed",
+} as const satisfies Record<PayoutRequestStatus, string>;
+
+/** The `payouts` catalog key each refusable amount is refused with. */
+const AMOUNT_PROBLEM_KEYS = {
+  not_positive: "amountProblemNotPositive",
+  nothing_cleared: "amountProblemNothingCleared",
+  above_payable: "amountProblemAbovePayable",
+} as const satisfies Record<PayoutRequestAmountProblem, string>;
 
 async function callRequests<T>(path: string, init?: RequestInit): Promise<T | null> {
   const response = await fetch(path, {
@@ -119,21 +140,44 @@ export function PayoutRequestsSection({
   currency: string;
   payableBalanceCents: number;
 }) {
+  const t = useTranslations("payouts");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [profile, setProfile] = useState<PayoutProfile | null>(null);
   const [form, setForm] = useState<PayoutProfileFormValues>(emptyPayoutProfileForm);
   const [requests, setRequests] = useState<PayoutRequest[]>([]);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [amountProblem, setAmountProblem] = useState<string | null>(null);
+  const [amountProblem, setAmountProblem] = useState<PayoutRequestAmountProblem | null>(null);
   const [editingBankDetails, setEditingBankDetails] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  /**
+   * Money in the Organization's currency, dates on the platform's clock, both
+   * with the reader's marks. The currency is the Organization's whichever
+   * language this page is in, and the zone is Ecuador's because a Payout Request
+   * belongs to no Event and therefore to no Event's timezone (ADR 0041).
+   */
   const formatCents = useCallback(
-    (cents: number) => formatPriceCents(cents, currency),
-    [currency],
+    (cents: number) => formatMoney(cents, currency, locale),
+    [currency, locale],
+  );
+  const formatMoment = useCallback(
+    (value: string | null | undefined) => formatDate(value, PLATFORM_TIME_ZONE, locale),
+    [locale],
+  );
+  const statusLabel = useCallback(
+    (status: string) => {
+      const token = payoutRequestStatusToken(status);
+      // A state this client has not been taught is shown raw: the server is the
+      // authority on which states exist, and an untranslated word is better than
+      // a blank badge where a status should be.
+      return token ? t(STATUS_KEYS[token]) : status;
+    },
+    [t],
   );
 
   const load = useCallback(async () => {
@@ -152,10 +196,14 @@ export function PayoutRequestsSection({
       setRequests(history ?? []);
       setLoadError(null);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Failed to load payout requests");
+      setLoadError(
+        (error instanceof ApiError ? apiErrorMessage(errorCopy, error) : null) ??
+          t("requestsLoadFailed"),
+      );
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -163,9 +211,12 @@ export function PayoutRequestsSection({
   }, [load]);
 
   const outstanding = requests.find((request) => isOutstanding(request.status)) ?? null;
-  const transferSentence = outstanding
-    ? transferSentSentence(outstanding.transfer_submitted_at, formatDate)
-    : null;
+  // THE DATE IS THE POINT of the sentence this feeds, which is why it is read
+  // before the sentence is chosen: without it an organizer cannot tell whether
+  // the 48 hours they were promised have run out. formatDate answers null for an
+  // instant it cannot read, so a missing or malformed one renders nothing rather
+  // than a reassurance nobody can check.
+  const transferSentOn = outstanding ? formatMoment(outstanding.transfer_submitted_at) : null;
 
   function updateField(field: keyof PayoutProfileFormValues, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -189,15 +240,25 @@ export function PayoutRequestsSection({
     return { ...form, account_number: normalizeAccountNumber(form.account_number) };
   }
 
+  /**
+   * The refusal, in the reader's language: each field's own verdict under the
+   * input it is about, or the envelope's sentence in a toast.
+   *
+   * Both halves are resolved from the API's CODES rather than its sentences
+   * (ADR 0023) — `fieldErrorMessages` for the per-field ones, `apiErrorMessage`
+   * for the envelope — with the API's English as the floor under any code this
+   * catalog has not heard of, and the caller's own sentence under a request that
+   * never reached the API at all.
+   */
   function applyError(error: unknown, fallback: string) {
     if (error instanceof FieldValidationError) {
-      setFieldErrors(error.fields);
+      setFieldErrors(fieldErrorMessages(errorCopy, error.details));
       // The bank fields must be visible for their refusals to mean anything.
       setEditingBankDetails(true);
-      toast.error("Check the highlighted fields");
+      toast.error(t("profileCheckFields"));
       return;
     }
-    toast.error(error instanceof Error ? error.message : fallback);
+    toast.error((error instanceof ApiError ? apiErrorMessage(errorCopy, error) : null) ?? fallback);
   }
 
   async function saveBankDetails() {
@@ -209,9 +270,9 @@ export function PayoutRequestsSection({
       setProfile(saved);
       setForm((current) => ({ ...current, account_number: body.account_number }));
       setEditingBankDetails(false);
-      toast.success("Bank details saved");
+      toast.success(t("profileSaved"));
     } catch (error) {
-      applyError(error, "Failed to save the bank details");
+      applyError(error, t("profileSaveFailed"));
     } finally {
       setBusy(false);
     }
@@ -219,7 +280,7 @@ export function PayoutRequestsSection({
 
   async function submitRequest() {
     const amountCents = parsePriceToCents(amount);
-    const problem = payoutRequestAmountProblem(amountCents, payableBalanceCents, formatCents);
+    const problem = payoutRequestAmountProblem(amountCents, payableBalanceCents);
     setAmountProblem(problem);
     if (problem !== null || amountCents === null) {
       return;
@@ -247,13 +308,13 @@ export function PayoutRequestsSection({
         // The API handed back the ask that was already outstanding rather than
         // recording a new one — the courtesy that tells an organizer where their
         // earlier request went instead of a bare conflict (ADR 0024, ADR 0026).
-        toast.success("You already have a request waiting. Cancel it first to ask for a different amount.");
+        toast.success(t("alreadyOutstanding"));
       } else {
-        toast.success("Payout request sent");
+        toast.success(t("submitted"));
       }
       await load();
     } catch (error) {
-      applyError(error, "Failed to send the payout request");
+      applyError(error, t("submitFailed"));
     } finally {
       setBusy(false);
     }
@@ -263,14 +324,18 @@ export function PayoutRequestsSection({
     setBusy(true);
     try {
       await callRequests<PayoutRequest>(`${PAYOUT_REQUESTS_PATH}/${requestID}/cancel`, { method: "POST" });
-      toast.success("Payout request cancelled");
+      toast.success(t("cancelled"));
       await load();
     } catch (error) {
-      // The refusal is the server's own sentence, and applyError shows it
-      // verbatim. An organizer who pressed cancel a moment too late is told
-      // "your transfer is already being processed and can no longer be
-      // cancelled" — the true, useful answer — rather than a generic conflict.
-      applyError(error, "Failed to cancel the payout request");
+      // PAYOUT_REQUEST_NOT_PENDING is the refusal an organizer who pressed
+      // cancel a moment too late reads, and it is catalogued so they read it in
+      // their own language. The one thing the API's English says that the
+      // catalogued sentence cannot is WHICH of the two things happened —
+      // resolved, or a transfer already on its way — because one code carries
+      // both (the status is in `details`, deliberately). So the sentence says
+      // what is true of both and sends them to the page, which reloads
+      // immediately below and shows the state the request actually reached.
+      applyError(error, t("cancelFailed"));
       // And the page catches up with what it just learned: the request moved on
       // while this tab was looking at it, so the button that was pressed should
       // not still be there afterwards.
@@ -292,7 +357,7 @@ export function PayoutRequestsSection({
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading payout requests...</p>;
+    return <p className="text-sm text-muted-foreground">{t("requestsLoading")}</p>;
   }
   if (loadError) {
     return <p className="text-sm text-destructive">{loadError}</p>;
@@ -302,26 +367,30 @@ export function PayoutRequestsSection({
     <div className="space-y-6">
       <div className="space-y-3" id={BANK_DETAILS_ANCHOR}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-sm font-medium">Bank details</p>
+          <p className="text-sm font-medium">{t("profileTitle")}</p>
           {profile && !editingBankDetails ? (
             <Button type="button" variant="outline" onClick={() => setEditingBankDetails(true)}>
-              Edit
+              {t("profileEdit")}
             </Button>
           ) : null}
         </div>
 
         {profile && !editingBankDetails ? (
+          // Interpolated rather than glued together out of JSX fragments: where
+          // the bank, the masked account and the name fall in the sentence is
+          // the translator's to decide, not the markup's.
           <p className="text-sm text-muted-foreground">
-            Paying to {profile.bank_name} {maskAccountNumber(profile.account_number)}, in the name of{" "}
-            {profile.account_holder_name}. Last updated {new Date(profile.updated_at).toLocaleDateString()}.
+            {t("profilePayingTo", {
+              bank: profile.bank_name,
+              account: maskAccountNumber(profile.account_number),
+              holder: profile.account_holder_name,
+              updated: formatMoment(profile.updated_at) ?? "",
+            })}
           </p>
         ) : (
           <>
             {!profile ? (
-              <p className="text-sm text-muted-foreground">
-                Tell us where to pay you. Without this a payout has to start with a message asking for your
-                bank details.
-              </p>
+              <p className="text-sm text-muted-foreground">{t("profileMissing")}</p>
             ) : null}
             <PayoutProfileFields
               values={form}
@@ -330,14 +399,14 @@ export function PayoutRequestsSection({
               disabled={busy}
             />
             <Button type="button" variant="outline" disabled={busy} onClick={() => void saveBankDetails()}>
-              Save bank details
+              {t("profileSave")}
             </Button>
           </>
         )}
       </div>
 
       <div className="space-y-3">
-        <p className="text-sm font-medium">Request a payout</p>
+        <p className="text-sm font-medium">{t("requestTitle")}</p>
         {outstanding ? (
           // A pending request cannot be edited, only cancelled and re-asked.
           // That is what keeps "outstanding" singular, and it means nobody at
@@ -350,32 +419,35 @@ export function PayoutRequestsSection({
           // of that sentence.
           <div className="space-y-3 rounded-md border p-4">
             <p className="font-medium tabular-nums">
-              {formatPriceCents(outstanding.amount_cents, currency)} requested
               {outstanding.status === "processing"
-                ? ` — ${payoutRequestStatusLabel(outstanding.status)}`
-                : null}
+                ? t("outstandingAmountProcessing", {
+                    amount: formatCents(outstanding.amount_cents),
+                    status: statusLabel(outstanding.status),
+                  })
+                : t("outstandingAmount", { amount: formatCents(outstanding.amount_cents) })}
             </p>
             {outstanding.note ? (
               <p className="text-sm text-muted-foreground">{outstanding.note}</p>
             ) : null}
             <p className="text-sm text-muted-foreground">
-              Asked for on {formatDate(new Date(outstanding.requested_at))} by {outstanding.requested_by},
-              paying to {outstanding.payout_profile.bank_name}{" "}
-              {maskAccountNumber(outstanding.payout_profile.account_number)}.
-              {outstanding.status === "processing" ? null : " We will be in touch once it has been paid."}
+              {t("outstandingAskedBy", {
+                date: formatMoment(outstanding.requested_at) ?? "",
+                who: outstanding.requested_by,
+                bank: outstanding.payout_profile.bank_name,
+                account: maskAccountNumber(outstanding.payout_profile.account_number),
+              })}
+              {outstanding.status === "processing" ? null : ` ${t("outstandingWillBeInTouch")}`}
             </p>
             {isCancellable(outstanding.status) ? (
               <>
-                <p className="text-sm text-muted-foreground">
-                  To ask for a different amount, cancel this request and make a new one.
-                </p>
+                <p className="text-sm text-muted-foreground">{t("outstandingCancelHint")}</p>
                 <Button
                   type="button"
                   variant="outline"
                   disabled={busy}
                   onClick={() => void cancelRequest(outstanding.id)}
                 >
-                  Cancel request
+                  {t("cancel")}
                 </Button>
               </>
             ) : (
@@ -384,11 +456,12 @@ export function PayoutRequestsSection({
               // as a page that lost something; the sentence says what took it
               // away, and the date in it is what lets an organizer tell whether
               // the 48 hours they were promised have already run out.
-              // A null sentence means the date is missing, and the helper's
-              // header says why nothing at all is better than a dateless
-              // reassurance.
-              transferSentence !== null ? (
-                <p className="text-sm text-muted-foreground">{transferSentence}</p>
+              // A missing date means no sentence at all: see transferSentOn
+              // above for why nothing beats a dateless reassurance.
+              transferSentOn !== null ? (
+                <p className="text-sm text-muted-foreground">
+                  {t("transferSent", { date: transferSentOn })}
+                </p>
               ) : null
             )}
           </div>
@@ -396,9 +469,17 @@ export function PayoutRequestsSection({
           <div className="space-y-4">
             <FormField
               id="payout-request-amount"
-              label="Amount"
-              description={`You can request up to ${formatCents(Math.max(payableBalanceCents, 0))} right now.`}
-              error={amountProblem ?? undefined}
+              label={t("amountLabel")}
+              description={t("amountHint", {
+                max: formatCents(Math.max(payableBalanceCents, 0)),
+              })}
+              error={
+                amountProblem
+                  ? t(AMOUNT_PROBLEM_KEYS[amountProblem], {
+                      max: formatCents(Math.max(payableBalanceCents, 0)),
+                    })
+                  : undefined
+              }
             >
               <Input
                 inputMode="decimal"
@@ -411,52 +492,53 @@ export function PayoutRequestsSection({
                 }}
               />
             </FormField>
-            <FormField
-              id="payout-request-note"
-              label="Note (optional)"
-              description="Anything the form does not capture — a deadline, an invoice number."
-            >
+            <FormField id="payout-request-note" label={t("noteLabel")} description={t("noteHint")}>
               <Input value={note} disabled={busy} onChange={(event) => setNote(event.target.value)} />
             </FormField>
             <Button type="button" disabled={busy} onClick={() => void submitRequest()}>
-              {busy ? "Sending..." : "Request payout"}
+              {busy ? t("submitting") : t("submit")}
             </Button>
           </div>
         )}
       </div>
 
       <div className="space-y-3">
-        <p className="text-sm font-medium">Request history</p>
+        <p className="text-sm font-medium">{t("requestHistoryTitle")}</p>
         {requests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No payout requests yet.</p>
+          <p className="text-sm text-muted-foreground">{t("requestHistoryEmpty")}</p>
         ) : (
           <div className="space-y-3">
             {requests.map((request) => {
-              const resolution = resolutionSentence(request.status, request.resolution_reason);
+              const resolution = resolutionNotice(request.status, request.resolution_reason);
               return (
                 <div
                   key={request.id}
                   className="flex flex-col gap-1 rounded-md border p-4 sm:flex-row sm:items-start sm:justify-between"
                 >
                   <div>
-                    <p className="font-medium tabular-nums">
-                      {formatPriceCents(request.amount_cents, currency)}
-                    </p>
+                    <p className="font-medium tabular-nums">{formatCents(request.amount_cents)}</p>
                     {request.note ? <p className="text-sm text-muted-foreground">{request.note}</p> : null}
                     {/* A decline always carries its reason: a queue that refuses
                         silently generates the support thread it was built to
                         prevent (ADR 0026). A failure carries one too, in the same
-                        column and NEVER in the same words — resolutionSentence is
+                        column and NEVER in the same words — resolutionNotice is
                         where that distinction is kept, and its header says why it
-                        matters more than it looks. */}
-                    {resolution ? <p className="text-sm text-destructive">{resolution}</p> : null}
+                        matters more than it looks. The two sentences say "Motivo:"
+                        in Spanish, as the notice email announcing them does. */}
+                    {resolution ? (
+                      <p className="text-sm text-destructive">
+                        {resolution.kind === "declined"
+                          ? t("resolutionDeclined", { reason: resolution.reason })
+                          : t("resolutionFailed", { reason: resolution.reason })}
+                      </p>
+                    ) : null}
                     {/* A failed request is the one state with something for the
                         organizer to DO, and it only ever appears here: a failure
                         is terminal, so it is not the outstanding request above.
                         The next step travels with the news. */}
                     {request.status === "failed" ? (
                       <p className="text-sm text-muted-foreground">
-                        {TRANSFER_FAILED_NEXT_STEP}{" "}
+                        {t("transferFailedNextStep")}{" "}
                         <Button
                           type="button"
                           variant="link"
@@ -464,19 +546,21 @@ export function PayoutRequestsSection({
                           className="h-auto p-0 align-baseline"
                           onClick={editBankDetails}
                         >
-                          Check your bank details
+                          {t("checkProfile")}
                         </Button>
                       </p>
                     ) : null}
                     <p className="text-sm text-muted-foreground">
-                      Paying to {request.payout_profile.bank_name}{" "}
-                      {maskAccountNumber(request.payout_profile.account_number)}
+                      {t("requestPayingTo", {
+                        bank: request.payout_profile.bank_name,
+                        account: maskAccountNumber(request.payout_profile.account_number),
+                      })}
                     </p>
                   </div>
                   <div className="sm:text-right">
-                    <p className="text-sm font-medium">{payoutRequestStatusLabel(request.status)}</p>
+                    <p className="text-sm font-medium">{statusLabel(request.status)}</p>
                     <p className="text-sm text-muted-foreground">
-                      {formatDate(new Date(request.requested_at))}
+                      {formatMoment(request.requested_at)}
                     </p>
                     {/* The date the transfer was sent, beside the date it was
                         asked for. On a processing row it is the checkable half of
@@ -484,7 +568,7 @@ export function PayoutRequestsSection({
                         went out before it came back. */}
                     {request.transfer_submitted_at ? (
                       <p className="text-sm text-muted-foreground">
-                        Sent {formatDate(new Date(request.transfer_submitted_at))}
+                        {t("requestSentOn", { date: formatMoment(request.transfer_submitted_at) ?? "" })}
                       </p>
                     ) : null}
                   </div>

@@ -61,6 +61,10 @@ instead of scattering it.
 | `pos`     | The point of sale: selling at the door, on a phone, often by Event Staff          |
 | `sales`   | The Event's Sales tab — the list, its filters and export, the Net Proceeds strip, and the Sale Import tool that sits under them |
 | `trends`  | Sales Trends: the pair of day-by-day charts and what they are counting            |
+| `team`    | Who belongs to the Organization and what they may touch: the Members card and the Event access card that assigns them to Events |
+| `organization` | The Organization being administered: the Settings page header, the profile, the Logo, and the danger zone |
+| `onboarding` | Creating an Organization — the gate a brand-new organizer lands on straight after signing in, and the in-app create page that shares its form |
+| `payouts` | Getting paid: both balances, the Payout Profile, the ask, the request history, and the **Payout Request status** vocabulary — one key per state, read by every screen that draws one |
 | `errors`  | Failures, keyed on the API's error code — belongs to no single surface            |
 
 `sales` covers the **Sale Import** tool as well as the list, and there is
@@ -76,6 +80,13 @@ line is the **status vocabulary** — `events.statusDraft` and its two siblings 
 which lives with the list that coined it and is read from the Event's header bar
 and side panel too, because a role or a status translated per screen is how there
 come to be two Spanish words for "Published".
+
+`team` and `organization` are two surfaces sharing one route, `/settings`, and
+that is deliberate rather than an oversight: `/team` redirects there, the Members
+and Event access cards are what a person means by the team screen, and the
+profile, Logo and danger zone are the Organization itself. Splitting them by
+surface keeps the diff of a copy change inside the thing it is about, and it is
+why `app/settings/settings-page-client.tsx` reads two namespaces.
 
 The Event's own side panel gets its words the way the app shell does:
 `eventNavItems` in `@ticket-pos/ui` returns **keys**, and `app/events/[id]/layout.tsx`
@@ -100,6 +111,15 @@ panel around them is chrome, and one switcher and one session serve both surface
 `roleEventStaff`) even though the team screen renders them too — they are coined
 once in `CONTEXT.md` and named once here, because a role translated per screen is
 how there come to be three Spanish words for Event Staff.
+
+**No surface maps a role token to a word itself.** `app/role-name.ts` is the one
+place that does, and every screen showing a role — the membership list, the
+organization switcher, the Members card, the Event access card, and the two
+`<select>`s that set a role — reads it through `useRoleName`. The role `<option>`
+lists come from the same module (`MEMBER_ROLES`, `ASSIGNMENT_ROLES`), so a role
+cannot be offered under a label the rest of the app does not use. A role the API
+adds that nobody has translated falls back to its token with the underscore
+rubbed out: an unfamiliar role reads oddly, never blank.
 
 Two levels are the limit — `login.createTitle`, not
 `login.card.create.title.text`. A namespace that wants a third level is really
@@ -241,6 +261,27 @@ _Organizador_ is barred on every staff surface. It is the same entity's
 **public** word, given to Customers on the Storefront, and a staff screen using
 it would name the thing being administered with the word for the thing being
 advertised.
+
+### The payout vocabulary is the mail's
+
+The five Payout Request notices were translated first (#285), so the Spanish for
+this domain was settled in Go before it was settled here, and `payouts` follows
+it rather than coining a second set of words. A notice and the screen it sends an
+organizer to must read as one voice — the reader has both open.
+
+| English         | Spanish, as `backend/internal/platform/email_content.go` says it |
+| --------------- | ---------------------------------------------------------------- |
+| Payout Request  | **solicitud de pago**                                            |
+| Payout Profile  | **Perfil de Pagos** — which is what `payouts.profileTitle` says in Spanish, where the English says "Bank details" |
+| Operator Dashboard | **Panel de Operador**                                         |
+| Reason:         | **Motivo:** — `payouts.resolutionDeclined` and `resolutionFailed` |
+| Note:           | **Nota:**                                                        |
+| Asked by:       | **Solicitado por:**                                              |
+
+Two balance terms had no Spanish anywhere and are coined here: **Saldo por
+retirar** for the Withdrawable Balance and **Saldo pagable** for the Payable
+Balance. _Saldo disponible_ is barred for the second one, for the reason
+`CONTEXT.md` bars "available balance" for it in English.
 
 ## What the tests do and do not check
 
