@@ -10,11 +10,12 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
-import { useTranslations } from "next-intl";
+import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { LanguageSwitcher } from "@/app/language-switcher";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { applyAuthFork } from "@/lib/auth-fork";
 import type { SignInIntent } from "@/lib/login-copy";
 
@@ -81,6 +82,10 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
   // resolved for this request — cookie, then Accept-Language, then English. The
   // one exception is an error the API worded (below).
   const t = useTranslations("login");
+  // The `errors` namespace as plain data. lib/api-errors turns the API's error
+  // CODE into a sentence in this page's language, with the API's own English as
+  // the floor beneath a code the catalog has never heard of (ADR 0023).
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -103,11 +108,12 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
       });
       const envelope = (await response.json()) as Envelope<{ message: string }>;
       if (!response.ok || envelope.error) {
-        // The API's own message is the floor beneath a failure this app has no
-        // words for, exactly as ADR 0023 has the Storefront do it. Keying error
-        // copy on the API's error code is a later ticket in this epic; until
-        // then a rare failure reads in English rather than as a blank.
-        setError(envelope.error?.message ?? t("sendFailed"));
+        // A passcode refused for a reason the catalog knows — rate limiting, a
+        // ceiling reached — reads in this page's language. Anything else keeps
+        // the API's English, which is what this line rendered before the catalog
+        // existed. `t("sendFailed")` is only for an envelope carrying no words at
+        // all.
+        setError(apiErrorMessage(errorCopy, envelope.error) ?? t("sendFailed"));
         return;
       }
       // Deliberately not `envelope.data.message`. That sentence is the API's,
@@ -137,7 +143,10 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
       });
       const envelope = (await response.json()) as Envelope<{ session: SessionData }>;
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? t("verifyFailed"));
+        // The failures a person actually meets here — a wrong passcode, an
+        // expired one, too many attempts — are all cataloged, so the one moment
+        // this page is least forgiving is not the moment it switches to English.
+        setError(apiErrorMessage(errorCopy, envelope.error) ?? t("verifyFailed"));
         return;
       }
 
@@ -148,8 +157,10 @@ export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormP
       }
 
       const fork = await applyAuthFork(session);
-      if (fork.error) {
-        setError(fork.error);
+      if (fork.failure) {
+        setError(
+          apiErrorMessage(errorCopy, fork.failure.apiError) ?? t("selectOrganizationFailed"),
+        );
         return;
       }
       router.push(fork.path);

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Card, CardContent, OrgAvatar } from "@ticket-pos/ui";
+import { useTranslations } from "next-intl";
 
 export type Membership = {
   member_id: string;
@@ -11,8 +12,33 @@ export type Membership = {
   role: string;
 };
 
-function formatRole(role: string): string {
-  return role.replace("_", " ");
+/**
+ * The API's role token, as the catalog spells the name of that role.
+ *
+ * The words themselves are coined once, in CONTEXT.md, and the catalog follows
+ * it: *Administrador de la organización*, *Responsable del evento*, *Personal del
+ * evento*. That is not decoration — these names had no Spanish anywhere before
+ * ADR 0041, and translated ad hoc as each screen was migrated there would be
+ * three words for Event Staff by the third page. This map is the only place a
+ * staff surface turns a role into a word, so every screen that shows one shows
+ * the same one.
+ *
+ * A role the API adds later that nobody has translated falls back to the token
+ * with its underscore rubbed out, which is exactly what this function did for
+ * every role before it. An unfamiliar role reads oddly; it does not read blank.
+ */
+const ROLE_KEYS: Record<string, "roleOrgAdmin" | "roleEventOwner" | "roleEventStaff"> = {
+  org_admin: "roleOrgAdmin",
+  event_owner: "roleEventOwner",
+  event_staff: "roleEventStaff",
+};
+
+function useRoleName(): (role: string) => string {
+  const t = useTranslations("shell");
+  return (role: string) => {
+    const key = ROLE_KEYS[role];
+    return key ? t(key) : role.replace("_", " ");
+  };
 }
 
 /**
@@ -21,13 +47,20 @@ function formatRole(role: string): string {
  * switcher, where an Organization sits beside the Platform entry (#191).
  */
 export function MembershipDetails({ membership }: { membership: Membership }) {
+  const roleName = useRoleName();
+
   return (
     <div className="flex min-w-0 items-center gap-3">
       <OrgAvatar logoUrl={membership.organization_logo_url} name={membership.organization_name} shape="tile" />
       <div className="min-w-0">
         <p className="font-medium">{membership.organization_name}</p>
+        {/*
+          The slug and the role, joined by a separator that is ours rather than
+          either language's. The Organization's own name and slug are data and
+          read as coined in both languages (messages/README.md).
+        */}
         <p className="text-sm text-muted-foreground">
-          {membership.organization_slug} · {formatRole(membership.role)}
+          {membership.organization_slug} · {roleName(membership.role)}
         </p>
       </div>
     </div>
@@ -48,12 +81,11 @@ export type MembershipListProps = {
  * (#191) — an entry that is no Membership.
  */
 export function MembershipList(props: MembershipListProps) {
+  const t = useTranslations("shell");
   const { memberships, disabled = false } = props;
 
   if (memberships.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">No organizations found for your account.</p>
-    );
+    return <p className="text-sm text-muted-foreground">{t("noOrganizations")}</p>;
   }
 
   return (
@@ -72,7 +104,7 @@ export function MembershipList(props: MembershipListProps) {
                   disabled={disabled || props.selecting != null}
                   aria-busy={isBusy}
                 >
-                  {isBusy ? "Selecting..." : "Select"}
+                  {isBusy ? t("selecting") : t("select")}
                 </Button>
               </CardContent>
             </Card>

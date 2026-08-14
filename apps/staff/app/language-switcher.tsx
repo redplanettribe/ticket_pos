@@ -40,9 +40,11 @@ const LANGUAGE_ENDONYMS: Record<AppLocale, string> = {
  *
  * This is the login half of ADR 0041's pair, and it writes the cookie ONLY.
  * There is nobody signed in on this surface, so there is no person to store a
- * Staff Locale against. The shell switcher, when it lands, writes the stored
- * value as well — the two are deliberately not the same control and should not
- * be merged.
+ * Staff Locale against and no endpoint that would accept one. Its sibling,
+ * app/shell-language-switcher.tsx, writes the stored Staff Locale as well. The
+ * two are deliberately not the same control and must not be merged: a single
+ * "simplified" one would either fail silently here or have the sign-in page
+ * start recording a preference for somebody it cannot name.
  *
  * A client component because writing a cookie and refreshing are both things
  * only the browser can do; it server-renders like anything else, so both buttons

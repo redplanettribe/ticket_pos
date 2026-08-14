@@ -31,8 +31,37 @@ export type SidebarNavItem = {
  */
 export type SidebarHeaderSlot = ReactNode | ((opts: { onNavigate?: () => void }) => ReactNode);
 
+/**
+ * The panel's own words — the ones a reader never sees unless they are using a
+ * screen reader or a keyboard, which is exactly why they are easy to leave
+ * untranslated.
+ *
+ * Optional, with the English this component has always rendered as the default,
+ * because @ticket-pos/ui is shared with the Storefront and with the Event shell
+ * that has not been migrated yet: a required prop here would have made this a
+ * change to every caller rather than to the ones being translated.
+ */
+export type SidebarLabels = {
+  /** The keyboard-only link that jumps past the panel. */
+  skipToContent: string;
+  /** Names the nav landmark for a screen reader. */
+  primaryNavigation: string;
+  /** The mobile drawer's accessible title. */
+  navigationMenu: string;
+  /** The mobile button that opens that drawer. */
+  openNavigationMenu: string;
+};
+
+export const DEFAULT_SIDEBAR_LABELS: SidebarLabels = {
+  skipToContent: "Skip to main content",
+  primaryNavigation: "Primary",
+  navigationMenu: "Navigation menu",
+  openNavigationMenu: "Open navigation menu",
+};
+
 type SidebarShellProps = {
   header: SidebarHeaderSlot;
+  labels?: SidebarLabels;
   /** Product branding shown at the very top of the sidebar (above the header). */
   brand?: ReactNode;
   /** Compact content shown in the mobile top bar beside the menu button. */
@@ -45,6 +74,7 @@ type SidebarShellProps = {
 
 type SidebarContentProps = {
   header: SidebarHeaderSlot;
+  labels: SidebarLabels;
   brand?: ReactNode;
   navItems: SidebarNavItem[];
   activePath?: string;
@@ -52,7 +82,15 @@ type SidebarContentProps = {
   onNavigate?: () => void;
 };
 
-function SidebarContent({ header, brand, navItems, activePath, userMenu, onNavigate }: SidebarContentProps) {
+function SidebarContent({
+  header,
+  labels,
+  brand,
+  navItems,
+  activePath,
+  userMenu,
+  onNavigate,
+}: SidebarContentProps) {
   return (
     <>
       {brand ? <div className="flex shrink-0 items-center border-b px-4 py-4">{brand}</div> : null}
@@ -61,7 +99,7 @@ function SidebarContent({ header, brand, navItems, activePath, userMenu, onNavig
         The nav takes the slack and scrolls on its own, so a nav list longer than
         the panel never pushes the user menu (Sign out) off the foot.
       */}
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label="Primary">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label={labels.primaryNavigation}>
         {navItems.map((item) => {
           const active = isNavItemActive(activePath, item.href, { exact: item.exact });
           return (
@@ -88,6 +126,7 @@ function SidebarContent({ header, brand, navItems, activePath, userMenu, onNavig
 
 export function SidebarShell({
   header,
+  labels = DEFAULT_SIDEBAR_LABELS,
   brand,
   mobileHeader,
   navItems,
@@ -103,7 +142,7 @@ export function SidebarShell({
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:shadow"
       >
-        Skip to main content
+        {labels.skipToContent}
       </a>
       {/*
         The panel holds the viewport while the content beside it scrolls, so Sign
@@ -115,6 +154,7 @@ export function SidebarShell({
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-card md:flex md:flex-col">
         <SidebarContent
           header={header}
+          labels={labels}
           brand={brand}
           navItems={navItems}
           activePath={activePath}
@@ -123,9 +163,10 @@ export function SidebarShell({
       </aside>
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent side="left" className="w-60 p-0">
-          <SheetTitle className="sr-only">Navigation menu</SheetTitle>
+          <SheetTitle className="sr-only">{labels.navigationMenu}</SheetTitle>
           <SidebarContent
             header={header}
+            labels={labels}
             brand={brand}
             navItems={navItems}
             activePath={activePath}
@@ -139,7 +180,7 @@ export function SidebarShell({
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            aria-label="Open navigation menu"
+            aria-label={labels.openNavigationMenu}
             className="flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Menu className="size-5" />

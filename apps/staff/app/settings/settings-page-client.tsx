@@ -1,9 +1,11 @@
 "use client";
 
+import { useMessages } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import { applyAuthFork } from "@/lib/auth-fork";
 
 import {
@@ -89,6 +91,7 @@ const memberRoleLabel: Record<string, string> = {
 };
 
 export function SettingsPageClient() {
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -285,8 +288,15 @@ export function SettingsPageClient() {
       }
 
       const fork = await applyAuthFork(session);
-      if (fork.error) {
-        toast.error(fork.error);
+      if (fork.failure) {
+        // The Organization settings surface is still English — it is migrated by
+        // a later ticket, under the `organization` namespace. What changed here
+        // is only that applyAuthFork now hands back the API's error rather than a
+        // sentence of its own, so this resolves the code the same way every
+        // migrated surface does and keeps its own English fallback until then.
+        toast.error(
+          apiErrorMessage(errorCopy, fork.failure.apiError) ?? "Could not select organization",
+        );
       }
       router.push(fork.path);
       router.refresh();

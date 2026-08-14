@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { localeChoiceCookie, resolveStaffLocale, STAFF_LOCALE_COOKIE } from "./staff-locale.ts";
+import {
+  localeChoiceCookie,
+  resolveSignedInStaffLocale,
+  resolveStaffLocale,
+  STAFF_LOCALE_COOKIE,
+} from "./staff-locale.ts";
 
 /**
  * What a Locale is — the union, the default, and every corner of the
@@ -55,6 +60,38 @@ test("a malformed Accept-Language never throws", () => {
   for (const header of ["", ";;;", "q=", ",,,", "es;q=notanumber", "x".repeat(5000)]) {
     assert.doesNotThrow(() => resolveStaffLocale({ acceptLanguage: header }), header);
   }
+});
+
+// --- once somebody is signed in ---------------------------------------------
+
+test("the stored Staff Locale beats the cookie", () => {
+  // ADR 0041's ordering, and the reason the language follows a person across
+  // devices: the cookie is a guess about somebody unknown, and they are known now.
+  assert.equal(
+    resolveSignedInStaffLocale({ stored: "es", cookie: "en", acceptLanguage: "en-US" }),
+    "es",
+  );
+  assert.equal(
+    resolveSignedInStaffLocale({ stored: "en", cookie: "es", acceptLanguage: "es-EC" }),
+    "en",
+  );
+});
+
+test("a person who has stated no language falls back to the request's own ladder", () => {
+  // Absence is not English (ADR 0041): it says nobody has chosen, so the cookie
+  // and the browser still get their say — and the sign-in write is what turns
+  // that guess into a stored fact.
+  assert.equal(resolveSignedInStaffLocale({ stored: null, cookie: "es" }), "es");
+  assert.equal(resolveSignedInStaffLocale({ acceptLanguage: "es-EC,es;q=0.9" }), "es");
+  assert.equal(resolveSignedInStaffLocale({ stored: null }), "en");
+});
+
+test("a stored value the platform does not serve is read past like a stale cookie", () => {
+  // An older release, a hand-edited row, or a language dropped from the union:
+  // none of them may cost the reader the language they did state elsewhere.
+  assert.equal(resolveSignedInStaffLocale({ stored: "fr", cookie: "es" }), "es");
+  assert.equal(resolveSignedInStaffLocale({ stored: "es-EC", acceptLanguage: "es" }), "es");
+  assert.equal(resolveSignedInStaffLocale({ stored: "", acceptLanguage: "en" }), "en");
 });
 
 test("the choice is written under the name the Storefront also reads", () => {

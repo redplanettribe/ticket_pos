@@ -1,6 +1,44 @@
 {
   "shell": {
-    "languageSwitcherLabel": "Idioma"
+    "languageSwitcherLabel": "Idioma",
+    "languageChangeFailed": "No se pudo guardar su idioma.",
+    "skipToContent": "Ir al contenido principal",
+    "primaryNavigation": "Principal",
+    "navigationMenu": "Menú de navegación",
+    "openNavigationMenu": "Abrir el menú de navegación",
+    "organizationHeading": "Organización",
+    "operatorHeading": "Operador",
+    "platform": "Plataforma",
+    "platformDescription": "Panel del operador · todas las organizaciones",
+    "navDashboard": "Panel",
+    "navEvents": "Eventos",
+    "navPayouts": "Pagos",
+    "navSettings": "Configuración",
+    "navOverview": "Resumen",
+    "navOrganizations": "Organizaciones",
+    "navPayoutRequests": "Solicitudes de pago",
+    "navFindSale": "Buscar una venta",
+    "navCustomerConsent": "Consentimiento del cliente",
+    "pendingPayoutRequests": "{count, plural, =0 {Ninguna solicitud de pago pendiente} one {# solicitud de pago pendiente} other {# solicitudes de pago pendientes}}",
+    "signOut": "Cerrar sesión",
+    "signingOut": "Cerrando sesión...",
+    "switchOrganization": "Cambiar de organización",
+    "switchOrganizationDescription": "Seleccione una organización para trabajar o cree una nueva.",
+    "switchOrganizationOperatorDescription": "Seleccione una organización para trabajar, cambie a la plataforma o cree una nueva organización.",
+    "selectOrganization": "Seleccionar organización",
+    "selectOrganizationDescription": "Elija en qué organización desea trabajar.",
+    "createOrganization": "Crear organización",
+    "noOrganizations": "No se encontraron organizaciones para su cuenta.",
+    "current": "Actual",
+    "switching": "Cambiando...",
+    "select": "Seleccionar",
+    "selecting": "Seleccionando...",
+    "switchFailed": "No se pudo cambiar de organización.",
+    "loadOrganizationsFailed": "No se pudieron cargar sus organizaciones.",
+    "selectOrganizationFailed": "No se pudo seleccionar esa organización.",
+    "roleOrgAdmin": "Administrador de la organización",
+    "roleEventOwner": "Responsable del evento",
+    "roleEventStaff": "Personal del evento"
   },
   "login": {
     "title": "Iniciar sesión",
@@ -21,6 +59,32 @@
     "googleFailed": "No pudimos completar su inicio de sesión con Google. Vuelva a intentarlo o use un código arriba.",
     "sendFailed": "No se pudo enviar el código",
     "verifyFailed": "No se pudo verificar el código",
-    "sessionFailed": "No se pudo cargar la sesión"
+    "sessionFailed": "No se pudo cargar la sesión",
+    "selectOrganizationFailed": "Inició sesión, pero no pudimos abrir su organización. Vuelva a intentarlo."
+  },
+  "errors": {
+    "envelope": {
+      "INTERNAL_ERROR": "Algo salió mal de nuestro lado. Vuelva a intentarlo.",
+      "INVALID_JSON": "No pudimos leer lo que envió su navegador. Vuelva a intentarlo.",
+      "VALIDATION_FAILED": "Revise los datos indicados arriba y vuelva a intentarlo.",
+      "UNAUTHORIZED": "Inicie sesión para continuar.",
+      "FORBIDDEN": "No tiene permiso para hacer eso.",
+      "SESSION_NOT_FOUND": "No ha iniciado sesión. Inicie sesión para continuar.",
+      "SESSION_EXPIRED": "Su sesión terminó. Vuelva a iniciar sesión para continuar.",
+      "MEMBER_NOT_FOUND": "Esa membresía ya no existe.",
+      "ORGANIZATION_NOT_FOUND": "Esa organización ya no existe.",
+      "OTP_RATE_LIMITED": "Demasiadas solicitudes de código. Vuelva a intentarlo más tarde.",
+      "OTP_GLOBAL_CEILING_REACHED": "El envío de códigos no está disponible por el momento. Vuelva a intentarlo más tarde.",
+      "OTP_INVALID": "Ese código no es correcto.",
+      "OTP_EXPIRED": "Ese código caducó. Solicite uno nuevo.",
+      "OTP_ATTEMPTS_EXCEEDED": "Demasiados intentos incorrectos. Solicite un código nuevo.",
+      "GOOGLE_SIGN_IN_FAILED": "No pudimos completar su inicio de sesión con Google. Vuelva a intentarlo o use un código."
+    },
+    "field": {
+      "REQUIRED": "es obligatorio",
+      "INVALID_EMAIL": "debe ser un correo electrónico válido",
+      "INVALID_ID": "no es válido",
+      "INVALID_ENUM": "no es uno de los valores permitidos"
+    }
   }
 }

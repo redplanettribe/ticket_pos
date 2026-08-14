@@ -6,14 +6,16 @@ import {
   AuthCard,
   Skeleton,
 } from "@ticket-pos/ui";
+import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { MembershipList, type Membership } from "@/app/membership-list";
+import { apiErrorMessage } from "@/lib/api-errors";
 
 type Envelope<T> = {
   data: T | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; details?: unknown } | null;
 };
 
 type OrganizationPickerProps = {
@@ -31,6 +33,8 @@ export function OrganizationPicker({
   footer,
   actions,
 }: OrganizationPickerProps) {
+  const t = useTranslations("shell");
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,18 +47,22 @@ export function OrganizationPicker({
         const response = await fetch("/api/auth/memberships");
         const envelope = (await response.json()) as Envelope<Membership[]>;
         if (!response.ok || envelope.error) {
-          setError(envelope.error?.message ?? "Could not load organizations");
+          setError(apiErrorMessage(errorCopy, envelope.error) ?? t("loadOrganizationsFailed"));
           return;
         }
         setMemberships(envelope.data ?? []);
       } catch {
-        setError("Could not load organizations");
+        setError(t("loadOrganizationsFailed"));
       } finally {
         setLoading(false);
       }
     }
 
     void loadMemberships();
+    // Runs once, on mount. `t` and `errorCopy` are stable for the life of a
+    // render tree — the locale cannot change without a server round trip, which
+    // remounts this component anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSelect(memberId: string) {
@@ -69,13 +77,13 @@ export function OrganizationPicker({
       });
       const envelope = (await response.json()) as Envelope<{ active_member: { member_id: string } | null }>;
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? "Could not select organization");
+        setError(apiErrorMessage(errorCopy, envelope.error) ?? t("selectOrganizationFailed"));
         return;
       }
       router.push(redirectTo);
       router.refresh();
     } catch {
-      setError("Could not select organization");
+      setError(t("selectOrganizationFailed"));
     } finally {
       setSelecting(null);
     }

@@ -1,6 +1,31 @@
 import type { ReactNode } from "react";
 
-import type { SidebarNavItem } from "../components/sidebar-shell";
+/**
+ * The keys the Operator Dashboard's entries are named by — see `STAFF_NAV_KEYS`
+ * for why these are keys and not words. The Operator Dashboard is translated
+ * alongside the rest of the application rather than left in English: it shares
+ * one shell, one switcher and one session with the Organization's surface, so an
+ * untranslated panel here would be an English island inside a Spanish app (ADR
+ * 0041).
+ */
+export const OPERATOR_NAV_KEYS = [
+  "overview",
+  "organizations",
+  "payoutRequests",
+  "findSale",
+  "customerConsent",
+] as const;
+
+export type OperatorNavKey = (typeof OPERATOR_NAV_KEYS)[number];
+
+export type OperatorNavEntry = {
+  key: OperatorNavKey;
+  href: string;
+  /** See `SidebarNavItem["exact"]`. */
+  exact?: boolean;
+  /** See `SidebarNavItem["badge"]`. */
+  badge?: ReactNode;
+};
 
 /**
  * The Operator Dashboard's primary navigation, in the order it is read.
@@ -26,18 +51,18 @@ export function operatorNavItems({
    * queue is, not how long it is.
    */
   payoutRequestBadge?: ReactNode;
-}): SidebarNavItem[] {
+}): OperatorNavEntry[] {
   return [
     // Overview is the index of the surface, not its owner: without `exact` it
     // would stay lit while an operator reads a single payout request.
     // The same "/operator" the surface question asks about (`isOnOperatorSurface`),
     // asked of differently: the surface extends past this entry, the entry does not.
-    { href: "/operator", label: "Overview", exact: true },
-    { href: "/operator/organizations", label: "Organizations" },
-    { href: "/operator/payout-requests", label: "Payout Requests", badge: payoutRequestBadge },
+    { key: "overview", href: "/operator", exact: true },
+    { key: "organizations", href: "/operator/organizations" },
+    { key: "payoutRequests", href: "/operator/payout-requests", badge: payoutRequestBadge },
     // Named for the act, not the collection: there is no sales browser here and
     // none is planned, so the entry promises a lookup rather than a list.
-    { href: "/operator/sales", label: "Find a sale" },
+    { key: "findSale", href: "/operator/sales" },
     // The Consent Withdrawal an operator records for somebody who wrote in
     // (#271). It sits last for the same reason "Find a sale" sits above it and
     // below the queue: it answers a request that has already arrived on paper,
@@ -46,6 +71,6 @@ export function operatorNavItems({
     // Named for the person it is about rather than for the act, because the
     // page begins with finding them: an operator holding a posted form has an
     // email address and nothing else.
-    { href: "/operator/consent", label: "Customer consent" },
+    { key: "customerConsent", href: "/operator/consent" },
   ];
 }

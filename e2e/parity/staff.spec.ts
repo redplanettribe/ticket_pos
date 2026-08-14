@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { readParityPasscode } from "./support/parity-passcode";
+
 // The Staff production image is a Next standalone bundle, and Staff owns the
 // session itself: its middleware reads the httpOnly `ticket_pos_session` cookie
 // to decide whether to redirect to sign-in, and its route handlers proxy to the
@@ -107,6 +109,68 @@ test("Staff shows the Multiticketing brand on the sign-in page", async ({ page }
   await expect(page).toHaveTitle(/Multiticketing/);
   await expect(page.getByText("Multiticketing", { exact: true }).first()).toBeVisible();
   expect(await page.locator('link[rel="icon"]').count()).toBeGreaterThan(0);
+});
+
+test("a signed-in Member changes the app's language, and the choice outlives the cookie", async ({
+  page,
+  context,
+}) => {
+  // The one end-to-end claim ADR 0041 makes that nothing below this layer can
+  // check: that a click in the shell switcher reaches the API, comes back as the
+  // stored Staff Locale, and beats the cookie on the next render. Everything
+  // about the resolution ladder itself is lib/staff-locale.test.ts's, and the
+  // catalogs are lib/messages.test.ts's — this asserts the wiring between them,
+  // in the shipped image, through a real session.
+  //
+  // A real sign-in is needed and is what makes this the only test of its kind
+  // here: before signing in there is no person to store a language against, so
+  // the login switcher (cookie only) is a different control proving a different
+  // thing.
+  const email = `parity-i18n-${Date.now()}@example.com`;
+
+  await page.goto("/login");
+  await page.getByLabel(/email/i).fill(email);
+  await page.getByRole("button", { name: /send code/i }).click();
+  await expect(page.getByLabel(/passcode/i)).toBeVisible();
+
+  const passcode = readParityPasscode(email);
+  // Skipped rather than failed when the stack's logs are unreachable: STAFF_URL
+  // exists so this suite can point at an image that is not the compose stack,
+  // and a passcode lives nowhere but in the log of the API that issued it.
+  test.skip(passcode === null, "parity API logs unavailable; cannot read the passcode");
+
+  await page.getByLabel(/passcode/i).fill(passcode!);
+  await page.getByRole("button", { name: /^verify$/i }).click();
+
+  // An address belonging to no Organization lands on organization creation,
+  // which wears the same shell every other signed-in page wears — the shell is
+  // what this test is about, and reaching it needs no fixture data.
+  await expect(page).not.toHaveURL(/\/login/);
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+
+  // The shell switcher, in the neighbourhood of controls about *you*: beside the
+  // organization switcher and Sign out, reachable with no Organization at all.
+  await page.getByRole("button", { name: "Español" }).click();
+
+  // Immediately, without a navigation: the refresh is what tells the person the
+  // click did anything.
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
+
+  // It survives a reload, which is the acceptance criterion as written.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
+
+  // And it survives the COOKIE, which is the criterion underneath it: the choice
+  // was stored against the person, so a browser that has forgotten it still
+  // renders Spanish. Deleting the cookie is the closest this suite can get to
+  // "the same on a different device" without a second browser context.
+  await context.clearCookies({ name: "NEXT_LOCALE" });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
+  // The document says which language it is written in, which is the server's
+  // resolution rather than anything the client patched afterwards.
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
 });
 
 test("Staff serves its client bundle in the parity stack", async ({ page }) => {

@@ -4,15 +4,34 @@ import { AuthCard, Button } from "@ticket-pos/ui";
 import Link from "next/link";
 
 import { LogoutButton } from "@/app/logout-button";
+import { ShellLanguageSwitcher } from "@/app/shell-language-switcher";
 
 import { CreateOrganizationForm } from "./create-organization-form";
 
+/**
+ * The onboarding gate's own copy is still English: it is the `onboarding`
+ * surface, migrated by a later ticket (messages/README.md).
+ *
+ * The language switcher is here anyway, and deliberately ahead of the copy it
+ * will one day switch. This is the FIRST screen a brand-new organizer sees after
+ * signing in — the one the Storefront's "Create an event" invitation leads to —
+ * and it renders outside the app shell, so without this the person the whole
+ * epic is about would have no way to state their language between the sign-in
+ * page and their first Organization. It is the shell switcher rather than the
+ * login one because there is a session now: this writes the stored Staff Locale,
+ * which is also what words the mail they are about to receive.
+ */
 export function CreateOrganizationGate() {
   return (
     <AuthCard
       title="Create your organization"
       description="Name your venue and choose a URL slug for your storefront."
-      footer={<LogoutButton />}
+      footer={
+        <div className="flex items-center justify-between gap-4">
+          <ShellLanguageSwitcher />
+          <LogoutButton />
+        </div>
+      }
     >
       <CreateOrganizationForm />
       <DifferentAddressNote />

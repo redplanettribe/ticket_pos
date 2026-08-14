@@ -1,4 +1,36 @@
-import type { SidebarNavItem } from "../components/sidebar-shell";
+/**
+ * The keys the Organization panel's entries are named by.
+ *
+ * A key and not a word, because the staff app is written in two languages (ADR
+ * 0041) and this package cannot be handed a `t`: @ticket-pos/ui is shared with
+ * the Storefront, whose catalog is deliberately a different one, and a module
+ * that returned "Payouts" would be returning English to a Spanish reader with
+ * nowhere to intercept it.
+ *
+ * So this module keeps the part that is a decision — which entries exist, for
+ * whom, and in what order — and the caller supplies the words for the keys it
+ * names. That is the same split `lib/login-copy.ts` makes in the staff app, and
+ * it is why the tests below assert an order of keys rather than an order of
+ * sentences: a copy edit is not a change to this module's behaviour.
+ */
+export const STAFF_NAV_KEYS = ["dashboard", "events", "payouts", "settings"] as const;
+
+export type StaffNavKey = (typeof STAFF_NAV_KEYS)[number];
+
+/**
+ * One entry of the Organization panel: where it points and what it is called,
+ * with the calling being a key rather than a word.
+ *
+ * `label` is deliberately absent. A shell turns this into a `SidebarNavItem` by
+ * looking each key up in the labels it was handed, which makes a missing
+ * translation a compile error at the shell rather than a blank line in a panel.
+ */
+export type StaffNavEntry = {
+  key: StaffNavKey;
+  href: string;
+  /** See `SidebarNavItem["exact"]`. */
+  exact?: boolean;
+};
 
 export type StaffNavVisibility = {
   /** Any member of an Organization. */
@@ -32,11 +64,11 @@ export function staffNavItems({
   showEvents = false,
   showPayouts = false,
   showSettings = false,
-}: StaffNavVisibility): SidebarNavItem[] {
+}: StaffNavVisibility): StaffNavEntry[] {
   return [
-    { href: "/", label: "Dashboard" },
-    ...(showEvents ? [{ href: "/events", label: "Events" }] : []),
-    ...(showPayouts ? [{ href: "/payouts", label: "Payouts" }] : []),
-    ...(showSettings ? [{ href: "/settings", label: "Settings" }] : []),
+    { key: "dashboard", href: "/" },
+    ...(showEvents ? [{ key: "events" as const, href: "/events" }] : []),
+    ...(showPayouts ? [{ key: "payouts" as const, href: "/payouts" }] : []),
+    ...(showSettings ? [{ key: "settings" as const, href: "/settings" }] : []),
   ];
 }

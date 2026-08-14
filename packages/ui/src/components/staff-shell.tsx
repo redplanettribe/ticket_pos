@@ -2,12 +2,30 @@
 
 import type { ReactNode } from "react";
 
-import { staffNavItems } from "../lib/staff-nav";
+import { staffNavItems, type StaffNavKey } from "../lib/staff-nav";
 import { Logo } from "./logo";
 import { OrgAvatar } from "./org-avatar";
-import { SidebarShell, type SidebarNavItem } from "./sidebar-shell";
+import { SidebarShell, type SidebarLabels, type SidebarNavItem } from "./sidebar-shell";
+
+/**
+ * Every word this shell renders, handed in by the app that knows which language
+ * its reader is owed.
+ *
+ * Required rather than defaulted, unlike `SidebarLabels`: this component has one
+ * caller, and a required prop is the only thing that makes a nav entry added to
+ * `STAFF_NAV_KEYS` a compile error at the place that has to translate it. A
+ * default would have turned that into a Spanish panel with one English row.
+ */
+export type StaffShellLabels = {
+  /** The eyebrow above the Organization's name — "Organization". */
+  organizationHeading: string;
+  /** One word per `StaffNavKey`, in the reader's language. */
+  nav: Record<StaffNavKey, string>;
+  sidebar: SidebarLabels;
+};
 
 type StaffShellProps = {
+  labels: StaffShellLabels;
   organizationName: string;
   organizationLogoUrl?: string | null;
   children: ReactNode;
@@ -32,6 +50,7 @@ type StaffShellProps = {
 };
 
 export function StaffShell({
+  labels,
   organizationName,
   organizationLogoUrl,
   children,
@@ -43,11 +62,13 @@ export function StaffShell({
   organizationBadge,
   onOrganizationClick,
 }: StaffShellProps) {
+  // The panel's shape is staffNavItems' decision and its words are the
+  // catalog's; this is the one line where the two meet.
   const navItems: SidebarNavItem[] = staffNavItems({
     showEvents,
     showPayouts,
     showSettings,
-  });
+  }).map((entry) => ({ ...entry, label: labels.nav[entry.key] }));
 
   const header = ({ onNavigate }: { onNavigate?: () => void }) => {
     const handleOrganizationClick = onOrganizationClick
@@ -59,7 +80,9 @@ export function StaffShell({
 
     return (
       <div className="border-b px-4 py-5">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Organization</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {labels.organizationHeading}
+        </p>
         {handleOrganizationClick ? (
           <button
             type="button"
@@ -91,6 +114,7 @@ export function StaffShell({
   return (
     <SidebarShell
       header={header}
+      labels={labels.sidebar}
       brand={<Logo withWordmark className="text-primary" markClassName="size-6" />}
       mobileHeader={mobileHeader}
       navItems={navItems}

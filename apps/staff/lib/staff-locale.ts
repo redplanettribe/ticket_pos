@@ -16,9 +16,13 @@
  * by language, and a `[locale]` segment would have bought that at the price of
  * rewriting every route.
  *
- * Two functions, and they answer the two halves of "before sign-in":
+ * Three functions:
  *
- *   - resolveStaffLocale reads a request and says which language to render in.
+ *   - resolveStaffLocale reads a request and says which language to render in
+ *     before anybody has signed in.
+ *   - resolveSignedInStaffLocale answers the same question once somebody has,
+ *     where the language stored against them outranks everything the request
+ *     could say.
  *   - localeChoiceCookie writes down a deliberate choice so the next request
  *     does not have to guess.
  *
@@ -26,14 +30,9 @@
  * blunt reason: the test runner globs `lib/*.test.ts` and sees nothing else. The
  * Storefront's middleware is untested today for exactly that reason and this
  * does not repeat it.
- *
- * Nothing here knows about a signed-in person yet. Once the Staff Locale is
- * stored against an email address, the stored value wins over both rungs below
- * and rewrites the cookie — that is a later ticket, and this is the seam it
- * lands on.
  */
 
-import { LOCALE_COOKIE, resolveLocale, type AppLocale } from "@ticket-pos/locale";
+import { LOCALE_COOKIE, isAppLocale, resolveLocale, type AppLocale } from "@ticket-pos/locale";
 
 /**
  * The cookie remembering a deliberate choice of language.
@@ -72,6 +71,40 @@ export function resolveStaffLocale(request: {
 }
 
 /**
+ * The language to render in for somebody who IS signed in: the Staff Locale
+ * stored against them, and only if they have none, the ladder above.
+ *
+ * The stored value beats the cookie, and that ordering is the feature. A Member
+ * who picked Spanish on one laptop opens the app on a borrowed machine whose
+ * cookie says English — or says nothing — and reads Spanish, because ADR 0041
+ * makes the language a property of the person rather than of the browser they
+ * happen to be at. The cookie is a guess about somebody unknown; once they are
+ * known, the guess is beneath the fact.
+ *
+ * `stored` is typed as `string | null` rather than as an AppLocale because that
+ * is how it arrives: a nullable field on a JSON envelope, over a wire this app
+ * does not control. Anything that is not a language the platform serves is read
+ * past — a value written by an older release, or by a hand — and the request's
+ * own ladder answers instead, which is the same treatment the cookie gets.
+ *
+ * Null means nobody has stated a language, which is NOT the same as English. The
+ * distinction matters one layer up: a null is what the sign-in write fills in
+ * with the detected language, and it is why an existing Member was never
+ * backfilled to "en".
+ */
+export function resolveSignedInStaffLocale(input: {
+  /** The `locale` field the API reports for this person, or null. */
+  stored?: string | null;
+  cookie?: string | null;
+  acceptLanguage?: string | null;
+}): AppLocale {
+  if (isAppLocale(input.stored)) {
+    return input.stored;
+  }
+  return resolveStaffLocale(input);
+}
+
+/**
  * The `document.cookie` string recording a deliberate choice of language.
  *
  * This is the only thing in the staff app that writes NEXT_LOCALE today, and it
@@ -81,10 +114,13 @@ export function resolveStaffLocale(request: {
  * accident.
  *
  * ADR 0041 is explicit that the login switcher and the shell switcher write
- * different things and must not later be "simplified" into one. This is the
- * login half: there is nobody signed in yet, so there is no person to store a
- * Staff Locale against, and the cookie is all there is to write. The shell
- * switcher will write the stored value *and* this cookie.
+ * different things and must not later be "simplified" into one. The login half
+ * writes this and nothing else: there is nobody signed in yet, so there is no
+ * person to store a Staff Locale against. The shell switcher writes the stored
+ * Staff Locale through the API *and* this cookie — the cookie so that the sign-in
+ * page they next reach, before any session exists, is already in their language,
+ * and so that the language does not flicker between the click and the refresh.
+ * Both switchers therefore call this; only one of them also calls the API.
  *
  * `SameSite=Lax` because the cookie has to survive the top-level navigation in
  * from the Storefront. `secure` is passed rather than assumed so a dev server on

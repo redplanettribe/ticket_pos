@@ -10,7 +10,7 @@ export type AuthForkResult = {
 
 type Envelope<T> = {
   data: T | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; details?: unknown } | null;
 };
 
 export function resolveAuthForkPath(session: SessionForkInput): AuthForkResult {
@@ -59,9 +59,26 @@ export function signedInLandingPath(session: SignedInLandingInput): string {
   return resolveAuthForkRedirectPath(session);
 }
 
+/**
+ * What came back when the fork's auto-selection did not work.
+ *
+ * `apiError` is the API's own `error` object — its CODE and its English message —
+ * or null when the call never got an answer at all. It is NOT a sentence: this
+ * module is pure logic and stays free of copy, so the caller resolves it through
+ * lib/api-errors and falls back to a sentence from its own namespace when
+ * `apiError` is null (messages/README.md, "lib/ returns tokens").
+ *
+ * It used to return "Could not select organization" from here, which was one
+ * English sentence a Spanish reader would have met at the end of an otherwise
+ * Spanish sign-in.
+ */
+export type AuthForkFailure = {
+  apiError: { code: string; message: string; details?: unknown } | null;
+};
+
 export async function applyAuthFork(
   session: SessionForkInput,
-): Promise<{ path: string; error?: string }> {
+): Promise<{ path: string; failure?: AuthForkFailure }> {
   const fork = resolveAuthForkPath(session);
 
   if (fork.autoSelectMemberId) {
@@ -73,13 +90,12 @@ export async function applyAuthFork(
       });
       const envelope = (await response.json()) as Envelope<unknown>;
       if (!response.ok || envelope.error) {
-        return {
-          path: fork.path,
-          error: envelope.error?.message ?? "Could not select organization",
-        };
+        return { path: fork.path, failure: { apiError: envelope.error } };
       }
     } catch {
-      return { path: fork.path, error: "Could not select organization" };
+      // Never reached the API, so there is no verdict to report — only that it
+      // failed.
+      return { path: fork.path, failure: { apiError: null } };
     }
   }
 

@@ -1,6 +1,44 @@
 {
   "shell": {
-    "languageSwitcherLabel": "Language"
+    "languageSwitcherLabel": "Language",
+    "languageChangeFailed": "Could not save your language.",
+    "skipToContent": "Skip to main content",
+    "primaryNavigation": "Primary",
+    "navigationMenu": "Navigation menu",
+    "openNavigationMenu": "Open navigation menu",
+    "organizationHeading": "Organization",
+    "operatorHeading": "Operator",
+    "platform": "Platform",
+    "platformDescription": "Operator Dashboard · every organization",
+    "navDashboard": "Dashboard",
+    "navEvents": "Events",
+    "navPayouts": "Payouts",
+    "navSettings": "Settings",
+    "navOverview": "Overview",
+    "navOrganizations": "Organizations",
+    "navPayoutRequests": "Payout Requests",
+    "navFindSale": "Find a sale",
+    "navCustomerConsent": "Customer consent",
+    "pendingPayoutRequests": "{count, plural, =0 {No payout requests waiting} one {# payout request waiting} other {# payout requests waiting}}",
+    "signOut": "Sign out",
+    "signingOut": "Signing out...",
+    "switchOrganization": "Switch organization",
+    "switchOrganizationDescription": "Select an organization to work in, or create a new one.",
+    "switchOrganizationOperatorDescription": "Select an organization to work in, switch to the platform, or create a new organization.",
+    "selectOrganization": "Select organization",
+    "selectOrganizationDescription": "Choose which organization you want to work in.",
+    "createOrganization": "Create organization",
+    "noOrganizations": "No organizations found for your account.",
+    "current": "Current",
+    "switching": "Switching...",
+    "select": "Select",
+    "selecting": "Selecting...",
+    "switchFailed": "Could not switch organization.",
+    "loadOrganizationsFailed": "Could not load your organizations.",
+    "selectOrganizationFailed": "Could not select that organization.",
+    "roleOrgAdmin": "Org Admin",
+    "roleEventOwner": "Event Owner",
+    "roleEventStaff": "Event Staff"
   },
   "login": {
     "title": "Sign in",
@@ -21,6 +59,32 @@
     "googleFailed": "We couldn't finish signing you in with Google. Try again, or use a passcode above.",
     "sendFailed": "Could not send passcode",
     "verifyFailed": "Could not verify passcode",
-    "sessionFailed": "Could not load session"
+    "sessionFailed": "Could not load session",
+    "selectOrganizationFailed": "Signed in, but we couldn't open your organization. Try again."
+  },
+  "errors": {
+    "envelope": {
+      "INTERNAL_ERROR": "Something went wrong on our side. Please try again.",
+      "INVALID_JSON": "We couldn't read what your browser sent. Please try again.",
+      "VALIDATION_FAILED": "Please check the details above and try again.",
+      "UNAUTHORIZED": "Sign in to continue.",
+      "FORBIDDEN": "You don't have permission to do that.",
+      "SESSION_NOT_FOUND": "You're not signed in. Sign in to continue.",
+      "SESSION_EXPIRED": "Your session has ended. Sign in again to continue.",
+      "MEMBER_NOT_FOUND": "That membership no longer exists.",
+      "ORGANIZATION_NOT_FOUND": "That organization no longer exists.",
+      "OTP_RATE_LIMITED": "Too many passcode requests. Please try again later.",
+      "OTP_GLOBAL_CEILING_REACHED": "Passcode sending is temporarily unavailable. Please try again later.",
+      "OTP_INVALID": "That passcode isn't correct.",
+      "OTP_EXPIRED": "That passcode has expired. Request a new one.",
+      "OTP_ATTEMPTS_EXCEEDED": "Too many incorrect attempts. Request a new passcode.",
+      "GOOGLE_SIGN_IN_FAILED": "We couldn't finish signing you in with Google. Try again, or use a passcode."
+    },
+    "field": {
+      "REQUIRED": "is required",
+      "INVALID_EMAIL": "must be a valid email address",
+      "INVALID_ID": "is not valid",
+      "INVALID_ENUM": "is not one of the allowed values"
+    }
   }
 }
