@@ -167,18 +167,11 @@ export const SUPPORTED_CURRENCIES = [
   "DKK",
 ] as const;
 
-/**
- * NOT FOR A MIGRATED SURFACE. `Intl` with no locale follows the BROWSER's, which
- * is the bug ADR 0041 exists to fix — use `formatMoney` from lib/format.ts, which
- * demands the Staff Locale. This stays only for the surfaces that have not been
- * migrated yet (the Operator Dashboard); it goes when the last of them does.
- */
-export function formatPriceCents(priceCents: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency,
-  }).format(priceCents / 100);
-}
+// AN AMOUNT IS DRAWN BY `formatMoney` in lib/format.ts, which demands the Staff
+// Locale and the Organization's currency and has no default for either. The
+// bare-`Intl` wrapper that used to live here followed the BROWSER's locale,
+// which is the bug ADR 0041 exists to fix; it survived only for the surfaces
+// still to be migrated, and #292 migrated the last of them.
 
 export function parsePriceToCents(value: string): number | null {
   const trimmed = value.trim();
@@ -313,24 +306,12 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/**
- * NOT FOR A MIGRATED SURFACE, for two reasons: the bare `Intl` follows the
- * BROWSER's locale, and "No date set" is an English sentence in a module that
- * has no business holding one. Use `formatDateTime` from lib/format.ts and let
- * the catalog say the absent case. Kept for the surfaces still to be migrated.
- */
-export function formatEventStartDate(startsAt: string | null, timezone: string | null): string {
-  if (!startsAt) {
-    return "No date set";
-  }
-  const date = new Date(startsAt);
-  const options: Intl.DateTimeFormatOptions = {
-    dateStyle: "medium",
-    timeStyle: "short",
-    ...(timezone ? { timeZone: timezone } : {}),
-  };
-  return new Intl.DateTimeFormat(undefined, options).format(date);
-}
+// AN EVENT'S START is `formatDateTime` from lib/format.ts, drawn in the Event's
+// own timezone, with `events.noDateSet` said by the catalog when there is none.
+// The wrapper that used to live here was wrong twice over — a bare `Intl`
+// follows the BROWSER's locale, and "No date set" is an English sentence in a
+// module that has no business holding one — and it survived only for the
+// surfaces still to be migrated. #292 migrated the last of them.
 
 /**
  * The `events` catalog key an Event's status is written with, or null for a

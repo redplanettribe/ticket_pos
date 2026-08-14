@@ -2,32 +2,19 @@
 // Dashboard. Dependency-free so they run directly under `node --test`
 // (see payouts.test.ts).
 
-import { formatCalendarDay } from "./format.ts";
 import { isOutstanding } from "./payout-requests.ts";
 
-/**
- * A Payout's paid-at day, drawn in ENGLISH — the Operator Dashboard's last
- * caller of it, and nothing else (#292).
- *
- * The organizer's Payouts page no longer comes through here: it calls
- * `formatCalendarDay(payout.paid_at, locale)` itself, in the reader's Staff
- * Locale (ADR 0041). This wrapper survives only because the Operator Dashboard
- * is not translated yet, and it is deleted with the ticket that translates it.
- *
- * It used to end in a bare `toLocaleDateString()`, which followed the BROWSER's
- * locale rather than any language the application chose — so an operator on a
- * Spanish laptop already read Spanish dates on an English screen. Routing it
- * through lib/format.ts is what makes the language a decision: this surface has
- * decided English until #292 says otherwise, in one legible place.
- *
- * The calendar-day handling is unchanged and is the reason `formatCalendarDay`
- * exists: "YYYY-MM-DD" through the Date constructor is UTC midnight, which is
- * the previous day everywhere west of Greenwich, which is where this platform
- * sells.
- */
-export function formatPaidAtDate(paidAt: string): string {
-  return formatCalendarDay(paidAt, "en");
-}
+// A PAYOUT'S PAID-AT DAY is `formatCalendarDay(payout.paid_at, locale)` from
+// lib/format.ts, called by the screen that draws it in the reader's Staff Locale
+// (ADR 0041). The English wrapper that used to live here served the Operator
+// Dashboard alone and went with #292, which translated it; before that it ended
+// in a bare `toLocaleDateString()`, which followed the BROWSER's locale rather
+// than any language the application chose.
+//
+// `formatCalendarDay` is separate from `formatDate` for a reason worth keeping
+// in mind at every call site: "YYYY-MM-DD" through the Date constructor is UTC
+// midnight, which is the previous day everywhere west of Greenwich, which is
+// where this platform sells.
 
 /**
  * Reports whether an amount being recorded exceeds the Organization's current

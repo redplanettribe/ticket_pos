@@ -16,10 +16,11 @@
 // is handed no `t` — which is what keeps `node --test` free of React and of the
 // i18n runtime, and what stops a copy edit breaking a logic test.
 //
-// The one exception is quarantined at the foot of this file: the Operator
-// Dashboard has not been translated yet (#292), and the four helpers it still
-// reads sentences from are grouped there under a header saying what each becomes
-// when it is.
+// THERE IS NO LONGER AN EXCEPTION. #290 left four sentence-returning helpers
+// quarantined at the foot of this file because the Operator Dashboard still read
+// prose from them; #292 translated that surface and deleted them, so every
+// function below returns a token, a number or a boolean and the whole module
+// holds no English at all.
 
 /**
  * The six states a Payout Request can be in. There is deliberately no
@@ -255,75 +256,6 @@ export function payoutRequestAmountProblem(
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STILL ENGLISH, AND ONLY BECAUSE THE OPERATOR DASHBOARD IS (#292, ADR 0041).
-//
-// Every function in this file below this line that returns a SENTENCE is read by
-// `app/operator/**` and by nothing else: the organizer's Payouts surface was
-// migrated to tokens by #290 and does not call any of them. They are not an
-// exception to the rule that lib returns tokens; they are the rule's remaining
-// debt, sitting in one place so it can be paid in one go.
-//
-// When the Operator Dashboard is translated, each becomes the token it already
-// half is:
-//
-//   payoutRequestStatusLabel → `payoutRequestStatusToken` (above) plus the
-//     catalog keys the organizer's surface already reads, so the six states stop
-//     being written down twice.
-//   waitingLabel / transferSentLabel → `daysWaiting` (already here, already the
-//     decision) plus an ICU plural in the operator's namespace.
-//   declineReasonProblem / failureReasonProblem / transferReferenceProblem →
-//     a problem token, with RESOLUTION_REASON_MAX_LENGTH and
-//     TRANSFER_REFERENCE_MAX_LENGTH passed to the catalog as ICU arguments so
-//     the constant and the sentence cannot drift.
-//   fulfilmentDivergence → a direction token ("short" | "over") and the
-//     difference in cents, formatted by the caller in the Organization's
-//     currency.
-//
-// Nothing here decides anything a token could not carry, which is why none of it
-// needed to change to prove the point on the surface that was migrated.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * A status in English, for the Operator Dashboard alone.
- *
- * IT IS NOT A SECOND STATUS VOCABULARY. It is the same six tokens, said in the
- * one language the operator's screens are still written in, and the words are
- * the words the English catalog holds for them — `payouts.requestStatusPending`
- * and its siblings — so a change of mind about "Waiting" is made in the catalog
- * and copied here rather than decided twice. When #292 translates those screens
- * this goes, and the three call sites read `payoutRequestStatusToken` and their
- * own namespace instead, exactly as the organizer's Payouts page does.
- *
- * An unknown status still comes back raw: the server is the authority on which
- * states exist.
- */
-const ENGLISH_STATUS_LABELS: Record<PayoutRequestStatus, string> = {
-  pending: "Waiting",
-  processing: "Processing",
-  paid: "Paid",
-  declined: "Declined",
-  cancelled: "Cancelled",
-  failed: "Failed",
-};
-
-export function payoutRequestStatusLabel(status: string): string {
-  const token = payoutRequestStatusToken(status);
-  return token ? ENGLISH_STATUS_LABELS[token] : status;
-}
-
-/**
- * How long an ask has been waiting, as the queue says it: "Today", "1 day",
- * "12 days".
- */
-export function waitingLabel(requestedAt: string, now: Date = new Date()): string {
-  const days = daysWaiting(requestedAt, now);
-  if (days === 0) {
-    return "Today";
-  }
-  return days === 1 ? "1 day" : `${days} days`;
-}
-
 // --- answering an ask (#177) ----------------------------------------------
 
 /**
@@ -362,38 +294,33 @@ export function fulfilmentAmountDefault(amountCents: number): string {
 export const RESOLUTION_REASON_MAX_LENGTH = 500;
 
 /**
- * Why a resolution reason cannot be submitted, or null when it can — the shared
- * body behind the two exports below.
+ * Why a resolution reason cannot be submitted, as a token — or null when it can.
  *
- * The two answers that carry a reason ask for it differently and share
- * everything else. What differs is only the sentence shown when the box is
- * empty, because an operator declining an ask and an operator recording a bank
- * rejection are being asked for different things; what does not differ is the
- * length rule, which is one column's CHECK and must stay one statement of it.
+ * ONE FUNCTION, BECAUSE THERE IS ONE RULE. A decline and a bank failure are
+ * asked for their reason differently, and until #292 that difference lived here
+ * as two wrappers around one body, each carrying its own English sentence for an
+ * empty box. The sentences moved to the catalog, where the difference actually
+ * is — `operator.declineReasonRequired` and `operator.failureReasonRequired` —
+ * and what is left is the rule, which was never two things: the same
+ * `resolution_reason` column, the same CHECK, one statement of it.
  *
  * Blank and whitespace-only are the same failure as missing, because all three
  * reach the organizer as a blank, which is the exact outcome requiring a reason
- * exists to prevent (ADR 0026).
+ * exists to prevent (ADR 0026). The bound comes back as a token and not a
+ * sentence so the catalog can state it with RESOLUTION_REASON_MAX_LENGTH as an
+ * ICU argument, and the constant and the copy cannot drift apart.
  */
-function resolutionReasonProblem(reason: string, whenEmpty: string): string | null {
+export type ResolutionReasonProblem = "missing" | "too_long";
+
+export function resolutionReasonProblem(reason: string): ResolutionReasonProblem | null {
   const trimmed = reason.trim();
   if (!trimmed) {
-    return whenEmpty;
+    return "missing";
   }
   if (trimmed.length > RESOLUTION_REASON_MAX_LENGTH) {
-    return `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`;
+    return "too_long";
   }
   return null;
-}
-
-/**
- * Why a decline cannot be submitted, or null when it can.
- *
- * A reason is required and the API refuses without one, so this is not a gate —
- * it is the form saying so before a round trip.
- */
-export function declineReasonProblem(reason: string): string | null {
-  return resolutionReasonProblem(reason, "Say why. The organization is shown this.");
 }
 
 /**
@@ -401,25 +328,33 @@ export function declineReasonProblem(reason: string): string | null {
  *
  * Partial fulfilment needs no model of its own (ADR 0026): an operator who
  * transfers less records what moved, the request goes `paid` for the smaller
- * amount, and the divergence is visible on the request forever. This is the
- * sentence that makes it visible at the moment of typing, rather than only
- * afterwards — and it says the consequence, not just the arithmetic, because
+ * amount, and the divergence is visible on the request forever. This is what
+ * makes it visible at the moment of typing rather than only afterwards — and the
+ * sentences it feeds say the consequence and not just the arithmetic, because
  * "the rest is not owed any more" is what an operator would otherwise assume.
  *
- * formatCents renders a cents amount in the organization's currency.
+ * A DIRECTION AND A DIFFERENCE, never a sentence. The difference is drawn by the
+ * caller in the ORGANIZATION's currency — which a module that must not import a
+ * formatter cannot do — and `operator.fulfilmentShort` and `fulfilmentOver` take
+ * it as an ICU argument. The sign is normalised away deliberately: the direction
+ * carries it, and a sentence reading "-$27.94 less" is what a caller doing the
+ * subtraction itself would eventually produce.
  */
+export type FulfilmentDivergence = {
+  direction: "short" | "over";
+  differenceCents: number;
+};
+
 export function fulfilmentDivergence(
   amountCents: number | null,
   requestedCents: number,
-  formatCents: (cents: number) => string,
-): string | null {
+): FulfilmentDivergence | null {
   if (amountCents === null || amountCents === requestedCents) {
     return null;
   }
-  if (amountCents < requestedCents) {
-    return `${formatCents(requestedCents - amountCents)} less than was asked for. The request will be marked paid for what you record, and the organization can ask again for the rest.`;
-  }
-  return `${formatCents(amountCents - requestedCents)} more than was asked for. The request will be marked paid, and the difference stays visible on it.`;
+  return amountCents < requestedCents
+    ? { direction: "short", differenceCents: requestedCents - amountCents }
+    : { direction: "over", differenceCents: amountCents - requestedCents };
 }
 
 // --- the transfer, and the four answers an operator has (#186) --------------
@@ -471,26 +406,16 @@ export function canMarkFailed(status: string): boolean {
   return status === "processing";
 }
 
-/**
- * How long ago the transfer was sent, as a queue row says it: "sent today",
- * "sent 1 day ago", "sent 4 days ago".
- *
- * It reuses the ask's own age arithmetic — whole days, floored at zero — because
- * an operator triaging a backlog reads both figures in the same glance and two
- * different roundings between them would be a puzzle rather than a fact.
- *
- * IT IS NOT THE STALE FLAG AND MUST NOT BECOME ONE. This counts from the
- * VIEWER's clock; the flag is the server's answer, computed against the server's
- * clock and delivered as transfer_stale. A laptop with the wrong date should
- * garble a sentence, never decide whether a transfer is in trouble.
- */
-export function transferSentLabel(submittedAt: string, now: Date = new Date()): string {
-  const days = daysWaiting(submittedAt, now);
-  if (days === 0) {
-    return "sent today";
-  }
-  return days === 1 ? "sent 1 day ago" : `sent ${days} days ago`;
-}
+// HOW LONG AGO THE TRANSFER WAS SENT is `daysWaiting` above and an ICU plural in
+// the catalog — `operator.transferAgeWithReference` and its siblings. It reuses
+// the ask's own age arithmetic, whole days floored at zero, because an operator
+// triaging a backlog reads both figures in the same glance and two different
+// roundings between them would be a puzzle rather than a fact.
+//
+// IT IS NOT THE STALE FLAG AND MUST NOT BECOME ONE. This counts from the
+// VIEWER's clock; the flag is the server's answer, computed against the server's
+// clock and delivered as transfer_stale. A laptop with the wrong date should
+// garble a sentence, never decide whether a transfer is in trouble.
 
 /** The bound on a transfer reference, matching the column's CHECK (migration 045). */
 export const TRANSFER_REFERENCE_MAX_LENGTH = 200;
@@ -503,27 +428,8 @@ export const TRANSFER_REFERENCE_MAX_LENGTH = 200;
  * always hand one back synchronously, and a required field an operator cannot
  * fill is a field they will type "-" into, at which point the column holds noise
  * that looks like data. So the only thing that can be wrong with it is being too
- * long for the column.
+ * long for the column, which is why the one token it can answer is the bound's.
  */
-export function transferReferenceProblem(reference: string): string | null {
-  if (reference.trim().length > TRANSFER_REFERENCE_MAX_LENGTH) {
-    return `Keep it under ${TRANSFER_REFERENCE_MAX_LENGTH} characters.`;
-  }
-  return null;
-}
-
-/**
- * Why a failure reason cannot be submitted, or null when it can.
- *
- * Required, exactly as a decline's is and for a stronger reason. "Failed" tells
- * an organizer nothing; "the account number was rejected" is also the
- * instruction — go and correct the Payout Profile, because this request's copy
- * of it is frozen and the next move is a fresh ask, never a retry of this one
- * (ADR 0026 amendment).
- */
-export function failureReasonProblem(reason: string): string | null {
-  return resolutionReasonProblem(
-    reason,
-    "Say what the bank said. The organization is shown this, and it is what they act on.",
-  );
+export function transferReferenceProblem(reference: string): "too_long" | null {
+  return reference.trim().length > TRANSFER_REFERENCE_MAX_LENGTH ? "too_long" : null;
 }

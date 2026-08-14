@@ -12,13 +12,13 @@ import { PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
 import { maskAccountNumber, normalizeAccountNumber } from "@/lib/payout-profile";
 import {
   type PayoutRequestAmountProblem,
-  type PayoutRequestStatus,
   isCancellable,
   isOutstanding,
   payoutRequestAmountProblem,
-  payoutRequestStatusToken,
   resolutionNotice,
 } from "@/lib/payout-requests";
+
+import { usePayoutRequestStatusName } from "../payout-request-status";
 
 import {
   type APIEnvelope,
@@ -88,25 +88,6 @@ type PayoutRequest = {
   transfer_submitted_at: string | null;
 };
 
-/**
- * The `payouts` catalog key each Payout Request status is said with.
- *
- * ONE KEY PER STATE, READ BY EVERY SCREEN THAT DRAWS ONE. That is the whole of
- * how a status comes to have exactly one Spanish word: the outstanding card, the
- * request history and the notice email that links here all say *En proceso* for
- * `processing` because there is one place the word can come from. A per-screen
- * rendering is how a reader ends up having to work out whether two words mean
- * one state.
- */
-const STATUS_KEYS = {
-  pending: "requestStatusPending",
-  processing: "requestStatusProcessing",
-  paid: "requestStatusPaid",
-  declined: "requestStatusDeclined",
-  cancelled: "requestStatusCancelled",
-  failed: "requestStatusFailed",
-} as const satisfies Record<PayoutRequestStatus, string>;
-
 /** The `payouts` catalog key each refusable amount is refused with. */
 const AMOUNT_PROBLEM_KEYS = {
   not_positive: "amountProblemNotPositive",
@@ -143,6 +124,12 @@ export function PayoutRequestsSection({
   const t = useTranslations("payouts");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
+  // ONE KEY PER STATE, READ BY EVERY SCREEN THAT DRAWS ONE — the outstanding
+  // card and the request history here, the operator's queue and request detail
+  // there, and the notice email that links to them. `app/payout-request-status`
+  // is the one place a token becomes a word, the way `app/role-name` is for a
+  // role, so a state cannot acquire a second Spanish word by being drawn twice.
+  const statusLabel = usePayoutRequestStatusName();
   const [profile, setProfile] = useState<PayoutProfile | null>(null);
   const [form, setForm] = useState<PayoutProfileFormValues>(emptyPayoutProfileForm);
   const [requests, setRequests] = useState<PayoutRequest[]>([]);
@@ -168,16 +155,6 @@ export function PayoutRequestsSection({
   const formatMoment = useCallback(
     (value: string | null | undefined) => formatDate(value, PLATFORM_TIME_ZONE, locale),
     [locale],
-  );
-  const statusLabel = useCallback(
-    (status: string) => {
-      const token = payoutRequestStatusToken(status);
-      // A state this client has not been taught is shown raw: the server is the
-      // authority on which states exist, and an untranslated word is better than
-      // a blank badge where a status should be.
-      return token ? t(STATUS_KEYS[token]) : status;
-    },
-    [t],
   );
 
   const load = useCallback(async () => {

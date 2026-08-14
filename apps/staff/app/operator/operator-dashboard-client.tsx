@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
@@ -15,8 +16,11 @@ import {
   CardTitle,
   PageHeader,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { type AppLocale, formatMoney, formatNumber } from "@/lib/format";
 import {
   OPERATOR_ORGANIZATIONS_COUNT_PAGE_SIZE,
   type OperatorCurrencyTotals,
@@ -34,50 +38,54 @@ import {
  * Fee and Fee IVA travel together everywhere, so they are disclosed as one
  * amount: what the platform kept in total.
  */
-function KeptFeeNote({ totals }: { totals: OperatorCurrencyTotals }) {
+function KeptFeeNote({ totals, locale }: { totals: OperatorCurrencyTotals; locale: AppLocale }) {
+  const t = useTranslations("operator");
   const keptCents = totals.kept_fee_cents + totals.kept_fee_iva_cents;
   if (keptCents === 0) {
     return null;
   }
   return (
     <p className="text-sm text-muted-foreground">
-      Includes {formatPriceCents(keptCents, totals.currency)} in fees and fee IVA kept on reversed
-      sales.
+      {t("keptFeeNote", { amount: formatMoney(keptCents, totals.currency, locale) })}
     </p>
   );
 }
 
-function TotalsCard({ totals }: { totals: OperatorCurrencyTotals }) {
+/**
+ * One currency's worth of platform revenue.
+ *
+ * EVERY FIGURE HERE IS IN ITS OWN CURRENCY, whichever language the operator
+ * reads in. There is no exchange rate anywhere on this platform, so the card's
+ * title is the currency code itself and the amounts are drawn in it; the Staff
+ * Locale decides only the marks around the numbers (ADR 0041).
+ */
+function TotalsCard({ totals, locale }: { totals: OperatorCurrencyTotals; locale: AppLocale }) {
+  const t = useTranslations("operator");
+  const money = (cents: number) => formatMoney(cents, totals.currency, locale);
   return (
     <Card>
       <CardHeader>
         <CardTitle>{totals.currency}</CardTitle>
-        <CardDescription>
-          Accumulated platform revenue and what the platform currently owes, in {totals.currency}.
-        </CardDescription>
+        <CardDescription>{t("totalsDescription", { currency: totals.currency })}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-6 sm:grid-cols-3">
           <div>
-            <p className="text-sm text-muted-foreground">Platform fees</p>
+            <p className="text-sm text-muted-foreground">{t("platformFees")}</p>
             <p className="text-2xl font-semibold tabular-nums">
-              {formatPriceCents(totals.platform_fee_cents, totals.currency)}
+              {money(totals.platform_fee_cents)}
             </p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Fee IVA</p>
-            <p className="text-2xl font-semibold tabular-nums">
-              {formatPriceCents(totals.fee_iva_cents, totals.currency)}
-            </p>
+            <p className="text-sm text-muted-foreground">{t("feeIva")}</p>
+            <p className="text-2xl font-semibold tabular-nums">{money(totals.fee_iva_cents)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Total owed</p>
-            <p className="text-2xl font-semibold tabular-nums">
-              {formatPriceCents(totals.total_owed_cents, totals.currency)}
-            </p>
+            <p className="text-sm text-muted-foreground">{t("totalOwed")}</p>
+            <p className="text-2xl font-semibold tabular-nums">{money(totals.total_owed_cents)}</p>
           </div>
         </div>
-        <KeptFeeNote totals={totals} />
+        <KeptFeeNote totals={totals} locale={locale} />
       </CardContent>
     </Card>
   );
@@ -93,7 +101,7 @@ function CountCard({
 }: {
   title: string;
   description: string;
-  count: number;
+  count: string;
   href: string;
   linkLabel: string;
 }) {
@@ -122,6 +130,9 @@ function CountCard({
  * counts here lead to them rather than reproducing them.
  */
 export function OperatorDashboardClient() {
+  const t = useTranslations("operator");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [totals, setTotals] = useState<OperatorCurrencyTotals[]>([]);
   const [organizationCount, setOrganizationCount] = useState(0);
   const [pendingPayoutRequests, setPendingPayoutRequests] = useState(0);
@@ -146,15 +157,22 @@ export function OperatorDashboardClient() {
       setPendingPayoutRequests(payoutRequestCount.pending_count);
       setForbidden(false);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load";
-      if (message.toLowerCase().includes("permission")) {
+      // The allowlist refusal is its own answer rather than a failure to report,
+      // and it is told apart by the API's CODE. It used to be told apart by
+      // looking for the word "permission" inside the API's English sentence,
+      // which worked only for as long as there was one language (ADR 0023).
+      if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
         setForbidden(true);
       } else {
-        setError(message);
+        setError(
+          (loadError instanceof ApiError ? apiErrorMessage(errorCopy, loadError) : null) ??
+            t("loadFailed"),
+        );
       }
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -162,14 +180,14 @@ export function OperatorDashboardClient() {
   }, [load]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading operator dashboard...</p>;
+    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
 
   if (forbidden) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Access denied</AlertTitle>
-        <AlertDescription>This account is not a platform operator.</AlertDescription>
+        <AlertTitle>{t("accessDeniedTitle")}</AlertTitle>
+        <AlertDescription>{t("accessDenied")}</AlertDescription>
       </Alert>
     );
   }
@@ -177,7 +195,7 @@ export function OperatorDashboardClient() {
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load the operator dashboard</AlertTitle>
+        <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
@@ -185,10 +203,7 @@ export function OperatorDashboardClient() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Operator"
-        description="Platform revenue, and what is waiting to be done across every organization."
-      />
+      <PageHeader title={t("title")} description={t("description")} />
 
       <div className="grid gap-6 sm:grid-cols-2">
         {/*
@@ -196,32 +211,32 @@ export function OperatorDashboardClient() {
           WAITING on, while the organization count is a standing fact.
         */}
         <CountCard
-          title="Payout requests"
-          description="Every organization waiting to be paid, across the platform, longest wait first."
-          count={pendingPayoutRequests}
+          title={t("queueCardTitle")}
+          description={t("queueCardDescription")}
+          count={formatNumber(pendingPayoutRequests, locale)}
           href="/operator/payout-requests"
-          linkLabel="Open the queue"
+          linkLabel={t("openTheQueue")}
         />
         <CountCard
-          title="Organizations"
-          description="Every organization on the platform and its withdrawable balance."
-          count={organizationCount}
+          title={t("organizationsCardTitle")}
+          description={t("organizationsCardDescription")}
+          count={formatNumber(organizationCount, locale)}
           href="/operator/organizations"
-          linkLabel="View organizations"
+          linkLabel={t("viewOrganizations")}
         />
       </div>
 
       {totals.length === 0 ? (
         <Card>
           <CardContent className="py-10">
-            <p className="text-muted-foreground">No platform revenue recorded yet.</p>
+            <p className="text-muted-foreground">{t("noRevenue")}</p>
           </CardContent>
         </Card>
       ) : (
         // One card per currency: there is no exchange rate anywhere on this
         // platform, so these numbers are never added together.
         totals.map((currencyTotals) => (
-          <TotalsCard key={currencyTotals.currency} totals={currencyTotals} />
+          <TotalsCard key={currencyTotals.currency} totals={currencyTotals} locale={locale} />
         ))
       )}
     </div>

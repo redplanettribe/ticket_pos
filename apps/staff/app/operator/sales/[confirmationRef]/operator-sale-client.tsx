@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
@@ -27,13 +28,24 @@ import {
   Textarea,
   toast,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatEventStartDate, formatPriceCents, parsePriceToCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError, parsePriceToCents } from "@/lib/events-api";
+import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import {
   type OperatorSaleLookup,
   fetchOperatorSale,
   reverseOperatorSale,
 } from "@/lib/operator-api";
+import {
+  type ReversalActor,
+  type SaleChannel,
+  type SaleSource,
+  paymentMethodToken,
+  saleChannelToken,
+  saleSourceToken,
+} from "@/lib/sales-api";
 
 /**
  * The Platform Operator's view of one Ticket Sale, found by the Sale
@@ -52,10 +64,50 @@ import {
  * How much of that form there is depends on the sale. One that collected
  * nothing has no money to state and refuses both money facts, so it is offered
  * a note and nothing else (#126).
+ *
+ * WHAT IT DOES NOT SAY IN ITS OWN WORDS: the Sales Channel, its source, the
+ * Payment Method and who reversed a sale. Every one of those is vocabulary the
+ * Event's own Sales tab already coined, read here from the `sales` namespace
+ * through the same token narrowing lib/sales-api.ts gives that screen — because
+ * an organizer and an operator discussing one sale over the phone must be using
+ * one word for its channel (ADR 0041).
  */
 
 /** The longest note the API accepts on an Operator Reversal. */
 const REVERSAL_NOTE_MAX_LENGTH = 500;
+
+/** Rendered where a fact has nothing to show. Punctuation, in every language. */
+const NOTHING = "—";
+
+/** The `sales` catalog keys for everything lib/sales-api.ts narrows. */
+const CHANNEL_KEYS = {
+  online: "channelOnline",
+  in_person: "channelInPerson",
+  import: "channelImport",
+} as const satisfies Record<SaleChannel, string>;
+
+const SOURCE_KEYS = {
+  direct: "sourceDirect",
+  external_platform: "sourceExternalPlatform",
+} as const satisfies Record<SaleSource, string>;
+
+const PAYMENT_METHOD_KEYS = {
+  cash: "paymentCash",
+  transfer: "paymentTransfer",
+  payphone: "paymentPayphone",
+} as const;
+
+/**
+ * How a Sale Reversal came about, in the words the Event's Sales tab uses.
+ * `customer` is the buyer's own undo within the Reversal Window; `staff` is a
+ * Sale Import undo; `operator` is this very page. Anything else is shown
+ * verbatim rather than guessed at.
+ */
+const REVERSAL_ACTOR_KEYS = {
+  customer: "actorCustomer",
+  staff: "actorStaff",
+  operator: "actorOperator",
+} as const satisfies Record<ReversalActor, string>;
 
 /**
  * A marking the operator has stated and is being asked to confirm.
@@ -80,34 +132,11 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function formatInstant(value: string | null): string {
-  if (!value) {
-    return "—";
-  }
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
-    new Date(value),
-  );
-}
-
-/**
- * How a Sale Reversal came about, in the words the glossary uses. `customer` is
- * the buyer's own undo within the Reversal Window; `staff` is a Sale Import
- * undo. Anything else is shown verbatim rather than guessed at.
- */
-function reversalActorLabel(reversedBy: string): string {
-  switch (reversedBy) {
-    case "customer":
-      return "the buyer";
-    case "staff":
-      return "organization staff (sale import undo)";
-    case "operator":
-      return "the platform (refunded off-platform)";
-    default:
-      return reversedBy;
-  }
-}
-
 export function OperatorSaleClient({ confirmationRef }: { confirmationRef: string }) {
+  const t = useTranslations("operator");
+  const tSales = useTranslations("sales");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [lookup, setLookup] = useState<OperatorSaleLookup | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFoundRef, setNotFoundRef] = useState(false);
@@ -135,21 +164,21 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
     try {
       setLookup(await fetchOperatorSale(confirmationRef));
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load sale";
       // A reference nothing carries is the ordinary outcome of a typo, not a
-      // failure worth an alarming red box.
-      const code =
-        loadError && typeof loadError === "object" && "code" in loadError
-          ? (loadError as { code?: string }).code
-          : undefined;
-      if (code === "TICKET_SALE_NOT_FOUND") {
+      // failure worth an alarming red box — so it gets its own card below and
+      // never comes through the error copy at all.
+      if (loadError instanceof ApiError && loadError.code === "TICKET_SALE_NOT_FOUND") {
         setNotFoundRef(true);
       } else {
-        setError(message);
+        setError(
+          (loadError instanceof ApiError ? apiErrorMessage(errorCopy, loadError) : null) ??
+            t("saleNotFound"),
+        );
       }
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmationRef]);
 
   useEffect(() => {
@@ -172,12 +201,15 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
         ...(note.trim() ? { note: note.trim() } : {}),
       });
       setPending(null);
-      toast.success("Sale reversed");
+      toast.success(t("saleReversed"));
       // Re-read rather than patch locally: the status, the provenance and the
       // memo are all the server's account of what just happened.
       await load();
     } catch (submitError) {
-      toast.error(submitError instanceof Error ? submitError.message : "Failed to reverse the sale");
+      toast.error(
+        (submitError instanceof ApiError ? apiErrorMessage(errorCopy, submitError) : null) ??
+          t("reverseFailed"),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -196,8 +228,8 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
     }
     const refundedAmountCents = parsePriceToCents(refunded);
     const amountInvalid = refundedAmountCents === null || refundedAmountCents <= 0;
-    setRefundedError(amountInvalid ? "Enter the amount the buyer got back." : null);
-    setFeeKeptError(feeKept === "" ? "Say whether the platform kept its fee." : null);
+    setRefundedError(amountInvalid ? t("refundedRequired") : null);
+    setFeeKeptError(feeKept === "" ? t("feeKeptRequired") : null);
     if (amountInvalid || feeKept === "" || refundedAmountCents === null) {
       return;
     }
@@ -205,25 +237,31 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading sale...</p>;
+    return <p className="text-sm text-muted-foreground">{t("saleLoading")}</p>;
   }
 
   if (notFoundRef) {
     return (
       <div className="space-y-6">
-        <Breadcrumb items={[{ label: "Find a sale", href: "/operator/sales" }, { label: confirmationRef }]} />
+        <Breadcrumb
+          items={[
+            { label: t("breadcrumbFindSale"), href: "/operator/sales" },
+            { label: confirmationRef },
+          ]}
+        />
         <Card>
           <CardHeader>
-            <CardTitle>No sale with that reference</CardTitle>
+            <CardTitle>{t("saleNotFoundTitle")}</CardTitle>
             <CardDescription>
-              Nothing on the platform carries the sale confirmation reference{" "}
-              <span className="font-mono">{confirmationRef}</span>. Check it against the
-              confirmation email — the reference looks like <span className="font-mono">TP-…</span>.
+              {t.rich("saleNotFoundBody", {
+                reference: confirmationRef,
+                ref: (chunks) => <span className="font-mono">{chunks}</span>,
+              })}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Link href="/operator/sales" className="text-sm underline">
-              Back to the sale lookup
+              {t("backToSaleLookup")}
             </Link>
           </CardContent>
         </Card>
@@ -234,8 +272,8 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   if (error || !lookup) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load the sale</AlertTitle>
-        <AlertDescription>{error ?? "Sale not found."}</AlertDescription>
+        <AlertTitle>{t("saleLoadFailedTitle")}</AlertTitle>
+        <AlertDescription>{error ?? t("saleNotFound")}</AlertDescription>
       </Alert>
     );
   }
@@ -255,45 +293,83 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
   // payment method — that is the fact the API judges the marking against.
   const free = sale.amount_cents === 0;
   const memo = sale.operator_reversal;
+  // The sale's own currency, and the platform's clock for every moment on this
+  // page: a sale's timestamps and its Reversal Window cutoff are Ecuadorian
+  // facts (ADR 0018), and only the Event's schedule belongs to the Event's zone.
+  const money = (cents: number) => formatMoney(cents, currency, locale);
+  const moment = (value: string | null) =>
+    formatDateTime(value, PLATFORM_TIME_ZONE, locale) ?? NOTHING;
+  const channelToken = saleChannelToken(sale.channel);
+  const sourceToken = saleSourceToken(sale.source);
+  const paymentToken = paymentMethodToken(sale.payment_method);
+  const actorToken = sale.reversed_by
+    ? (REVERSAL_ACTOR_KEYS[sale.reversed_by as ReversalActor] ?? null)
+    : null;
 
   return (
     <div className="space-y-6">
       <Breadcrumb
-        items={[{ label: "Find a sale", href: "/operator/sales" }, { label: sale.confirmation_ref }]}
+        items={[
+          { label: t("breadcrumbFindSale"), href: "/operator/sales" },
+          { label: sale.confirmation_ref },
+        ]}
       />
 
+      {/* The reference, the Event's name and the Organization's are all data. */}
       <PageHeader
         title={sale.confirmation_ref}
-        description={`${sale.event.name} · ${organization.name}`}
+        description={t("saleHeaderDescription", {
+          event: sale.event.name,
+          organization: organization.name,
+        })}
       />
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
-            <CardTitle>Sale</CardTitle>
+            <CardTitle>{t("saleTitle")}</CardTitle>
             <CardDescription>
-              {sale.ticket_count} {sale.ticket_count === 1 ? "ticket" : "tickets"} ·{" "}
-              {sale.ticket_types.map((line) => `${line.quantity} × ${line.ticket_type_name}`).join(", ")}
+              {t("saleTicketCount", {
+                count: sale.ticket_count,
+                lines: sale.ticket_types
+                  .map((line) =>
+                    t("saleTicketLine", {
+                      quantity: formatNumber(line.quantity, locale),
+                      name: line.ticket_type_name,
+                    }),
+                  )
+                  .join(", "),
+              })}
             </CardDescription>
           </div>
-          <Badge variant={reversed ? "destructive" : "success"} className="capitalize">
-            {sale.status}
+          <Badge variant={reversed ? "destructive" : "success"}>
+            {reversed ? t("saleStatusReversed") : t("saleStatusActive")}
           </Badge>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-3">
-          <Fact label="Sold">{formatInstant(sale.sold_at)}</Fact>
-          <Fact label="Channel">
-            <span className="capitalize">{sale.channel.replace("_", " ")}</span>
-            {sale.source ? (
-              <span className="text-muted-foreground"> · {sale.source.replace("_", " ")}</span>
-            ) : null}
+          <Fact label={t("factSold")}>{moment(sale.sold_at)}</Fact>
+          <Fact label={t("factChannel")}>
+            {sourceToken || sale.source
+              ? tSales("channelWithSource", {
+                  channel: channelToken ? tSales(CHANNEL_KEYS[channelToken]) : sale.channel,
+                  source: sourceToken ? tSales(SOURCE_KEYS[sourceToken]) : (sale.source ?? ""),
+                })
+              : channelToken
+                ? tSales(CHANNEL_KEYS[channelToken])
+                : sale.channel}
           </Fact>
-          <Fact label="Payment method">{sale.payment_method ?? "—"}</Fact>
+          <Fact label={t("factPaymentMethod")}>
+            {paymentToken
+              ? tSales(PAYMENT_METHOD_KEYS[paymentToken])
+              : (sale.payment_method ?? NOTHING)}
+          </Fact>
           {reversed ? (
             <>
-              <Fact label="Reversed">{formatInstant(sale.reversed_at)}</Fact>
-              <Fact label="Reversed by">
-                {sale.reversed_by ? reversalActorLabel(sale.reversed_by) : "Not recorded"}
+              <Fact label={t("factReversed")}>{moment(sale.reversed_at)}</Fact>
+              <Fact label={t("factReversedBy")}>
+                {actorToken
+                  ? tSales(actorToken)
+                  : (sale.reversed_by ?? t("reversedByNotRecorded"))}
               </Fact>
             </>
           ) : null}
@@ -302,51 +378,42 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
 
       <Card>
         <CardHeader>
-          <CardTitle>Reversal window</CardTitle>
-          <CardDescription>
-            The period in which the buyer could undo this sale themselves: until 20:00 Ecuador time
-            on the day of purchase, or the event&apos;s start, whichever comes first.
-          </CardDescription>
+          <CardTitle>{t("reversalWindowTitle")}</CardTitle>
+          <CardDescription>{t("reversalWindowDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-2">
-          <Fact label="Status">
+          <Fact label={t("colStatus")}>
             {sale.reversal_window_passed ? (
-              <Badge variant="warning">Passed</Badge>
+              <Badge variant="warning">{t("reversalWindowPassed")}</Badge>
             ) : (
-              <Badge variant="outline">Still open</Badge>
+              <Badge variant="outline">{t("reversalWindowOpen")}</Badge>
             )}
           </Fact>
-          <Fact label="Closes">
+          <Fact label={t("reversalWindowCloses")}>
             {sale.reversal_window_closes_at
-              ? formatInstant(sale.reversal_window_closes_at)
-              : "This sale never had a reversal window"}
+              ? moment(sale.reversal_window_closes_at)
+              : t("reversalWindowNever")}
           </Fact>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Amounts</CardTitle>
-          <CardDescription>
-            What the buyer paid and how it was split, as this sale snapshotted it at the time.
-          </CardDescription>
+          <CardTitle>{t("amountsTitle")}</CardTitle>
+          <CardDescription>{t("amountsDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-4">
-          <Fact label="Collected">
-            <span className="tabular-nums">{formatPriceCents(sale.amount_cents, currency)}</span>
+          <Fact label={t("factCollected")}>
+            <span className="tabular-nums">{money(sale.amount_cents)}</span>
           </Fact>
-          <Fact label="Platform fee">
-            <span className="tabular-nums">
-              {formatPriceCents(sale.platform_fee_cents, currency)}
-            </span>
+          <Fact label={t("factPlatformFee")}>
+            <span className="tabular-nums">{money(sale.platform_fee_cents)}</span>
           </Fact>
-          <Fact label="Fee IVA">
-            <span className="tabular-nums">{formatPriceCents(sale.fee_iva_cents, currency)}</span>
+          <Fact label={t("factFeeIva")}>
+            <span className="tabular-nums">{money(sale.fee_iva_cents)}</span>
           </Fact>
-          <Fact label="Net proceeds">
-            <span className="tabular-nums">
-              {formatPriceCents(sale.net_proceeds_cents, currency)}
-            </span>
+          <Fact label={t("factNetProceeds")}>
+            <span className="tabular-nums">{money(sale.net_proceeds_cents)}</span>
           </Fact>
         </CardContent>
       </Card>
@@ -354,32 +421,28 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       {memo ? (
         <Card>
           <CardHeader>
-            <CardTitle>Out-of-band refund</CardTitle>
-            <CardDescription>
-              What the operator asserted when they recorded this reversal. Visible to platform
-              operators only — the organization sees the sale as reversed by the platform and
-              nothing of this.
-            </CardDescription>
+            <CardTitle>{t("memoTitle")}</CardTitle>
+            <CardDescription>{t("memoDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 sm:grid-cols-3">
-            <Fact label="Refunded to the buyer">
+            <Fact label={t("memoRefunded")}>
               <span className="tabular-nums">
                 {memo.refunded_amount_cents === null
-                  ? "Nothing to refund"
-                  : formatPriceCents(memo.refunded_amount_cents, currency)}
+                  ? t("memoNothingToRefund")
+                  : money(memo.refunded_amount_cents)}
               </span>
             </Fact>
-            <Fact label="Platform fee">
+            <Fact label={t("factPlatformFee")}>
               {memo.platform_fee_kept === null
-                ? "—"
+                ? NOTHING
                 : memo.platform_fee_kept
-                  ? "Kept by the platform"
-                  : "Returned"}
+                  ? t("memoFeeKept")
+                  : t("memoFeeReturned")}
             </Fact>
-            <Fact label="Recorded by">{memo.operator}</Fact>
+            <Fact label={t("memoRecordedBy")}>{memo.operator}</Fact>
             {memo.note ? (
               <div className="sm:col-span-3">
-                <Fact label="Note">
+                <Fact label={t("memoNote")}>
                   <span className="whitespace-pre-wrap font-normal">{memo.note}</span>
                 </Fact>
               </div>
@@ -391,11 +454,9 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       {markable ? (
         <Card>
           <CardHeader>
-            <CardTitle>{free ? "Reverse this sale" : "Record an out-of-band refund"}</CardTitle>
+            <CardTitle>{free ? t("reverseTitleFree") : t("reverseTitlePaid")}</CardTitle>
             <CardDescription>
-              {free
-                ? "This sale collected nothing, so there is no refund to record and no fee to decide. Reversing it voids the tickets, puts them back on sale and emails the buyer."
-                : "Use this after you have already refunded the buyer yourself — in the payment provider's dashboard, or by bank transfer. It records what happened: no payment provider is called from here, and nothing is refunded by submitting this form."}
+              {free ? t("reverseDescriptionFree") : t("reverseDescriptionPaid")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -404,7 +465,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                 <>
                   <FormField
                     id="reversal-refunded"
-                    label={`Refunded to the buyer (${currency})`}
+                    label={t("refundedLabel", { currency })}
                     error={refundedError}
                   >
                     <Input
@@ -415,11 +476,14 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                       disabled={submitting}
                     />
                     <p className="mt-1 text-xs text-muted-foreground">
-                      What actually left our account. This sale collected{" "}
-                      {formatPriceCents(sale.amount_cents, currency)}, which is the most it can be.
+                      {t("refundedHint", { amount: money(sale.amount_cents) })}
                     </p>
                   </FormField>
-                  <FormField id="reversal-fee-kept" label="Platform fee" error={feeKeptError}>
+                  <FormField
+                    id="reversal-fee-kept"
+                    label={t("factPlatformFee")}
+                    error={feeKeptError}
+                  >
                     <div className="flex flex-col gap-2 pt-1 text-sm">
                       <label className="flex items-center gap-2">
                         <input
@@ -430,9 +494,9 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                           onChange={() => setFeeKept("kept")}
                           disabled={submitting}
                         />
-                        Kept — the platform keeps{" "}
-                        {formatPriceCents(sale.platform_fee_cents + sale.fee_iva_cents, currency)}{" "}
-                        (fee and fee IVA)
+                        {t("feeKeptOption", {
+                          amount: money(sale.platform_fee_cents + sale.fee_iva_cents),
+                        })}
                       </label>
                       <label className="flex items-center gap-2">
                         <input
@@ -443,27 +507,27 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
                           onChange={() => setFeeKept("returned")}
                           disabled={submitting}
                         />
-                        Returned — the platform keeps nothing on this sale
+                        {t("feeReturnedOption")}
                       </label>
                     </div>
                   </FormField>
                 </>
               )}
               <div className="sm:col-span-2">
-                <FormField id="reversal-note" label="Note (optional)">
+                <FormField id="reversal-note" label={t("noteLabel")}>
                   <Textarea
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
                     maxLength={REVERSAL_NOTE_MAX_LENGTH}
                     rows={2}
-                    placeholder="Refunded via the PayPhone dashboard; bank transfer, fee waived as goodwill; ..."
+                    placeholder={t("reversalNotePlaceholder")}
                     disabled={submitting}
                   />
                 </FormField>
               </div>
               <div className="sm:col-span-2">
                 <Button type="submit" variant="destructive" disabled={submitting}>
-                  {submitting ? "Reversing..." : "Reverse this sale"}
+                  {submitting ? t("reversing") : t("reverseSubmit")}
                 </Button>
               </div>
             </form>
@@ -473,28 +537,39 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
 
       <Card>
         <CardHeader>
-          <CardTitle>Buyer</CardTitle>
-          <CardDescription>The customer as this sale recorded them.</CardDescription>
+          <CardTitle>{t("buyerTitle")}</CardTitle>
+          <CardDescription>{t("buyerDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-2">
-          <Fact label="Name">
-            {`${sale.customer.first_name} ${sale.customer.last_name}`.trim() || "—"}
+          {/* A Customer's name and address are data, never copy. */}
+          <Fact label={t("buyerName")}>
+            {`${sale.customer.first_name} ${sale.customer.last_name}`.trim() || NOTHING}
           </Fact>
-          <Fact label="Email">{sale.customer.email}</Fact>
+          <Fact label={t("buyerEmail")}>{sale.customer.email}</Fact>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Event and organization</CardTitle>
-          <CardDescription>Whose sale this is, and what it is for.</CardDescription>
+          <CardTitle>{t("eventAndOrganizationTitle")}</CardTitle>
+          <CardDescription>{t("eventAndOrganizationDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-3">
-          <Fact label="Event">{sale.event.name}</Fact>
-          <Fact label="Starts">
-            {formatEventStartDate(sale.event.starts_at, sale.event.timezone)}
+          <Fact label={t("factEvent")}>{sale.event.name}</Fact>
+          {/*
+            THE ONE MOMENT ON THIS PAGE THAT IS NOT THE PLATFORM'S: an Event's
+            schedule is drawn in the EVENT's own timezone, whichever language
+            the operator reads in (ADR 0041). An Event with no zone recorded
+            falls back to the platform's clock rather than to the machine's.
+          */}
+          <Fact label={t("factStarts")}>
+            {formatDateTime(
+              sale.event.starts_at,
+              sale.event.timezone ?? PLATFORM_TIME_ZONE,
+              locale,
+            ) ?? NOTHING}
           </Fact>
-          <Fact label="Organization">
+          <Fact label={t("factOrganization")}>
             <Link href={`/operator/organizations/${organization.id}`} className="hover:underline">
               {organization.name}
             </Link>
@@ -512,43 +587,40 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reverse {sale.confirmation_ref}?</DialogTitle>
-            <DialogDescription>
-              This cannot be undone. There is no un-reversal: the tickets go back on sale
-              immediately and the void email cannot be unsent.
-            </DialogDescription>
+            <DialogTitle>{t("reverseDialogTitle", { reference: sale.confirmation_ref })}</DialogTitle>
+            <DialogDescription>{t("reverseDialogBody")}</DialogDescription>
           </DialogHeader>
           <ul className="list-disc space-y-1 pl-5 text-sm">
             <li>
-              {sale.ticket_count} {sale.ticket_count === 1 ? "ticket returns" : "tickets return"} to{" "}
-              {sale.event.name}, on sale again at once.
+              {t("reverseDialogTickets", {
+                count: sale.ticket_count,
+                event: sale.event.name,
+              })}
             </li>
             {free ? null : (
               <li>
-                {organization.name}&apos;s withdrawable balance drops by{" "}
-                {formatPriceCents(sale.net_proceeds_cents, currency)}, going negative if this sale
-                was already paid out.
+                {t("reverseDialogBalance", {
+                  organization: organization.name,
+                  amount: money(sale.net_proceeds_cents),
+                })}
               </li>
             )}
             <li>
-              {sale.customer.email} is emailed that their tickets are no longer valid, quoting{" "}
-              {sale.confirmation_ref}.
+              {t("reverseDialogEmail", {
+                email: sale.customer.email,
+                reference: sale.confirmation_ref,
+              })}
             </li>
             <li>
-              {pending?.refundedAmountCents === null || pending?.platformFeeKept === null ? (
-                <>
-                  No money is recorded: this sale collected nothing, so there was nothing to refund
-                  and no fee to keep. No payment provider is called.
-                </>
-              ) : (
-                <>
-                  You are recording that{" "}
-                  {formatPriceCents(pending?.refundedAmountCents ?? 0, currency)} already went back
-                  to the buyer, and that the platform{" "}
-                  {pending?.platformFeeKept ? "keeps" : "returns"} its fee. No payment provider is
-                  called.
-                </>
-              )}
+              {pending?.refundedAmountCents === null || pending?.platformFeeKept === null
+                ? t("reverseDialogNoMoney")
+                : pending?.platformFeeKept
+                  ? t("reverseDialogMoneyKept", {
+                      amount: money(pending?.refundedAmountCents ?? 0),
+                    })
+                  : t("reverseDialogMoneyReturned", {
+                      amount: money(pending?.refundedAmountCents ?? 0),
+                    })}
             </li>
           </ul>
           <DialogFooter>
@@ -558,7 +630,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
               onClick={() => setPending(null)}
               disabled={submitting}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="button"
@@ -570,7 +642,7 @@ export function OperatorSaleClient({ confirmationRef }: { confirmationRef: strin
               }}
               disabled={submitting}
             >
-              {submitting ? "Reversing..." : "Reverse the sale"}
+              {submitting ? t("reversing") : t("reverseDialogConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

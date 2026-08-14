@@ -65,6 +65,7 @@ instead of scattering it.
 | `organization` | The Organization being administered: the Settings page header, the profile, the Logo, and the danger zone |
 | `onboarding` | Creating an Organization — the gate a brand-new organizer lands on straight after signing in, and the in-app create page that shares its form |
 | `payouts` | Getting paid: both balances, the Payout Profile, the ask, the request history, and the **Payout Request status** vocabulary — one key per state, read by every screen that draws one |
+| `operator` | The Operator Dashboard: the platform-revenue overview, the organizations roll and one Organization's detail, the Payout Request queue and one request, the sale lookup and one sale, and the Consent Withdrawal surface |
 | `errors`  | Failures, keyed on the API's error code — belongs to no single surface            |
 
 `sales` covers the **Sale Import** tool as well as the list, and there is
@@ -93,24 +94,44 @@ The Event's own side panel gets its words the way the app shell does:
 is the single place that turns them into `EventShellLabels`. A nav entry added
 there is a compile error at that one file.
 
-**The table grows one surface at a time, and that is the point.** #286 landed the
+**The table grew one surface at a time, and that was the point.** #286 landed the
 scaffolding and translated the login page; #287 translated the shell and landed
-the two shared mechanisms; every ticket after them migrates one surface and adds
-its namespace to this table in the same commit it adds the keys. A namespace that
-is not in the table above has not been migrated yet, and the screens it would
-speak for are still English.
-
-The names to expect, so that two tickets do not coin two names for one surface:
-`events`, `event`, `ticketTypes`, `tags`, `affiliateLinks`, `pos`, `sales`,
-`trends`, `team`, `payouts`, `onboarding`, `organization`, `operator`.
+the two shared mechanisms; every ticket after them migrated one surface and added
+its namespace to this table in the same commit it added the keys. **#292 added
+the last one.** The table is now the whole application, so a screen with an
+English literal in it is a mistake rather than a surface awaiting its turn —
+which is exactly the state #293's lint rule needs to be switched on against.
 
 `shell` covers **both** side panels, the Operator Dashboard's included: the
-Operator Dashboard has screens of its own that `operator` will speak for, but the
+Operator Dashboard has screens of its own that `operator` speaks for, but the
 panel around them is chrome, and one switcher and one session serve both surfaces.
+
+`operator` is ONE namespace for six routes because a Platform Operator looking at
+any of them is looking at the Operator Dashboard — the surface, not the page, is
+the unit (see above). It is also the namespace that borrows the most, and
+deliberately: it reads the Payout Request statuses and the whole bank-detail
+vocabulary from `payouts`, the Event statuses from `events`, and the Sales
+Channel, source, Payment Method and reversal-actor words from `sales`. An
+organizer and an operator on the phone about one payout must be saying one word
+for its state, and the operator's screen is the second reader of every term the
+organizer's screen coined — never a second coiner of it.
 `shell` also owns the **role names** (`roleOrgAdmin`, `roleEventOwner`,
 `roleEventStaff`) even though the team screen renders them too — they are coined
 once in `CONTEXT.md` and named once here, because a role translated per screen is
 how there come to be three Spanish words for Event Staff.
+
+**No surface maps a Payout Request status to a word itself either.**
+`app/payout-request-status.ts` is written the way `app/role-name.ts` is and for
+the same reason: the organizer's outstanding card and request history, the
+operator's queue, an Organization's request history and the request detail all
+read `usePayoutRequestStatusName`, and the words live in `payouts` because the
+vocabulary belongs to the domain rather than to a surface. #290 left an English
+shim in `lib/payout-requests.ts` for the untranslated Operator Dashboard, tested
+against the English catalog so the six states were written down twice rather than
+twice-decided; #292 translated that surface and deleted the shim, along with
+`waitingLabel`, `transferSentLabel`, the sentence-returning reason validators,
+`fulfilmentDivergence`'s prose and `formatPaidAtDate`. **`lib/` now holds no
+English at all.**
 
 **No surface maps a role token to a word itself.** `app/role-name.ts` is the one
 place that does, and every screen showing a role — the membership list, the
@@ -154,7 +175,10 @@ two surfaces.
 
 Every number, amount, date and time a staff screen draws goes through
 `lib/format.ts`. Nothing calls `toLocaleDateString()`, `toLocaleString()` or a
-bare `Intl.*` on a migrated surface.
+bare `Intl.*` anywhere under `app/` — the qualification "on a migrated surface"
+retired with #292, which migrated the last one and deleted the two bare-`Intl`
+wrappers `lib/events-api.ts` had kept alive for it (`formatPriceCents`,
+`formatEventStartDate`).
 
 The reason is a live bug rather than tidiness: a bare `Intl` call follows the
 **browser's** locale, so a Spanish-speaking organizer on an English laptop reads
@@ -282,6 +306,19 @@ Two balance terms had no Spanish anywhere and are coined here: **Saldo por
 retirar** for the Withdrawable Balance and **Saldo pagable** for the Payable
 Balance. _Saldo disponible_ is barred for the second one, for the reason
 `CONTEXT.md` bars "available balance" for it in English.
+
+The Operator Dashboard (#292) takes every one of those words rather than coining
+its own, and adds only what is genuinely operator-side: **reversión** for a Sale
+Reversal, **revocatoria** for a Consent Withdrawal — the word the Ecuadorian
+_Formulario de Revocatoria_ an operator is holding actually uses — and **Panel de
+Operador** for the dashboard itself, which is `shell.platformDescription`'s
+spelling too since #292 aligned it with the mail's.
+
+A **Payout** is _pago_ and a **Payout Request** is _solicitud de pago_, which
+means the operator's "Record payout" is _Registrar el pago_ and never
+_Registrar la solicitud_: recording money that already moved and answering an ask
+are two different acts on the same screen, and one word for both is how an
+operator records the wrong one.
 
 ## What the tests do and do not check
 

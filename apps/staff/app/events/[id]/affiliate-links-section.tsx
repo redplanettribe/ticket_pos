@@ -68,7 +68,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   // The Event's currency, for the attributed Net Proceeds figures. It is read
   // from the sales summary — the same figure's own surface, behind the same
   // Org-Admin/Event-Owner gate — rather than kept a second time here. Money is
-  // formatted the way the summary strip formats it (formatPriceCents) and shown
+  // formatted the way the summary strip formats it (formatMoney) and shown
   // as an em dash until the currency is known: a bare number would read as a
   // figure in whatever currency the reader assumed.
   const [currency, setCurrency] = useState<string | null>(null);
