@@ -145,20 +145,48 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 
 // RequestOTP delivers a staff-purpose one-time passcode.
 //
-// The language is named here, explicitly, and it is always English. No Member
-// has a locale, apps/staff has no i18n at all, and Spanish mail linking into an
-// English application would be worse than consistency — so staff mail is
-// English by decision rather than by omission (ADR 0033). The argument is at
-// this call site precisely so a reader meets the decision instead of inferring
-// it from a default somewhere below.
+// The language is named here, explicitly, and it is THE RECIPIENT'S (#285,
+// ADR 0041). It used to be English by decision — no Member had a locale, and
+// apps/staff had no i18n at all, so Spanish mail linking into an English
+// application would have been worse than consistency (ADR 0033). Both supports
+// are gone, and the address a passcode is being sent to is the key the Staff
+// Locale is stored under, so the one message somebody needs in order to reach
+// the app at all is written in the language the app will then be in.
+//
+// It resolves against the ADDRESS and nothing else, which is the only thing
+// available: a passcode request is anonymous by design, and the response body is
+// identical for a known address and an unknown one. That is not weakened here.
+// The Customer passcode deliberately does NOT read a stored language for this
+// reason (see platform.ResolveMailLocale) — but the staff door differs on the
+// fact that matters: its stored value is the language of the application this
+// code opens, so writing the passcode in anything else would land somebody in a
+// Spanish app holding an English email.
 func (s *Service) RequestOTP(ctx context.Context, email, clientIP string) (*OTPRequestResult, error) {
-	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP, platform.DefaultLocale); err != nil {
+	if err := s.otp.Issue(ctx, otpPurpose, email, clientIP, s.staffMailLocale(ctx, email)); err != nil {
 		return nil, err
 	}
 
 	return &OTPRequestResult{
 		Message: "If an account exists for this email, a passcode has been sent.",
 	}, nil
+}
+
+// staffMailLocale is the language mail to a staff address is written in: the
+// Staff Locale stored against it, and English underneath.
+//
+// A read that FAILS is English rather than an error, and that is the whole
+// reason this is a method and not two lines at the call site. The passcode is
+// the one email in this system that is not best-effort — a sign-in that could
+// not deliver one is a sign-in that failed — and a database hiccup reading a
+// preference must never be the thing that stops somebody signing in. It is
+// logged and the floor applies.
+func (s *Service) staffMailLocale(ctx context.Context, email string) platform.Locale {
+	stored, err := s.StaffLocale(ctx, email)
+	if err != nil {
+		s.logger.Error("read staff locale for mail", "error", err)
+		return platform.DefaultLocale
+	}
+	return platform.ResolveStaffLocale(stored)
 }
 
 // VerifyOTP validates a staff-purpose passcode and creates a Staff Session.

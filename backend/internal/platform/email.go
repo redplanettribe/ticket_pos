@@ -20,9 +20,14 @@ type OTPMessage struct {
 	// development where there is no mailbox to read.
 	Code string
 	// Locale is the language this passcode is written in: the Storefront page a
-	// visitor asked from, or DefaultLocale, which the staff caller passes
-	// explicitly (ADR 0033). It is a fact reported by the request and is never
-	// remembered — asking for a passcode does not write a Mail Locale.
+	// visitor asked from, or — at the staff door — the Staff Locale stored
+	// against the address it is going to, English underneath either (ADR 0033,
+	// ADR 0041).
+	//
+	// NEITHER DOOR REMEMBERS ANYTHING BY SENDING ONE. A Customer's request
+	// reports a page's language and writes no Mail Locale; the staff door only
+	// READS a row a sign-in or a switcher wrote. Asking for a passcode proves
+	// nothing about who is asking, so it may not record anything about them.
 	Locale Locale
 }
 
@@ -201,6 +206,17 @@ type ConsentWithdrawalConfirmation struct {
 // five are BEST-EFFORT: the money record is the fact and the email is the
 // courtesy, so a delivery failure is swallowed by the caller exactly as every
 // other notice on this path is (ADR 0019).
+//
+// ALL FIVE CARRY A LOCALE (#285, ADR 0041), and it is the RECIPIENT'S Staff
+// Locale, resolved by the caller from the address the notice is going to — the
+// operator allowlist entry for the submission, the request's own `requested_by`
+// for the four answers — with English as the floor when nobody at that address
+// has stated a language. That address is precisely the record ADR 0033 said did
+// not exist, which is why these notices were English until it did.
+//
+// The locale decides words and marks and NOTHING ELSE: the amount stays in the
+// Organization's currency and the transfer's date stays the day it was in
+// Ecuador, in either language.
 
 // PayoutRequestSubmitted tells one Platform Operator that an Organization has
 // asked to be paid. One is sent per address on the operator allowlist, which is
@@ -211,7 +227,12 @@ type ConsentWithdrawalConfirmation struct {
 // works for somebody who already decided to look, and a Friday-evening request
 // otherwise waits until Monday.
 type PayoutRequestSubmitted struct {
-	To               string
+	To string
+	// Locale is the language this operator reads, resolved from the Staff Locale
+	// stored against THIS address rather than against the Organization that asked
+	// — one submission fans out to the whole allowlist, and each of them is
+	// written to in their own language.
+	Locale           Locale
 	OrganizationName string
 	// AmountCents and Currency are what was asked for, in the Organization's own
 	// currency — the only currency any of its money is ever stated in.
@@ -231,7 +252,9 @@ type PayoutRequestSubmitted struct {
 // they know to look at their bank. It goes to the one address recorded on the
 // request and not to every Org Admin: one request, one asker, one reply.
 type PayoutRequestPaid struct {
-	To               string
+	To string
+	// Locale is the asker's Staff Locale, read off the address on the request.
+	Locale           Locale
 	OrganizationName string
 	// AmountCents is what ACTUALLY moved, which is not required to equal what was
 	// asked — an operator may transfer less, and partial fulfilment is
@@ -252,7 +275,12 @@ type PayoutRequestPaid struct {
 // by the service and by a CHECK constraint under both (ADR 0026), and all three
 // are wasted if it never reaches the person who has to decide what to do next.
 type PayoutRequestDeclined struct {
-	To               string
+	To string
+	// Locale is the asker's Staff Locale, read off the address on the request.
+	// The REASON is not translated by anything and never could be: it is the
+	// operator's own sentence to this Organization, and quoting it verbatim is
+	// what the whole notice is for.
+	Locale           Locale
 	OrganizationName string
 	AmountCents      int
 	Currency         string
@@ -273,7 +301,11 @@ type PayoutRequestDeclined struct {
 // message saying "up to 48 hours" with no starting point is a message they
 // cannot act on, which is what "we sent it recently" already is.
 type PayoutRequestTransferSent struct {
-	To               string
+	To string
+	// Locale is the asker's Staff Locale, read off the address on the request. It
+	// spells the month of SubmittedAt below and moves nothing else: the date is
+	// the day the transfer left in Ecuador in either language.
+	Locale           Locale
 	OrganizationName string
 	// AmountCents is what was ASKED for. Nothing has moved yet, so there is no
 	// second figure to reconcile against: what the transfer actually settles at
@@ -297,7 +329,11 @@ type PayoutRequestTransferSent struct {
 // precisely so that they must never come out sharing a sentence — nothing here
 // prefixes, softens or reframes it into a refusal.
 type PayoutRequestTransferFailed struct {
-	To               string
+	To string
+	// Locale is the asker's Staff Locale, read off the address on the request.
+	// The bank's Reason is rendered verbatim in either language, for the reason
+	// above: nothing translates, prefixes or softens it.
+	Locale           Locale
 	OrganizationName string
 	AmountCents      int
 	Currency         string
@@ -510,9 +546,12 @@ type EmailSender interface {
 	//
 	// One method serves both doors rather than two serving one each: the message
 	// is identical and only its language differs, and one argument states that
-	// policy more plainly than two copies of the same two sentences would. The
-	// staff caller passes DefaultLocale explicitly at its call site, where a
-	// reader can see that staff mail is English on purpose (ADR 0033).
+	// policy more plainly than two copies of the same two sentences would.
+	//
+	// The two doors resolve that language differently, and the argument is what
+	// lets them: a Customer's comes from the Storefront page they asked on, and a
+	// Member's from the Staff Locale stored against the address the code is going
+	// to (#285, ADR 0041). Neither is this interface's business.
 	SendOTP(ctx context.Context, to string, code string, locale Locale) error
 	SendSaleConfirmation(ctx context.Context, confirmation SaleConfirmation) error
 	SendSaleVoided(ctx context.Context, voided SaleVoided) error

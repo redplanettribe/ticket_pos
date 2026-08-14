@@ -148,11 +148,23 @@ func TestRequestingAPasscodeForAnUnknownAddressStoresNothing(t *testing.T) {
 	}
 }
 
-// TestStaffPasscodeIsAlwaysEnglish proves the boundary ADR 0033 draws rather
-// than an omission: no Member has a language, apps/staff has no i18n, and the
-// staff caller names DefaultLocale at its own call site. The staff route carries
-// no locale field to name anything else with.
-func TestStaffPasscodeIsAlwaysEnglish(t *testing.T) {
+// TestStaffPasscodeIgnoresALocaleInTheRequest is the staff door's half of the
+// rule, and it is the OPPOSITE of the Customer one above.
+//
+// A Customer's passcode is written in the language of the page it was asked
+// from, because a visitor may have no record at all and the page is the only
+// evidence there is. A staff passcode is written in the recipient's stored Staff
+// Locale (#285, ADR 0041) — the language the application this code opens is
+// written in — and the request body cannot name one. The staff route carries no
+// locale field, and a value sent anyway changes nothing: nobody may choose the
+// language of somebody else's passcode by typing their address into a public
+// form.
+//
+// The address here has stated no language, so the floor applies. That it is
+// English by RESOLUTION rather than by decision is the whole of what changed:
+// ADR 0033's staff boundary is retired, and staff_mail_locale_test.go holds the
+// Spanish this door can now write.
+func TestStaffPasscodeIgnoresALocaleInTheRequest(t *testing.T) {
 	env := setupTest(t)
 
 	resp, body := env.post(t, "/api/v1/auth/otp/request", map[string]string{

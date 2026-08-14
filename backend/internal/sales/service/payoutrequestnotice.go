@@ -34,6 +34,14 @@ import (
 // Admin. It is an email rather than a member id exactly so it still resolves
 // after that person's Membership ends.
 //
+// THAT EMAIL IS ALSO WHAT DECIDES THE LANGUAGE (#285, ADR 0041). Every one of
+// the five resolves its recipient's Staff Locale from the address it is about to
+// write to — the allowlist entry for the submission, `requested_by` for the four
+// answers — and hands it to the notice, with English underneath. ADR 0033 left
+// these five in English because the address was "attached to no record that
+// could hold a language"; keying the Staff Locale on the address is what made it
+// one, so this is a lookup rather than a new mechanism.
+//
 // NO BANK DETAIL IS EVER PASSED IN. The notice structs have no field for one;
 // what they carry is an amount, a name and a reason (see platform/email.go).
 //
@@ -83,8 +91,12 @@ func (s *Service) notifyPayoutRequestSubmitted(ctx context.Context, request *rep
 	}
 
 	for _, to := range recipients {
+		// Resolved per RECIPIENT and not once for the notice: one ask fans out to
+		// the whole allowlist, and an operator who reads Spanish is written to in
+		// Spanish whether or not the operator beside them does.
 		_ = s.email.SendPayoutRequestSubmitted(ctx, platform.PayoutRequestSubmitted{
 			To:               to,
+			Locale:           s.staffLocale(ctx, to),
 			OrganizationName: org.Name,
 			AmountCents:      request.AmountCents,
 			Currency:         org.Currency,
@@ -109,6 +121,7 @@ func (s *Service) notifyPayoutRequestPaid(ctx context.Context, request *reposito
 	}
 	_ = s.email.SendPayoutRequestPaid(ctx, platform.PayoutRequestPaid{
 		To:               request.RequestedBy,
+		Locale:           s.staffLocale(ctx, request.RequestedBy),
 		OrganizationName: org.Name,
 		AmountCents:      paidCents,
 		RequestedCents:   request.AmountCents,
@@ -135,6 +148,7 @@ func (s *Service) notifyPayoutRequestDeclined(ctx context.Context, request *repo
 	}
 	_ = s.email.SendPayoutRequestDeclined(ctx, platform.PayoutRequestDeclined{
 		To:               request.RequestedBy,
+		Locale:           s.staffLocale(ctx, request.RequestedBy),
 		OrganizationName: org.Name,
 		AmountCents:      request.AmountCents,
 		Currency:         org.Currency,
@@ -168,6 +182,7 @@ func (s *Service) notifyPayoutRequestTransferSent(ctx context.Context, request *
 	}
 	_ = s.email.SendPayoutRequestTransferSent(ctx, platform.PayoutRequestTransferSent{
 		To:               request.RequestedBy,
+		Locale:           s.staffLocale(ctx, request.RequestedBy),
 		OrganizationName: org.Name,
 		// What was ASKED for. Nothing has moved, so there is no second figure:
 		// what actually settles is the paid notice's to state, later.
@@ -202,6 +217,7 @@ func (s *Service) notifyPayoutRequestTransferFailed(ctx context.Context, request
 	}
 	_ = s.email.SendPayoutRequestTransferFailed(ctx, platform.PayoutRequestTransferFailed{
 		To:               request.RequestedBy,
+		Locale:           s.staffLocale(ctx, request.RequestedBy),
 		OrganizationName: org.Name,
 		AmountCents:      request.AmountCents,
 		Currency:         org.Currency,
@@ -210,6 +226,27 @@ func (s *Service) notifyPayoutRequestTransferFailed(ctx context.Context, request
 		// paraphrases it into a judgement (ADR 0026 amendment).
 		Reason: *request.ResolutionReason,
 	})
+}
+
+// staffLocale is the language one notice is written in: the Staff Locale stored
+// against the address it is going to, and English underneath (ADR 0041).
+//
+// EVERY FAILURE IS ENGLISH, on the same posture the rest of this file takes: an
+// unconfigured reader, a read that failed and an address nobody has stated a
+// language for are one outcome, and none of them is worth withholding a notice
+// about somebody's money over. The floor itself lives in
+// platform.ResolveStaffLocale rather than here — this module asks the question
+// and does not decide what a missing answer means.
+func (s *Service) staffLocale(ctx context.Context, email string) platform.Locale {
+	if s.staffLocales == nil {
+		return platform.DefaultLocale
+	}
+	stored, err := s.staffLocales.StaffLocale(ctx, email)
+	if err != nil {
+		s.logger.Error("payout request notice: read staff locale", "error", err)
+		return platform.DefaultLocale
+	}
+	return platform.ResolveStaffLocale(stored)
 }
 
 // payoutNoticeOrganization reads what all five notices need and none of them

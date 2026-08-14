@@ -272,6 +272,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// argument; it is a knot tied afterwards because it serves one notice, and a
 	// constructor that grew a parameter per email would stop being readable.
 	salesService = salesService.WithPlatformOperators(identityService)
+	// And each of the five notices is written in its recipient's Staff Locale,
+	// which identity stores against the email address the notice is addressed to
+	// (#285, ADR 0041). Same seam, same reason: the language belongs to a person,
+	// and who a person is, is identity's rule.
+	salesService = salesService.WithStaffLocales(identityService)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a
