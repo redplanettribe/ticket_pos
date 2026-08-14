@@ -3,6 +3,8 @@
 import { Button, Card, CardContent, OrgAvatar } from "@ticket-pos/ui";
 import { useTranslations } from "next-intl";
 
+import { useRoleName } from "@/app/role-name";
+
 export type Membership = {
   member_id: string;
   organization_id: string;
@@ -11,35 +13,6 @@ export type Membership = {
   organization_logo_url: string | null;
   role: string;
 };
-
-/**
- * The API's role token, as the catalog spells the name of that role.
- *
- * The words themselves are coined once, in CONTEXT.md, and the catalog follows
- * it: *Administrador de la organización*, *Responsable del evento*, *Personal del
- * evento*. That is not decoration — these names had no Spanish anywhere before
- * ADR 0041, and translated ad hoc as each screen was migrated there would be
- * three words for Event Staff by the third page. This map is the only place a
- * staff surface turns a role into a word, so every screen that shows one shows
- * the same one.
- *
- * A role the API adds later that nobody has translated falls back to the token
- * with its underscore rubbed out, which is exactly what this function did for
- * every role before it. An unfamiliar role reads oddly; it does not read blank.
- */
-const ROLE_KEYS: Record<string, "roleOrgAdmin" | "roleEventOwner" | "roleEventStaff"> = {
-  org_admin: "roleOrgAdmin",
-  event_owner: "roleEventOwner",
-  event_staff: "roleEventStaff",
-};
-
-function useRoleName(): (role: string) => string {
-  const t = useTranslations("shell");
-  return (role: string) => {
-    const key = ROLE_KEYS[role];
-    return key ? t(key) : role.replace("_", " ");
-  };
-}
 
 /**
  * An Organization as it reads in a list of them: mark, name, and the slug and
