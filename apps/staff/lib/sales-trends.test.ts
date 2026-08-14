@@ -11,6 +11,7 @@ import {
   hasSales,
   toggleTicketTypeSelection,
   trendsPlotWidth,
+  trendsYTicks,
   trendsSeries,
   trendsYMax,
   TRENDS_MIN_BAR_WIDTH,
@@ -252,11 +253,34 @@ function datum(total: number) {
   return { key: "d", label: "d", values: { only: total }, total };
 }
 
+test("the Y axis is labelled in even steps that end on its top", () => {
+  // Left to the library the step is chosen without reference to the top, so an
+  // axis topped at 50 comes out 0, 15, 30, 45, 50 — unequal gaps and the last
+  // two labels almost touching.
+  assert.deepEqual(trendsYTicks(50), [0, 10, 20, 30, 40, 50]);
+  assert.deepEqual(trendsYTicks(20), [0, 4, 8, 12, 16, 20]);
+  // Takings are counted in cents, so a $50 day is a top of 5000.
+  assert.deepEqual(trendsYTicks(5000), [0, 1000, 2000, 3000, 4000, 5000]);
+  for (const top of [1, 2, 5, 10, 20, 25, 50, 100, 250, 5000]) {
+    const ticks = trendsYTicks(top);
+    assert.equal(ticks[0], 0, `${top} starts at zero`);
+    assert.equal(ticks[ticks.length - 1], top, `${top} ends on the top`);
+    assert.equal(new Set(ticks).size, ticks.length, `${top} repeats no label`);
+  }
+});
+
+test("a top too small to divide is labelled at its ends alone", () => {
+  // A one-ticket day. Fractions of a ticket on the axis would be worse than two
+  // labels, and trendsYMax floors at 1 so this is a real case.
+  assert.deepEqual(trendsYTicks(1), [0, 1]);
+  assert.deepEqual(trendsYTicks(0), [0]);
+});
+
 // --- how wide a span is drawn --------------------------------------------
 
-// A card is somewhere around this wide. The point of every test below is that
-// the number plays no part in the arithmetic: a plot sized to the room it is
-// given is a plot that compresses as the Event ages.
+// The plot's share of a card, i.e. the card measured less the chart's own
+// chrome. The plot takes the larger of this and what the span demands: the span
+// winning is the scrolling case, this winning is the ordinary one.
 const A_CARD = 800;
 
 test("a day is owed the same room at every range", () => {
@@ -270,17 +294,28 @@ test("a day is owed the same room at every range", () => {
 });
 
 test("a span longer than the card grows past it rather than compressing into it", () => {
-  assert.ok(trendsPlotWidth(400) > A_CARD);
-  // Sized by the span, not by the window: a wider window buys no extra days and
-  // a narrower one loses none.
-  assert.equal(trendsPlotWidth(400), 400 * TRENDS_MIN_BAR_WIDTH);
+  assert.ok(trendsPlotWidth(400, A_CARD) > A_CARD);
+  // The card cannot take days away: a narrower window loses none, and every day
+  // keeps the room it is owed however little space there is.
+  assert.equal(trendsPlotWidth(400, A_CARD), 400 * TRENDS_MIN_BAR_WIDTH);
+  assert.equal(trendsPlotWidth(400, 300), 400 * TRENDS_MIN_BAR_WIDTH);
 });
 
-test("a span the card can hold takes only the room it needs", () => {
-  // Three weeks fits, so there is nothing to scroll — and it is drawn at three
-  // weeks' width rather than stretched across the card.
-  assert.ok(trendsPlotWidth(21) < A_CARD);
-  assert.equal(trendsPlotWidth(21), 21 * TRENDS_MIN_BAR_WIDTH);
+test("a span the card can hold fills it rather than sitting in one corner", () => {
+  // Three weeks needs less room than the card has. Drawn at its own width it
+  // would occupy the left half and leave the axis stopping short of the card's
+  // edge, which reads as the chart having been shoved aside — so it takes the
+  // whole width instead. The bars do not fatten to fill it: the chart caps a
+  // bar's width, so the extra room goes to the gaps between them.
+  assert.ok(21 * TRENDS_MIN_BAR_WIDTH < A_CARD);
+  assert.equal(trendsPlotWidth(21, A_CARD), A_CARD);
+});
+
+test("an unmeasured card leaves the span to decide alone", () => {
+  // The first render and the server-rendered pass have measured nothing. The
+  // chart must still draw something sensible rather than collapse to the floor.
+  assert.equal(trendsPlotWidth(400, 0), 400 * TRENDS_MIN_BAR_WIDTH);
+  assert.equal(trendsPlotWidth(400), 400 * TRENDS_MIN_BAR_WIDTH);
 });
 
 test("a few days still get a plot to sit in", () => {

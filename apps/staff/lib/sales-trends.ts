@@ -203,21 +203,32 @@ export const TRENDS_MIN_BAR_WIDTH = 24;
 export const TRENDS_MIN_PLOT_WIDTH = 360;
 
 /**
- * trendsPlotWidth is how wide the plotting area must be to give every day of the
- * span its own room — the width both charts are drawn at, so that a day sits at
- * the same horizontal position in each.
+ * trendsPlotWidth is how wide the plotting area is drawn — the width both charts
+ * share, so that a day sits at the same horizontal position in each.
  *
- * It answers to the day count alone and never to the width available. That is
- * the point: a plot sized to its container is a plot that compresses, and one
- * sized to its contents is one that scrolls. It also means a span that fits
- * takes only the room it needs and leaves the rest of the card empty, rather
- * than stretching a fortnight across it.
+ * It is the larger of two things: the room the span demands (every day owed a
+ * minimum), and the room available. Whichever wins decides how the chart reads.
+ *
+ * The span winning is the scrolling case, and the one the minimum exists for: a
+ * year of days cannot be squeezed into a card without either shaving each bar to
+ * a sliver or widening the bucket, and widening the bucket would make a bar
+ * stand for a different span at different ranges. So the plot outgrows the card
+ * and is read by scrolling.
+ *
+ * The available width winning is the ordinary case, and getting it wrong is
+ * visible immediately: a fortnight drawn at its own natural width sits in the
+ * left third of the card with the axis stopping short and the rest of the card
+ * blank, which reads as the chart having been pushed aside. Filling the width
+ * costs nothing, because a bar is capped at a maximum width by the chart itself
+ * — the extra room goes to the spaces between bars, not into slabs.
+ *
+ * `availableWidth` is the plot's share of the container, i.e. the container
+ * measured less `CHART_PLOT_INSET`. Zero or unknown (nothing measured yet, or
+ * server-rendered) simply means the span decides alone.
  */
-export function trendsPlotWidth(dayCount: number): number {
-  if (dayCount <= 0) {
-    return TRENDS_MIN_PLOT_WIDTH;
-  }
-  return Math.max(dayCount * TRENDS_MIN_BAR_WIDTH, TRENDS_MIN_PLOT_WIDTH);
+export function trendsPlotWidth(dayCount: number, availableWidth = 0): number {
+  const spanWidth = dayCount <= 0 ? 0 : dayCount * TRENDS_MIN_BAR_WIDTH;
+  return Math.max(spanWidth, availableWidth, TRENDS_MIN_PLOT_WIDTH);
 }
 
 /** The tick steps a Y axis is allowed to round up to, per decade. Chosen so the
@@ -246,6 +257,35 @@ export function trendsYMax(data: readonly TrendsDatum[]): number {
     }
   }
   return 10 * decade;
+}
+
+/** How many gaps the Y axis is divided into, best first. */
+const Y_TICK_DIVISIONS = [5, 4, 2];
+
+/**
+ * trendsYTicks is where the Y axis puts its labels: evenly spaced, ending
+ * exactly on the top of the axis.
+ *
+ * Stated rather than left to the charting library, which chooses a step of its
+ * own and then adds the domain's maximum on top of it — so an axis topped at 50
+ * is labelled 0, 15, 30, 45, 50, with the last two almost touching and the gaps
+ * unequal. A scale a reader has to check twice is worse than no scale.
+ *
+ * `trendsYMax` has already rounded the top to a readable number, so dividing it
+ * evenly lands on readable numbers too. A top too small to divide into whole
+ * steps — a one-ticket day — is labelled at its ends alone rather than in
+ * fractions of a ticket.
+ */
+export function trendsYTicks(yMax: number): number[] {
+  if (!Number.isFinite(yMax) || yMax <= 0) {
+    return [0];
+  }
+  const divisions = Y_TICK_DIVISIONS.find((count) => Number.isInteger(yMax / count));
+  if (!divisions) {
+    return [0, yMax];
+  }
+  const step = yMax / divisions;
+  return Array.from({ length: divisions + 1 }, (_, index) => index * step);
 }
 
 /**

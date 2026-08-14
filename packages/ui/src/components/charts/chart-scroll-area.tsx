@@ -13,6 +13,14 @@ export type ChartScrollAreaProps = {
   ariaLabel: string;
   children: React.ReactNode;
   className?: string;
+  /**
+   * Handed the scrolling element itself, so a caller can measure it.
+   *
+   * Charts inside are drawn at a width in pixels rather than stretched by CSS,
+   * which means somebody has to know how many pixels there are. This element is
+   * the honest place to ask: it is the box the charts must fit or overflow.
+   */
+  ref?: React.Ref<HTMLDivElement>;
 };
 
 /**
@@ -34,9 +42,10 @@ export type ChartScrollAreaProps = {
  * Charts inside pin their axes to this element with `position: sticky`, so this
  * must be the scrolling ancestor rather than something further out.
  */
-export function ChartScrollArea({ ariaLabel, children, className }: ChartScrollAreaProps) {
+export function ChartScrollArea({ ariaLabel, children, className, ref }: ChartScrollAreaProps) {
   return (
     <div
+      ref={ref}
       role="group"
       aria-label={ariaLabel}
       tabIndex={0}

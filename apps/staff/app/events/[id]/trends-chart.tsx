@@ -8,6 +8,7 @@ import { StackedBarChart, type StackedBarSeries } from "@ticket-pos/ui";
 import {
   trendsSeries,
   trendsYMax,
+  trendsYTicks,
   type TrendsDay,
   type TrendsMeasure,
 } from "@/lib/sales-trends";
@@ -93,6 +94,7 @@ export function TrendsChart({
     [days, selected, measure, locale],
   );
   const yMax = useMemo(() => trendsYMax(data), [data]);
+  const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
 
   return (
     <section className="w-max">
@@ -104,6 +106,7 @@ export function TrendsChart({
         data={data}
         series={series}
         yMax={yMax}
+        yTicks={yTicks}
         plotWidth={plotWidth}
         formatValue={formatValue}
         formatTickValue={formatTickValue}
