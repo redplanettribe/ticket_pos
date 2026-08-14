@@ -29,11 +29,11 @@ export const viewport: Viewport = {
  * (i18n/request.ts). So `getLocale()` here is not reading a URL — it is asking
  * next-intl what that resolution decided for this request.
  *
- * Only the login page is translated so far. The provider is mounted app-wide
- * anyway, because it costs one small file of chrome copy and because the
- * alternative — mounting it per migrated surface — is a list that goes stale on
- * the first ticket that forgets it, with a crash inside `useTranslations` as the
- * symptom.
+ * The provider is mounted here, once, for the whole application. It was mounted
+ * app-wide from the first migrated surface rather than per surface, because a
+ * list of which pages get a provider goes stale on the first ticket that forgets
+ * it, with a crash inside `useTranslations` as the symptom. Every surface is
+ * translated now (#293), so there is no list left to keep either way.
  */
 export default async function RootLayout({
   children,

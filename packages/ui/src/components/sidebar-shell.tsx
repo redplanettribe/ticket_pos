@@ -37,9 +37,10 @@ export type SidebarHeaderSlot = ReactNode | ((opts: { onNavigate?: () => void })
  * untranslated.
  *
  * Optional, with the English this component has always rendered as the default,
- * because @ticket-pos/ui is shared with the Storefront and with the Event shell
- * that has not been migrated yet: a required prop here would have made this a
- * change to every caller rather than to the ones being translated.
+ * because @ticket-pos/ui is shared with the Storefront: a required prop here
+ * would have made the staff migration a change to every caller rather than to
+ * the ones being translated. The default is now the fallback of last resort
+ * rather than a state anything is left in — every staff shell passes all four.
  */
 export type SidebarLabels = {
   /** The keyboard-only link that jumps past the panel. */
@@ -50,6 +51,8 @@ export type SidebarLabels = {
   navigationMenu: string;
   /** The mobile button that opens that drawer. */
   openNavigationMenu: string;
+  /** The drawer's own dismiss control, which shows only to a screen reader. */
+  closeNavigationMenu: string;
 };
 
 export const DEFAULT_SIDEBAR_LABELS: SidebarLabels = {
@@ -57,6 +60,7 @@ export const DEFAULT_SIDEBAR_LABELS: SidebarLabels = {
   primaryNavigation: "Primary",
   navigationMenu: "Navigation menu",
   openNavigationMenu: "Open navigation menu",
+  closeNavigationMenu: "Close navigation menu",
 };
 
 type SidebarShellProps = {
@@ -162,7 +166,7 @@ export function SidebarShell({
         />
       </aside>
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent side="left" className="w-60 p-0">
+        <SheetContent side="left" className="w-60 p-0" closeLabel={labels.closeNavigationMenu}>
           <SheetTitle className="sr-only">{labels.navigationMenu}</SheetTitle>
           <SidebarContent
             header={header}

@@ -89,6 +89,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
       primaryNavigation: shell("primaryNavigation"),
       navigationMenu: shell("navigationMenu"),
       openNavigationMenu: shell("openNavigationMenu"),
+      closeNavigationMenu: shell("closeNavigationMenu"),
     },
   };
 

@@ -70,9 +70,9 @@ type StaffPageShellProps = {
  * rather than a blank row in a panel.
  *
  * Both panels' words come out of the `shell` namespace, the Operator Dashboard's
- * included. The Operator Dashboard has surfaces of its own that a later ticket
- * translates under `operator`, but the panel around them is chrome, and chrome is
- * what `shell` speaks for.
+ * included. The Operator Dashboard has surfaces of its own, which `operator`
+ * speaks for, but the panel around them is chrome, and chrome is what `shell`
+ * speaks for.
  */
 async function shellLabels(): Promise<{ staff: StaffShellLabels; operator: OperatorShellLabels }> {
   const t = await getTranslations("shell");
@@ -81,6 +81,7 @@ async function shellLabels(): Promise<{ staff: StaffShellLabels; operator: Opera
     primaryNavigation: t("primaryNavigation"),
     navigationMenu: t("navigationMenu"),
     openNavigationMenu: t("openNavigationMenu"),
+    closeNavigationMenu: t("closeNavigationMenu"),
   };
 
   return {

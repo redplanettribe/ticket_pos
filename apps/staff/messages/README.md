@@ -51,7 +51,7 @@ instead of scattering it.
 
 | Namespace | The surface it speaks for                                                        |
 | --------- | -------------------------------------------------------------------------------- |
-| `shell`   | Chrome around every page: both side panels, the organization switcher, logout, language |
+| `shell`   | Chrome around every page: both side panels, the organization switcher, logout, language — and the dashboard at `/`, which says nothing the chrome does not already say |
 | `login`   | The sign-in page, the one surface reachable without a session                     |
 | `events`  | The events list, the create-event page, and the **Event status** vocabulary — every surface that draws a status badge reads it from here rather than coining a second word for "Published" |
 | `event`   | One Event: its own side panel, the header bar, and the Details form — venue, registration, service fee, description, cover image and cover video |
@@ -98,13 +98,26 @@ there is a compile error at that one file.
 scaffolding and translated the login page; #287 translated the shell and landed
 the two shared mechanisms; every ticket after them migrated one surface and added
 its namespace to this table in the same commit it added the keys. **#292 added
-the last one.** The table is now the whole application, so a screen with an
-English literal in it is a mistake rather than a surface awaiting its turn —
-which is exactly the state #293's lint rule needs to be switched on against.
+the last one, and #293 switched the lint rule on against the result** (see _The
+literal-string rule_ below). The table is now the whole application, so a screen
+with an English literal in it is a mistake rather than a surface awaiting its
+turn.
 
 `shell` covers **both** side panels, the Operator Dashboard's included: the
 Operator Dashboard has screens of its own that `operator` speaks for, but the
 panel around them is chrome, and one switcher and one session serve both surfaces.
+
+`shell` also holds the **dashboard at `/`** — `dashboardTitle` and the
+`session…` keys — rather than a namespace of its own. That page renders exactly
+one thing: the Staff Session read back, as an email address, an active
+Organization and a role. Every one of those words is already `shell`'s
+(`organizationHeading`, `roleOrgAdmin`), and a `dashboard` namespace would have
+been a surface whose whole vocabulary was borrowed from another. Its role is
+drawn by `useRoleName` like every other, which is why the card is a client
+component (`app/session-card.tsx`) hanging off a Server Component page.
+**#293 found this page still entirely in English** — it is the one surface the
+five extraction batches missed, and the lint rule below found it on its first
+run.
 
 `operator` is ONE namespace for six routes because a Platform Operator looking at
 any of them is looking at the Operator Dashboard — the surface, not the page, is
@@ -329,3 +342,80 @@ operator records the wrong one.
 It does **not** assert that the Spanish differs from the English, and cannot: a
 message that is only placeholders and punctuation is correctly identical in both
 catalogs, and so is a word like `Google`.
+
+## The literal-string rule
+
+There are three guards, and they catch three different mistakes:
+
+| Guard | Catches | Misses |
+| ----- | ------- | ------ |
+| `global.d.ts` + the compiler | A call site asking for a key `en.json` does not have | Copy nobody asked for a key for |
+| `lib/messages.test.ts` | A key `es.json` is missing, or an empty message | The same |
+| `i18next/no-literal-string` | **A sentence typed straight into a component** | Copy outside this app's `.tsx` files — `@ticket-pos/ui` most of all, which is why its shells take their words as props |
+
+The third one exists because the first two are structurally blind to the most
+likely defect in a migration this size. Hardcode `<p>Sales are unavailable.</p>`
+in a component: no key was ever requested, so the compiler is content; both
+catalogs still agree, so the parity test is content; and no English-reading
+reviewer sees anything wrong with the page. The first person to find it is a
+Spanish reader, in production.
+
+It is configured in `eslint.config.mjs` over every `.tsx` in the app — all of
+`app/`, and anywhere a component is added later — at **error**: a
+warning would not fail `pnpm turbo lint`, which is the thing CI runs, and would
+be a line of scrollback nobody reads.
+
+### What it looks at, and what it lets through
+
+`mode: "jsx-only"` — **JSX text and JSX attributes**, which between them are the
+whole of what a staff screen renders. Not `mode: "all"`: in that mode every
+string anywhere in the file is a violation, import paths and API field names
+included, and the allowlist needed to quiet it down would be bigger than the
+rule.
+
+The allowlist lives in two named arrays at the top of `eslint.config.mjs`, with
+the reasoning beside each entry. In summary:
+
+- **`NON_COPY_ATTRIBUTES`** — attribute names whose value could not be a
+  sentence. Appearance tokens (`variant`, `size`, `shape`), addresses and
+  identity (`href`, `activePath`, `name`, `htmlFor`), browser instructions
+  (`inputMode`, `autoComplete`, `pattern`), token-valued ARIA (`role`,
+  `aria-hidden`, `aria-expanded`…) and anything `data-*`. **`aria-label` and
+  friends are deliberately NOT excluded** — a string read aloud to somebody is
+  exactly as much copy as a visible one. Note that on a **native DOM tag** the
+  plugin only ever checks `placeholder`, `alt`, `aria-label`, `value` and
+  `title`, so this list is mostly about our own components, where the plugin
+  cannot tell a token prop from a copy prop.
+- **`NON_COPY_WORDS`** — strings that are not sentences in any language. The
+  load-bearing one is _anything with no letter in it_: `"0.00"`, `"▲"`, `"·"`.
+  That is what covers the money-format hints on the operator and payout amount
+  inputs without naming them. Plus SCREAMING_SNAKE tokens, HTML entities, and
+  URLs — an address is never copy, which covers the example link used as a
+  format hint on the external-registration field.
+- **`callees: { exclude: [".*"] }`** — a string handed to a function is a token
+  (`setFeeHandling("absorb")`), not rendered text. The exceptions, listed under
+  `include`, are `alert` / `confirm` / `prompt`, which genuinely do put a
+  sentence in front of somebody. Listing safe callees instead of unsafe ones
+  would mean adding every new `setX("token")` in an `onClick` to the config
+  forever, which is how a rule earns its way back out of one.
+
+Language endonyms need no exception: `LANGUAGE_ENDONYMS` in the two switchers is
+a module-level constant read through a lookup, so nothing literal reaches the
+JSX. That they are outside the catalog is still deliberate, and for a different
+reason — a language is named in its own language, not the reader's (ADR 0041).
+
+### If you are fighting it
+
+Prefer widening `NON_COPY_ATTRIBUTES` or `NON_COPY_WORDS` over
+`// eslint-disable-next-line`, and if you disable, say **why** on the line above.
+A file-level disable is not acceptable: it turns the guard off for every future
+edit to that file, silently, which is worse than not having it.
+
+And if after a round or two of tuning it is still costing more than it catches,
+**delete it deliberately** — the rule, the plugin and this section — with a note
+saying it was tried and dropped. A rule left switched off in configuration is the
+worst of the three states: it looks like a guard in review and is not one.
+
+_As landed, the tuned rule reports zero violations across ~120 staff components,
+and the one round of tuning that got it there also turned up an entire
+untranslated page (`app/page.tsx`)._

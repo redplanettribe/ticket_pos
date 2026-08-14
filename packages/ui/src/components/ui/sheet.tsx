@@ -31,17 +31,26 @@ const sheetVariants = cva("fixed inset-y-0 z-50 flex h-full w-3/4 max-w-sm flex-
 });
 
 type SheetContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> &
-  VariantProps<typeof sheetVariants>;
+  VariantProps<typeof sheetVariants> & {
+    /**
+     * What the dismiss control in the corner is called. Only a screen reader
+     * ever reads it, which is precisely why it went untranslated longest: an
+     * English word buried in a shared primitive is invisible to every sighted
+     * reviewer of a Spanish page. English by default because this package is
+     * shared with the Storefront and cannot reach either catalog.
+     */
+    closeLabel?: string;
+  };
 
 const SheetContent = React.forwardRef<React.ComponentRef<typeof DialogPrimitive.Content>, SheetContentProps>(
-  ({ side, className, children, ...props }, ref) => (
+  ({ side, className, children, closeLabel = "Close", ...props }, ref) => (
     <SheetPortal>
       <SheetOverlay />
       <DialogPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
         <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
           <X className="size-4" />
-          <span className="sr-only">Close</span>
+          <span className="sr-only">{closeLabel}</span>
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </SheetPortal>

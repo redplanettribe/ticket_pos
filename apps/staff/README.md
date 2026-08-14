@@ -37,5 +37,11 @@ is a session to read one from.
 Locale logic that needs a test goes in `lib/`: the runner globs `lib/*.test.ts`
 and sees nothing else.
 
-Only the login page is translated so far (#286). The other surfaces are migrated
-one at a time by the rest of #281.
+**The whole application is translated** — the organizer-facing screens and the
+Operator Dashboard alike (#281, landed one surface at a time from #286 to #292).
+
+A literal string left in a component under `app/` is therefore a lint error, not
+a surface awaiting its turn: `eslint.config.mjs` runs
+`i18next/no-literal-string` at `error` over every `.tsx` in the app, and `pnpm turbo lint`
+is what CI runs. What the allowlist covers, and why, is documented in
+`messages/README.md`.
