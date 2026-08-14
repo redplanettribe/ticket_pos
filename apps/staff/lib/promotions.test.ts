@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { readFileSync } from "node:fs";
+
 import {
-  promotionErrorMessage,
+  isPromotionErrorCode,
+  PROMOTION_ERROR_CODES,
   promotionState,
   promotionStateBadgeVariant,
   type Promotion,
@@ -49,15 +52,27 @@ test("promotionStateBadgeVariant colours each state distinctly", () => {
   assert.equal(promotionStateBadgeVariant("ended"), "secondary");
 });
 
-test("promotionErrorMessage maps the domain codes and falls through otherwise", () => {
-  for (const code of [
-    "PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE",
-    "PROMOTION_ALREADY_EXISTS",
-    "PROMOTION_NOT_FOUND",
-    "LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE",
-  ]) {
-    assert.ok(promotionErrorMessage(code), `expected copy for ${code}`);
+test("a Promotion's own refusals are told apart from every other failure", () => {
+  // The claim is about routing, not about wording: these four are said inline
+  // beside the price, and anything else goes to a toast.
+  for (const code of PROMOTION_ERROR_CODES) {
+    assert.ok(isPromotionErrorCode(code), code);
   }
-  assert.equal(promotionErrorMessage("VALIDATION_FAILED"), null);
-  assert.equal(promotionErrorMessage(undefined), null);
+  assert.equal(isPromotionErrorCode("VALIDATION_FAILED"), false);
+  assert.equal(isPromotionErrorCode(undefined), false);
+  assert.equal(isPromotionErrorCode(null), false);
+});
+
+test("every Promotion refusal has Spanish and English copy to be said in", () => {
+  // The words moved to the catalogs (ADR 0041), so this is where a code named
+  // here but worded nowhere shows up — before an organizer meets the API's
+  // English in the middle of a Spanish form.
+  for (const locale of ["en", "es"]) {
+    const catalog = JSON.parse(
+      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+    ) as { errors: { envelope: Record<string, string> } };
+    for (const code of PROMOTION_ERROR_CODES) {
+      assert.ok(catalog.errors.envelope[code], `${locale}.json is missing ${code}`);
+    }
+  }
 });

@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ticket-pos/locale": "workspace:*",
     "@ticket-pos/ui": "workspace:*",
     "next": "^15.3.3",
+    "next-intl": "^4.13.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -23,6 +25,7 @@
     "@types/react-dom": "^19.1.5",
     "eslint": "^9.28.0",
     "eslint-config-next": "^15.5.20",
+    "eslint-plugin-i18next": "^6.1.5",
     "postcss": "^8.5.4",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3"

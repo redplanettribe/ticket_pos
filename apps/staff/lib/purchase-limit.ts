@@ -65,25 +65,17 @@ export function purchaseLimitFormValue(maxPerCustomer: number | null): string {
 }
 
 /**
- * What the card says about a Purchase Limit. A Ticket Type without one says
- * nothing at all — an "unlimited" line on almost every row would be noise, and
- * the absence of the line is the absence of the limit.
+ * Whether the card has a Purchase Limit line to draw, and the number it is
+ * about. A Ticket Type without one says nothing at all — an "unlimited" line on
+ * almost every row would be noise, and the absence of the line is the absence of
+ * the limit — so null here means the card stays silent.
+ *
+ * The DECISION is here and the SENTENCE is not. This used to return
+ * "Purchase Limit: 4 per customer", which put English in a pure module and drew
+ * the number with the reader's BROWSER locale rather than their Staff Locale
+ * (ADR 0041). The words are `ticketTypes.purchaseLimitLine` in both catalogs
+ * now, and the number is drawn by `lib/format.ts` at the call site.
  */
-export function purchaseLimitSummary(maxPerCustomer: number | null): string | null {
-  if (maxPerCustomer === null) {
-    return null;
-  }
-  return `Purchase Limit: ${maxPerCustomer.toLocaleString()} per customer`;
+export function purchaseLimitLine(maxPerCustomer: number | null): { limit: number } | null {
+  return maxPerCustomer === null ? null : { limit: maxPerCustomer };
 }
-
-/**
- * The field's hint. It states the one thing an organizer cannot infer from the
- * number: lowering a Purchase Limit is never retroactive (ADR 0025), so nobody
- * expects the tickets already held to be taken back.
- */
-export const PURCHASE_LIMIT_HINT =
-  "Optional. The most of this ticket type one customer may hold at once. Leave empty for no limit. Applies to future checkouts only — it never cancels tickets already bought.";
-
-/** The refusal, in the same voice as the price and capacity refusals. */
-export const PURCHASE_LIMIT_INVALID_MESSAGE =
-  "Enter a whole purchase limit of 1 or more, or leave it empty for no limit";

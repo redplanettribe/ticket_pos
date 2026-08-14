@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Verify a Google Sign-In
-         * @description Exchanges an authorization code obtained on the Staff app at Google's token endpoint, using the staff OAuth client, and issues a Staff Session on the email address Google vouches for. The session and the auth-fork that follows are identical to a passcode's. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+         * @description Exchanges an authorization code obtained on the Staff app at Google's token endpoint, using the staff OAuth client, and issues a Staff Session on the email address Google vouches for. The session and the auth-fork that follows are identical to a passcode's. An optional `locale` is remembered as the person's Staff Locale exactly as on the passcode route: only when they have none. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
          */
         post: {
             parameters: {
@@ -187,7 +187,7 @@ export interface paths {
         put?: never;
         /**
          * Verify OTP
-         * @description Verifies a one-time passcode and creates a server-side session.
+         * @description Verifies a one-time passcode and creates a server-side session. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
          */
         post: {
             parameters: {
@@ -6221,7 +6221,7 @@ export interface paths {
         };
         /**
          * Get staff context
-         * @description Returns the active member and organization for the authenticated session.
+         * @description Returns the active member and organization for the authenticated session, together with the signed-in person's Staff Locale. `locale` is null when they have stated none, which is not the same as English: it says nobody has chosen, and a reader with null is written to in English all the same. The API reports which language a person prefers; it does not answer in one, and no read path here consults Accept-Language (ADR 0027).
          */
         get: {
             parameters: {
@@ -6262,6 +6262,68 @@ export interface paths {
             };
         };
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/me/locale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set staff locale
+         * @description Records the Staff Locale of the signed-in person: the language the staff app and staff mail are written in for them. Keyed on the session's email address, so it follows them across devices and across Organizations, and switching Organization does not change it. Requires only a Staff Session — no Active Member and no role — because a personal preference is not an Organization's setting. A language the platform does not serve is refused with a field error rather than ignored, unlike the detected locale on the sign-in routes: a stated choice that quietly did nothing would be worse than one that failed.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Language to record */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.staffLocaleBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeStaffLocale"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
         post?: never;
         delete?: never;
         options?: never;
@@ -7298,6 +7360,9 @@ export interface components {
         "handler.setEventTagsBody": {
             tags?: string[];
         };
+        "handler.staffLocaleBody": {
+            locale?: string;
+        };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
         };
@@ -7449,6 +7514,8 @@ export interface components {
         "internal_identity_handler.googleVerifyBody": {
             code?: string;
             code_verifier?: string;
+            /** @description Locale, exactly as on the passcode door and for the same reason. */
+            locale?: string;
             redirect_uri?: string;
         };
         "internal_identity_handler.otpRequestBody": {
@@ -7457,6 +7524,14 @@ export interface components {
         "internal_identity_handler.otpVerifyBody": {
             code?: string;
             email?: string;
+            /**
+             * @description Locale is the language the login page was rendered in, as the caller
+             *     detected it. Optional, and remembered as the Staff Locale only when the
+             *     person has none. It is the one locale field on a read-adjacent route in
+             *     this API and it names a fact about a person, not a language for the API to
+             *     answer in (ADR 0027).
+             */
+            locale?: string;
         };
         "internal_identity_openapi.MessageData": {
             message?: string;
@@ -7772,8 +7847,13 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeStaffLocale": {
+            data?: components["schemas"]["service.StaffLocaleView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeStaffMe": {
-            data?: components["schemas"]["service.ActiveMemberView"];
+            data?: components["schemas"]["service.StaffMeView"];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -9203,7 +9283,34 @@ export interface components {
              *     It is orthogonal to Memberships — an operator may have none.
              */
             is_platform_operator?: boolean;
+            /**
+             * @description Locale is the Staff Locale of the person this session belongs to, or null
+             *     when they have stated none. It sits beside Email and IsPlatformOperator
+             *     because it is a fact about the PERSON, not about the Organization they are
+             *     currently looking at — which is also why it is reported here and not on
+             *     ActiveMember: a Platform Operator who is a Member of nothing has no Active
+             *     Member to hang it on, and still has a language.
+             */
+            locale?: string;
             memberships?: components["schemas"]["service.MembershipView"][];
+        };
+        "service.StaffLocaleView": {
+            locale?: string;
+        };
+        "service.StaffMeView": {
+            /**
+             * @description Locale is the person's Staff Locale, or null when they have stated none.
+             *     Null is not "English": it says nobody has chosen, which is what lets the
+             *     next sign-in record a detected language instead of finding one already
+             *     there. A reader with null renders in English all the same.
+             */
+            locale?: string;
+            member_id?: string;
+            organization_id?: string;
+            organization_logo_url?: string;
+            organization_name?: string;
+            organization_slug?: string;
+            role?: string;
         };
         "service.SuggestedOrganizationView": {
             organization?: components["schemas"]["service.FollowedOrganizationView"];

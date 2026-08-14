@@ -1,56 +1,26 @@
 import type { ReactNode } from "react";
 import { cache } from "react";
 
+import type { OperatorShellLabels, StaffShellLabels } from "@ticket-pos/ui";
+import { getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 
 import { callBackend } from "@/lib/api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { loadSession, type SessionData } from "@/lib/staff-session";
 
 import { LogoutButton } from "./logout-button";
 import { ShellWithOrganizationSwitcher } from "./organization-switcher-dialog";
+import { ShellLanguageSwitcher } from "./shell-language-switcher";
 
-export type SessionData = {
-  email: string;
-  /**
-   * True when this session's email is on the platform operator allowlist
-   * (ADR 0015). It decides whether the Operator Dashboard and the switcher's
-   * Platform entry exist at all; the API remains the actual gate.
-   */
-  is_platform_operator: boolean;
-  active_member: {
-    member_id: string;
-    organization_name: string;
-    organization_slug: string;
-    organization_logo_url: string | null;
-    role: string;
-  } | null;
-  memberships: Array<{
-    member_id: string;
-    organization_id: string;
-    organization_name: string;
-    organization_slug: string;
-    organization_logo_url: string | null;
-    role: string;
-  }>;
-};
-
-export const loadSession = cache(async (): Promise<SessionData | null> => {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const envelope = await callBackend<SessionData>("/api/v1/auth/session", {
-      method: "GET",
-      sessionToken: token,
-    });
-    return envelope.data;
-  } catch {
-    return null;
-  }
-});
+/**
+ * The session, and the shape of it, now live in lib/staff-session.ts — i18n's
+ * request configuration needs them too and cannot import a module that pulls in
+ * client components. Re-exported here because three dozen pages import them from
+ * this file, and moving a type is not worth touching all of them.
+ */
+export { loadSession };
+export type { SessionData };
 
 /**
  * How many organizations are waiting to be paid, platform-wide — worn by the
@@ -89,9 +59,69 @@ type StaffPageShellProps = {
   children: ReactNode;
 };
 
+/**
+ * The panels' words, resolved once on the server and handed down.
+ *
+ * @ticket-pos/ui is shared with the Storefront, whose catalog is deliberately a
+ * different one (ADR 0041), so the shells there take their copy as props rather
+ * than reaching for a `t` of their own. This function is where the staff catalog
+ * meets them, and it is a single object per shell so that a nav key added to
+ * @ticket-pos/ui is a type error HERE — at the one place that can translate it —
+ * rather than a blank row in a panel.
+ *
+ * Both panels' words come out of the `shell` namespace, the Operator Dashboard's
+ * included. The Operator Dashboard has surfaces of its own, which `operator`
+ * speaks for, but the panel around them is chrome, and chrome is what `shell`
+ * speaks for.
+ */
+async function shellLabels(
+  organizationName: string,
+): Promise<{ staff: StaffShellLabels; operator: OperatorShellLabels }> {
+  const t = await getTranslations("shell");
+  const sidebar = {
+    skipToContent: t("skipToContent"),
+    primaryNavigation: t("primaryNavigation"),
+    navigationMenu: t("navigationMenu"),
+    openNavigationMenu: t("openNavigationMenu"),
+    closeNavigationMenu: t("closeNavigationMenu"),
+  };
+
+  return {
+    staff: {
+      organizationHeading: t("organizationHeading"),
+      organizationLogoAlt: t("organizationLogoAlt", { organization: organizationName }),
+      nav: {
+        dashboard: t("navDashboard"),
+        events: t("navEvents"),
+        payouts: t("navPayouts"),
+        settings: t("navSettings"),
+      },
+      sidebar,
+    },
+    operator: {
+      operatorHeading: t("operatorHeading"),
+      platform: t("platform"),
+      nav: {
+        overview: t("navOverview"),
+        organizations: t("navOrganizations"),
+        payoutRequests: t("navPayoutRequests"),
+        findSale: t("navFindSale"),
+        customerConsent: t("navCustomerConsent"),
+      },
+      sidebar,
+    },
+  };
+}
+
 export async function StaffPageShell({ activePath, children }: StaffPageShellProps) {
   const session = await loadSession();
+  // The product's own name, and therefore not copy: it reads as coined in both
+  // languages, the same rule an Organization's name follows.
   const organizationName = session?.active_member?.organization_name ?? "Multiticketing";
+  // After the session rather than beside it, because the logo's alt text names
+  // the Organization. loadSession is cache()d and already resolved by the time
+  // this runs, so the wait costs nothing.
+  const labels = await shellLabels(organizationName);
   const organizationLogoUrl = session?.active_member?.organization_logo_url ?? null;
   // Asked for only when the switcher will render it. A non-operator would be
   // refused by the API anyway; not asking is the cheaper way to say the same.
@@ -106,6 +136,8 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
 
   return (
     <ShellWithOrganizationSwitcher
+      staffLabels={labels.staff}
+      operatorLabels={labels.operator}
       organizationName={organizationName}
       organizationLogoUrl={organizationLogoUrl}
       activePath={activePath}
@@ -116,7 +148,18 @@ export async function StaffPageShell({ activePath, children }: StaffPageShellPro
       pendingPayoutRequests={pendingPayoutRequests}
       memberships={session?.memberships ?? []}
       activeMemberId={session?.active_member?.member_id}
-      userMenu={<LogoutButton />}
+      /*
+        The two personal controls, in the neighbourhood ADR 0041 puts them in: at
+        the foot of whichever panel is drawn, which is the one place reachable by
+        an Event Staff member with no administrative rights AND by a Platform
+        Operator who belongs to no Organization.
+      */
+      userMenu={
+        <div className="space-y-1">
+          <ShellLanguageSwitcher />
+          <LogoutButton />
+        </div>
+      }
     >
       {children}
     </ShellWithOrganizationSwitcher>

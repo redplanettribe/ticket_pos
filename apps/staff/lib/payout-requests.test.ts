@@ -1,70 +1,108 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  PAYOUT_REQUEST_STATUSES,
   RESOLUTION_REASON_MAX_LENGTH,
-  TRANSFER_FAILED_NEXT_STEP,
   TRANSFER_REFERENCE_MAX_LENGTH,
   canDecline,
   canFulfil,
   canMarkFailed,
   canMarkProcessing,
   daysWaiting,
-  declineReasonProblem,
-  failureReasonProblem,
   fulfilmentAmountDefault,
   fulfilmentDivergence,
   isCancellable,
   isOutstanding,
   payoutRequestAmountProblem,
-  payoutRequestStatusLabel,
-  resolutionSentence,
+  payoutRequestStatusToken,
+  resolutionNotice,
+  resolutionReasonProblem,
   transferReferenceProblem,
-  transferSentLabel,
-  transferSentSentence,
-  waitingLabel,
 } from "./payout-requests.ts";
+
+/** Both catalogs, read once, so a token can be checked for having words. */
+const CATALOGS = ["en", "es"].map((locale) => {
+  const catalog = JSON.parse(
+    readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+  ) as { payouts: Record<string, string>; operator: Record<string, string> };
+  return { locale, payouts: catalog.payouts, operator: catalog.operator };
+});
 
 // WHAT THIS FILE DOES NOT COVER, stated because the gap is easy to mistake for
 // coverage. These tests exercise the helpers that DECIDE the copy; nothing here
 // or anywhere else renders a component, because the repository has no
 // component-testing seam and #187 deliberately did not add one (ADR 0026,
 // "Consequences of the amendment"). So no test asserts that the outstanding
-// card actually shows transferSentSentence, that the cancel button is really
+// card actually draws `payouts.transferSent`, that the cancel button is really
 // absent while a request is `processing`, that the failure banner's button
 // really opens the Payout Profile editor, or that the operator's
 // mark-processing dialog really says the ledger is untouched. Each of those
 // would survive a refactor that dropped it, with this file still green.
 
-const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+// --- the status vocabulary ------------------------------------------------
 
-// --- status labels --------------------------------------------------------
-
-test("every status the server can send has a label", () => {
-  assert.equal(payoutRequestStatusLabel("pending"), "Waiting");
-  assert.equal(payoutRequestStatusLabel("processing"), "Processing");
-  assert.equal(payoutRequestStatusLabel("paid"), "Paid");
-  assert.equal(payoutRequestStatusLabel("declined"), "Declined");
-  assert.equal(payoutRequestStatusLabel("cancelled"), "Cancelled");
-  assert.equal(payoutRequestStatusLabel("failed"), "Failed");
+test("every status the server can send is a token this client knows", () => {
+  for (const status of PAYOUT_REQUEST_STATUSES) {
+    assert.equal(payoutRequestStatusToken(status), status);
+  }
 });
+
+test("an unknown status is not claimed, so the caller can show it raw", () => {
+  // Null rather than a fallback token: the server is the authority on which
+  // states exist, and a state this client has not been taught is shown as the
+  // server named it rather than as a blank badge.
+  assert.equal(payoutRequestStatusToken("approved"), null);
+  assert.equal(payoutRequestStatusToken(""), null);
+});
+
+// EVERY STATE HAS EXACTLY ONE WORD PER LANGUAGE, and this is what holds the
+// ticket's promise: the outstanding card, the request history and the notice
+// email that links to them all read one key per state, so a status cannot come
+// to have two Spanish words by being drawn on two screens.
+test("every status has a word in both languages, and no two states share one", () => {
+  const keyFor = (status: string) =>
+    `requestStatus${status[0].toUpperCase()}${status.slice(1)}`;
+  for (const { locale, payouts } of CATALOGS) {
+    const words = new Set<string>();
+    for (const status of PAYOUT_REQUEST_STATUSES) {
+      const word = payouts[keyFor(status)];
+      assert.ok(word, `${locale}.json is missing payouts.${keyFor(status)}`);
+      words.add(word.toLowerCase());
+    }
+    assert.equal(
+      words.size,
+      PAYOUT_REQUEST_STATUSES.length,
+      `${locale}.json gives two Payout Request statuses the same word`,
+    );
+  }
+});
+
+// The English shim that used to be asserted here is gone with #292: the Operator
+// Dashboard reads `payoutRequestStatusToken` and the same `payouts` keys the
+// organizer's screens read, through `app/payout-request-status.ts`. There is now
+// ONE status vocabulary, written down once, and the test above is the whole of
+// what guards it.
 
 // A FAILURE IS NOT A REFUSAL. A failure is a bank sending the money back; a
 // decline is a person saying no. The two states share a column (#182) and an
 // organizer with a typo in an account number must not read that the platform
-// judged and rejected them (ADR 0026 amendment). This is the assertion that
-// would fail if someone ever "tidied" the two labels into one, or reached for
-// "Rejected" for the bank's answer.
-test("failed and declined never read as the same thing", () => {
-  const failed = payoutRequestStatusLabel("failed");
-  assert.notEqual(failed, payoutRequestStatusLabel("declined"));
-  for (const refusal of ["declin", "reject", "refus", "deni"]) {
-    assert.ok(!failed.toLowerCase().includes(refusal), `"${failed}" reads as a refusal`);
+// judged and rejected them (ADR 0026 amendment) — in EITHER language. This is
+// the assertion that would fail if someone ever "tidied" the two words into one,
+// or reached for "Rejected"/"Rechazada" for the bank's answer.
+test("failed and declined never read as the same thing, in either catalog", () => {
+  const refusals = ["declin", "reject", "refus", "deni", "rechaz", "recus", "neg"];
+  for (const { locale, payouts } of CATALOGS) {
+    const failed = payouts.requestStatusFailed;
+    assert.notEqual(failed, payouts.requestStatusDeclined);
+    for (const refusal of refusals) {
+      assert.ok(
+        !failed.toLowerCase().includes(refusal),
+        `${locale}.json: "${failed}" reads as a refusal`,
+      );
+    }
   }
-});
-
-test("an unknown status is shown raw rather than swallowed", () => {
-  assert.equal(payoutRequestStatusLabel("approved"), "approved");
 });
 
 // THE DEFINITION UNDER TEST: a request is OUTSTANDING while it still awaits an
@@ -99,25 +137,40 @@ test("only a pending request may be cancelled", () => {
 // --- the cap, as the form explains it -------------------------------------
 
 test("an unparseable, zero or negative amount is not an ask", () => {
-  assert.equal(payoutRequestAmountProblem(null, 10_000, money), "Enter an amount greater than zero.");
-  assert.equal(payoutRequestAmountProblem(0, 10_000, money), "Enter an amount greater than zero.");
-  assert.equal(payoutRequestAmountProblem(-1, 10_000, money), "Enter an amount greater than zero.");
+  assert.equal(payoutRequestAmountProblem(null, 10_000), "not_positive");
+  assert.equal(payoutRequestAmountProblem(0, 10_000), "not_positive");
+  assert.equal(payoutRequestAmountProblem(-1, 10_000), "not_positive");
 });
 
 test("exactly the Payable Balance is askable; one cent above is not", () => {
-  assert.equal(payoutRequestAmountProblem(10_000, 10_000, money), null);
-  assert.equal(payoutRequestAmountProblem(10_001, 10_000, money), "You can request up to $100.00 right now.");
+  assert.equal(payoutRequestAmountProblem(10_000, 10_000), null);
+  assert.equal(payoutRequestAmountProblem(10_001, 10_000), "above_payable");
 });
 
 test("a zero or negative Payable Balance is explained, never compared against", () => {
   // An Organization settled against money that had not cleared has a negative
   // Payable Balance and a positive Withdrawable one (ADR 0026). Telling it to
-  // "request up to -$40.00" would be an absurdity rather than an answer.
+  // "request up to -$40.00" would be an absurdity rather than an answer, which
+  // is why this is its own token with its own sentence and not a comparison.
   for (const payable of [0, -4_000]) {
-    assert.equal(
-      payoutRequestAmountProblem(1_000, payable, money),
-      "Nothing has cleared yet, so there is nothing to request. Sales clear overnight.",
-    );
+    assert.equal(payoutRequestAmountProblem(1_000, payable), "nothing_cleared");
+  }
+});
+
+test("every amount refusal has a sentence to be said in, in both languages", () => {
+  const keys = [
+    "amountProblemNotPositive",
+    "amountProblemNothingCleared",
+    "amountProblemAbovePayable",
+  ];
+  for (const { locale, payouts } of CATALOGS) {
+    for (const key of keys) {
+      assert.ok(payouts[key], `${locale}.json is missing payouts.${key}`);
+    }
+    // The cap is a number the CALLER draws, in the Organization's currency: this
+    // module never sees a formatter, so the sentence must take it as an argument
+    // rather than expect it baked in.
+    assert.match(payouts.amountProblemAbovePayable, /\{max\}/);
   }
 });
 
@@ -138,10 +191,23 @@ test("an age in whole days, floored, never negative", () => {
   assert.equal(daysWaiting("not an instant", now), 0);
 });
 
-test("the waiting label reads as a person would say it", () => {
-  assert.equal(waitingLabel("2026-07-31T09:00:00Z", now), "Today");
-  assert.equal(waitingLabel("2026-07-30T14:00:00Z", now), "1 day");
-  assert.equal(waitingLabel("2026-07-19T15:00:00Z", now), "12 days");
+// The age is said by an ICU plural in the catalog now, not by a helper here —
+// which is what lets Spanish say "hace 12 días" without this module knowing.
+// What the module owes is the number, and the catalog owes a branch for every
+// count including zero: a queue row reading "0 días" instead of "Hoy" is the
+// failure this asserts against.
+test("both plurals can say an age of zero as a word rather than as a count", () => {
+  for (const { locale, payouts, operator } of CATALOGS) {
+    for (const key of ["waiting", "transferAgeNoReference", "transferAgeWithReference"]) {
+      assert.ok(operator[key], `${locale}.json is missing operator.${key}`);
+      assert.match(operator[key], /\{days, plural,/);
+      assert.match(operator[key], /=0 \{/);
+    }
+    // And the queue's own row names who sent the transfer inside every branch,
+    // because word order around a name is not the same in both languages.
+    assert.ok(payouts.requestStatusPending, `${locale}.json is missing the status vocabulary`);
+    assert.match(operator.queueTransferSent, /\{who\}/);
+  }
 });
 
 // --- answering an ask (#177) ----------------------------------------------
@@ -157,37 +223,67 @@ test("the fulfilment amount is pre-filled from the request, as an input value", 
   assert.ok(!/[^0-9.]/.test(fulfilmentAmountDefault(1_234_567)));
 });
 
-test("a decline reason is required, and bounded", () => {
-  assert.equal(declineReasonProblem("Ask again after the show"), null);
+test("a resolution reason is required, and bounded", () => {
+  assert.equal(resolutionReasonProblem("Ask again after the show"), null);
   // Blank, missing and whitespace-only are one failure: all three reach the
   // asker as a blank, which is what requiring a reason exists to prevent.
   for (const blank of ["", "   ", "\n\t"]) {
-    assert.equal(declineReasonProblem(blank), "Say why. The organization is shown this.");
+    assert.equal(resolutionReasonProblem(blank), "missing");
   }
-  assert.equal(declineReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH)), null);
-  assert.equal(
-    declineReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH + 1)),
-    `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`,
-  );
+  assert.equal(resolutionReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH)), null);
+  assert.equal(resolutionReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH + 1)), "too_long");
   // Trimmed before it is measured, so trailing whitespace is never what tips a
   // reason over the bound.
-  assert.equal(declineReasonProblem(`  ${"x".repeat(RESOLUTION_REASON_MAX_LENGTH)}  `), null);
+  assert.equal(resolutionReasonProblem(`  ${"x".repeat(RESOLUTION_REASON_MAX_LENGTH)}  `), null);
 });
 
-test("a partial fulfilment says what it means, not just what it costs", () => {
+// A DECLINE AND A FAILURE ASK FOR THE SAME COLUMN AND NOT FOR THE SAME THING.
+// The rule is one function above; the difference is two sentences here, and each
+// has to say what the operator is being asked FOR — a judgement, or the bank's
+// own words — or the two forms become interchangeable to whoever fills them.
+test("the two empty-reason refusals are different sentences in both languages", () => {
+  for (const { locale, operator } of CATALOGS) {
+    assert.ok(operator.declineReasonRequired, `${locale}.json is missing declineReasonRequired`);
+    assert.ok(operator.failureReasonRequired, `${locale}.json is missing failureReasonRequired`);
+    assert.notEqual(operator.declineReasonRequired, operator.failureReasonRequired);
+    // The bound is stated by the catalog with the constant as an argument, so
+    // the CHECK and the copy cannot drift apart.
+    assert.match(operator.reasonTooLong, /\{max\}/);
+    assert.match(operator.transferReferenceTooLong, /\{max\}/);
+  }
+});
+
+test("a partial fulfilment reports a direction and an unsigned difference", () => {
   // The ordinary case says nothing at all.
-  assert.equal(fulfilmentDivergence(4_794, 4_794, money), null);
-  assert.equal(fulfilmentDivergence(null, 4_794, money), null);
+  assert.equal(fulfilmentDivergence(4_794, 4_794), null);
+  assert.equal(fulfilmentDivergence(null, 4_794), null);
 
-  const short = fulfilmentDivergence(2_000, 4_794, money);
-  assert.ok(short?.startsWith("$27.94 less than was asked for."));
-  // The consequence, which is the part an operator would otherwise assume
-  // wrongly: the request closes, and the rest is asked for again.
-  assert.ok(short?.includes("can ask again for the rest"));
+  assert.deepEqual(fulfilmentDivergence(2_000, 4_794), {
+    direction: "short",
+    differenceCents: 2_794,
+  });
+  // Unsigned in both directions: the direction carries the sign, and a sentence
+  // reading "-$27.94 less" is what a caller subtracting for itself would get.
+  assert.deepEqual(fulfilmentDivergence(5_000, 4_794), {
+    direction: "over",
+    differenceCents: 206,
+  });
+});
 
-  const over = fulfilmentDivergence(5_000, 4_794, money);
-  assert.ok(over?.startsWith("$2.06 more than was asked for."));
-  assert.ok(over?.includes("stays visible"));
+test("a partial fulfilment says what it MEANS, not just what it costs", () => {
+  // The consequence is the part an operator would otherwise assume wrongly: a
+  // short transfer closes the request, and the rest is a fresh ask. The
+  // difference is an ICU argument because only the caller knows the currency.
+  const en = CATALOGS.find((catalog) => catalog.locale === "en")!.operator;
+  const es = CATALOGS.find((catalog) => catalog.locale === "es")!.operator;
+  for (const operator of [en, es]) {
+    assert.match(operator.fulfilmentShort, /\{amount\}/);
+    assert.match(operator.fulfilmentOver, /\{amount\}/);
+  }
+  assert.match(en.fulfilmentShort, /can ask again for the rest/);
+  assert.match(en.fulfilmentOver, /stays visible/);
+  assert.match(es.fulfilmentShort, /volver a solicitar el resto/);
+  assert.match(es.fulfilmentOver, /seguirá visible/);
 });
 
 // --- the four answers an operator has (#186) ------------------------------
@@ -258,106 +354,94 @@ test("a blank transfer reference is not a problem: PayPhone does not always give
 test("a transfer reference is bounded at the column's own CHECK", () => {
   assert.equal(transferReferenceProblem("PP-2026-0042"), null);
   assert.equal(transferReferenceProblem("x".repeat(TRANSFER_REFERENCE_MAX_LENGTH)), null);
-  assert.equal(
-    transferReferenceProblem("x".repeat(TRANSFER_REFERENCE_MAX_LENGTH + 1)),
-    `Keep it under ${TRANSFER_REFERENCE_MAX_LENGTH} characters.`,
-  );
+  assert.equal(transferReferenceProblem("x".repeat(TRANSFER_REFERENCE_MAX_LENGTH + 1)), "too_long");
   // Measured after trimming, so trailing whitespace never tips it over.
   assert.equal(transferReferenceProblem(`  ${"x".repeat(TRANSFER_REFERENCE_MAX_LENGTH)}  `), null);
 });
 
 // --- the failure reason ---------------------------------------------------
-
-test("a failure reason is required, and says what the organizer does with it", () => {
-  // Required for a stronger reason than a decline's: "failed" tells an organizer
-  // nothing, while "the account number was rejected" is also the instruction.
-  for (const blank of ["", "   ", "\n\t"]) {
-    const problem = failureReasonProblem(blank);
-    assert.ok(problem);
-    assert.ok(problem.includes("bank"));
-  }
-  assert.equal(failureReasonProblem("Account number rejected by Banco Pichincha."), null);
-});
-
-test("a failure reason shares the decline's bound, because it is the same column", () => {
-  assert.equal(failureReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH)), null);
-  assert.equal(
-    failureReasonProblem("x".repeat(RESOLUTION_REASON_MAX_LENGTH + 1)),
-    `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`,
-  );
-});
-
-test("transferSentLabel reads as a sentence at every age, including today", () => {
-  const submitted = "2026-07-28T12:00:00Z";
-  assert.equal(transferSentLabel(submitted, new Date("2026-07-28T18:00:00Z")), "sent today");
-  assert.equal(transferSentLabel(submitted, new Date("2026-07-29T13:00:00Z")), "sent 1 day ago");
-  assert.equal(transferSentLabel(submitted, new Date("2026-07-31T13:00:00Z")), "sent 3 days ago");
-  // A clock skew putting the submission in the future reads as today rather than
-  // as a negative age.
-  assert.equal(transferSentLabel(submitted, new Date("2026-07-27T12:00:00Z")), "sent today");
+//
+// A failure reason is required for a stronger reason than a decline's: "failed"
+// tells an organizer nothing, while "the account number was rejected" is also
+// the instruction. That is a claim about the SENTENCE, so it is asserted against
+// the catalog rather than against the shared rule above.
+test("the failure reason's refusal names the bank, in both languages", () => {
+  const en = CATALOGS.find((catalog) => catalog.locale === "en")!.operator;
+  const es = CATALOGS.find((catalog) => catalog.locale === "es")!.operator;
+  assert.match(en.failureReasonRequired, /bank/i);
+  assert.match(es.failureReasonRequired, /banco/i);
 });
 
 // --- a submitted transfer, and one that bounced (#187) --------------------
 
-const asDate = (date: Date) => date.toISOString().slice(0, 10);
-
-test("the processing sentence names the date the transfer was sent", () => {
-  const sentence = transferSentSentence("2026-07-29T18:30:00Z", asDate);
+test("the processing sentence cannot be said without the date the transfer was sent", () => {
   // THE DATE IS THE POINT. Without it an organizer cannot tell whether the 48
   // hours they were promised have already run out, which is the one moment the
-  // sentence exists to let them recognise.
-  assert.ok(sentence?.includes("2026-07-29"), sentence ?? "no sentence");
-  assert.ok(sentence?.includes("48 hours"), sentence ?? "no sentence");
-});
-
-test("no date, no sentence: a promise nobody can check is not shipped", () => {
-  // A processing request always carries the instant — a CHECK ties the pair to
-  // the state — so these are the shapes that mean something is wrong upstream,
-  // and the honest answer is to say less rather than to reassure blindly.
-  for (const missing of [null, undefined, "", "not an instant"]) {
-    assert.equal(transferSentSentence(missing, asDate), null);
+  // sentence exists to let them recognise — so the catalog message REQUIRES the
+  // date as an argument, and a caller with no date renders nothing rather than a
+  // dateless reassurance (lib/format.ts answers null for an instant it cannot
+  // read, which is what makes that the easy path).
+  for (const { locale, payouts } of CATALOGS) {
+    assert.ok(payouts.transferSent, `${locale}.json is missing payouts.transferSent`);
+    assert.match(payouts.transferSent, /\{date\}/);
+    assert.match(payouts.transferSent, /48/);
   }
 });
 
 test("a decline and a failure are told apart, never one sentence", () => {
-  assert.equal(
-    resolutionSentence("declined", "Ask again after the show"),
-    "Declined: Ask again after the show",
-  );
+  assert.deepEqual(resolutionNotice("declined", "Ask again after the show"), {
+    kind: "declined",
+    reason: "Ask again after the show",
+  });
+  assert.deepEqual(resolutionNotice("failed", "  the account number was rejected  "), {
+    kind: "failed",
+    reason: "the account number was rejected",
+  });
 
-  const failure = resolutionSentence("failed", "the account number was rejected");
-  assert.ok(failure?.includes("the account number was rejected"), failure ?? "no sentence");
-  // Nothing in a failure may read as a judgement the platform made about this
-  // Organization: the bank acted, the money came back, nobody decided anything.
-  for (const refusal of ["declin", "reject", "refus", "deni"]) {
-    assert.ok(
-      !failure?.toLowerCase().startsWith(refusal),
-      `a failure opens with "${refusal}", which reads as a refusal`,
-    );
+  // Two kinds, two keys, two sentences — in both languages. Nothing in a failure
+  // may read as a judgement the platform made about this Organization: the bank
+  // acted, the money came back, nobody decided anything.
+  for (const { locale, payouts } of CATALOGS) {
+    assert.ok(payouts.resolutionDeclined, `${locale}.json is missing payouts.resolutionDeclined`);
+    assert.ok(payouts.resolutionFailed, `${locale}.json is missing payouts.resolutionFailed`);
+    assert.notEqual(payouts.resolutionDeclined, payouts.resolutionFailed);
+    for (const key of ["resolutionDeclined", "resolutionFailed"]) {
+      assert.match(payouts[key], /\{reason\}/);
+    }
+    for (const refusal of ["declin", "reject", "refus", "deni", "rechaz"]) {
+      assert.ok(
+        !payouts.resolutionFailed.toLowerCase().startsWith(refusal),
+        `${locale}.json: a failure opens with "${refusal}", which reads as a refusal`,
+      );
+    }
   }
-  assert.notEqual(failure, resolutionSentence("declined", "the account number was rejected"));
 });
 
 test("a reason with no state to explain it is not rendered under a guessed heading", () => {
   // Blank, whitespace and missing are one case: all three would render a
   // heading with nothing after it.
   for (const blank of [null, undefined, "", "   "]) {
-    assert.equal(resolutionSentence("failed", blank), null);
-    assert.equal(resolutionSentence("declined", blank), null);
+    assert.equal(resolutionNotice("failed", blank), null);
+    assert.equal(resolutionNotice("declined", blank), null);
   }
   // And a reason arriving on a state this client has not been taught is shown
   // under no heading at all rather than under a possibly wrong one.
-  assert.equal(resolutionSentence("reversed", "something new"), null);
+  assert.equal(resolutionNotice("reversed", "something new"), null);
 });
 
 test("the failure's next step says the money is where it was, then how to fix it", () => {
-  // The balances did not move — no Payout was ever written for a transfer that
-  // came back — and saying so first is what stops "failed" reading as a loss.
-  assert.ok(TRANSFER_FAILED_NEXT_STEP.includes("balance is unchanged"));
-  // The likeliest cause, named: an organizer told only "it failed" has nothing
-  // to look at, and the account number is what they should look at first.
-  assert.ok(TRANSFER_FAILED_NEXT_STEP.includes("account number"));
-  // A failed request is terminal: the fix is a fresh ask, not a retry nobody
-  // will ever make.
-  assert.ok(TRANSFER_FAILED_NEXT_STEP.includes("ask again"));
+  // The three facts the sentence carries, asserted where it now lives. The
+  // balances did not move — no Payout was ever written for a transfer that came
+  // back — and saying so first is what stops "failed" reading as a loss; the
+  // likeliest cause is named, because an organizer told only "it failed" has
+  // nothing to look at; and the way out is a fresh ask, because a failed request
+  // is terminal and no retry is ever coming.
+  const en = CATALOGS.find((catalog) => catalog.locale === "en")!.payouts;
+  const es = CATALOGS.find((catalog) => catalog.locale === "es")!.payouts;
+  assert.match(en.transferFailedNextStep, /balance is unchanged/);
+  assert.match(en.transferFailedNextStep, /account number/);
+  assert.match(en.transferFailedNextStep, /ask again/);
+  assert.match(es.transferFailedNextStep, /saldo no cambió/);
+  assert.match(es.transferFailedNextStep, /número de cuenta/);
+  assert.match(es.transferFailedNextStep, /vuelva a solicitar/);
 });

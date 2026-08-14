@@ -34,7 +34,11 @@ import (
 // address Google returns which differs from the one an invitation was sent to
 // signs in fine and belongs to no Organization — deliberately, per PRD decision
 // 5, with the create-organization fork's copy as the recovery.
-func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI string) (*SessionView, string, error) {
+// detectedLocale is the language the login page was rendered in, remembered as
+// the Staff Locale on the same terms the passcode door remembers it: only when
+// the person has none. Both doors are equal Proof of Email Ownership, and both
+// were opened from a page that knew its own language.
+func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, redirectURI, detectedLocale string) (*SessionView, string, error) {
 	email, err := s.google.VerifiedEmail(ctx, googleauth.Exchange{
 		Code:         code,
 		CodeVerifier: codeVerifier,
@@ -46,5 +50,5 @@ func (s *Service) VerifyGoogleSignIn(ctx context.Context, code, codeVerifier, re
 		return nil, "", err
 	}
 
-	return s.signInProvenEmail(ctx, platform.NormalizeEmail(email), s.now())
+	return s.signInProvenEmail(ctx, platform.NormalizeEmail(email), detectedLocale, s.now())
 }

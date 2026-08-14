@@ -17,28 +17,62 @@ import (
 // message — one composition, rendered identically by the provider in production
 // and by the integration suite asserting on a captured receipt.
 
-// The Sale Confirmation is no longer here, and neither are the void and
-// refused-reversal notices: all three are written in the reader's own language
-// and live below the line that says so (#245 and #246, ADR 0033).
+// EVERY MESSAGE IN THIS FILE IS WRITTEN IN THE READER'S OWN LANGUAGE. There is
+// no English section and no staff exception: the copy machinery below is the
+// whole of it, and a message that did not go through translated() would be a
+// message one of this platform's two audiences cannot read.
 
 // The five Payout Request notices (#179 and #188, ADR 0026). They are the
-// platform's first organizer-facing email, and they read differently from above
-// for one reason: their reader is a person doing their job rather than a
-// Customer who bought a ticket. No "Hi <name>" — a request records its asker as
-// an email and nothing else, and a greeting to a name the platform does not know
-// is worse than none.
+// platform's first organizer-facing email, and they read differently from the
+// Customer mail below for one reason: their reader is a person doing their job
+// rather than a Customer who bought a ticket. No "Hi <name>" — a request records
+// its asker as an email and nothing else, and a greeting to a name the platform
+// does not know is worse than none.
+//
+// THAT RECORDED EMAIL IS ALSO WHAT MAKES THEM BILINGUAL (#285, ADR 0041). ADR
+// 0033 stopped here deliberately, because a notice addressed to
+// `request.RequestedBy` was "attached to no record that could hold a language".
+// The Staff Locale is keyed on the email address, so that string is now exactly
+// such a record: the caller reads the row by recipient address and hands the
+// answer down as Locale, with English as the floor. The obstacle dissolved
+// rather than being overruled — nothing about the addressing changed.
 //
 // What none of them says is where the money is going. The account number, the
 // bank, the holder's name and the Tax ID stay in the database; the notices say
 // "the account on your Payout Profile", which is the sentence an organizer can
 // act on and a stranger cannot (ADR 0026).
+//
+// The Spanish is usted throughout and takes its nouns from CONTEXT.md's staff
+// vocabulary: an Organización asks to be paid, never an Organizador, which is
+// the same entity's PUBLIC word and belongs to Customer surfaces alone.
+var (
+	payoutSubmittedSubjectCopy = translated(
+		"%s has asked to be paid %s",
+		"%s ha solicitado un pago de %s",
+	)
+	// The ask and its asker, declared whole in both languages: the sentence and
+	// the line under it are one block of prose, and splitting them would let a
+	// translator reorder half of it.
+	payoutSubmittedOpeningCopy = translated(
+		"%s has submitted a Payout Request for %s.\n\nAsked by: %s",
+		"%s ha enviado una solicitud de pago de %s.\n\nSolicitado por: %s",
+	)
+	payoutSubmittedNoteCopy = translated(
+		"\nNote: %s",
+		"\nNota: %s",
+	)
+	payoutSubmittedActionCopy = translated(
+		"\n\nOpen the Payout Request queue on the Operator Dashboard to see the bank details and answer it.",
+		"\n\nAbra la cola de solicitudes de pago en el Panel de Operador para ver los datos bancarios y responderla.",
+	)
+)
 
 // Subject is the operator's submission notice subject line. It names the
 // Organization and the amount, because this line is the whole of what an
 // operator sees in a mailbox list on a Friday evening, and it is what decides
 // whether they open the dashboard now or on Monday.
 func (p PayoutRequestSubmitted) Subject() string {
-	return fmt.Sprintf("%s has asked to be paid %s", p.OrganizationName, formatMoney(p.AmountCents, p.Currency))
+	return fmt.Sprintf(payoutSubmittedSubjectCopy.in(p.Locale), p.OrganizationName, formatMoney(p.AmountCents, p.Currency))
 }
 
 // Text is the operator's submission notice body: the ask, who made it, and what
@@ -53,19 +87,40 @@ func (p PayoutRequestSubmitted) Subject() string {
 // would be worse than no link at all — the queue is one click from the operator
 // dashboard either way.
 func (p PayoutRequestSubmitted) Text() string {
-	text := fmt.Sprintf("%s has submitted a Payout Request for %s.\n\nAsked by: %s",
+	text := fmt.Sprintf(payoutSubmittedOpeningCopy.in(p.Locale),
 		p.OrganizationName, formatMoney(p.AmountCents, p.Currency), p.RequestedBy)
 	if p.Note != "" {
-		text += fmt.Sprintf("\nNote: %s", p.Note)
+		text += fmt.Sprintf(payoutSubmittedNoteCopy.in(p.Locale), p.Note)
 	}
-	text += "\n\nOpen the Payout Request queue on the Operator Dashboard to see the bank details and answer it."
+	text += payoutSubmittedActionCopy.in(p.Locale)
 	return text
 }
+
+var (
+	payoutPaidSubjectCopy = translated(
+		"Your payout of %s has been sent",
+		"Su pago de %s fue enviado",
+	)
+	payoutPaidOpeningCopy = translated(
+		"%s has been transferred to the account on your Payout Profile.\n\nThe transfer has already been made, so it will appear in your bank account as soon as your bank posts it.",
+		"Se transfirieron %s a la cuenta de su Perfil de Pagos.\n\nLa transferencia ya se realizó, así que aparecerá en su cuenta bancaria en cuanto su banco la registre.",
+	)
+	// The shortfall, which is the only conditional sentence of the five and the
+	// only place an organizer is ever told a transfer came in under their ask.
+	payoutPaidShortfallCopy = translated(
+		"\n\nYou asked for %s, and %s was sent. If you were expecting the full amount, contact the platform.",
+		"\n\nUsted solicitó %s y se enviaron %s. Si esperaba el monto completo, contacte a la plataforma.",
+	)
+	payoutPaidClosingCopy = translated(
+		"\n\nThis answers the Payout Request submitted for %s.",
+		"\n\nEsto responde a la solicitud de pago enviada para %s.",
+	)
+)
 
 // Subject is the paid notice's subject line: the answer itself, so an organizer
 // who only ever reads this line still learns the money has moved.
 func (p PayoutRequestPaid) Subject() string {
-	return fmt.Sprintf("Your payout of %s has been sent", formatMoney(p.AmountCents, p.Currency))
+	return fmt.Sprintf(payoutPaidSubjectCopy.in(p.Locale), formatMoney(p.AmountCents, p.Currency))
 }
 
 // Text is the paid notice's body.
@@ -81,21 +136,35 @@ func (p PayoutRequestPaid) Subject() string {
 // came in under their ask, and learning it from a bank statement instead is
 // precisely the support thread this feature exists to remove.
 func (p PayoutRequestPaid) Text() string {
-	text := fmt.Sprintf("%s has been transferred to the account on your Payout Profile.\n\nThe transfer has already been made, so it will appear in your bank account as soon as your bank posts it.",
-		formatMoney(p.AmountCents, p.Currency))
+	text := fmt.Sprintf(payoutPaidOpeningCopy.in(p.Locale), formatMoney(p.AmountCents, p.Currency))
 	if p.RequestedCents != p.AmountCents {
-		text += fmt.Sprintf("\n\nYou asked for %s, and %s was sent. If you were expecting the full amount, contact the platform.",
+		text += fmt.Sprintf(payoutPaidShortfallCopy.in(p.Locale),
 			formatMoney(p.RequestedCents, p.Currency), formatMoney(p.AmountCents, p.Currency))
 	}
-	text += fmt.Sprintf("\n\nThis answers the Payout Request submitted for %s.", p.OrganizationName)
+	text += fmt.Sprintf(payoutPaidClosingCopy.in(p.Locale), p.OrganizationName)
 	return text
 }
+
+var (
+	payoutDeclinedSubjectCopy = translated(
+		"Your payout request for %s was declined",
+		"Su solicitud de pago de %s fue rechazada",
+	)
+	// One block in both languages: the reason is quoted between two sentences
+	// that only make sense around it, and the closing line — that a decline ends
+	// this request and frees the Organization to ask again — is the half an
+	// organizer who does not read it will write to ask about.
+	payoutDeclinedTextCopy = translated(
+		"The Payout Request for %s submitted for %s has been declined.\n\nReason: %s\n\nNothing has moved and no payout was made. You can submit a new request whenever you are ready — being declined once has no bearing on the next ask.",
+		"La solicitud de pago de %s enviada para %s fue rechazada.\n\nMotivo: %s\n\nNo se movió nada y no se realizó ningún pago. Puede enviar una nueva solicitud cuando quiera: que una haya sido rechazada no tiene ninguna consecuencia sobre la siguiente.",
+	)
+)
 
 // Subject is the decline notice's subject line. It says the outcome outright,
 // for the reason the refused-reversal notice does: an unanswered ask that reads
 // as an update in a mailbox list is worse than one that reads as a no.
 func (p PayoutRequestDeclined) Subject() string {
-	return fmt.Sprintf("Your payout request for %s was declined", formatMoney(p.AmountCents, p.Currency))
+	return fmt.Sprintf(payoutDeclinedSubjectCopy.in(p.Locale), formatMoney(p.AmountCents, p.Currency))
 }
 
 // Text is the decline notice's body: what happened, why, and what can be done
@@ -110,16 +179,30 @@ func (p PayoutRequestDeclined) Subject() string {
 // immediately, and an organizer who does not know that will write to ask
 // (ADR 0026).
 func (p PayoutRequestDeclined) Text() string {
-	return fmt.Sprintf("The Payout Request for %s submitted for %s has been declined.\n\nReason: %s\n\nNothing has moved and no payout was made. You can submit a new request whenever you are ready — being declined once has no bearing on the next ask.",
+	return fmt.Sprintf(payoutDeclinedTextCopy.in(p.Locale),
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
 }
+
+var (
+	payoutTransferSentSubjectCopy = translated(
+		"Your payout of %s is on its way",
+		"Su pago de %s está en camino",
+	)
+	// The amount, the date and the 48 hours in one block, in both languages: the
+	// expectation is meaningless without the date it is counted from, and a
+	// translation that carried one without the other would be worse than none.
+	payoutTransferSentTextCopy = translated(
+		"The transfer of %s to the account on your Payout Profile was submitted on %s.\n\nBank transfers can take up to 48 hours to arrive, so it may not show in your account straight away. We will email you again as soon as we know it has landed.\n\nThis answers the Payout Request submitted for %s.",
+		"La transferencia de %s a la cuenta de su Perfil de Pagos se envió el %s.\n\nLas transferencias bancarias pueden tardar hasta 48 horas en llegar, así que puede que no aparezca en su cuenta de inmediato. Le escribiremos de nuevo apenas sepamos que llegó.\n\nEsto responde a la solicitud de pago enviada para %s.",
+	)
+)
 
 // Subject is the transfer-sent notice's subject line. It says the money is
 // moving rather than that it has arrived, because the whole distinction this
 // notice draws is between the two — and an organizer who reads only this line
 // must not go and look at a bank account that has nothing in it yet.
 func (p PayoutRequestTransferSent) Subject() string {
-	return fmt.Sprintf("Your payout of %s is on its way", formatMoney(p.AmountCents, p.Currency))
+	return fmt.Sprintf(payoutTransferSentSubjectCopy.in(p.Locale), formatMoney(p.AmountCents, p.Currency))
 }
 
 // Text is the transfer-sent notice's body: the amount, the date it was sent, and
@@ -135,16 +218,34 @@ func (p PayoutRequestTransferSent) Subject() string {
 // paid notice when the money lands, the failed one when it comes back. Neither
 // state is one the organizer has to poll a page for.
 func (p PayoutRequestTransferSent) Text() string {
-	return fmt.Sprintf("The transfer of %s to the account on your Payout Profile was submitted on %s.\n\nBank transfers can take up to 48 hours to arrive, so it may not show in your account straight away. We will email you again as soon as we know it has landed.\n\nThis answers the Payout Request submitted for %s.",
-		formatMoney(p.AmountCents, p.Currency), formatEcuadorDate(p.SubmittedAt), p.OrganizationName)
+	return fmt.Sprintf(payoutTransferSentTextCopy.in(p.Locale),
+		formatMoney(p.AmountCents, p.Currency), formatEcuadorDate(p.SubmittedAt, p.Locale), p.OrganizationName)
 }
+
+var (
+	payoutTransferFailedSubjectCopy = translated(
+		"Your payout of %s could not be completed",
+		"No se pudo completar su pago de %s",
+	)
+	// One block in both languages, because the sentence AFTER the reason is what
+	// stops this reading as a refusal, and a translation that dropped it would
+	// leave a Spanish reader believing the platform judged them over a typo.
+	//
+	// The Spanish says "no la aceptó" of the bank and never a word that judges the
+	// ask: `failed` and `declined` share a column and must not share a sentence in
+	// either language (ADR 0026 amendment).
+	payoutTransferFailedTextCopy = translated(
+		"The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request — the transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request — this one cannot be retried, because it carries a frozen copy of the details it was sent with.",
+		"La transferencia de %s para %s se envió a su banco y volvió.\n\nMotivo: %s\n\nEsto no es una decisión sobre su solicitud: la transferencia se envió y su banco no la aceptó. No se realizó ningún pago y nada salió de su saldo.\n\nRevise los datos de su Perfil de Pagos; una transferencia devuelta suele deberse a un número de cuenta incorrecto. Cuando estén correctos, envíe una nueva solicitud: esta no se puede reintentar, porque lleva una copia congelada de los datos con los que se envió.",
+	)
+)
 
 // Subject is the transfer-failed notice's subject line. "Could not be completed"
 // rather than "was refused": the bank sent the money back, and a subject line
 // that reads as a judgement is one the organizer answers with an appeal instead
 // of a corrected account number.
 func (p PayoutRequestTransferFailed) Subject() string {
-	return fmt.Sprintf("Your payout of %s could not be completed", formatMoney(p.AmountCents, p.Currency))
+	return fmt.Sprintf(payoutTransferFailedSubjectCopy.in(p.Locale), formatMoney(p.AmountCents, p.Currency))
 }
 
 // Text is the transfer-failed notice's body: what the bank did, why, and the one
@@ -159,19 +260,19 @@ func (p PayoutRequestTransferFailed) Subject() string {
 // number is the commonest cause and this request's copy of it is a frozen
 // snapshot: the fix is on the profile, and the next attempt is a new ask.
 func (p PayoutRequestTransferFailed) Text() string {
-	return fmt.Sprintf("The transfer of %s for %s was submitted to your bank and came back.\n\nReason: %s\n\nThis was not a decision about your request — the transfer was sent and your bank did not accept it. No payout was made and nothing has left your balance.\n\nCheck the details on your Payout Profile; a rejected transfer is most often a wrong account number. Once they are right, submit a new request — this one cannot be retried, because it carries a frozen copy of the details it was sent with.",
+	return fmt.Sprintf(payoutTransferFailedTextCopy.in(p.Locale),
 		formatMoney(p.AmountCents, p.Currency), p.OrganizationName, p.Reason)
 }
 
-// Everything below is written in the reader's own language, and everything
-// above is not.
+// The copy machinery every message above and below goes through.
 //
-// The line falls where it does by decision rather than by how far the work got
-// (ADR 0033): the messages above are read by Members and Platform Operators,
-// who have no language recorded anywhere and whose entire working surface is
-// English, and Spanish mail linking into an English application would be worse
-// than consistency. The messages below are read by Customers, who chose a
-// language on a page and were answered in it.
+// There was a line here once, drawn by ADR 0033: Customer mail below it was
+// written in the reader's language and staff mail above it was English, because
+// no Member had a language recorded anywhere and the staff app had none either.
+// Both supports were removed by #281, and the line went with them — a Payout
+// Request notice is now looked up by the recipient's address in the Staff Locale
+// exactly as a receipt is resolved from the sale (ADR 0041). Nothing this file
+// composes is English by decision any more.
 //
 // THE BRANCHING IS A LOOKUP PER SENTENCE, never two whole methods. Two methods
 // drift, and the drift shows up as a Spanish reader missing a line an English
@@ -248,7 +349,9 @@ func (c mailCopy) in(locale Locale) string {
 // while it sat in the provider no test driving the API could assert on a word a
 // recipient reads. It is now the same two sentences either door sends, written
 // in whichever language the caller names — the Storefront page a visitor asked
-// from, and English, explicitly, for staff.
+// from, and the recipient's own Staff Locale for staff (#285, ADR 0041), which
+// is what makes the first message a new Spanish-speaking organizer ever receives
+// one they can read.
 //
 // The body says the code, that it expires, and what to do if it was not asked
 // for. It names no person: a passcode request proves nothing about who is
@@ -958,15 +1061,24 @@ var spanishMonths = map[time.Month]string{
 }
 
 // formatEcuadorDate renders an instant as the calendar date it falls on in
-// Ecuador — "20 July 2026".
+// Ecuador, in the reader's language — "20 July 2026" / "20 de julio de 2026".
 //
 // The zone conversion is the point, for the reason StartOfEcuadorDay exists: a
 // transfer submitted at 03:00 UTC was submitted the previous evening in
 // Guayaquil, and a notice telling an organizer their money left on a day it did
 // not is worse than one giving no date at all, since the whole job of the date
 // is to let them count 48 hours from it.
-func formatEcuadorDate(instant time.Time) string {
-	return instant.In(ecuadorLocation()).Format("2 January 2006")
+//
+// THE LOCALE MOVES THE WORDS AND NOT THE DAY, which is the same rule
+// formatEventDate keeps: the zone is Ecuador's in either language, and a Spanish
+// notice naming a different date than the English one would be the bug this
+// whole date exists to prevent.
+func formatEcuadorDate(instant time.Time, locale Locale) string {
+	local := instant.In(ecuadorLocation())
+	if locale == LocaleES {
+		return fmt.Sprintf("%d de %s de %d", local.Day(), spanishMonths[local.Month()], local.Year())
+	}
+	return local.Format("2 January 2006")
 }
 
 // formatMoney renders integer cents for a receipt line: two decimals with the

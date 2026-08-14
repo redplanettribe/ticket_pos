@@ -36,12 +36,24 @@ type otpRequestBody struct {
 type otpVerifyBody struct {
 	Email string `json:"email"`
 	Code  string `json:"code"`
+	// Locale is the language the login page was rendered in, as the caller
+	// detected it. Optional, and remembered as the Staff Locale only when the
+	// person has none. It is the one locale field on a read-adjacent route in
+	// this API and it names a fact about a person, not a language for the API to
+	// answer in (ADR 0027).
+	Locale string `json:"locale"`
 }
 
 type googleVerifyBody struct {
 	Code         string `json:"code"`
 	CodeVerifier string `json:"code_verifier"`
 	RedirectURI  string `json:"redirect_uri"`
+	// Locale, exactly as on the passcode door and for the same reason.
+	Locale string `json:"locale"`
+}
+
+type staffLocaleBody struct {
+	Locale string `json:"locale"`
 }
 
 type selectOrganizationBody struct {
@@ -91,7 +103,7 @@ func (h *Handler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 // VerifyOTP validates a passcode and creates a session.
 //
 // @Summary      Verify OTP
-// @Description  Verifies a one-time passcode and creates a server-side session.
+// @Description  Verifies a one-time passcode and creates a server-side session. An optional `locale` names the language the login page was rendered in, as the caller detected it, and is remembered as the person's Staff Locale — but only if they have none. It never overwrites a stored one, because a detected language must not overrule a chosen one. A language the platform does not serve is ignored rather than refused, and never fails the sign-in.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
@@ -119,7 +131,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code)
+	session, sessionID, err := h.svc.VerifyOTP(r.Context(), body.Email, body.Code, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -142,7 +154,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 // credential rather than consuming one.
 //
 // @Summary      Verify a Google Sign-In
-// @Description  Exchanges an authorization code obtained on the Staff app at Google's token endpoint, using the staff OAuth client, and issues a Staff Session on the email address Google vouches for. The session and the auth-fork that follows are identical to a passcode's. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
+// @Description  Exchanges an authorization code obtained on the Staff app at Google's token endpoint, using the staff OAuth client, and issues a Staff Session on the email address Google vouches for. The session and the auth-fork that follows are identical to a passcode's. An optional `locale` is remembered as the person's Staff Locale exactly as on the passcode route: only when they have none. Every failure returns one generic error, so the route reveals nothing about which addresses the platform knows.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
@@ -178,7 +190,7 @@ func (h *Handler) VerifyGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI)
+	session, sessionID, err := h.svc.VerifyGoogleSignIn(r.Context(), body.Code, body.CodeVerifier, body.RedirectURI, body.Locale)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)
 		return
@@ -362,7 +374,7 @@ func (h *Handler) SelectOrganization(w http.ResponseWriter, r *http.Request) {
 // GetStaffMe returns the active member context for staff workflow routes.
 //
 // @Summary      Get staff context
-// @Description  Returns the active member and organization for the authenticated session.
+// @Description  Returns the active member and organization for the authenticated session, together with the signed-in person's Staff Locale. `locale` is null when they have stated none, which is not the same as English: it says nobody has chosen, and a reader with null is written to in English all the same. The API reports which language a person prefers; it does not answer in one, and no read path here consults Accept-Language (ADR 0027).
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -386,6 +398,53 @@ func (h *Handler) GetStaffMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, member)
+}
+
+// SetStaffLocale records the language the signed-in person chose.
+//
+// It takes a bearer token and nothing else — no Active Member is loaded and no
+// role is checked. That is the point: the Staff Locale belongs to a person, so a
+// Platform Operator who is a Member of no Organization can set one, and an Event
+// Staff member can set their own without asking an Org Admin.
+//
+// @Summary      Set staff locale
+// @Description  Records the Staff Locale of the signed-in person: the language the staff app and staff mail are written in for them. Keyed on the session's email address, so it follows them across devices and across Organizations, and switching Organization does not change it. Requires only a Staff Session — no Active Member and no role — because a personal preference is not an Organization's setting. A language the platform does not serve is refused with a field error rather than ignored, unlike the detected locale on the sign-in routes: a stated choice that quietly did nothing would be worse than one that failed.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body  body      staffLocaleBody  true  "Language to record"
+// @Success      200   {object}  openapi.EnvelopeStaffLocale
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Router       /api/v1/staff/me/locale [put]
+func (h *Handler) SetStaffLocale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	token := platform.BearerToken(r)
+	if token == "" {
+		_ = platform.WriteUnauthorized(w, reqID, "Missing session token")
+		return
+	}
+
+	var body staffLocaleBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	locale, fields := validateLocale(body.Locale)
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+
+	result, err := h.svc.SetStaffLocale(r.Context(), token, locale)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }
 
 func staffSessionID(r *http.Request) string {
@@ -435,6 +494,21 @@ func validateCreateOrganization(name, slug string) []platform.FieldError {
 		fields = append(fields, platform.FieldError{Field: "slug", Code: platform.CodeInvalidSlug, Message: "must be URL-safe (lowercase letters, numbers, and hyphens)"})
 	}
 	return fields
+}
+
+// validateLocale accepts one of the languages this platform is written in, and
+// refuses everything else. It is deliberately strict where the sign-in routes
+// are permissive: they are dropping a browser's guess, this is recording a
+// person's choice.
+func validateLocale(raw string) (platform.Locale, []platform.FieldError) {
+	if strings.TrimSpace(raw) == "" {
+		return "", []platform.FieldError{{Field: "locale", Code: platform.CodeRequired, Message: "is required"}}
+	}
+	locale, ok := platform.ParseLocale(raw)
+	if !ok {
+		return "", []platform.FieldError{{Field: "locale", Code: platform.CodeInvalidLocale, Message: "must be en or es"}}
+	}
+	return locale, nil
 }
 
 func validateMemberID(memberID string) []platform.FieldError {

@@ -75,10 +75,18 @@ async function postImportForm<T>(path: string, form: FormData): Promise<T> {
   const response = await fetch(path, { method: "POST", body: form });
   const envelope = (await response.json()) as APIEnvelope<T>;
   if (!response.ok || envelope.error) {
-    throw new ApiError(envelope.error?.message ?? "Request failed", envelope.error?.code, envelope.error?.details);
+    // No English stand-in for a missing message. The envelope is re-thrown as it
+    // arrived and the SURFACE picks the words: its catalog by error code, then
+    // its own sentence when the envelope carried none (ADR 0023). A "Request
+    // failed" invented here would be an English sentence the catalog could never
+    // outrank, because `apiErrorMessage` cannot tell it from the API's own.
+    throw new ApiError(envelope.error?.message ?? "", envelope.error?.code, envelope.error?.details);
   }
   if (envelope.data === null) {
-    throw new Error("Empty response");
+    // A 200 with no data is a broken API rather than a refusal, so it carries no
+    // code and no reader-facing sentence: the surface shows its own copy for
+    // "this did not work", in the reader's language.
+    throw new ApiError("");
   }
   return envelope.data;
 }
@@ -120,18 +128,33 @@ export async function undoSaleImport(
   });
   const envelope = (await response.json()) as APIEnvelope<ImportUndoResult>;
   if (!response.ok || envelope.error) {
-    throw new ApiError(envelope.error?.message ?? "Request failed", envelope.error?.code, envelope.error?.details);
+    // No English stand-in for a missing message. The envelope is re-thrown as it
+    // arrived and the SURFACE picks the words: its catalog by error code, then
+    // its own sentence when the envelope carried none (ADR 0023). A "Request
+    // failed" invented here would be an English sentence the catalog could never
+    // outrank, because `apiErrorMessage` cannot tell it from the API's own.
+    throw new ApiError(envelope.error?.message ?? "", envelope.error?.code, envelope.error?.details);
   }
   if (envelope.data === null) {
-    throw new Error("Empty response");
+    // A 200 with no data is a broken API rather than a refusal, so it carries no
+    // code and no reader-facing sentence: the surface shows its own copy for
+    // "this did not work", in the reader's language.
+    throw new ApiError("");
   }
   return envelope.data;
 }
 
-export function formatBatchTimestamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
-  }
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
+/*
+ * There was a `formatBatchTimestamp(iso)` here until #289. It called
+ * `Intl.DateTimeFormat(undefined, …)`, which is not English and not the
+ * platform's zone: it is the BROWSER's language and the LAPTOP's zone, neither
+ * of which this application chose. An Org Admin in Guayaquil on a machine set to
+ * Europe/Madrid read every import in her import history as having happened seven
+ * hours later than it did.
+ *
+ * Both halves now come from somewhere that had to be stated. The import history
+ * renders `formatDateTime(entry.created_at, timezone, locale)` from
+ * lib/format.ts, with the Event's own timezone passed down from the Sales page
+ * and PLATFORM_TIME_ZONE beneath it — never the reader's machine — and the marks
+ * from the reader's Staff Locale.
+ */

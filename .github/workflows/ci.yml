@@ -42,6 +42,14 @@ jobs:
       - name: Lint, typecheck, and build
         run: pnpm turbo lint typecheck build
 
+      # Every workspace's unit tests, minus @ticket-pos/e2e: its `test` script is
+      # Playwright driving a browser against a stack that has to already be up
+      # (`make dev`), so on a runner with nothing listening it fails for reasons
+      # that are about the runner and not the code. The dev-server and parity
+      # suites are run against a real deployment, not here.
+      - name: Test
+        run: pnpm turbo test --filter='!@ticket-pos/e2e'
+
   openapi-sync:
     name: OpenAPI sync
     runs-on: ubuntu-latest

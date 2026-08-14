@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 
+import { getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
-import { eventNavItems, type SidebarNavItem } from "@ticket-pos/ui";
+import type { EventShellLabels } from "@ticket-pos/ui";
 
 import { callBackend } from "@/lib/api";
-import type { EventDetail } from "@/lib/events-api";
+import { eventStatusKey, type EventDetail } from "@/lib/events-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 import { LogoutButton } from "../../logout-button";
@@ -53,10 +54,12 @@ export default async function EventLayout({ params, children }: EventLayoutProps
     notFound();
   }
 
-  const [event, ticketTypeCount, session] = await Promise.all([
+  const [event, ticketTypeCount, session, t, shell] = await Promise.all([
     fetchEvent(id, token),
     fetchTicketTypeCount(id, token),
     loadSession(),
+    getTranslations("event"),
+    getTranslations("shell"),
   ]);
 
   if (!event) {
@@ -65,13 +68,45 @@ export default async function EventLayout({ params, children }: EventLayoutProps
 
   const role = session?.active_member?.role;
   const fullAccess = role === "org_admin" || role === "event_owner";
-  const navItems: SidebarNavItem[] = eventNavItems({ eventId: id, fullAccess });
+
+  /*
+    The Event panel's words, resolved here and handed down. @ticket-pos/ui
+    cannot reach this catalog — it is shared with the Storefront, whose catalog
+    is deliberately a different one (ADR 0041) — so `eventNavItems` returns keys
+    and this is the one place that can turn them into a language.
+  */
+  const labels: EventShellLabels = {
+    backToEvents: t("backToEvents"),
+    nav: {
+      details: t("navDetails"),
+      ticketTypes: t("navTicketTypes"),
+      affiliateLinks: t("navAffiliateLinks"),
+      sales: t("navSales"),
+      trends: t("navTrends"),
+    },
+    sidebar: {
+      skipToContent: shell("skipToContent"),
+      primaryNavigation: shell("primaryNavigation"),
+      navigationMenu: shell("navigationMenu"),
+      openNavigationMenu: shell("openNavigationMenu"),
+      closeNavigationMenu: shell("closeNavigationMenu"),
+    },
+  };
+
+  // An unknown status is shown as the API stated it rather than as a blank
+  // badge — the same floor an unkeyed error code gets.
+  const statusKey = eventStatusKey(event.status);
+  const events = await getTranslations("events");
+  const statusLabel = statusKey ? events(statusKey) : event.status;
 
   return (
     <EventShellClient
-      eventName={event.name || "Event"}
+      labels={labels}
+      eventId={id}
+      fullAccess={fullAccess}
+      eventName={event.name || t("fallbackName")}
       status={event.status}
-      navItems={navItems}
+      statusLabel={statusLabel}
       userMenu={<LogoutButton />}
     >
       <div className="mx-auto max-w-4xl space-y-6">

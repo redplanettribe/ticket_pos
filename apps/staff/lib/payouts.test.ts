@@ -1,22 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  exceedsWithdrawableBalance,
-  formatPaidAtDate,
-  outstandingPayoutRequest,
-  todayISODate,
-} from "./payouts.ts";
+import { exceedsWithdrawableBalance, outstandingPayoutRequest, todayISODate } from "./payouts.ts";
 
-// --- paid-at rendering ----------------------------------------------------
-
-test("formatPaidAtDate renders the calendar day, not a UTC-shifted instant", () => {
-  assert.equal(formatPaidAtDate("2026-03-01"), new Date(2026, 2, 1).toLocaleDateString());
-});
-
-test("formatPaidAtDate passes a malformed value through untouched", () => {
-  assert.equal(formatPaidAtDate("not-a-date"), "not-a-date");
-});
+// A PAYOUT'S PAID-AT DAY is no longer this module's business. Both screens that
+// draw one — the organizer's Payouts page and the operator's Organization detail
+// — call formatCalendarDay themselves, in the reader's Staff Locale, and the
+// English wrapper that stood here for the untranslated Operator Dashboard went
+// with #292. The property worth asserting about a calendar day outlives the
+// language and is asserted where it belongs, in format.test.ts: "2026-03-01" is
+// a day and not an instant, and must not be shifted west of Greenwich.
 
 // --- overdraft warning ----------------------------------------------------
 

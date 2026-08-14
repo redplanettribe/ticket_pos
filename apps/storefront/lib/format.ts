@@ -17,13 +17,18 @@
  * The Intl language-and-region tag a value is rendered under.
  *
  * Named for Intl and not for the domain, because the domain's Locale is the URL
- * token in lib/locale.ts — "en", "es" — and there is only one of those. This is
- * the other vocabulary: the tag `Intl.NumberFormat` and `Intl.DateTimeFormat`
- * are handed, which carries a region because a decimal mark and a currency
- * symbol's position are regional facts. lib/locale.ts owns the mapping between
- * the two, and nothing else should be holding both at once.
+ * token — "en", "es" — and there is only one of those. This is the other
+ * vocabulary: the tag `Intl.NumberFormat` and `Intl.DateTimeFormat` are handed,
+ * which carries a region because a decimal mark and a currency symbol's
+ * position are regional facts.
+ *
+ * Defined by @ticket-pos/locale, which owns the mapping between the two and is
+ * the only thing that should be holding both at once, and re-exported here
+ * because this module is where the Storefront's formatters take it from.
  */
-export type IntlLocale = "en-US" | "es-EC";
+import type { IntlLocale } from "@ticket-pos/locale";
+
+export type { IntlLocale };
 
 export const DEFAULT_LOCALE: IntlLocale = "en-US";
 

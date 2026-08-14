@@ -1,4 +1,35 @@
-import type { SidebarNavItem } from "../components/sidebar-shell";
+/**
+ * The keys the Event panel's entries are named by.
+ *
+ * A key and not a word, for the reason `staff-nav.ts` gives at length: the staff
+ * app is written in two languages (ADR 0041) and @ticket-pos/ui cannot be handed
+ * a `t`, because it is shared with the Storefront and the Storefront's catalog is
+ * deliberately a different one. A module here that returned "Ticket Types" would
+ * be returning English to a Spanish reader with nowhere to intercept it.
+ *
+ * So this module keeps the part that is a decision — which entries exist, for
+ * whom, and in what order — and the caller supplies the words.
+ */
+export const EVENT_NAV_KEYS = [
+  "details",
+  "ticketTypes",
+  "affiliateLinks",
+  "sales",
+  "trends",
+] as const;
+
+export type EventNavKey = (typeof EVENT_NAV_KEYS)[number];
+
+/**
+ * One entry of the Event panel: where it points and what it is called, with the
+ * calling being a key rather than a word.
+ */
+export type EventNavEntry = {
+  key: EventNavKey;
+  href: string;
+  /** See `SidebarNavItem["exact"]`. */
+  exact?: boolean;
+};
 
 /**
  * An Event's navigation, in the order it is read.
@@ -22,18 +53,18 @@ export function eventNavItems({
 }: {
   eventId: string;
   fullAccess: boolean;
-}): SidebarNavItem[] {
+}): EventNavEntry[] {
   return [
     // Details is the index of the Event, not its owner: without `exact` it would
     // stay lit on every page beneath the Event, so somebody reading the Sales
     // list would see two entries claiming to be the current page.
-    { href: `/events/${eventId}`, label: "Details", exact: true },
-    { href: `/events/${eventId}/ticket-types`, label: "Ticket Types" },
+    { key: "details", href: `/events/${eventId}`, exact: true },
+    { key: "ticketTypes", href: `/events/${eventId}/ticket-types` },
     ...(fullAccess
-      ? [{ href: `/events/${eventId}/affiliate-links`, label: "Affiliate Links" }]
+      ? [{ key: "affiliateLinks" as const, href: `/events/${eventId}/affiliate-links` }]
       : []),
-    { href: `/events/${eventId}/sales`, label: "Sales" },
+    { key: "sales", href: `/events/${eventId}/sales` },
     // Trends reads the sales the tab above it lists, so it follows them.
-    ...(fullAccess ? [{ href: `/events/${eventId}/trends`, label: "Trends" }] : []),
+    ...(fullAccess ? [{ key: "trends" as const, href: `/events/${eventId}/trends` }] : []),
   ];
 }

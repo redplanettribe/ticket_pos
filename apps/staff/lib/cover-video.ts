@@ -6,7 +6,8 @@
  * This function is that place: everything the staff app knows about a chosen
  * file (its type and size from the File, its dimensions and duration from a
  * video element's loaded metadata) goes in, and either an approval or one
- * rejection carrying the requirement it violated comes out.
+ * rejection naming the requirement it violated comes out. The requirement is a
+ * token; the catalog says what it means to the organizer.
  *
  * A determined organizer can bypass it, and the page they ruin is their own.
  */
@@ -43,15 +44,22 @@ export type CoverVideoFile = {
   type: string;
 };
 
-/** Which requirement a file failed. */
+/**
+ * Which requirement a file failed.
+ *
+ * A token, and the whole of what a rejection carries. The sentence for each one
+ * is `event.coverVideoRejectType` and its siblings in the message catalogs,
+ * which is what keeps this module free of English and of the i18n runtime
+ * (ADR 0041). The numbers those sentences quote — 1280, 30 seconds, 50 MB — are
+ * the exported constants above, handed to the catalog as ICU arguments, so the
+ * rule and the sentence about it cannot drift apart.
+ */
 export type CoverVideoRejectionReason = "type" | "unreadable" | "size" | "width" | "aspect" | "duration";
 
-export type CoverVideoValidation =
-  | { ok: true }
-  | { ok: false; reason: CoverVideoRejectionReason; message: string };
+export type CoverVideoValidation = { ok: true } | { ok: false; reason: CoverVideoRejectionReason };
 
-function reject(reason: CoverVideoRejectionReason, message: string): CoverVideoValidation {
-  return { ok: false, reason, message };
+function reject(reason: CoverVideoRejectionReason): CoverVideoValidation {
+  return { ok: false, reason };
 }
 
 /** A positive, finite measurement — anything else means metadata never resolved. */
@@ -67,18 +75,15 @@ function measured(value: number): boolean {
  */
 export function validateCoverVideo(file: CoverVideoFile): CoverVideoValidation {
   if (file.type !== COVER_VIDEO_CONTENT_TYPE) {
-    return reject("type", "The cover video must be an MP4 file.");
+    return reject("type");
   }
 
   if (!measured(file.size) || !measured(file.width) || !measured(file.height) || !measured(file.duration)) {
-    return reject(
-      "unreadable",
-      "We could not read this video. The cover video must be an MP4 that is landscape 16:9, at least 1280 pixels wide, 30 seconds or shorter, and 50 MB or smaller.",
-    );
+    return reject("unreadable");
   }
 
   if (file.size > MAX_COVER_VIDEO_BYTES) {
-    return reject("size", "The cover video must be 50 MB or smaller.");
+    return reject("size");
   }
 
   // Shape before size: the vertical phone cut every organizer has is also
@@ -88,18 +93,15 @@ export function validateCoverVideo(file: CoverVideoFile): CoverVideoValidation {
   // The epsilon is floating-point slack, not extra tolerance: a shape computed
   // as exactly 3% off must land inside the band rather than a bit outside it.
   if (deviation > ASPECT_TOLERANCE + 1e-9) {
-    return reject(
-      "aspect",
-      "The cover video must be landscape 16:9 (for example 1920x1080 or 1280x720).",
-    );
+    return reject("aspect");
   }
 
   if (file.width < MIN_COVER_VIDEO_WIDTH) {
-    return reject("width", `The cover video must be at least ${MIN_COVER_VIDEO_WIDTH} pixels wide.`);
+    return reject("width");
   }
 
   if (file.duration > MAX_COVER_VIDEO_SECONDS) {
-    return reject("duration", `The cover video must be ${MAX_COVER_VIDEO_SECONDS} seconds or shorter.`);
+    return reject("duration");
   }
 
   return { ok: true };

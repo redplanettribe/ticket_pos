@@ -65,5 +65,10 @@ dynamic segment.
   than an English one. This is accepted on the basis that staff translation is planned shortly —
   and that work will reopen ADR 0033, whose "mail is written in the recipient's Mail Locale" rule
   stops at staff mail precisely because no Member has a Locale and the staff app has no i18n at all.
+
+  **Overtaken by ADR 0041.** The staff translation named above landed: the whole staff application
+  and all six staff messages are bilingual, and a Spanish-reading visitor now crosses from a Spanish
+  Storefront page into a Spanish staff app. The consequence this bullet accepted no longer exists;
+  it is left in place because the decision was genuinely taken without the mitigation.
 - **The staff sign-in page now has a second audience.** It answers strangers as well as Members, so
   its copy is no longer free to assume the reader already has an Organization.

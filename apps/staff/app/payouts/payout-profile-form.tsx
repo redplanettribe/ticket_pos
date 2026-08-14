@@ -1,6 +1,10 @@
 "use client";
 
 import { FormField, Input } from "@ticket-pos/ui";
+import { useTranslations } from "next-intl";
+
+import { ApiError } from "@/lib/events-api";
+import { ACCOUNT_TYPES, PAYOUT_TAX_ID_TYPES } from "@/lib/payout-profile";
 
 // The Payout Profile: where this Organization is paid (ADR 0026).
 //
@@ -74,7 +78,11 @@ export type FieldErrorDetail = { field: string; code: string; message: string };
 
 export type APIEnvelope<T> = {
   data: T | null;
-  error: { code: string; message: string; details?: { fields?: FieldErrorDetail[] } } | null;
+  error: {
+    code: string;
+    message: string;
+    details?: { fields?: FieldErrorDetail[] } & Record<string, unknown>;
+  } | null;
 };
 
 /**
@@ -83,27 +91,40 @@ export type APIEnvelope<T> = {
  * point of the API returning them separately — and it is thrown by the Payout
  * Request submission too, because that endpoint refuses the same fields by the
  * same names.
+ *
+ * It is an ApiError so that one `catch` can hand either kind of refusal to
+ * `apiErrorMessage`, and so the `details` the field copy is resolved from
+ * survive the throw.
  */
-export class FieldValidationError extends Error {
-  fields: Record<string, string>;
-
-  constructor(message: string, fields: Record<string, string>) {
-    super(message);
-    this.fields = fields;
+export class FieldValidationError extends ApiError {
+  constructor(message: string, code?: string, details?: Record<string, unknown>) {
+    super(message, code, details);
+    this.name = "FieldValidationError";
   }
 }
 
-/** Turns an envelope's error into the right kind of Error, or returns its data. */
+/**
+ * Turns an envelope's error into the right kind of Error, or returns its data.
+ *
+ * BOTH KINDS CARRY THE API's CODE AND DETAILS RATHER THAN ITS SENTENCE, because
+ * the sentence is the caller's to choose from the catalog now (ADR 0023,
+ * ADR 0041). A field-level refusal keeps its whole `details` payload instead of
+ * being flattened here into field→message: `fieldErrorMessages` resolves each
+ * field's CODE against `errors.field` at the call site, with the API's English
+ * as the floor under any code the catalog has not heard of, and flattening early
+ * would throw away the one thing that resolution keys on.
+ */
 export function unwrapEnvelope<T>(response: Response, envelope: APIEnvelope<T>): T | null {
   if (!response.ok || envelope.error) {
     const fields = envelope.error?.details?.fields ?? [];
     if (fields.length > 0) {
       throw new FieldValidationError(
-        envelope.error?.message ?? "Request failed",
-        Object.fromEntries(fields.map((field) => [field.field, field.message])),
+        envelope.error?.message ?? "",
+        envelope.error?.code,
+        envelope.error?.details,
       );
     }
-    throw new Error(envelope.error?.message ?? "Request failed");
+    throw new ApiError(envelope.error?.message ?? "", envelope.error?.code, envelope.error?.details);
   }
   return envelope.data;
 }
@@ -138,18 +159,25 @@ export function PayoutProfileFields({
   onChange: (field: keyof PayoutProfileFormValues, value: string) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations("payouts");
+
+  // The two enums are rendered from the tokens the API states them in, with the
+  // catalog holding the word for each — the same shape a status badge uses. Both
+  // catalogs happen to say "Ahorros" and "Corriente", because those are the words
+  // on the Ecuadorian bank form an organizer is copying from, and translating
+  // them would be asking a reader to translate their own bank back.
   return (
     <div className="space-y-4">
-      <FormField id="payout-bank-name" label="Bank" error={errors.bank_name}>
+      <FormField id="payout-bank-name" label={t("fieldBank")} error={errors.bank_name}>
         <Input
           value={values.bank_name}
           disabled={disabled}
           onChange={(event) => onChange("bank_name", event.target.value)}
-          placeholder="Banco Pichincha"
+          placeholder={t("fieldBankPlaceholder")}
         />
       </FormField>
 
-      <FormField id="payout-account-type" label="Account type" error={errors.account_type}>
+      <FormField id="payout-account-type" label={t("fieldAccountType")} error={errors.account_type}>
         <select
           id="payout-account-type"
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
@@ -157,15 +185,18 @@ export function PayoutProfileFields({
           disabled={disabled}
           onChange={(event) => onChange("account_type", event.target.value)}
         >
-          <option value="ahorros">Ahorros</option>
-          <option value="corriente">Corriente</option>
+          {ACCOUNT_TYPES.map((accountType) => (
+            <option key={accountType} value={accountType}>
+              {accountType === "ahorros" ? t("accountTypeAhorros") : t("accountTypeCorriente")}
+            </option>
+          ))}
         </select>
       </FormField>
 
       <FormField
         id="payout-account-number"
-        label="Account number"
-        description="Digits only. Leading zeros matter and are kept exactly as you type them."
+        label={t("fieldAccountNumber")}
+        description={t("fieldAccountNumberHint")}
         error={errors.account_number}
       >
         <Input
@@ -178,8 +209,8 @@ export function PayoutProfileFields({
 
       <FormField
         id="payout-account-holder-name"
-        label="Account holder"
-        description="The name on the account, as the bank has it."
+        label={t("fieldAccountHolder")}
+        description={t("fieldAccountHolderHint")}
         error={errors.account_holder_name}
       >
         <Input
@@ -191,8 +222,8 @@ export function PayoutProfileFields({
 
       <FormField
         id="payout-tax-id-type"
-        label="Tax ID type"
-        description="Who is invoiced for the payout. A passport is not accepted here — the account holder needs an Ecuadorian bank account."
+        label={t("fieldTaxIdType")}
+        description={t("fieldTaxIdTypeHint")}
         error={errors.tax_id_type}
       >
         <select
@@ -202,12 +233,19 @@ export function PayoutProfileFields({
           disabled={disabled}
           onChange={(event) => onChange("tax_id_type", event.target.value)}
         >
-          <option value="cedula">Cédula</option>
-          <option value="ruc">RUC</option>
+          {PAYOUT_TAX_ID_TYPES.map((taxIDType) => (
+            <option key={taxIDType} value={taxIDType}>
+              {taxIDType === "cedula" ? t("taxIdTypeCedula") : t("taxIdTypeRuc")}
+            </option>
+          ))}
         </select>
       </FormField>
 
-      <FormField id="payout-tax-id-number" label="Tax ID number" error={errors.tax_id_number}>
+      <FormField
+        id="payout-tax-id-number"
+        label={t("fieldTaxIdNumber")}
+        error={errors.tax_id_number}
+      >
         <Input
           inputMode="numeric"
           value={values.tax_id_number}

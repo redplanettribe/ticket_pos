@@ -410,6 +410,11 @@ components:
           type: array
           uniqueItems: false
       type: object
+    handler.staffLocaleBody:
+      properties:
+        locale:
+          type: string
+      type: object
     handler.undoImportBody:
       properties:
         notify_buyers:
@@ -615,6 +620,9 @@ components:
           type: string
         code_verifier:
           type: string
+        locale:
+          description: Locale, exactly as on the passcode door and for the same reason.
+          type: string
         redirect_uri:
           type: string
       type: object
@@ -628,6 +636,14 @@ components:
         code:
           type: string
         email:
+          type: string
+        locale:
+          description: |-
+            Locale is the language the login page was rendered in, as the caller
+            detected it. Optional, and remembered as the Staff Locale only when the
+            person has none. It is the one locale field on a read-adjacent route in
+            this API and it names a fact about a person, not a language for the API to
+            answer in (ADR 0027).
           type: string
       type: object
     internal_identity_openapi.MessageData:
@@ -1208,10 +1224,19 @@ components:
         request_id:
           type: string
       type: object
+    openapi.EnvelopeStaffLocale:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.StaffLocaleView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
     openapi.EnvelopeStaffMe:
       properties:
         data:
-          $ref: '#/components/schemas/service.ActiveMemberView'
+          $ref: '#/components/schemas/service.StaffMeView'
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -3147,11 +3172,47 @@ components:
             operator middleware re-checks the allowlist on every request (ADR 0015).
             It is orthogonal to Memberships — an operator may have none.
           type: boolean
+        locale:
+          description: |-
+            Locale is the Staff Locale of the person this session belongs to, or null
+            when they have stated none. It sits beside Email and IsPlatformOperator
+            because it is a fact about the PERSON, not about the Organization they are
+            currently looking at — which is also why it is reported here and not on
+            ActiveMember: a Platform Operator who is a Member of nothing has no Active
+            Member to hang it on, and still has a language.
+          type: string
         memberships:
           items:
             $ref: '#/components/schemas/service.MembershipView'
           type: array
           uniqueItems: false
+      type: object
+    service.StaffLocaleView:
+      properties:
+        locale:
+          type: string
+      type: object
+    service.StaffMeView:
+      properties:
+        locale:
+          description: |-
+            Locale is the person's Staff Locale, or null when they have stated none.
+            Null is not "English": it says nobody has chosen, which is what lets the
+            next sign-in record a detected language instead of finding one already
+            there. A reader with null renders in English all the same.
+          type: string
+        member_id:
+          type: string
+        organization_id:
+          type: string
+        organization_logo_url:
+          type: string
+        organization_name:
+          type: string
+        organization_slug:
+          type: string
+        role:
+          type: string
       type: object
     service.SuggestedOrganizationView:
       properties:
@@ -3424,11 +3485,13 @@ openapi: 3.1.0
 paths:
   /api/v1/auth/google/verify:
     post:
-      description: Exchanges an authorization code obtained on the Staff app at Google's
+      description: 'Exchanges an authorization code obtained on the Staff app at Google''s
         token endpoint, using the staff OAuth client, and issues a Staff Session on
         the email address Google vouches for. The session and the auth-fork that follows
-        are identical to a passcode's. Every failure returns one generic error, so
-        the route reveals nothing about which addresses the platform knows.
+        are identical to a passcode''s. An optional `locale` is remembered as the
+        person''s Staff Locale exactly as on the passcode route: only when they have
+        none. Every failure returns one generic error, so the route reveals nothing
+        about which addresses the platform knows.'
       requestBody:
         content:
           application/json:
@@ -3522,6 +3585,11 @@ paths:
   /api/v1/auth/otp/verify:
     post:
       description: Verifies a one-time passcode and creates a server-side session.
+        An optional `locale` names the language the login page was rendered in, as
+        the caller detected it, and is remembered as the person's Staff Locale — but
+        only if they have none. It never overwrites a stored one, because a detected
+        language must not overrule a chosen one. A language the platform does not
+        serve is ignored rather than refused, and never fails the sign-in.
       requestBody:
         content:
           application/json:
@@ -8452,8 +8520,12 @@ paths:
       - staff
   /api/v1/staff/me:
     get:
-      description: Returns the active member and organization for the authenticated
-        session.
+      description: 'Returns the active member and organization for the authenticated
+        session, together with the signed-in person''s Staff Locale. `locale` is null
+        when they have stated none, which is not the same as English: it says nobody
+        has chosen, and a reader with null is written to in English all the same.
+        The API reports which language a person prefers; it does not answer in one,
+        and no read path here consults Accept-Language (ADR 0027).'
       responses:
         "200":
           content:
@@ -8476,6 +8548,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Get staff context
+      tags:
+      - staff
+  /api/v1/staff/me/locale:
+    put:
+      description: 'Records the Staff Locale of the signed-in person: the language
+        the staff app and staff mail are written in for them. Keyed on the session''s
+        email address, so it follows them across devices and across Organizations,
+        and switching Organization does not change it. Requires only a Staff Session
+        — no Active Member and no role — because a personal preference is not an Organization''s
+        setting. A language the platform does not serve is refused with a field error
+        rather than ignored, unlike the detected locale on the sign-in routes: a stated
+        choice that quietly did nothing would be worse than one that failed.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.staffLocaleBody'
+                description: Language to record
+                summary: body
+        description: Language to record
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeStaffLocale'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+      security:
+      - BearerAuth: []
+      summary: Set staff locale
       tags:
       - staff
   /api/v1/staff/memberships:

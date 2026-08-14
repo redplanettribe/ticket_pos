@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 
 import { Button, PageHeader } from "@ticket-pos/ui";
 
@@ -8,17 +9,18 @@ import { loadSession, StaffPageShell } from "@/app/staff-page-shell";
 
 export default async function NewOrganizationPage() {
   const session = await loadSession();
+  const t = await getTranslations("onboarding");
 
   if (session?.active_member) {
     return (
       <StaffPageShell activePath="/">
         <div className="mx-auto max-w-lg space-y-6">
           <PageHeader
-            title="Create organization"
-            description="Name your venue and choose a URL slug for your storefront."
+            title={t("createTitle")}
+            description={t("createDescription")}
             actions={
               <Button variant="outline" asChild>
-                <Link href="/">Cancel</Link>
+                <Link href="/">{t("cancel")}</Link>
               </Button>
             }
           />

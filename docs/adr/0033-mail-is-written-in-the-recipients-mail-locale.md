@@ -91,6 +91,12 @@ and the payout notices are addressed to `request.RequestedBy` — a recorded ema
 deliberately untied to a Member id so it still resolves after that person's Membership ends, and
 therefore attached to no record that could hold a language.
 
+**Retired by ADR 0041**: the staff app is translated and the Staff Locale is keyed on the email
+address, which turns `request.RequestedBy` into precisely a record that can hold a language. The
+passcode and all five payout notices are now bilingual. Both supports named above are gone; nothing
+else in this ADR is affected — the Sale Locale still outranks the Mail Locale, and the Customer side
+of the chain is untouched.
+
 Sending Spanish payout mail to people whose entire working surface is English would be worse than
 consistency. `SendOTP` takes a locale because both doors send an identical message and one argument
 states the policy more plainly than two duplicated copies of the text would; the staff caller

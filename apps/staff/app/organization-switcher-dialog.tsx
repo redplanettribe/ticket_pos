@@ -18,11 +18,17 @@ import {
   StaffShell,
   cn,
   isOnOperatorSurface,
+  type OperatorShellLabels,
+  type StaffShellLabels,
 } from "@ticket-pos/ui";
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
 import { MembershipDetails, type Membership } from "@/app/membership-list";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { formatNumber } from "@/lib/format";
 import { switcherEntries, visiblePendingPayoutRequestCount } from "@/lib/organization-switcher";
 
 /**
@@ -31,20 +37,31 @@ import { switcherEntries, visiblePendingPayoutRequestCount } from "@/lib/organiz
  * that requests have queued up, repeated on the Platform entry so the opened
  * switcher says what it is offering, and worn by the Payout Requests nav entry
  * once they have crossed over (#192).
+ *
+ * The count goes through lib/format so it wears the reader's group mark rather
+ * than their machine's — the shell's own instance of the bug ADR 0041 records,
+ * where staff numbers followed the browser and nothing chose. The sentence a
+ * screen reader hears is the catalog's, pluralized by ICU, because "1 payout
+ * request" and "3 payout requests" do not inflect the same way in Spanish as in
+ * English and gluing a number to a noun is what the catalog exists to prevent.
  */
 function PendingPayoutRequestsBadge({ count }: { count: number }) {
+  const t = useTranslations("shell");
+  const locale = toAppLocale(useLocale());
+
   return (
     <span
       className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold tabular-nums text-primary-foreground"
-      aria-label={`${count} payout requests waiting`}
+      aria-label={t("pendingPayoutRequests", { count })}
     >
-      {count}
+      {formatNumber(count, locale)}
     </span>
   );
 }
 
 /** One choice in the switcher, drawn the same whichever hat it offers. */
 function SwitcherEntryButton({
+  currentLabel,
   onSelect,
   isCurrent,
   disabled,
@@ -52,6 +69,7 @@ function SwitcherEntryButton({
   details,
   trailing,
 }: {
+  currentLabel: string;
   onSelect: () => void;
   isCurrent: boolean;
   disabled: boolean;
@@ -82,7 +100,7 @@ function SwitcherEntryButton({
           <CardContent className="flex items-center justify-between gap-4 p-4">
             {details}
             {isCurrent ? (
-              <Badge variant="secondary">Current</Badge>
+              <Badge variant="secondary">{currentLabel}</Badge>
             ) : busyLabel ? (
               <span className="text-sm text-muted-foreground">{busyLabel}</span>
             ) : (
@@ -101,12 +119,14 @@ function SwitcherEntryButton({
  * (CONTEXT.md).
  */
 function PlatformDetails() {
+  const t = useTranslations("shell");
+
   return (
     <div className="flex min-w-0 items-center gap-3">
       <PlatformMark />
       <div className="min-w-0">
-        <p className="font-medium">Platform</p>
-        <p className="text-sm text-muted-foreground">Operator Dashboard · every organization</p>
+        <p className="font-medium">{t("platform")}</p>
+        <p className="text-sm text-muted-foreground">{t("platformDescription")}</p>
       </div>
     </div>
   );
@@ -133,6 +153,11 @@ export function OrganizationSwitcherDialog({
   onPlatform,
   pendingPayoutRequests,
 }: OrganizationSwitcherDialogProps) {
+  const t = useTranslations("shell");
+  // The `errors` namespace as plain data, which is what lib/api-errors resolves
+  // against. Handed in rather than imported so that module stays free of
+  // next-intl and testable under `node --test` (ADR 0023).
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   const [switchingMemberId, setSwitchingMemberId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -151,17 +176,21 @@ export function OrganizationSwitcherDialog({
         body: JSON.stringify({ member_id: memberId }),
       });
       const envelope = (await response.json()) as {
-        error: { message: string } | null;
+        error: { code: string; message: string; details?: unknown } | null;
       };
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? "Could not switch organization");
+        // The API's code first, its English message as the floor beneath a
+        // failure this app has no words for, and this surface's own sentence
+        // only when there was nothing to read at all (ADR 0023).
+        setError(apiErrorMessage(errorCopy, envelope.error) ?? t("switchFailed"));
         return;
       }
       onOpenChange(false);
       router.push("/");
       router.refresh();
     } catch {
-      setError("Could not switch organization");
+      // Never reached the API: there is no verdict to render, only ours.
+      setError(t("switchFailed"));
     } finally {
       setSwitchingMemberId(null);
     }
@@ -187,11 +216,11 @@ export function OrganizationSwitcherDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Switch organization</DialogTitle>
+          <DialogTitle>{t("switchOrganization")}</DialogTitle>
           <DialogDescription>
             {isPlatformOperator
-              ? "Select an organization to work in, switch to the platform, or create a new organization."
-              : "Select an organization to work in, or create a new one."}
+              ? t("switchOrganizationOperatorDescription")
+              : t("switchOrganizationDescription")}
           </DialogDescription>
         </DialogHeader>
         {error ? (
@@ -200,7 +229,7 @@ export function OrganizationSwitcherDialog({
           </Alert>
         ) : null}
         {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No organizations found for your account.</p>
+          <p className="text-sm text-muted-foreground">{t("noOrganizations")}</p>
         ) : (
           <ul className="space-y-3">
             {entries.map((entry) => {
@@ -208,6 +237,7 @@ export function OrganizationSwitcherDialog({
                 return (
                   <SwitcherEntryButton
                     key="platform"
+                    currentLabel={t("current")}
                     onSelect={handleSwitchToPlatform}
                     isCurrent={onPlatform}
                     disabled={switchingMemberId !== null}
@@ -226,10 +256,11 @@ export function OrganizationSwitcherDialog({
               return (
                 <SwitcherEntryButton
                   key={membership.member_id}
+                  currentLabel={t("current")}
                   onSelect={() => void handleSwitch(membership.member_id)}
                   isCurrent={isCurrent}
                   disabled={switchingMemberId !== null}
-                  busyLabel={switchingMemberId === membership.member_id ? "Switching..." : null}
+                  busyLabel={switchingMemberId === membership.member_id ? t("switching") : null}
                   details={<MembershipDetails membership={membership} />}
                 />
               );
@@ -238,7 +269,7 @@ export function OrganizationSwitcherDialog({
         )}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={handleCreateOrganization}>
-            Create organization
+            {t("createOrganization")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -247,6 +278,16 @@ export function OrganizationSwitcherDialog({
 }
 
 type ShellWithOrganizationSwitcherProps = {
+  /**
+   * The panels' words, resolved on the server by StaffPageShell.
+   *
+   * Handed down rather than looked up here because the panels live in
+   * @ticket-pos/ui, which is shared with the Storefront and so cannot reach the
+   * staff catalog. Everything this file draws ITSELF reads the catalog directly
+   * through `useTranslations` — the provider is mounted app-wide.
+   */
+  staffLabels: StaffShellLabels;
+  operatorLabels: OperatorShellLabels;
   organizationName: string;
   organizationLogoUrl?: string | null;
   activePath: string;
@@ -273,6 +314,8 @@ type ShellWithOrganizationSwitcherProps = {
  * it outright (#192).
  */
 export function ShellWithOrganizationSwitcher({
+  staffLabels,
+  operatorLabels,
   organizationName,
   organizationLogoUrl,
   activePath,
@@ -303,6 +346,7 @@ export function ShellWithOrganizationSwitcher({
           the control keeps wearing it (#191).
         */
         <OperatorShell
+          labels={operatorLabels}
           activePath={activePath}
           payoutRequestBadge={badge}
           userMenu={userMenu}
@@ -312,6 +356,7 @@ export function ShellWithOrganizationSwitcher({
         </OperatorShell>
       ) : (
         <StaffShell
+          labels={staffLabels}
           organizationName={organizationName}
           organizationLogoUrl={organizationLogoUrl}
           activePath={activePath}

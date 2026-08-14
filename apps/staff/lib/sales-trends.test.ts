@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatPriceCents } from "./events-api.ts";
+import { formatMoney } from "./format.ts";
 import {
   colorSlotFor,
   drawnTicketTypes,
@@ -85,7 +85,7 @@ test("the drawn Ticket Types keep catalog display order", () => {
 // --- selection to series --------------------------------------------------
 
 test("every day keeps its slot, including the silent one", () => {
-  const series = trendsSeries(DAYS, ALL, "quantity");
+  const series = trendsSeries(DAYS, ALL, "quantity", "en");
   assert.deepEqual(
     series.map((datum) => datum.key),
     ["2026-08-01", "2026-08-02", "2026-08-03"],
@@ -95,13 +95,13 @@ test("every day keeps its slot, including the silent one", () => {
 });
 
 test("a Ticket Type that sold nothing on a day is drawn as zero, not as a gap", () => {
-  const series = trendsSeries(DAYS, ALL, "quantity");
+  const series = trendsSeries(DAYS, ALL, "quantity", "en");
   assert.equal(series[0].values.tt_vip, 0);
   assert.equal(series[0].values.tt_early, 10);
 });
 
 test("a deselected Ticket Type leaves both the segments and the total", () => {
-  const series = trendsSeries(DAYS, ["tt_ga", "tt_vip"], "quantity");
+  const series = trendsSeries(DAYS, ["tt_ga", "tt_vip"], "quantity", "en");
   assert.deepEqual(series[0].values, { tt_ga: 4, tt_vip: 0 });
   // Early Bird's 10 tickets are gone from the bar, not merely hidden behind it.
   assert.equal(series[0].total, 4);
@@ -109,7 +109,7 @@ test("a deselected Ticket Type leaves both the segments and the total", () => {
 });
 
 test("the same selection plots Takings when asked for Takings", () => {
-  const series = trendsSeries(DAYS, ALL, "takings_cents");
+  const series = trendsSeries(DAYS, ALL, "takings_cents", "en");
   assert.equal(series[0].total, 90_000);
   assert.equal(series[2].values.tt_vip, 25_000);
 });
@@ -121,8 +121,8 @@ test("the same selection plots Takings when asked for Takings", () => {
 // reading a day off one and the same day off the other would be a lie.
 test("tickets and Takings are the same days and the same Ticket Types, differing only in the figure", () => {
   const selected = ["tt_early", "tt_ga"];
-  const tickets = trendsSeries(DAYS, selected, "quantity");
-  const takings = trendsSeries(DAYS, selected, "takings_cents");
+  const tickets = trendsSeries(DAYS, selected, "quantity", "en");
+  const takings = trendsSeries(DAYS, selected, "takings_cents", "en");
 
   assert.deepEqual(
     takings.map((datum) => datum.key),
@@ -137,13 +137,13 @@ test("tickets and Takings are the same days and the same Ticket Types, differing
 });
 
 test("deselecting a Ticket Type takes its Takings out of the bar, not merely out of sight", () => {
-  const takings = trendsSeries(DAYS, ["tt_ga", "tt_vip"], "takings_cents");
+  const takings = trendsSeries(DAYS, ["tt_ga", "tt_vip"], "takings_cents", "en");
   assert.equal(takings[0].total, 40_000);
   assert.equal(Object.hasOwn(takings[0].values, "tt_early"), false);
 });
 
 test("a silent day has zero Takings rather than losing its slot", () => {
-  const takings = trendsSeries(DAYS, ALL, "takings_cents");
+  const takings = trendsSeries(DAYS, ALL, "takings_cents", "en");
   assert.equal(takings[1].key, "2026-08-02");
   assert.equal(takings[1].total, 0);
 });
@@ -167,11 +167,11 @@ test("a free Ticket Type counts tickets and contributes nothing to Takings", () 
     },
   ];
 
-  const tickets = trendsSeries(days, selected, "quantity");
+  const tickets = trendsSeries(days, selected, "quantity", "en");
   assert.equal(tickets[0].values.tt_comp, 6);
   assert.equal(tickets[0].total, 8);
 
-  const takings = trendsSeries(days, selected, "takings_cents");
+  const takings = trendsSeries(days, selected, "takings_cents", "en");
   assert.equal(takings[0].values.tt_comp, 0);
   assert.equal(takings[0].total, 20_000);
 });
@@ -180,23 +180,23 @@ test("an Event that only gave tickets away charts its tickets and no Takings", (
   const days: TrendsDay[] = [
     { date: "2026-08-01", lines: [{ ticket_type_id: "tt_ga", quantity: 40, takings_cents: 0 }] },
   ];
-  assert.equal(trendsSeries(days, ALL, "quantity")[0].total, 40);
-  assert.equal(trendsSeries(days, ALL, "takings_cents")[0].total, 0);
+  assert.equal(trendsSeries(days, ALL, "quantity", "en")[0].total, 40);
+  assert.equal(trendsSeries(days, ALL, "takings_cents", "en")[0].total, 0);
   // The Takings axis still draws a scale rather than collapsing to a line.
-  assert.equal(trendsYMax(trendsSeries(days, ALL, "takings_cents")), 1);
+  assert.equal(trendsYMax(trendsSeries(days, ALL, "takings_cents", "en")), 1);
 });
 
 // --- Y-max derivation -----------------------------------------------------
 
 test("the Y max covers the tallest stack of the whole catalog", () => {
   // Aug 1 is the tallest day at 14 tickets; the axis rounds up to clear it.
-  assert.equal(trendsYMax(trendsSeries(DAYS, ALL, "quantity")), 20);
+  assert.equal(trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en")), 20);
 });
 
 // The point of the chips: the remaining bars get the full height of the chart.
 test("deselecting the dominant Ticket Type rescales the Y axis down", () => {
-  const withEarly = trendsYMax(trendsSeries(DAYS, ALL, "quantity"));
-  const withoutEarly = trendsYMax(trendsSeries(DAYS, ["tt_ga", "tt_vip"], "quantity"));
+  const withEarly = trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en"));
+  const withoutEarly = trendsYMax(trendsSeries(DAYS, ["tt_ga", "tt_vip"], "quantity", "en"));
   // Without Early Bird the tallest day is 4 tickets, so the axis drops to 5.
   assert.equal(withoutEarly, 5);
   assert.ok(withoutEarly < withEarly);
@@ -211,7 +211,7 @@ test("the Y max rounds up to a tick a person reads without counting", () => {
 });
 
 test("an all-zero selection still draws a scale rather than collapsing", () => {
-  assert.equal(trendsYMax(trendsSeries([{ date: "2026-08-02", lines: [] }], ALL, "quantity")), 1);
+  assert.equal(trendsYMax(trendsSeries([{ date: "2026-08-02", lines: [] }], ALL, "quantity", "en")), 1);
   assert.equal(trendsYMax([]), 1);
 });
 
@@ -219,8 +219,8 @@ test("an all-zero selection still draws a scale rather than collapsing", () => {
 // ticket count and a money figure have nothing to say to each other about
 // scale, so each one is derived from its own data.
 test("the Takings axis scales to Takings, independently of the tickets axis", () => {
-  const tickets = trendsYMax(trendsSeries(DAYS, ALL, "quantity"));
-  const takings = trendsYMax(trendsSeries(DAYS, ALL, "takings_cents"));
+  const tickets = trendsYMax(trendsSeries(DAYS, ALL, "quantity", "en"));
+  const takings = trendsYMax(trendsSeries(DAYS, ALL, "takings_cents", "en"));
   assert.equal(tickets, 20); // 14 tickets on the tallest day
   assert.equal(takings, 100_000); // $900.00 on the tallest day
 });
@@ -240,13 +240,13 @@ test("deselecting a Ticket Type rescales the Takings axis on its own terms", () 
   ];
   const selected = ["tt_ga", "tt_vip"];
 
-  assert.equal(trendsYMax(trendsSeries(days, selected, "quantity")), 50);
-  assert.equal(trendsYMax(trendsSeries(days, selected, "takings_cents")), 500_000);
+  assert.equal(trendsYMax(trendsSeries(days, selected, "quantity", "en")), 50);
+  assert.equal(trendsYMax(trendsSeries(days, selected, "takings_cents", "en")), 500_000);
 
   // The tickets axis hardly notices four tickets leaving; the Takings axis
   // drops by a factor of ten. Neither is derived from the other.
-  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "quantity")), 50);
-  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "takings_cents")), 50_000);
+  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "quantity", "en")), 50);
+  assert.equal(trendsYMax(trendsSeries(days, ["tt_ga"], "takings_cents", "en")), 50_000);
 });
 
 function datum(total: number) {
@@ -328,7 +328,7 @@ test("a few days still get a plot to sit in", () => {
 
 test("several hundred days is several hundred bars, one per day", () => {
   const span = longSpan(400);
-  const data = trendsSeries(span, ALL, "quantity");
+  const data = trendsSeries(span, ALL, "quantity", "en");
   // No bucket is ever shared between two days, at any length of span.
   assert.equal(data.length, span.length);
   assert.equal(new Set(data.map((entry) => entry.key)).size, span.length);
@@ -351,15 +351,29 @@ function longSpan(count: number): TrendsDay[] {
 
 // The claim is reuse, not resemblance: the tooltip must spell money exactly as
 // the Sales tab's Net proceeds strip does, or the surfaces the note asks a
-// reader to compare would not even be comparable at a glance.
+// reader to compare would not even be comparable at a glance. Both now go
+// through lib/format.ts, which is the one place either can be changed.
 test("Takings is spelled with the staff app's one money formatter", () => {
-  assert.equal(formatTakings(125_000, "USD"), formatPriceCents(125_000, "USD"));
-  assert.equal(formatTakings(0, "USD"), formatPriceCents(0, "USD"));
+  assert.equal(formatTakings(125_000, "USD", "en"), formatMoney(125_000, "USD", "en"));
+  assert.equal(formatTakings(0, "USD", "es"), formatMoney(0, "USD", "es"));
 });
 
 test("Takings is stated in the Organization's currency, not a fixed one", () => {
-  assert.notEqual(formatTakings(125_000, "EUR"), formatTakings(125_000, "USD"));
-  assert.equal(formatTakings(125_000, "EUR"), formatPriceCents(125_000, "EUR"));
+  assert.notEqual(formatTakings(125_000, "EUR", "en"), formatTakings(125_000, "USD", "en"));
+  assert.equal(formatTakings(125_000, "EUR", "en"), formatMoney(125_000, "EUR", "en"));
+});
+
+// THE RULE (CONTEXT.md, ADR 0041): the reader's language decides the marks and
+// decides nothing about the money. The same Takings figure in the same currency
+// is the same amount in both languages, spelled with each one's own marks.
+test("the reader's language moves the marks around Takings and not the currency", () => {
+  const english = formatTakings(125_000, "USD", "en");
+  const spanish = formatTakings(125_000, "USD", "es");
+  assert.notEqual(english, spanish);
+  assert.ok(english.includes("1,250"));
+  assert.ok(spanish.includes("1.250"));
+  // The currency travelled with the amount, not with the reader.
+  assert.equal(formatTakings(125_000, "USD", "es"), formatMoney(125_000, "USD", "es"));
 });
 
 // The Y axis is a fixed width so the two charts line up. A tick label that
@@ -367,16 +381,22 @@ test("Takings is stated in the Organization's currency, not a fixed one", () => 
 // for, so a big day abbreviates rather than widening the axis.
 test("an axis tick stays short enough for the fixed axis, however big the day", () => {
   const millionaire = 100_000_000; // $1,000,000.00
-  assert.ok(formatTakingsTick(millionaire, "USD").length <= 10);
-  assert.ok(formatTakingsTick(millionaire, "USD").length < formatTakings(millionaire, "USD").length);
+  for (const locale of ["en", "es"] as const) {
+    assert.ok(formatTakingsTick(millionaire, "USD", locale).length <= 10);
+    assert.ok(
+      formatTakingsTick(millionaire, "USD", locale).length <
+        formatTakings(millionaire, "USD", locale).length,
+    );
+  }
 });
 
 test("an axis tick still names the currency", () => {
-  assert.notEqual(formatTakingsTick(125_000, "EUR"), formatTakingsTick(125_000, "USD"));
+  assert.notEqual(formatTakingsTick(125_000, "EUR", "en"), formatTakingsTick(125_000, "USD", "en"));
 });
 
 test("a zero tick is drawn as zero money, not as a blank", () => {
-  assert.ok(formatTakingsTick(0, "USD").includes("0"));
+  assert.ok(formatTakingsTick(0, "USD", "en").includes("0"));
+  assert.ok(formatTakingsTick(0, "USD", "es").includes("0"));
 });
 
 // --- day labels and the empty state --------------------------------------
@@ -387,16 +407,25 @@ test("a day label reads the calendar date, whatever zone the viewer is in", () =
   const previous = process.env.TZ;
   try {
     process.env.TZ = "Pacific/Kiritimati"; // UTC+14
-    assert.equal(formatTrendsDay("2026-08-01"), "Aug 1");
+    assert.equal(formatTrendsDay("2026-08-01", "en"), "Aug 1");
     process.env.TZ = "Pacific/Niue"; // UTC-11
-    assert.equal(formatTrendsDay("2026-08-01"), "Aug 1");
+    assert.equal(formatTrendsDay("2026-08-01", "en"), "Aug 1");
   } finally {
     process.env.TZ = previous;
   }
 });
 
+// The month name is the reader's, and the day it names is still the API's. This
+// is the whole of what the Staff Locale is allowed to change about a bar.
+test("a day label is written in the reader's language and stays the same day", () => {
+  const spanish = formatTrendsDay("2026-08-01", "es");
+  assert.notEqual(spanish, formatTrendsDay("2026-08-01", "en"));
+  assert.ok(spanish.includes("1"));
+  assert.ok(spanish.toLowerCase().includes("ago"));
+});
+
 test("an unreadable date is shown as it arrived rather than as Invalid Date", () => {
-  assert.equal(formatTrendsDay("not-a-date"), "not-a-date");
+  assert.equal(formatTrendsDay("not-a-date", "en"), "not-a-date");
 });
 
 test("an Event that has sold nothing has nothing to chart", () => {

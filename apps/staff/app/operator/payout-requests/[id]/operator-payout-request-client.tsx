@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
@@ -28,8 +29,11 @@ import {
   cn,
   toast,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents, parsePriceToCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError, parsePriceToCents } from "@/lib/events-api";
+import { PLATFORM_TIME_ZONE, formatDate, formatMoney } from "@/lib/format";
 import {
   type OperatorPayoutRequestDetail,
   declineOperatorPayoutRequest,
@@ -45,16 +49,16 @@ import {
   canFulfil,
   canMarkFailed,
   canMarkProcessing,
-  declineReasonProblem,
-  failureReasonProblem,
+  daysWaiting,
   fulfilmentAmountDefault,
   fulfilmentDivergence,
   isOutstanding,
-  payoutRequestStatusLabel,
-  transferSentLabel,
-  waitingLabel,
+  resolutionNotice,
+  resolutionReasonProblem,
 } from "@/lib/payout-requests";
 import { exceedsWithdrawableBalance, todayISODate } from "@/lib/payouts";
+
+import { usePayoutRequestStatusName } from "../../../payout-request-status";
 
 // One payout request, with everything needed to execute the transfer (#176) and
 // the four ways to answer it (#177, #186, ADR 0026 and its amendment).
@@ -105,12 +109,33 @@ function Detail({ label, value, mono }: { label: string; value: string; mono?: b
   );
 }
 
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  ahorros: "Ahorros (savings)",
-  corriente: "Corriente (current)",
-};
+/**
+ * The `payouts` catalog key each bank account type is named with.
+ *
+ * READ FROM `payouts` AND NOT COINED HERE, because it is the same account type
+ * the organizer chose on their own Payout Profile and the operator is about to
+ * pay into: two words for one field is exactly what ADR 0041 exists to stop. The
+ * words are Spanish in both catalogs — *Ahorros*, *Corriente* — for the same
+ * reason the Tax ID Types are: they name what the receiving bank's own form
+ * says, which is a fact about the world rather than a translation gap.
+ *
+ * A type the API adds later falls back to its raw value, the way an unknown
+ * status and an unknown error code do.
+ */
+const ACCOUNT_TYPE_KEYS = {
+  ahorros: "accountTypeAhorros",
+  corriente: "accountTypeCorriente",
+} as const;
 
 export function OperatorPayoutRequestClient({ requestId }: { requestId: string }) {
+  const t = useTranslations("operator");
+  // `payouts` owns the bank-detail vocabulary and the resolution sentences, and
+  // is read here rather than copied: the operator's screen and the organizer's
+  // must name one field with one word (messages/README.md).
+  const tPayouts = useTranslations("payouts");
+  const statusLabel = usePayoutRequestStatusName();
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [detail, setDetail] = useState<OperatorPayoutRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -151,15 +176,18 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       setDetail(await fetchOperatorPayoutRequest(requestId));
       setForbidden(false);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load payout request";
-      if (message.toLowerCase().includes("permission")) {
+      if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
         setForbidden(true);
       } else {
-        setError(message);
+        setError(
+          (loadError instanceof ApiError ? apiErrorMessage(errorCopy, loadError) : null) ??
+            t("requestNotFound"),
+        );
       }
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
   useEffect(() => {
@@ -194,17 +222,24 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       setPendingAmountCents(null);
       setNote("");
       toast.success(
-        `Payout of ${formatPriceCents(result.payout.amount_cents, settledIn)} recorded, and the request is marked paid`,
+        t("fulfilled", { amount: formatMoney(result.payout.amount_cents, settledIn, locale) }),
       );
       // Re-read rather than patch locally: the request's new state, its
       // payout_id and both balances are the server's arithmetic.
       await load();
     } catch (submitError) {
-      // The message is passed through whole, because on the one refusal that
-      // matters it is the mitigation: a lost compare-and-swap wrote NOTHING, and
-      // an operator who also transferred the money is told here — and only here
-      // — to record the Payout directly (ADR 0026).
-      toast.error(submitError instanceof Error ? submitError.message : "Failed to fulfil the request");
+      // THE REFUSAL IS THE MITIGATION on the one that matters: a lost
+      // compare-and-swap wrote NOTHING, and an operator who also transferred the
+      // money is told here — and only here — to record the Payout directly
+      // (ADR 0026). PAYOUT_REQUEST_ALREADY_RESOLVED is catalogued so that
+      // instruction reaches a Spanish-reading operator too, naming the colleague
+      // who got there first from the API's own `details`; a payload that has
+      // stopped carrying the name falls back to the API's English rather than
+      // printing a hole (ADR 0023).
+      toast.error(
+        (submitError instanceof ApiError ? apiErrorMessage(errorCopy, submitError) : null) ??
+          t("fulfilFailed"),
+      );
       setPendingAmountCents(null);
       await load();
     } finally {
@@ -219,12 +254,12 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
     }
     const amountCents = parsePriceToCents(amount);
     if (amountCents === null || amountCents <= 0) {
-      setAmountError("Enter the amount that actually left the bank.");
+      setAmountError(t("fulfilAmountRequired"));
       return;
     }
     if (!paidAt) {
       setAmountError(null);
-      toast.error("Choose the date the money left the bank");
+      toast.error(t("paidAtRequired"));
       return;
     }
     setAmountError(null);
@@ -245,10 +280,13 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
     try {
       await declineOperatorPayoutRequest(requestId, reason.trim());
       setConfirmingDecline(false);
-      toast.success("Request declined");
+      toast.success(t("declined"));
       await load();
     } catch (submitError) {
-      toast.error(submitError instanceof Error ? submitError.message : "Failed to decline the request");
+      toast.error(
+        (submitError instanceof ApiError ? apiErrorMessage(errorCopy, submitError) : null) ??
+          t("declineFailed"),
+      );
       setConfirmingDecline(false);
       await load();
     } finally {
@@ -258,8 +296,17 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
 
   function handleDecline(event: React.FormEvent) {
     event.preventDefault();
-    const problem = declineReasonProblem(reason);
-    setReasonError(problem);
+    const problem = resolutionReasonProblem(reason);
+    // The two answers that carry a reason ask for it differently, and that
+    // difference lives here — in the words each form uses — rather than in the
+    // module that decides whether the box is acceptable.
+    setReasonError(
+      problem === "missing"
+        ? t("declineReasonRequired")
+        : problem === "too_long"
+          ? t("reasonTooLong", { max: RESOLUTION_REASON_MAX_LENGTH })
+          : null,
+    );
     if (problem) {
       return;
     }
@@ -275,13 +322,17 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       const trimmed = transferReference.trim();
       await markOperatorPayoutRequestProcessing(requestId, trimmed || undefined);
       setConfirmingProcessing(false);
-      toast.success("Marked as processing — no payout recorded until the money lands");
+      toast.success(t("markedProcessing"));
       await load();
     } catch (submitError) {
-      // Passed through whole, as the fulfilment refusal is. The one that matters
-      // here names the colleague who already submitted a transfer, which is the
-      // difference between "try again" and "do not send that money".
-      toast.error(submitError instanceof Error ? submitError.message : "Failed to mark the request processing");
+      // The one that matters here names the colleague who already submitted a
+      // transfer, which is the difference between "try again" and "do not send
+      // that money" — so PAYOUT_REQUEST_TRANSFER_ALREADY_SUBMITTED is
+      // catalogued with that name as an argument.
+      toast.error(
+        (submitError instanceof ApiError ? apiErrorMessage(errorCopy, submitError) : null) ??
+          t("markProcessingFailed"),
+      );
       setConfirmingProcessing(false);
       await load();
     } finally {
@@ -298,10 +349,13 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
     try {
       await markOperatorPayoutRequestFailed(requestId, failureReason.trim());
       setConfirmingFailure(false);
-      toast.success("Marked as failed — the organization is told why");
+      toast.success(t("markedFailed"));
       await load();
     } catch (submitError) {
-      toast.error(submitError instanceof Error ? submitError.message : "Failed to mark the transfer failed");
+      toast.error(
+        (submitError instanceof ApiError ? apiErrorMessage(errorCopy, submitError) : null) ??
+          t("markFailedFailed"),
+      );
       setConfirmingFailure(false);
       await load();
     } finally {
@@ -320,8 +374,14 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
 
   function handleMarkFailed(event: React.FormEvent) {
     event.preventDefault();
-    const problem = failureReasonProblem(failureReason);
-    setFailureReasonError(problem);
+    const problem = resolutionReasonProblem(failureReason);
+    setFailureReasonError(
+      problem === "missing"
+        ? t("failureReasonRequired")
+        : problem === "too_long"
+          ? t("reasonTooLong", { max: RESOLUTION_REASON_MAX_LENGTH })
+          : null,
+    );
     if (problem) {
       return;
     }
@@ -329,14 +389,14 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading payout request...</p>;
+    return <p className="text-sm text-muted-foreground">{t("requestLoading")}</p>;
   }
 
   if (forbidden) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Access denied</AlertTitle>
-        <AlertDescription>This account is not a platform operator.</AlertDescription>
+        <AlertTitle>{t("accessDeniedTitle")}</AlertTitle>
+        <AlertDescription>{t("accessDenied")}</AlertDescription>
       </Alert>
     );
   }
@@ -344,8 +404,8 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
   if (error || !detail) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load payout request</AlertTitle>
-        <AlertDescription>{error ?? "Payout request not found."}</AlertDescription>
+        <AlertTitle>{t("requestLoadFailedTitle")}</AlertTitle>
+        <AlertDescription>{error ?? t("requestNotFound")}</AlertDescription>
       </Alert>
     );
   }
@@ -376,48 +436,59 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
   const offerProcessing = canMarkProcessing(request.status);
   const offerFailure = canMarkFailed(request.status);
   const processing = request.status === "processing";
-  const money = (cents: number) => formatPriceCents(cents, currency);
+  // The Organization's currency and the platform's clock, with the reader's
+  // marks. A Payout Request belongs to no Event and so to no Event's timezone.
+  const money = (cents: number) => formatMoney(cents, currency, locale);
+  const day = (value: string | null | undefined) => formatDate(value, PLATFORM_TIME_ZONE, locale);
   const typedCents = parsePriceToCents(amount);
-  const divergence = fulfilmentDivergence(typedCents, request.amount_cents, money);
+  const divergence = fulfilmentDivergence(typedCents, request.amount_cents);
+  const notice = resolutionNotice(request.status, request.resolution_reason);
+  const accountTypeKey =
+    ACCOUNT_TYPE_KEYS[profile.account_type as keyof typeof ACCOUNT_TYPE_KEYS] ?? null;
 
   return (
     <div className="space-y-6">
       <Breadcrumb
         items={[
-          { label: "Operator", href: "/operator" },
-          { label: "Payout requests", href: "/operator/payout-requests" },
+          { label: t("breadcrumbOperator"), href: "/operator" },
+          { label: t("breadcrumbPayoutRequests"), href: "/operator/payout-requests" },
           { label: organization.name },
         ]}
       />
 
       <PageHeader
-        title={`${formatPriceCents(request.amount_cents, currency)} to ${organization.name}`}
+        title={t("requestHeader", {
+          amount: money(request.amount_cents),
+          organization: organization.name,
+        })}
         description={
           outstanding
-            ? `Asked for by ${request.requested_by} · waiting ${waitingLabel(request.requested_at).toLowerCase()}`
-            : `Asked for by ${request.requested_by} on ${new Date(request.requested_at).toLocaleDateString()}`
+            ? t("requestHeaderWaiting", {
+                who: request.requested_by,
+                days: daysWaiting(request.requested_at),
+              })
+            : t("requestHeaderAnswered", {
+                who: request.requested_by,
+                date: day(request.requested_at) ?? "",
+              })
         }
       />
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
-            <CardTitle>The ask</CardTitle>
-            <CardDescription>
-              What this organization asked for, and what it could have asked for at the time.
-            </CardDescription>
+            <CardTitle>{t("askTitle")}</CardTitle>
+            <CardDescription>{t("askDescription")}</CardDescription>
           </div>
           <Badge variant={outstanding ? "default" : "secondary"} className="w-fit">
-            {payoutRequestStatusLabel(request.status)}
+            {statusLabel(request.status)}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-6 sm:grid-cols-3">
             <div>
-              <p className="text-sm text-muted-foreground">Requested</p>
-              <p className="text-2xl font-semibold tabular-nums">
-                {formatPriceCents(request.amount_cents, currency)}
-              </p>
+              <p className="text-sm text-muted-foreground">{t("askRequested")}</p>
+              <p className="text-2xl font-semibold tabular-nums">{money(request.amount_cents)}</p>
             </div>
             {/*
               The pair the whole screen is for. The snapshot cannot move; the
@@ -425,37 +496,38 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
               judgement the cap deliberately leaves to the operator (ADR 0026).
             */}
             <div>
-              <p className="text-sm text-muted-foreground">Payable when asked</p>
+              <p className="text-sm text-muted-foreground">{t("askPayableWhenAsked")}</p>
               <p
                 className={cn(
                   "text-2xl font-semibold tabular-nums",
                   snapshotPayable < 0 && "text-destructive",
                 )}
               >
-                {formatPriceCents(snapshotPayable, currency)}
+                {money(snapshotPayable)}
               </p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Payable now</p>
+              <p className="text-sm text-muted-foreground">{t("askPayableNow")}</p>
               <p
-                className={cn("text-2xl font-semibold tabular-nums", livePayable < 0 && "text-destructive")}
+                className={cn(
+                  "text-2xl font-semibold tabular-nums",
+                  livePayable < 0 && "text-destructive",
+                )}
               >
-                {formatPriceCents(livePayable, currency)}
+                {money(livePayable)}
               </p>
             </div>
           </div>
 
           <p className="text-sm text-muted-foreground">
             {request.amount_cents > livePayable
-              ? `More than this organization can ask for today (${formatPriceCents(livePayable, currency)} has cleared). The request was within its balance when it was made and nothing re-checks it — paying it is your call.`
-              : "Within what has cleared today. Withdrawable balance in full: " +
-                formatPriceCents(detail.withdrawable_balance_cents, currency) +
-                "."}
+              ? t("askAbovePayableNow", { payable: money(livePayable) })
+              : t("askWithinCleared", { balance: money(detail.withdrawable_balance_cents) })}
           </p>
 
           {request.note ? (
             <div>
-              <p className="text-sm text-muted-foreground">Note from the organizer</p>
+              <p className="text-sm text-muted-foreground">{t("noteFromOrganizer")}</p>
               <p>{request.note}</p>
             </div>
           ) : null}
@@ -465,18 +537,25 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
             the asker is shown it — but they are not the same news and must not
             be labelled as though they were. A decline is a judgement a person
             made; a failure is a bank sending the money back, with no judgement
-            in it at all (ADR 0026 amendment).
+            in it at all (ADR 0026 amendment). The two sentences are the
+            organizer's own, read from `payouts`, so the operator sees exactly
+            what the Organization will.
           */}
-          {request.resolution_reason ? (
+          {notice ? (
             <p className="text-sm text-destructive">
-              {request.status === "failed" ? "The bank rejected it" : "Declined"}:{" "}
-              {request.resolution_reason}
+              {notice.kind === "declined"
+                ? tPayouts("resolutionDeclined", { reason: notice.reason })
+                : tPayouts("resolutionFailed", { reason: notice.reason })}
             </p>
           ) : null}
           {request.resolved_by ? (
             <p className="text-sm text-muted-foreground">
-              Answered by {request.resolved_by}
-              {request.resolved_at ? ` on ${new Date(request.resolved_at).toLocaleDateString()}` : ""}.
+              {request.resolved_at
+                ? t("answeredByOn", {
+                    who: request.resolved_by,
+                    date: day(request.resolved_at) ?? "",
+                  })
+                : t("answeredBy", { who: request.resolved_by })}
             </p>
           ) : null}
 
@@ -495,14 +574,20 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
           {request.transfer_submitted_at ? (
             <div className="rounded-md border p-3 text-sm">
               <p className="font-medium">
-                Transfer submitted by {request.transfer_submitted_by} on{" "}
-                {new Date(request.transfer_submitted_at).toLocaleDateString()}
+                {t("transferSubmitted", {
+                  who: request.transfer_submitted_by ?? "",
+                  date: day(request.transfer_submitted_at) ?? "",
+                })}
               </p>
               <p className="text-muted-foreground">
-                {transferSentLabel(request.transfer_submitted_at)}
                 {request.transfer_reference
-                  ? ` · bank reference ${request.transfer_reference}`
-                  : " · the bank gave no reference"}
+                  ? t("transferAgeWithReference", {
+                      days: daysWaiting(request.transfer_submitted_at),
+                      reference: request.transfer_reference,
+                    })
+                  : t("transferAgeNoReference", {
+                      days: daysWaiting(request.transfer_submitted_at),
+                    })}
               </p>
               {/*
                 THE 72-HOUR FLAG, and it is the server's answer rather than this
@@ -513,14 +598,9 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                 backstop for a transfer that quietly died.
               */}
               {request.transfer_stale ? (
-                <p className="mt-2 font-medium text-destructive">
-                  Nobody has confirmed this for over 72 hours. A transfer normally lands within 48.
-                  Check it with the bank, then either record the payout or mark it failed.
-                </p>
+                <p className="mt-2 font-medium text-destructive">{t("transferStaleDetail")}</p>
               ) : processing ? (
-                <p className="mt-2 text-muted-foreground">
-                  Waiting on the bank. A transfer can take up to 48 hours to land.
-                </p>
+                <p className="mt-2 text-muted-foreground">{t("transferWaitingOnBank")}</p>
               ) : null}
             </div>
           ) : null}
@@ -529,22 +609,28 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
 
       <Card>
         <CardHeader>
-          <CardTitle>Where to pay it</CardTitle>
-          <CardDescription>
-            The bank details as this request recorded them. A later change to the organization&apos;s payout
-            profile does not touch them — this is the account the platform was told to pay.
-          </CardDescription>
+          <CardTitle>{t("whereToPayTitle")}</CardTitle>
+          <CardDescription>{t("whereToPayDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-2">
-          <Detail label="Bank" value={profile.bank_name} />
+          <Detail label={tPayouts("fieldBank")} value={profile.bank_name} />
           <Detail
-            label="Account type"
-            value={ACCOUNT_TYPE_LABELS[profile.account_type] ?? profile.account_type}
+            label={tPayouts("fieldAccountType")}
+            value={accountTypeKey ? tPayouts(accountTypeKey) : profile.account_type}
           />
-          <Detail label="Account number" value={profile.account_number} mono />
-          <Detail label="Account holder" value={profile.account_holder_name} />
+          <Detail label={tPayouts("fieldAccountNumber")} value={profile.account_number} mono />
+          <Detail label={tPayouts("fieldAccountHolder")} value={profile.account_holder_name} />
+          {/*
+            The Tax ID's TYPE is its label, and its two words are Spanish in both
+            catalogs because they name Ecuadorian documents a person physically
+            holds — a fact about the world rather than a translation gap.
+          */}
           <Detail
-            label={profile.tax_id_type === "ruc" ? "RUC" : "Cédula"}
+            label={
+              profile.tax_id_type === "ruc"
+                ? tPayouts("taxIdTypeRuc")
+                : tPayouts("taxIdTypeCedula")
+            }
             value={profile.tax_id_number}
             mono
           />
@@ -553,8 +639,8 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
 
       <Card>
         <CardHeader>
-          <CardTitle>Organization</CardTitle>
-          <CardDescription>Who is being paid, and everything else about their money.</CardDescription>
+          <CardTitle>{t("requestOrganizationTitle")}</CardTitle>
+          <CardDescription>{t("requestOrganizationDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <Link
@@ -564,10 +650,21 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
             {organization.name}
           </Link>
           <p className="text-sm text-muted-foreground">
-            {organization.slug} · {currency} · withdrawable balance{" "}
-            <span className={cn("tabular-nums", detail.withdrawable_balance_cents < 0 && "text-destructive")}>
-              {formatPriceCents(detail.withdrawable_balance_cents, currency)}
-            </span>
+            {t.rich("requestOrganizationBalance", {
+              slug: organization.slug,
+              currency,
+              balance: money(detail.withdrawable_balance_cents),
+              value: (chunks) => (
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    detail.withdrawable_balance_cents < 0 && "text-destructive",
+                  )}
+                >
+                  {chunks}
+                </span>
+              ),
+            })}
           </p>
         </CardContent>
       </Card>
@@ -587,11 +684,9 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       {outstanding ? (
         <Card>
           <CardHeader>
-            <CardTitle>Answer this request</CardTitle>
+            <CardTitle>{t("answerTitle")}</CardTitle>
             <CardDescription>
-              {processing
-                ? "The transfer is out there and the bank has not confirmed it. Record the payout when the money lands, or mark it failed when it comes back."
-                : "Transfer the money to the account above first. If it settled, record it here and the request is marked paid in the same action. If it will take a day or two, mark it processing instead — that records the transfer without touching the ledger."}
+              {processing ? t("answerDescriptionProcessing") : t("answerDescriptionPending")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-8">
@@ -612,7 +707,11 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                     agreed to by transferring it, which is what separates it from
                     the refund amount ADR 0019 refused to pre-fill.
                   */}
-                  <FormField id="fulfil-amount" label={`Amount transferred (${currency})`} error={amountError}>
+                  <FormField
+                    id="fulfil-amount"
+                    label={t("fulfilAmountLabel", { currency })}
+                    error={amountError}
+                  >
                     <Input
                       value={amount}
                       onChange={(event) => setAmount(event.target.value)}
@@ -621,7 +720,7 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                       disabled={submitting}
                     />
                   </FormField>
-                  <FormField id="fulfil-paid-at" label="Paid on">
+                  <FormField id="fulfil-paid-at" label={t("paidOnLabel")}>
                     <Input
                       type="date"
                       value={paidAt}
@@ -629,16 +728,16 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                       disabled={submitting}
                     />
                   </FormField>
-                  <FormField id="fulfil-note" label="Note (optional)">
+                  <FormField id="fulfil-note" label={t("noteLabel")}>
                     <Input
                       value={note}
                       onChange={(event) => setNote(event.target.value)}
-                      placeholder="Bank reference, batch, ..."
+                      placeholder={t("notePlaceholder")}
                       disabled={submitting}
                     />
                   </FormField>
                   <Button type="submit" disabled={submitting}>
-                    {submitting ? "Recording..." : "Record payout"}
+                    {submitting ? t("recording") : t("recordPayout")}
                   </Button>
                 </div>
                 {/*
@@ -646,9 +745,17 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                   fulfilment and needs no model of its own: what is recorded is
                   what moved, the request keeps what was asked, and the difference
                   is visible forever. Saying so here is cheaper than letting an
-                  operator discover it afterwards.
+                  operator discover it afterwards. The direction is the module's
+                  and the difference is drawn here, in the Organization's
+                  currency, which is the one thing that module cannot do.
                 */}
-                {divergence ? <p className="text-sm text-muted-foreground">{divergence}</p> : null}
+                {divergence ? (
+                  <p className="text-sm text-muted-foreground">
+                    {divergence.direction === "short"
+                      ? t("fulfilmentShort", { amount: money(divergence.differenceCents) })
+                      : t("fulfilmentOver", { amount: money(divergence.differenceCents) })}
+                  </p>
+                ) : null}
               </form>
             ) : null}
 
@@ -669,19 +776,19 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
                 <div className="grid gap-4 sm:grid-cols-[2fr_auto] sm:items-end">
                   <FormField
                     id="transfer-reference"
-                    label="Or mark it processing — bank reference (optional)"
-                    description="Use this when you have sent the transfer but the bank has not confirmed it. No payout is recorded yet, and the request stays in the queue."
+                    label={t("transferReferenceLabel")}
+                    description={t("transferReferenceDescription")}
                   >
                     <Input
                       value={transferReference}
                       onChange={(event) => setTransferReference(event.target.value)}
                       maxLength={TRANSFER_REFERENCE_MAX_LENGTH}
-                      placeholder="PP-2026-0042, or leave blank"
+                      placeholder={t("transferReferencePlaceholder")}
                       disabled={submitting}
                     />
                   </FormField>
                   <Button type="submit" variant="outline" disabled={submitting}>
-                    Mark as processing
+                    {t("markProcessing")}
                   </Button>
                 </div>
               </form>
@@ -700,21 +807,21 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
               <form className="space-y-4 border-t pt-6" onSubmit={handleMarkFailed}>
                 <FormField
                   id="failure-reason"
-                  label="Or the transfer bounced — what did the bank say?"
+                  label={t("failureReasonLabel")}
                   error={failureReasonError}
-                  description="The organization is shown this, and it is what they act on. A wrong account number is the usual cause, and they fix it on their payout profile before asking again."
+                  description={t("failureReasonDescription")}
                 >
                   <Textarea
                     value={failureReason}
                     onChange={(event) => setFailureReason(event.target.value)}
                     maxLength={RESOLUTION_REASON_MAX_LENGTH}
                     rows={3}
-                    placeholder="Banco Pichincha returned it: the account number does not exist."
+                    placeholder={t("failureReasonPlaceholder")}
                     disabled={submitting}
                   />
                 </FormField>
                 <Button type="submit" variant="outline" disabled={submitting}>
-                  Mark transfer failed
+                  {t("markFailed")}
                 </Button>
               </form>
             ) : null}
@@ -731,21 +838,21 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
               <form className="space-y-4 border-t pt-6" onSubmit={handleDecline}>
                 <FormField
                   id="decline-reason"
-                  label="Or decline, with a reason"
+                  label={t("declineReasonLabel")}
                   error={reasonError}
-                  description="The organization is shown this, and is free to ask again."
+                  description={t("declineReasonDescription")}
                 >
                   <Textarea
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
                     maxLength={RESOLUTION_REASON_MAX_LENGTH}
                     rows={3}
-                    placeholder="Your event is three months out — ask again once the doors have opened."
+                    placeholder={t("declineReasonPlaceholder")}
                     disabled={submitting}
                   />
                 </FormField>
                 <Button type="submit" variant="outline" disabled={submitting}>
-                  Decline request
+                  {t("decline")}
                 </Button>
               </form>
             ) : null}
@@ -769,16 +876,23 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>More than this organization is owed</DialogTitle>
+            <DialogTitle>{t("exceedsDialogTitle")}</DialogTitle>
             <DialogDescription>
               {pendingAmountCents === null
                 ? ""
-                : `You are recording ${money(pendingAmountCents)} against a withdrawable balance of ${money(detail.withdrawable_balance_cents)}. That is accepted — the money has already left the bank — and the balance will go negative to say so.`}
+                : t("exceedsDialogBody", {
+                    amount: money(pendingAmountCents),
+                    balance: money(detail.withdrawable_balance_cents),
+                  })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingAmountCents(null)} disabled={submitting}>
-              Go back
+            <Button
+              variant="outline"
+              onClick={() => setPendingAmountCents(null)}
+              disabled={submitting}
+            >
+              {t("goBack")}
             </Button>
             <Button
               onClick={() => {
@@ -788,7 +902,7 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
               }}
               disabled={submitting}
             >
-              {submitting ? "Recording..." : "Record it anyway"}
+              {submitting ? t("recording") : t("recordItAnyway")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -806,15 +920,15 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>You have already sent this transfer?</DialogTitle>
+            <DialogTitle>{t("processingDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {`Only press this if the money has left the bank. ${organization.name} will see that their transfer is on its way and will no longer be able to cancel the request. NO PAYOUT IS RECORDED yet — come back and record it when the money lands, or mark it failed if the bank sends it back.`}
+              {t("processingDialogBody", { organization: organization.name })}
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             {transferReference.trim()
-              ? `Bank reference: ${transferReference.trim()}`
-              : "No bank reference — that is fine, PayPhone does not always give one."}
+              ? t("processingDialogReference", { reference: transferReference.trim() })
+              : t("processingDialogNoReference")}
           </p>
           <DialogFooter>
             <Button
@@ -822,10 +936,10 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
               onClick={() => setConfirmingProcessing(false)}
               disabled={submitting}
             >
-              Go back
+              {t("goBack")}
             </Button>
             <Button onClick={() => void submitProcessing()} disabled={submitting}>
-              {submitting ? "Marking..." : "Yes, it is on its way"}
+              {submitting ? t("marking") : t("processingDialogConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -840,18 +954,22 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       <Dialog open={confirmingFailure} onOpenChange={(open) => !open && setConfirmingFailure(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>The bank sent this transfer back?</DialogTitle>
+            <DialogTitle>{t("failureDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {`${organization.name} will see this on their payouts page as a failed transfer — not as a refusal — and will be pointed at their payout profile to correct it. This request cannot be reopened; they submit a new one. Nothing is undone in the ledger, because marking it processing recorded no payout.`}
+              {t("failureDialogBody", { organization: organization.name })}
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm">{failureReason.trim()}</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmingFailure(false)} disabled={submitting}>
-              Go back
+            <Button
+              variant="outline"
+              onClick={() => setConfirmingFailure(false)}
+              disabled={submitting}
+            >
+              {t("goBack")}
             </Button>
             <Button variant="destructive" onClick={() => void submitFailure()} disabled={submitting}>
-              {submitting ? "Marking..." : "Mark transfer failed"}
+              {submitting ? t("marking") : t("markFailed")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -861,19 +979,22 @@ export function OperatorPayoutRequestClient({ requestId }: { requestId: string }
       <Dialog open={confirmingDecline} onOpenChange={(open) => !open && setConfirmingDecline(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Decline this request?</DialogTitle>
+            <DialogTitle>{t("declineDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {organization.name} will see this reason on their payouts page, and may submit a new
-              request straight away. Declining is final — this request cannot be reopened.
+              {t("declineDialogBody", { organization: organization.name })}
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm">{reason.trim()}</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmingDecline(false)} disabled={submitting}>
-              Go back
+            <Button
+              variant="outline"
+              onClick={() => setConfirmingDecline(false)}
+              disabled={submitting}
+            >
+              {t("goBack")}
             </Button>
             <Button variant="destructive" onClick={() => void submitDecline()} disabled={submitting}>
-              {submitting ? "Declining..." : "Decline request"}
+              {submitting ? t("declining") : t("decline")}
             </Button>
           </DialogFooter>
         </DialogContent>

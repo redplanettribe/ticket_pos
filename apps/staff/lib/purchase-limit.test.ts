@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   parsePurchaseLimit,
   purchaseLimitFormValue,
-  purchaseLimitSummary,
+  purchaseLimitLine,
   purchaseLimitWireValue,
   type ParsedPurchaseLimit,
 } from "./purchase-limit.ts";
@@ -63,11 +63,11 @@ test("a Ticket Type round-trips out of the form and back into it unchanged", () 
 });
 
 test("the card says nothing when a Ticket Type has no Purchase Limit", () => {
-  assert.equal(purchaseLimitSummary(null), null);
-  assert.equal(purchaseLimitSummary(1), "Purchase Limit: 1 per customer");
-  assert.equal(purchaseLimitSummary(4), "Purchase Limit: 4 per customer");
-  assert.equal(
-    purchaseLimitSummary(1500),
-    `Purchase Limit: ${(1500).toLocaleString()} per customer`,
-  );
+  // A token-and-data assertion, not a copy one: the sentence is
+  // `ticketTypes.purchaseLimitLine` in the catalogs, and editing it must not
+  // break this test (ADR 0041).
+  assert.equal(purchaseLimitLine(null), null);
+  assert.deepEqual(purchaseLimitLine(1), { limit: 1 });
+  assert.deepEqual(purchaseLimitLine(4), { limit: 4 });
+  assert.deepEqual(purchaseLimitLine(1500), { limit: 1500 });
 });

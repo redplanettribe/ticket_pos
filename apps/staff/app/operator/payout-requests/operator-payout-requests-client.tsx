@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
@@ -17,14 +18,19 @@ import {
   CardTitle,
   PageHeader,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { type AppLocale, PLATFORM_TIME_ZONE, formatDate, formatMoney, formatNumber } from "@/lib/format";
 import {
   type OperatorPagination,
   type OperatorPayoutRequestQueueItem,
   fetchOperatorPayoutRequests,
 } from "@/lib/operator-api";
-import { payoutRequestStatusLabel, transferSentLabel, waitingLabel } from "@/lib/payout-requests";
+import { daysWaiting } from "@/lib/payout-requests";
+
+import { usePayoutRequestStatusName } from "../../payout-request-status";
 
 // The queue: who is waiting to be paid, across every organization (#176,
 // ADR 0026).
@@ -55,23 +61,30 @@ import { payoutRequestStatusLabel, transferSentLabel, waitingLabel } from "@/lib
 // browser's clock — and a laptop with the wrong date — cannot make a healthy
 // transfer look dead or a dead one look healthy.
 
-function QueueRow({ item }: { item: OperatorPayoutRequestQueueItem }) {
+function QueueRow({ item, locale }: { item: OperatorPayoutRequestQueueItem; locale: AppLocale }) {
+  const t = useTranslations("operator");
+  const statusLabel = usePayoutRequestStatusName();
   const { request, organization } = item;
   const askedForAll = request.amount_cents >= request.payable_balance_cents;
   const processing = request.status === "processing";
+  // Money in the ORGANIZATION's currency — the queue mixes organizations and
+  // nothing here is converted — and dates on the platform's clock, both with
+  // the reader's marks (ADR 0041).
+  const money = (cents: number) => formatMoney(cents, organization.currency, locale);
 
   return (
     <tr className="border-b last:border-b-0">
       <td className="py-3 pr-4">
-        <Link href={`/operator/payout-requests/${request.id}`} className="font-medium hover:underline">
+        <Link
+          href={`/operator/payout-requests/${request.id}`}
+          className="font-medium hover:underline"
+        >
           {organization.name}
         </Link>
         <p className="font-mono text-xs text-muted-foreground">{organization.slug}</p>
       </td>
       <td className="py-3 pr-4">
-        <p className="font-medium tabular-nums">
-          {formatPriceCents(request.amount_cents, organization.currency)}
-        </p>
+        <p className="font-medium tabular-nums">{money(request.amount_cents)}</p>
         {/*
           The ask beside what could have been asked for when it was made. The
           two together are what tell an organization that asked for everything
@@ -79,21 +92,29 @@ function QueueRow({ item }: { item: OperatorPayoutRequestQueueItem }) {
           may have moved since, is on the request itself.
         */}
         <p className="text-xs text-muted-foreground">
-          {askedForAll ? "all of " : "of "}
-          {formatPriceCents(request.payable_balance_cents, organization.currency)} payable then
+          {askedForAll
+            ? t("queueAskedAll", { amount: money(request.payable_balance_cents) })
+            : t("queueAskedPart", { amount: money(request.payable_balance_cents) })}
         </p>
       </td>
       <td className="py-3 pr-4">
-        <p className="tabular-nums">{waitingLabel(request.requested_at)}</p>
+        {/*
+          HOW LONG, not WHEN: the queue is ordered oldest first because the
+          oldest unanswered request is the one about to become a complaint, and
+          a row saying only "12 March" makes every reader do the subtraction.
+          `daysWaiting` decides the number and the catalog's plural says it.
+        */}
+        <p className="tabular-nums">{t("waiting", { days: daysWaiting(request.requested_at) })}</p>
         <p className="text-xs text-muted-foreground">
-          {new Date(request.requested_at).toLocaleDateString()}
+          {formatDate(request.requested_at, PLATFORM_TIME_ZONE, locale)}
         </p>
       </td>
       {/*
         WHAT KIND OF WORK THIS ROW IS. "Waiting" means nobody has touched it;
         "Processing" means a colleague already sent the money and is waiting on
         the bank — which is a different next action, and confusing the two is how
-        the same request gets transferred twice.
+        the same request gets transferred twice. Both words are the catalog's own
+        and are the ones the organizer reads on their own screen.
 
         The stale flag rides beside it rather than replacing it: a stale request
         is still processing, and what changed is only that nobody has confirmed
@@ -102,15 +123,16 @@ function QueueRow({ item }: { item: OperatorPayoutRequestQueueItem }) {
       */}
       <td className="py-3 pr-4">
         <Badge variant={processing ? "secondary" : "default"} className="w-fit">
-          {payoutRequestStatusLabel(request.status)}
+          {statusLabel(request.status)}
         </Badge>
         {request.transfer_stale ? (
-          <p className="mt-1 text-xs font-medium text-destructive">
-            Unconfirmed for over 72 hours — check the transfer.
-          </p>
+          <p className="mt-1 text-xs font-medium text-destructive">{t("transferStale")}</p>
         ) : request.transfer_submitted_at ? (
           <p className="mt-1 text-xs text-muted-foreground">
-            {transferSentLabel(request.transfer_submitted_at)} by {request.transfer_submitted_by}
+            {t("queueTransferSent", {
+              days: daysWaiting(request.transfer_submitted_at),
+              who: request.transfer_submitted_by ?? "",
+            })}
           </p>
         ) : null}
       </td>
@@ -126,6 +148,9 @@ function QueueRow({ item }: { item: OperatorPayoutRequestQueueItem }) {
 }
 
 export function OperatorPayoutRequestsClient() {
+  const t = useTranslations("operator");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [items, setItems] = useState<OperatorPayoutRequestQueueItem[]>([]);
   const [pagination, setPagination] = useState<OperatorPagination | null>(null);
   const [page, setPage] = useState(1);
@@ -142,15 +167,18 @@ export function OperatorPayoutRequestsClient() {
       setPagination(queue.pagination);
       setForbidden(false);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load";
-      if (message.toLowerCase().includes("permission")) {
+      if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
         setForbidden(true);
       } else {
-        setError(message);
+        setError(
+          (loadError instanceof ApiError ? apiErrorMessage(errorCopy, loadError) : null) ??
+            t("queueLoadFailed"),
+        );
       }
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
   useEffect(() => {
@@ -158,14 +186,14 @@ export function OperatorPayoutRequestsClient() {
   }, [load]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading payout requests...</p>;
+    return <p className="text-sm text-muted-foreground">{t("queueLoading")}</p>;
   }
 
   if (forbidden) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Access denied</AlertTitle>
-        <AlertDescription>This account is not a platform operator.</AlertDescription>
+        <AlertTitle>{t("accessDeniedTitle")}</AlertTitle>
+        <AlertDescription>{t("accessDenied")}</AlertDescription>
       </Alert>
     );
   }
@@ -173,7 +201,7 @@ export function OperatorPayoutRequestsClient() {
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load payout requests</AlertTitle>
+        <AlertTitle>{t("queueLoadFailedTitle")}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
@@ -181,41 +209,39 @@ export function OperatorPayoutRequestsClient() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb items={[{ label: "Operator", href: "/operator" }, { label: "Payout requests" }]} />
-
-      <PageHeader
-        title="Payout requests"
-        description="Every organization waiting to be paid, longest wait first. A transfer nobody has confirmed in three days is flagged."
+      <Breadcrumb
+        items={[
+          { label: t("breadcrumbOperator"), href: "/operator" },
+          { label: t("breadcrumbPayoutRequests") },
+        ]}
       />
+
+      <PageHeader title={t("queueTitle")} description={t("queueDescription")} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Waiting for an answer</CardTitle>
-          <CardDescription>
-            Every outstanding request across every organization — the ones nobody has answered and the
-            ones whose transfer has been submitted but not yet confirmed. Account numbers are shown in
-            part here; open a request to see the full bank details and pay it.
-          </CardDescription>
+          <CardTitle>{t("queueWaitingTitle")}</CardTitle>
+          <CardDescription>{t("queueWaitingDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           {items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nobody is waiting to be paid.</p>
+            <p className="text-sm text-muted-foreground">{t("queueEmpty")}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">Organization</th>
-                    <th className="py-2 pr-4 font-medium">Requested</th>
-                    <th className="py-2 pr-4 font-medium">Waiting</th>
-                    <th className="py-2 pr-4 font-medium">Status</th>
-                    <th className="py-2 pr-4 font-medium">Paying to</th>
-                    <th className="py-2 pr-4 font-medium">Asked by</th>
+                    <th className="py-2 pr-4 font-medium">{t("colOrganization")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("colRequested")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("colWaiting")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("colStatus")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("colPayingTo")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("colAskedBy")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => (
-                    <QueueRow key={item.request.id} item={item} />
+                    <QueueRow key={item.request.id} item={item} locale={locale} />
                   ))}
                 </tbody>
               </table>
@@ -225,7 +251,11 @@ export function OperatorPayoutRequestsClient() {
           {pagination && pagination.total_pages > 1 ? (
             <div className="mt-4 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Page {pagination.page} of {pagination.total_pages} · {pagination.total} waiting
+                {t("queuePageSummary", {
+                  page: formatNumber(pagination.page, locale),
+                  pages: formatNumber(pagination.total_pages, locale),
+                  total: pagination.total,
+                })}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -235,7 +265,7 @@ export function OperatorPayoutRequestsClient() {
                   disabled={pagination.page <= 1}
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                 >
-                  Previous
+                  {t("previousPage")}
                 </Button>
                 <Button
                   type="button"
@@ -244,7 +274,7 @@ export function OperatorPayoutRequestsClient() {
                   disabled={pagination.page >= pagination.total_pages}
                   onClick={() => setPage((current) => current + 1)}
                 >
-                  Next
+                  {t("nextPage")}
                 </Button>
               </div>
             </div>

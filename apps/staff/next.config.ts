@@ -1,6 +1,17 @@
 import path from "node:path";
 
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+// Wires i18n/request.ts (the default location) into the build, so server
+// components can read the locale of the request they are rendering for.
+//
+// The plugin and nothing else: next-intl's routing half — the middleware, the
+// `[locale]` segment and the navigation wrappers the Storefront uses — is
+// deliberately absent (ADR 0041). The locale here is a property of the person,
+// resolved from the session or the cookie, so no route path is a function of it
+// and none of the paths in this app change.
+const withNextIntl = createNextIntlPlugin();
 
 const nextConfig: NextConfig = {
   // Standalone output ships a self-contained server plus only the traced
@@ -19,4 +30,4 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

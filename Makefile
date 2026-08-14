@@ -83,8 +83,12 @@ ci-go:
 	cd backend && go test ./integration/...
 	cd backend && go vet ./...
 
+# The JS half mirrors the CI job's two steps, including the e2e exclusion: the
+# Playwright suite needs a stack already serving, which neither a runner nor a
+# plain `make ci` has.
 ci: ci-go
 	pnpm turbo lint typecheck build
+	pnpm turbo test --filter='!@ticket-pos/e2e'
 	$(MAKE) openapi-sync-check
 
 migrate:

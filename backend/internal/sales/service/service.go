@@ -199,6 +199,25 @@ type PlatformOperators interface {
 	PlatformOperatorEmails(ctx context.Context) ([]string, error)
 }
 
+// StaffLocales is what sales needs from identity in order to write a Payout
+// Request notice in the language its reader uses (#285, ADR 0041): the Staff
+// Locale stored against one email address.
+//
+// IT TAKES AN ADDRESS AND NOT A MEMBER, and that is the whole reason these five
+// notices can be localized at all. A request records its asker as an email
+// deliberately untied to a member id so it still resolves after that person's
+// Membership ends, which is exactly why ADR 0033 could not localize them: the
+// notice was "attached to no record that could hold a language". Keying the
+// Staff Locale on the address made that string such a record, and this seam is
+// how sales reads it without knowing anything about how staff identity works.
+//
+// "" is absence rather than English, exactly as CustomerService.MailLocale's is.
+// Sales hands the answer straight to platform.ResolveStaffLocale, which owns the
+// floor; this module never decides what a missing preference means.
+type StaffLocales interface {
+	StaffLocale(ctx context.Context, email string) (string, error)
+}
+
 // Service implements sales business rules.
 type Service struct {
 	repo      *repository.Repository
@@ -209,6 +228,11 @@ type Service struct {
 	// notice is skipped and nothing else changes — which is what makes it safe
 	// for any test that builds this service by hand.
 	operators PlatformOperators
+	// staffLocales resolves the language each Payout Request notice is written
+	// in, by recipient address. Optional, and on the same terms as operators:
+	// unset, every notice falls to the English floor and nothing else changes,
+	// which is what any test building this service by hand gets.
+	staffLocales StaffLocales
 	// provider collects money for Online Sales behind the provider-agnostic
 	// Payment Provider boundary (ADR 0012); see checkout.go.
 	provider platform.PaymentProvider
@@ -292,6 +316,18 @@ func (s *Service) WithLogger(logger platform.Logger) *Service {
 // pending-count badge is the only thing that says so.
 func (s *Service) WithPlatformOperators(operators PlatformOperators) *Service {
 	s.operators = operators
+	return s
+}
+
+// WithStaffLocales supplies the Staff Locale reader, so each Payout Request
+// notice is written in the language its recipient reads (#285, ADR 0041).
+//
+// Applied after construction for the reason the allowlist is: it serves five
+// emails on one path. Without it the notices are English, which is precisely
+// what they were before this ticket and what a reader with no stored language
+// gets anyway.
+func (s *Service) WithStaffLocales(locales StaffLocales) *Service {
+	s.staffLocales = locales
 	return s
 }
 

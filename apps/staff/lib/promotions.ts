@@ -1,8 +1,9 @@
 /**
  * A Ticket Type's Promotion as the staff editor reasons about it (ADR 0021):
  * one time-boxed Promotional Price that overrides the List Price while its
- * window holds. Kept pure and dependency-free so the state derivation and the
- * error copy are directly unit-testable.
+ * window holds. Kept pure and dependency-free — no React, no i18n runtime, no
+ * catalog — so the state derivation is directly unit-testable under the fast
+ * runner. Every sentence this module once carried now lives in the catalogs.
  */
 
 /** The Ticket Type's one Promotion slot, exactly as the staff API renders it. */
@@ -13,7 +14,13 @@ export type Promotion = {
   ends_at: string;
 };
 
-/** Where a Promotion sits relative to an instant: before, inside, or past its window. */
+/**
+ * Where a Promotion sits relative to an instant: before, inside, or past its
+ * window.
+ *
+ * A token. The badge's words for each state are `ticketTypes.promotionScheduled`
+ * and its two siblings in the message catalogs (ADR 0041).
+ */
 export type PromotionState = "scheduled" | "live" | "ended";
 
 /**
@@ -45,31 +52,29 @@ export function promotionStateBadgeVariant(state: PromotionState): "success" | "
   }
 }
 
-export const PROMOTION_STATE_LABELS: Record<PromotionState, string> = {
-  scheduled: "Scheduled",
-  live: "Live",
-  ended: "Ended",
-};
-
 /**
- * Staff-facing copy for the Promotion API error codes, so an organizer reads
- * what to do rather than the raw code. Anything unmapped falls back to the
- * server's own message.
+ * The API error codes that are about the Promotion itself.
+ *
+ * This module used to hold a sentence for each. It holds the codes only now:
+ * the words are `errors.envelope` in both message catalogs, resolved by
+ * `lib/api-errors.ts` the way every other staff failure is (ADR 0023, ADR 0041),
+ * so there is one place a failure is worded rather than two.
+ *
+ * What is left here is a decision and not copy — WHICH refusals belong beside
+ * the price field rather than in a toast that scrolls away. A List Price edit
+ * rejected because it would sink under a live Promotional Price has to be said
+ * where the price the organizer just typed still is; a load failure does not.
  */
-const PROMOTION_ERROR_MESSAGES: Record<string, string> = {
-  PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE:
-    "The promotional price must be below the list price. Lower it, or raise the list price first.",
-  PROMOTION_ALREADY_EXISTS:
-    "This ticket type already has a promotion. Reload the section to edit the existing one.",
-  PROMOTION_NOT_FOUND: "This ticket type no longer has a promotion. Reload the section and set a new one.",
-  LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE:
-    "The list price must stay above the promotional price. Adjust or remove the promotion first.",
-};
+export const PROMOTION_ERROR_CODES = [
+  "PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE",
+  "PROMOTION_ALREADY_EXISTS",
+  "PROMOTION_NOT_FOUND",
+  "LIST_PRICE_NOT_ABOVE_PROMOTIONAL_PRICE",
+] as const;
 
-/** The inline message for an API error code, or null to fall back to the server message. */
-export function promotionErrorMessage(code: string | undefined): string | null {
-  if (!code) {
-    return null;
-  }
-  return PROMOTION_ERROR_MESSAGES[code] ?? null;
+export type PromotionErrorCode = (typeof PROMOTION_ERROR_CODES)[number];
+
+/** Whether a refusal is a Promotion's, and so belongs inline on the form. */
+export function isPromotionErrorCode(code: string | null | undefined): code is PromotionErrorCode {
+  return typeof code === "string" && (PROMOTION_ERROR_CODES as readonly string[]).includes(code);
 }

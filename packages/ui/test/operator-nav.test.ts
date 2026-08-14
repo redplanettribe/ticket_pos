@@ -4,17 +4,18 @@ import test from "node:test";
 import { isNavItemActive } from "../src/lib/nav-active.ts";
 import { operatorNavItems } from "../src/lib/operator-nav.ts";
 
-const labels = (items: Array<{ label: string }>) => items.map((item) => item.label);
+/** Keys rather than words — see staff-nav.test.ts for why. */
+const keys = (items: Array<{ key: string }>) => items.map((item) => item.key);
 
 // --- what the operator surface offers --------------------------------------
 
 test("the operator sees each job of the dashboard as its own destination, in order", () => {
-  assert.deepEqual(labels(operatorNavItems({})), [
-    "Overview",
-    "Organizations",
-    "Payout Requests",
-    "Find a sale",
-    "Customer consent",
+  assert.deepEqual(keys(operatorNavItems({})), [
+    "overview",
+    "organizations",
+    "payoutRequests",
+    "findSale",
+    "customerConsent",
   ]);
 });
 
@@ -33,30 +34,30 @@ test("the entries point at the operator surface", () => {
 
 // --- which entry is lit ----------------------------------------------------
 
-const activeLabels = (activePath: string) =>
-  labels(operatorNavItems({}).filter((item) => isNavItemActive(activePath, item.href, { exact: item.exact })));
+const activeKeys = (activePath: string) =>
+  keys(operatorNavItems({}).filter((item) => isNavItemActive(activePath, item.href, { exact: item.exact })));
 
 test("Overview is lit on the dashboard itself and nowhere else", () => {
-  assert.deepEqual(activeLabels("/operator"), ["Overview"]);
+  assert.deepEqual(activeKeys("/operator"), ["overview"]);
 });
 
 test("reading a single payout request lights Payout Requests alone", () => {
-  assert.deepEqual(activeLabels("/operator/payout-requests"), ["Payout Requests"]);
-  assert.deepEqual(activeLabels("/operator/payout-requests/pr_123"), ["Payout Requests"]);
+  assert.deepEqual(activeKeys("/operator/payout-requests"), ["payoutRequests"]);
+  assert.deepEqual(activeKeys("/operator/payout-requests/pr_123"), ["payoutRequests"]);
 });
 
 test("reading one organization lights Organizations alone", () => {
-  assert.deepEqual(activeLabels("/operator/organizations"), ["Organizations"]);
-  assert.deepEqual(activeLabels("/operator/organizations/org_123"), ["Organizations"]);
+  assert.deepEqual(activeKeys("/operator/organizations"), ["organizations"]);
+  assert.deepEqual(activeKeys("/operator/organizations/org_123"), ["organizations"]);
 });
 
 test("reading the sale a lookup found lights Find a sale alone", () => {
-  assert.deepEqual(activeLabels("/operator/sales"), ["Find a sale"]);
-  assert.deepEqual(activeLabels("/operator/sales/TP-J7K2QX9M"), ["Find a sale"]);
+  assert.deepEqual(activeKeys("/operator/sales"), ["findSale"]);
+  assert.deepEqual(activeKeys("/operator/sales/TP-J7K2QX9M"), ["findSale"]);
 });
 
 test("the consent surface lights Customer consent alone", () => {
-  assert.deepEqual(activeLabels("/operator/consent"), ["Customer consent"]);
+  assert.deepEqual(activeKeys("/operator/consent"), ["customerConsent"]);
 });
 
 // --- the pending count -----------------------------------------------------

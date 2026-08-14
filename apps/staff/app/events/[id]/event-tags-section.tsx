@@ -1,5 +1,6 @@
 "use client";
 
+import { useMessages, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -15,6 +16,7 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import {
   ApiError,
   getEventTags,
@@ -49,6 +51,8 @@ function sameTagSet(a: Tag[], b: Tag[]): boolean {
 }
 
 export function EventTagsSection({ eventId }: EventTagsSectionProps) {
+  const t = useTranslations("tags");
+  const errorCopy = useMessages().errors;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Tag[]>([]);
@@ -67,11 +71,14 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
       setSaved(current);
       setTags(current);
     } catch (loadError) {
-      toast.error(loadError instanceof Error ? loadError.message : "Failed to load tags");
+      toast.error(
+        apiErrorMessage(errorCopy, loadError instanceof ApiError ? loadError : null) ??
+          t("loadFailed"),
+      );
     } finally {
       setLoading(false);
     }
-  }, [eventId]);
+  }, [errorCopy, eventId, t]);
 
   useEffect(() => {
     void loadTags();
@@ -213,10 +220,12 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
       const result = sortTags(await setEventTags(eventId, tags.map((tag) => tag.name)));
       setSaved(result);
       setTags(result);
-      toast.success("Tags updated");
+      toast.success(t("savedToast"));
     } catch (saveError) {
-      const message = saveError instanceof ApiError ? saveError.message : "Failed to update tags";
-      toast.error(message);
+      toast.error(
+        apiErrorMessage(errorCopy, saveError instanceof ApiError ? saveError : null) ??
+          t("saveFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -227,18 +236,16 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tags</CardTitle>
-        <CardDescription>
-          Add Preset Tags or coin Custom Tags to help customers discover this Event.
-        </CardDescription>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading tags...</p>
+          <p className="text-sm text-muted-foreground">{t("loading")}</p>
         ) : (
           <>
             {tags.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No tags yet.</p>
+              <p className="text-sm text-muted-foreground">{t("empty")}</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {tags.map((tag) => (
@@ -247,10 +254,12 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                     variant={tag.curated ? "secondary" : "outline"}
                     className="gap-1.5 py-1 pl-2.5 pr-1"
                   >
+                    {/* The Tag's own name, as its Organization coined it. Not
+                        copy, and read the same in every language (ADR 0027). */}
                     {tag.name}
                     <button
                       type="button"
-                      aria-label={`Remove ${tag.name}`}
+                      aria-label={t("removeTag", { name: tag.name })}
                       className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       onClick={() => removeTag(tag.name)}
                     >
@@ -263,7 +272,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
 
             {presets.length > 0 ? (
               <div className="space-y-2">
-                <p className="text-sm font-medium">Preset Tags</p>
+                <p className="text-sm font-medium">{t("presetTags")}</p>
                 <div className="flex flex-wrap gap-2">
                   {presets.map((tag) => {
                     const active = selectedKeys.has(tagCanonicalKey(tag.name));
@@ -288,13 +297,13 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
             ) : null}
 
             <div className="relative" ref={containerRef}>
-              <FormField id="event-tags-search" label="Add a tag">
+              <FormField id="event-tags-search" label={t("searchLabel")}>
                 <Input
                   id="event-tags-search"
                   value={query}
                   autoComplete="off"
                   maxLength={TAG_NAME_MAX_LENGTH}
-                  placeholder="Search tags or type to create a Custom Tag"
+                  placeholder={t("searchPlaceholder")}
                   onChange={(event) => {
                     setQuery(event.target.value);
                     setOpen(true);
@@ -317,7 +326,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                 <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-background py-1 shadow-md">
                   {browsing && dropdownItems.length > 0 ? (
                     <li className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                      Used by other events
+                      {t("usedByOtherEvents")}
                     </li>
                   ) : null}
                   {dropdownItems.map((tag) => (
@@ -330,7 +339,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                         <span>{tag.name}</span>
                         {tag.curated ? (
                           <Badge variant="secondary" className="text-xs">
-                            Preset
+                            {t("presetBadge")}
                           </Badge>
                         ) : null}
                       </button>
@@ -343,9 +352,12 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
                         onClick={createTag}
                       >
-                        Create <span className="font-medium">{trimmedQuery}</span>
+                        {t.rich("createTag", {
+                          name: trimmedQuery,
+                          em: (chunks) => <span className="font-medium">{chunks}</span>,
+                        })}
                         <Badge variant="outline" className="ml-auto text-xs">
-                          Custom Tag
+                          {t("customTagBadge")}
                         </Badge>
                       </button>
                     </li>
@@ -355,7 +367,7 @@ export function EventTagsSection({ eventId }: EventTagsSectionProps) {
             </div>
 
             <Button type="button" disabled={!dirty || saving} onClick={() => void handleSave()}>
-              {saving ? "Saving..." : "Save tags"}
+              {saving ? t("saving") : t("save")}
             </Button>
           </>
         )}

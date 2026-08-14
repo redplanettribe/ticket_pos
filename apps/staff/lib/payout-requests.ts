@@ -8,6 +8,19 @@
 // enforced by a partial unique index. Nothing below is a gate — it is copy, and
 // the point of it is that an organizer should not have to press a button to
 // discover an answer the page already knows.
+//
+// WHAT IT NO LONGER DOES IS WRITE THAT COPY (ADR 0041). This module decides
+// WHICH thing is true and returns a token and its data; the message catalogs
+// turn that into a sentence, in the reader's Staff Locale, with the numbers and
+// dates drawn by lib/format.ts. So it holds no English, imports no catalog and
+// is handed no `t` — which is what keeps `node --test` free of React and of the
+// i18n runtime, and what stops a copy edit breaking a logic test.
+//
+// THERE IS NO LONGER AN EXCEPTION. #290 left four sentence-returning helpers
+// quarantined at the foot of this file because the Operator Dashboard still read
+// prose from them; #292 translated that surface and deleted them, so every
+// function below returns a token, a number or a boolean and the whole module
+// holds no English at all.
 
 /**
  * The six states a Payout Request can be in. There is deliberately no
@@ -26,40 +39,40 @@ export const PAYOUT_REQUEST_STATUSES = [
 export type PayoutRequestStatus = (typeof PAYOUT_REQUEST_STATUSES)[number];
 
 /**
- * The label a status is shown under. "Waiting" rather than "Pending" because
- * pending is the platform's word for the row's state and waiting is the
- * organizer's word for what is happening to them.
+ * The status the server sent, as one of the six this client knows — or null for
+ * one it has not been taught yet.
  *
- * "Processing" keeps the platform's own word, and that is the one place this
- * function does not translate. It is the word CONTEXT.md pins the state to, and
- * every alternative an organizer might prefer is on its _Avoid_ list: "in
- * flight" belongs to a Sale Reversal waiting on an API, "in progress" says
- * nothing, and "approved" is the state ADR 0026 refused.
+ * THE STATUS VOCABULARY IS A TOKEN AND THE CATALOG OWNS THE WORDS. There is one
+ * key per state (`payouts.requestStatusPending` and its five siblings) and every
+ * screen that draws a status reads it, so a state has exactly ONE Spanish word
+ * wherever an organizer meets it — on the outstanding card, in the request
+ * history, and in the notice email that sent them there. A per-screen rendering
+ * is how there come to be two words for one state, and a status is the last
+ * thing an organizer should have to translate twice.
+ *
+ * What the catalog must keep saying, because the words carry it and this
+ * function cannot:
+ *
+ *   - `pending` reads as WAITING rather than "pending": pending is the
+ *     platform's word for the row's state, waiting is the organizer's word for
+ *     what is happening to them.
+ *   - `processing` keeps the platform's own word (CONTEXT.md pins the state to
+ *     it); "in flight" belongs to a Sale Reversal, "in progress" says nothing,
+ *     and "approved" is the state ADR 0026 refused.
+ *   - `failed` IS NOT A REFUSAL. "Declined" is a judgement a person made about
+ *     this Organization; "failed" is a bank sending the money back, most often
+ *     over a typo in an account number. They share a column (#182) and must
+ *     never share a word in either language, because an organizer who reads the
+ *     wrong one believes the platform judged them.
+ *
+ * Null rather than a fallback token: a state this client has not been taught is
+ * shown raw by the caller, because the server is the authority on what states
+ * exist and a blank badge is worse than an untranslated one.
  */
-export function payoutRequestStatusLabel(status: string): string {
-  switch (status) {
-    case "pending":
-      return "Waiting";
-    case "processing":
-      return "Processing";
-    case "paid":
-      return "Paid";
-    case "declined":
-      return "Declined";
-    case "cancelled":
-      return "Cancelled";
-    // A FAILURE, NOT A REFUSAL. "Declined" is a judgement a person made about
-    // this Organization; "Failed" is a bank sending the money back, most often
-    // over a typo in an account number. They share a column (#182) and must
-    // never share a word, because an organizer who reads the wrong one believes
-    // the platform judged them.
-    case "failed":
-      return "Failed";
-    default:
-      // A status this client has not been taught yet. Showing it raw is better
-      // than showing nothing: the server is the authority on what states exist.
-      return status;
-  }
+export function payoutRequestStatusToken(status: string): PayoutRequestStatus | null {
+  return (PAYOUT_REQUEST_STATUSES as readonly string[]).includes(status)
+    ? (status as PayoutRequestStatus)
+    : null;
 }
 
 /**
@@ -117,94 +130,76 @@ export function isCancellable(status: string): boolean {
 }
 
 // --- what a submitted transfer, and one that bounced, say (#187) ----------
+//
+// THE SENTENCE THAT USED TO LIVE HERE IS NOW `payouts.transferSent`, and the
+// date in it is drawn by `formatDate` from lib/format.ts. Nothing was lost in
+// the move, including the rule that made this a function rather than a constant:
+// formatDate answers null for an instant it cannot read, so a caller that
+// renders nothing without a date is still what the code makes easy, and the
+// catalog sentence still cannot exist without one.
+//
+// THE DATE REMAINS THE POINT. "Your transfer is on its way" with no date is a
+// claim an organizer cannot check: they cannot tell whether the 48 hours they
+// were promised have already run out, which is the single moment at which they
+// should stop waiting and write to us. A processing request always carries the
+// instant — the column pair is tied to the state by a CHECK (migration 045) — so
+// a missing one means a server promise went unkept, and the honest answer to
+// that is to say less rather than to invent a reassurance.
 
 /**
- * The sentence under "Processing": the transfer was sent on a stated date, and
- * can take up to 48 hours to arrive.
- *
- * THE DATE IS THE POINT, and the reason this returns null without one rather
- * than falling back to a dateless sentence. "Your transfer is on its way" with
- * no date is a claim an organizer cannot check: they cannot tell whether the 48
- * hours they were promised have already run out, which is the single moment at
- * which they should stop waiting and write to us. A sentence that cannot be
- * checked is decoration, and decoration is what makes the next one disbelieved.
- *
- * A processing request always has the instant — the column pair is tied to the
- * state by a CHECK (migration 045) — so null here means a status this client was
- * taught about arriving without the field a server promised, and the honest
- * answer to that is to say less rather than to invent a reassurance.
- *
- * formatDate renders a date the way the rest of the page does; the caller owns
- * it, because a second date format in this app would be a second thing to keep
- * in step.
- */
-export function transferSentSentence(
-  transferSubmittedAt: string | null | undefined,
-  formatDate: (date: Date) => string,
-): string | null {
-  if (!transferSubmittedAt) {
-    return null;
-  }
-  const sent = new Date(transferSubmittedAt);
-  if (Number.isNaN(sent.getTime())) {
-    return null;
-  }
-  return (
-    `Your transfer was sent on ${formatDate(sent)}. ` +
-    "It can take up to 48 hours to reach your account, and it can no longer be cancelled."
-  );
-}
-
-/**
- * What the resolution reason MEANS, which depends entirely on which of the two
- * states put it there.
+ * What a resolution reason MEANS, which depends entirely on which of the two
+ * states put it there — and the reason it is a token rather than a sentence.
  *
  * `declined` and `failed` share one column (#182) and must not share one
- * sentence. A decline is a judgement a person at the platform made about this
- * ask; a failure is a bank sending the money back, most often over a typo. An
- * organizer who reads "Declined: the account number was rejected" learns that
- * they were judged and refused, which is false, and it is the kind of false that
- * ends a working relationship rather than producing a support thread.
+ * sentence, IN EITHER LANGUAGE. A decline is a judgement a person at the
+ * platform made about this ask; a failure is a bank sending the money back, most
+ * often over a typo. An organizer who reads "Rechazada: el número de cuenta fue
+ * rechazado" learns that they were judged and refused, which is false, and it is
+ * the kind of false that ends a working relationship rather than producing a
+ * support thread. So there are two catalog keys, `payouts.resolutionDeclined`
+ * and `payouts.resolutionFailed`, and the failure's has no verb with the
+ * platform as its subject in either catalog: the bank acted, the money came
+ * back, nobody decided anything. The Spanish agrees with the notice email that
+ * announced it (backend/internal/platform/email_content.go).
  *
- * So the failure sentence never uses a verb with the platform as its subject.
- * The bank is what acted, the money came back, and nobody decided anything.
- *
- * Returns null when there is nothing to say, including for a reason attached to
- * some state this client has not been taught: showing it under a heading that
- * might be the wrong one is the exact mistake this function exists to prevent.
+ * Null when there is nothing to say, INCLUDING for a reason attached to a state
+ * this client has not been taught: rendering it under a heading that might be
+ * the wrong one is the exact mistake this function exists to prevent. The reason
+ * comes back trimmed, because blank-after-trimming is the same nothing as
+ * missing and the caller must not have to know that twice.
  */
-export function resolutionSentence(status: string, reason: string | null | undefined): string | null {
+export type ResolutionNotice = {
+  kind: "declined" | "failed";
+  reason: string;
+};
+
+export function resolutionNotice(
+  status: string,
+  reason: string | null | undefined,
+): ResolutionNotice | null {
   const trimmed = reason?.trim();
   if (!trimmed) {
     return null;
   }
   if (status === "declined") {
-    return `Declined: ${trimmed}`;
+    return { kind: "declined", reason: trimmed };
   }
   if (status === "failed") {
-    return `The transfer did not reach your account: ${trimmed}`;
+    return { kind: "failed", reason: trimmed };
   }
   return null;
 }
 
-/**
- * What to do about a failed transfer, shown beside the reason it failed.
- *
- * Two facts, in the order an organizer needs them. First that no money moved,
- * because "failed" said between two balances is frightening and the balances are
- * in fact exactly where they were. Then the fix: the bank details are wrong far
- * more often than anything else is, and correcting them is one scroll away on
- * this same page — which is why the button beside this sentence opens the Payout
- * Profile rather than linking somewhere.
- *
- * A failed request is terminal and cannot be retried: the bank details it
- * carries are a frozen snapshot, so a retry would aim at the same rejected
- * account forever (ADR 0026 amendment). "Ask again" is the whole route out, and
- * saying so is what stops an organizer waiting for a retry nobody will make.
- */
-export const TRANSFER_FAILED_NEXT_STEP =
-  "No money left the platform, so your balance is unchanged. " +
-  "A wrong account number is the usual cause — correct it and ask again.";
+// WHAT TO DO ABOUT A FAILED TRANSFER is `payouts.transferFailedNextStep`, beside
+// the reason it failed. It was a constant here and is a constant there, and the
+// two facts it states are still in the order an organizer needs them: first that
+// no money moved, because "failed" said between two balances is frightening and
+// the balances are in fact exactly where they were; then the fix, because a
+// wrong account number is the usual cause and correcting it is one scroll away
+// on the same page. A failed request is terminal and cannot be retried — the
+// bank details it carries are a frozen snapshot, so a retry would aim at the
+// same rejected account forever (ADR 0026 amendment) — which is why "ask again"
+// is the whole route out and why the sentence has to say so.
 
 /**
  * How long an ask has been waiting, in whole days, floored at zero.
@@ -228,41 +223,35 @@ export function daysWaiting(requestedAt: string, now: Date = new Date()): number
 }
 
 /**
- * How long an ask has been waiting, as the queue says it: "Today", "1 day",
- * "12 days".
+ * Why an amount cannot be asked for, as a token — or null when it can.
+ *
+ * Three problems and not two, because the Payable Balance is signed and may be
+ * negative: an Organization settled against money that had not cleared has
+ * nothing to ask for and is owed a positive Withdrawable Balance all the same
+ * (ADR 0026). So `nothing_cleared` is its own state with its own sentence,
+ * rather than a comparison that would read as an absurdity ("you may ask for up
+ * to -$40") in any language.
+ *
+ * The cap itself is NOT returned. The caller already holds the Payable Balance —
+ * it is the argument to this function — and it is the caller that can draw it in
+ * the Organization's currency with the reader's marks, which a module that must
+ * not import a formatter cannot (`payouts.amountProblemAbovePayable` takes it as
+ * an ICU argument).
  */
-export function waitingLabel(requestedAt: string, now: Date = new Date()): string {
-  const days = daysWaiting(requestedAt, now);
-  if (days === 0) {
-    return "Today";
-  }
-  return days === 1 ? "1 day" : `${days} days`;
-}
+export type PayoutRequestAmountProblem = "not_positive" | "nothing_cleared" | "above_payable";
 
-/**
- * Why an amount cannot be asked for, or null when it can.
- *
- * The Payable Balance is signed and may be negative — an Organization settled
- * against money that had not cleared has nothing to ask for and is owed a
- * positive Withdrawable Balance all the same (ADR 0026) — so "nothing has
- * cleared" is its own sentence rather than a comparison that reads as an
- * absurdity ("you may ask for up to -$40").
- *
- * formatCents renders a cents amount in the Organization's currency.
- */
 export function payoutRequestAmountProblem(
   amountCents: number | null,
   payableBalanceCents: number,
-  formatCents: (cents: number) => string,
-): string | null {
+): PayoutRequestAmountProblem | null {
   if (amountCents === null || amountCents <= 0) {
-    return "Enter an amount greater than zero.";
+    return "not_positive";
   }
   if (payableBalanceCents <= 0) {
-    return "Nothing has cleared yet, so there is nothing to request. Sales clear overnight.";
+    return "nothing_cleared";
   }
   if (amountCents > payableBalanceCents) {
-    return `You can request up to ${formatCents(payableBalanceCents)} right now.`;
+    return "above_payable";
   }
   return null;
 }
@@ -305,38 +294,33 @@ export function fulfilmentAmountDefault(amountCents: number): string {
 export const RESOLUTION_REASON_MAX_LENGTH = 500;
 
 /**
- * Why a resolution reason cannot be submitted, or null when it can — the shared
- * body behind the two exports below.
+ * Why a resolution reason cannot be submitted, as a token — or null when it can.
  *
- * The two answers that carry a reason ask for it differently and share
- * everything else. What differs is only the sentence shown when the box is
- * empty, because an operator declining an ask and an operator recording a bank
- * rejection are being asked for different things; what does not differ is the
- * length rule, which is one column's CHECK and must stay one statement of it.
+ * ONE FUNCTION, BECAUSE THERE IS ONE RULE. A decline and a bank failure are
+ * asked for their reason differently, and until #292 that difference lived here
+ * as two wrappers around one body, each carrying its own English sentence for an
+ * empty box. The sentences moved to the catalog, where the difference actually
+ * is — `operator.declineReasonRequired` and `operator.failureReasonRequired` —
+ * and what is left is the rule, which was never two things: the same
+ * `resolution_reason` column, the same CHECK, one statement of it.
  *
  * Blank and whitespace-only are the same failure as missing, because all three
  * reach the organizer as a blank, which is the exact outcome requiring a reason
- * exists to prevent (ADR 0026).
+ * exists to prevent (ADR 0026). The bound comes back as a token and not a
+ * sentence so the catalog can state it with RESOLUTION_REASON_MAX_LENGTH as an
+ * ICU argument, and the constant and the copy cannot drift apart.
  */
-function resolutionReasonProblem(reason: string, whenEmpty: string): string | null {
+export type ResolutionReasonProblem = "missing" | "too_long";
+
+export function resolutionReasonProblem(reason: string): ResolutionReasonProblem | null {
   const trimmed = reason.trim();
   if (!trimmed) {
-    return whenEmpty;
+    return "missing";
   }
   if (trimmed.length > RESOLUTION_REASON_MAX_LENGTH) {
-    return `Keep it under ${RESOLUTION_REASON_MAX_LENGTH} characters.`;
+    return "too_long";
   }
   return null;
-}
-
-/**
- * Why a decline cannot be submitted, or null when it can.
- *
- * A reason is required and the API refuses without one, so this is not a gate —
- * it is the form saying so before a round trip.
- */
-export function declineReasonProblem(reason: string): string | null {
-  return resolutionReasonProblem(reason, "Say why. The organization is shown this.");
 }
 
 /**
@@ -344,25 +328,33 @@ export function declineReasonProblem(reason: string): string | null {
  *
  * Partial fulfilment needs no model of its own (ADR 0026): an operator who
  * transfers less records what moved, the request goes `paid` for the smaller
- * amount, and the divergence is visible on the request forever. This is the
- * sentence that makes it visible at the moment of typing, rather than only
- * afterwards — and it says the consequence, not just the arithmetic, because
+ * amount, and the divergence is visible on the request forever. This is what
+ * makes it visible at the moment of typing rather than only afterwards — and the
+ * sentences it feeds say the consequence and not just the arithmetic, because
  * "the rest is not owed any more" is what an operator would otherwise assume.
  *
- * formatCents renders a cents amount in the organization's currency.
+ * A DIRECTION AND A DIFFERENCE, never a sentence. The difference is drawn by the
+ * caller in the ORGANIZATION's currency — which a module that must not import a
+ * formatter cannot do — and `operator.fulfilmentShort` and `fulfilmentOver` take
+ * it as an ICU argument. The sign is normalised away deliberately: the direction
+ * carries it, and a sentence reading "-$27.94 less" is what a caller doing the
+ * subtraction itself would eventually produce.
  */
+export type FulfilmentDivergence = {
+  direction: "short" | "over";
+  differenceCents: number;
+};
+
 export function fulfilmentDivergence(
   amountCents: number | null,
   requestedCents: number,
-  formatCents: (cents: number) => string,
-): string | null {
+): FulfilmentDivergence | null {
   if (amountCents === null || amountCents === requestedCents) {
     return null;
   }
-  if (amountCents < requestedCents) {
-    return `${formatCents(requestedCents - amountCents)} less than was asked for. The request will be marked paid for what you record, and the organization can ask again for the rest.`;
-  }
-  return `${formatCents(amountCents - requestedCents)} more than was asked for. The request will be marked paid, and the difference stays visible on it.`;
+  return amountCents < requestedCents
+    ? { direction: "short", differenceCents: requestedCents - amountCents }
+    : { direction: "over", differenceCents: amountCents - requestedCents };
 }
 
 // --- the transfer, and the four answers an operator has (#186) --------------
@@ -414,26 +406,16 @@ export function canMarkFailed(status: string): boolean {
   return status === "processing";
 }
 
-/**
- * How long ago the transfer was sent, as a queue row says it: "sent today",
- * "sent 1 day ago", "sent 4 days ago".
- *
- * It reuses the ask's own age arithmetic — whole days, floored at zero — because
- * an operator triaging a backlog reads both figures in the same glance and two
- * different roundings between them would be a puzzle rather than a fact.
- *
- * IT IS NOT THE STALE FLAG AND MUST NOT BECOME ONE. This counts from the
- * VIEWER's clock; the flag is the server's answer, computed against the server's
- * clock and delivered as transfer_stale. A laptop with the wrong date should
- * garble a sentence, never decide whether a transfer is in trouble.
- */
-export function transferSentLabel(submittedAt: string, now: Date = new Date()): string {
-  const days = daysWaiting(submittedAt, now);
-  if (days === 0) {
-    return "sent today";
-  }
-  return days === 1 ? "sent 1 day ago" : `sent ${days} days ago`;
-}
+// HOW LONG AGO THE TRANSFER WAS SENT is `daysWaiting` above and an ICU plural in
+// the catalog — `operator.transferAgeWithReference` and its siblings. It reuses
+// the ask's own age arithmetic, whole days floored at zero, because an operator
+// triaging a backlog reads both figures in the same glance and two different
+// roundings between them would be a puzzle rather than a fact.
+//
+// IT IS NOT THE STALE FLAG AND MUST NOT BECOME ONE. This counts from the
+// VIEWER's clock; the flag is the server's answer, computed against the server's
+// clock and delivered as transfer_stale. A laptop with the wrong date should
+// garble a sentence, never decide whether a transfer is in trouble.
 
 /** The bound on a transfer reference, matching the column's CHECK (migration 045). */
 export const TRANSFER_REFERENCE_MAX_LENGTH = 200;
@@ -446,27 +428,8 @@ export const TRANSFER_REFERENCE_MAX_LENGTH = 200;
  * always hand one back synchronously, and a required field an operator cannot
  * fill is a field they will type "-" into, at which point the column holds noise
  * that looks like data. So the only thing that can be wrong with it is being too
- * long for the column.
+ * long for the column, which is why the one token it can answer is the bound's.
  */
-export function transferReferenceProblem(reference: string): string | null {
-  if (reference.trim().length > TRANSFER_REFERENCE_MAX_LENGTH) {
-    return `Keep it under ${TRANSFER_REFERENCE_MAX_LENGTH} characters.`;
-  }
-  return null;
-}
-
-/**
- * Why a failure reason cannot be submitted, or null when it can.
- *
- * Required, exactly as a decline's is and for a stronger reason. "Failed" tells
- * an organizer nothing; "the account number was rejected" is also the
- * instruction — go and correct the Payout Profile, because this request's copy
- * of it is frozen and the next move is a fresh ask, never a retry of this one
- * (ADR 0026 amendment).
- */
-export function failureReasonProblem(reason: string): string | null {
-  return resolutionReasonProblem(
-    reason,
-    "Say what the bank said. The organization is shown this, and it is what they act on.",
-  );
+export function transferReferenceProblem(reference: string): "too_long" | null {
+  return reference.trim().length > TRANSFER_REFERENCE_MAX_LENGTH ? "too_long" : null;
 }

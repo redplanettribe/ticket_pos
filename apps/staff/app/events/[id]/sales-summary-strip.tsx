@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import { Card, CardContent, Skeleton } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { formatMoney, formatNumber } from "@/lib/format";
 import { fetchSalesSummary, type EventSalesSummary } from "@/lib/sales-api";
 
 import { useSalesRefreshSignal } from "./sales-refresh";
@@ -18,7 +22,14 @@ type SalesSummaryStripProps = {
 // Online Sales have left the Organization once platform costs are out; the
 // platform's cut is never shown as a number (ADR 0014). Rendered only for Org
 // Admins and Event Owners — Event Staff get the Sales list on its own.
+//
+// The amount is drawn in the currency the API states it in and the count with
+// the reader's marks, which is the whole of what the Staff Locale changes here:
+// an organizer switching to Spanish reads the same money, spelled differently.
 export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
+  const t = useTranslations("sales");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [summary, setSummary] = useState<EventSalesSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +49,10 @@ export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
       })
       .catch((fetchError: unknown) => {
         if (!cancelled) {
-          setError(fetchError instanceof Error ? fetchError.message : "Failed to load the summary");
+          setError(
+            (fetchError instanceof ApiError ? apiErrorMessage(errorCopy, fetchError) : null) ??
+              t("summaryLoadFailed"),
+          );
         }
       })
       .finally(() => {
@@ -49,24 +63,25 @@ export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId, refreshSignal]);
 
   return (
     <Card>
       <CardContent className="grid gap-6 py-6 sm:grid-cols-2">
         <Stat
-          label="Net proceeds"
-          hint="What your online sales have earned this Event, after platform costs."
+          label={t("netProceeds")}
+          hint={t("netProceedsHint")}
           loading={loading}
           error={error}
-          value={summary ? formatPriceCents(summary.net_proceeds_cents, summary.currency) : null}
+          value={summary ? formatMoney(summary.net_proceeds_cents, summary.currency, locale) : null}
         />
         <Stat
-          label="Sales"
-          hint="Active Ticket Sales recorded for this Event."
+          label={t("salesCount")}
+          hint={t("salesCountHint")}
           loading={loading}
           error={error}
-          value={summary ? String(summary.sales_count) : null}
+          value={summary ? formatNumber(summary.sales_count, locale) : null}
         />
       </CardContent>
     </Card>
@@ -82,6 +97,7 @@ type StatProps = {
 };
 
 function Stat({ label, hint, loading, error, value }: StatProps) {
+  const t = useTranslations("sales");
   return (
     <div className="space-y-1">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -92,7 +108,9 @@ function Stat({ label, hint, loading, error, value }: StatProps) {
       ) : (
         <p className="text-2xl font-semibold tabular-nums">{value}</p>
       )}
-      <p className="text-xs text-muted-foreground">{error ? `Couldn't load: ${error}` : hint}</p>
+      <p className="text-xs text-muted-foreground">
+        {error ? t("summaryError", { message: error }) : hint}
+      </p>
     </div>
   );
 }

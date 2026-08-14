@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import {
   Badge,
   Button,
@@ -16,30 +17,85 @@ import {
   Label,
   Skeleton,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { formatPriceCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { PLATFORM_TIME_ZONE, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import {
-  channelSourceLabel,
-  downloadSalesExport,
   EMPTY_SALES_FILTERS,
-  fetchSalesList,
-  formatSaleTimestamp,
-  hasActiveSalesFilters,
   PAYMENT_METHODS,
-  paymentMethodLabel,
-  reversalLabel,
-  reversedCountLabel,
-  rollupTicketTypes,
+  SALE_CHANNELS,
+  SALE_SOURCES,
+  downloadSalesExport,
+  exportFieldMessage,
+  fetchSalesList,
+  hasActiveSalesFilters,
+  paymentMethodToken,
+  reversalProvenance,
+  saleChannelToken,
+  saleSourceToken,
   salesListQuery,
-  taxIdLabel,
+  taxIdSnapshot,
+  type PaymentMethod,
+  type ReversalActor,
+  type SaleChannel,
   type SaleListRow,
   type SaleSortDir,
   type SaleSortField,
+  type SaleSource,
   type SalesFilters,
   type SalesListResponse,
+  type TaxIdType,
 } from "@/lib/sales-api";
 
 import { useSalesRefreshSignal } from "./sales-refresh";
+
+/**
+ * The token → catalog key maps for everything lib/sales-api.ts narrows.
+ *
+ * They live in the component and not in lib/ because they are the seam between a
+ * decision and a word, and only this side of it may know about the catalog. They
+ * are `as const` records rather than a template string, so `t()` is called with a
+ * literal key and the compiler still checks it against en.json (global.d.ts) —
+ * `t(\`channel${token}\`)` would type as `string` and silently allow a key that
+ * does not exist.
+ *
+ * Every lookup is `token ? t(KEY[token]) : raw`. A value the backend adds
+ * tomorrow narrows to null and renders as the API's own word, which is the same
+ * floor ADR 0023 puts under an error code this app has not heard of.
+ */
+const CHANNEL_KEYS = {
+  online: "channelOnline",
+  in_person: "channelInPerson",
+  import: "channelImport",
+} as const satisfies Record<SaleChannel, string>;
+
+const SOURCE_KEYS = {
+  direct: "sourceDirect",
+  external_platform: "sourceExternalPlatform",
+} as const satisfies Record<SaleSource, string>;
+
+const PAYMENT_METHOD_KEYS = {
+  cash: "paymentCash",
+  transfer: "paymentTransfer",
+  payphone: "paymentPayphone",
+} as const satisfies Record<PaymentMethod, string>;
+
+const TAX_ID_KEYS = {
+  cedula: "taxIdCedula",
+  ruc: "taxIdRuc",
+  passport: "taxIdPassport",
+} as const satisfies Record<TaxIdType, string>;
+
+const REVERSAL_ACTOR_KEYS = {
+  customer: "actorCustomer",
+  staff: "actorStaff",
+  operator: "actorOperator",
+} as const satisfies Record<ReversalActor, string>;
+
+/** Rendered where a row has nothing to show. Punctuation, in every language. */
+const NOTHING = "—";
 
 // TicketTypeOption is the minimal Ticket Type shape the ticket-type filter needs.
 export type TicketTypeOption = {
@@ -61,7 +117,10 @@ type SalesListProps = {
   // shareable and survives a refresh.
   sort: SaleSortField;
   dir: SaleSortDir;
-  // The Event timezone, used to render sold-at (null falls back to the viewer's).
+  // The Event timezone, which every time in this table is drawn in. Null on an
+  // Event that names none, and then the platform's own clock rather than the
+  // reader's laptop: the Staff Locale decides the marks around a time and
+  // nothing whatever about which clock it is on (ADR 0041).
   timezone: string | null;
   // Whether the viewer may take the Sales Export. Org Admins and Event Owners
   // may; Event Staff may not, and are not shown the button rather than shown one
@@ -85,6 +144,9 @@ export function SalesList({
   timezone,
   canExport,
 }: SalesListProps) {
+  const t = useTranslations("sales");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const router = useRouter();
   const [result, setResult] = useState<SalesListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,7 +173,13 @@ export function SalesList({
       })
       .catch((fetchError: unknown) => {
         if (!cancelled) {
-          setError(fetchError instanceof Error ? fetchError.message : "Failed to load sales");
+          // The API's verdict in this reader's language when the catalog knows
+          // the code, the API's own English beneath that, and this surface's own
+          // sentence when the request never reached the API at all.
+          setError(
+            (fetchError instanceof ApiError ? apiErrorMessage(errorCopy, fetchError) : null) ??
+              t("loadFailed"),
+          );
         }
       })
       .finally(() => {
@@ -182,10 +250,8 @@ export function SalesList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Sales</CardTitle>
-        <CardDescription>
-          Every individual Ticket Sale recorded for this Event. Click a column heading to sort.
-        </CardDescription>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {result ? (
@@ -207,7 +273,7 @@ export function SalesList({
         />
         {error ? (
           <p role="alert" className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
-            Couldn&apos;t load sales: {error}
+            {t("loadError", { message: error })}
           </p>
         ) : loading ? (
           <div className="space-y-2">
@@ -217,9 +283,7 @@ export function SalesList({
           </div>
         ) : !result || result.data.length === 0 ? (
           <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {filtersActive
-              ? "No sales match these filters."
-              : "No sales recorded for this Event yet."}
+            {filtersActive ? t("emptyFiltered") : t("emptyNone")}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -227,14 +291,38 @@ export function SalesList({
               <thead>
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="w-8 py-2 pr-2" />
-                  <SortableHeader label="Customer" field="customer" sort={sort} dir={dir} onSort={toggleSort} />
-                  <th className="py-2 pr-4 font-medium">Tax ID</th>
-                  <th className="py-2 pr-4 font-medium">Ticket types</th>
-                  <SortableHeader label="Amount" field="amount" sort={sort} dir={dir} onSort={toggleSort} />
-                  <SortableHeader label="Sold" field="sold_at" sort={sort} dir={dir} onSort={toggleSort} />
-                  <SortableHeader label="Recorded" field="recorded_at" sort={sort} dir={dir} onSort={toggleSort} />
-                  <th className="py-2 pr-4 font-medium">Channel</th>
-                  <th className="py-2 pr-4 font-medium">Reference</th>
+                  <SortableHeader
+                    label={t("colCustomer")}
+                    field="customer"
+                    sort={sort}
+                    dir={dir}
+                    onSort={toggleSort}
+                  />
+                  <th className="py-2 pr-4 font-medium">{t("colTaxId")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("colTicketTypes")}</th>
+                  <SortableHeader
+                    label={t("colAmount")}
+                    field="amount"
+                    sort={sort}
+                    dir={dir}
+                    onSort={toggleSort}
+                  />
+                  <SortableHeader
+                    label={t("colSold")}
+                    field="sold_at"
+                    sort={sort}
+                    dir={dir}
+                    onSort={toggleSort}
+                  />
+                  <SortableHeader
+                    label={t("colRecorded")}
+                    field="recorded_at"
+                    sort={sort}
+                    dir={dir}
+                    onSort={toggleSort}
+                  />
+                  <th className="py-2 pr-4 font-medium">{t("colChannel")}</th>
+                  <th className="py-2 pr-4 font-medium">{t("colReference")}</th>
                 </tr>
               </thead>
               {result.data.map((sale) => (
@@ -242,6 +330,7 @@ export function SalesList({
                   key={sale.id}
                   sale={sale}
                   timezone={timezone}
+                  locale={locale}
                   expanded={expanded.has(sale.id)}
                   onToggle={() => toggleRow(sale.id)}
                 />
@@ -285,10 +374,10 @@ type ReversedSalesNoticeProps = {
 // strip. Showing them is the status filter the list already has, pre-set — one
 // mechanism, and the resulting view is the ordinary shareable filtered URL.
 function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesNoticeProps) {
-  const label = reversedCountLabel(count);
+  const t = useTranslations("sales");
 
   if (count <= 0) {
-    return <p className="text-xs text-muted-foreground">{label} on this Event.</p>;
+    return <p className="text-xs text-muted-foreground">{t("reversedNoticeNone")}</p>;
   }
 
   return (
@@ -296,9 +385,14 @@ function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesN
       <span>
         {/* "Reversed", never "voided", "cancelled" or "refunded": a Sale
             Reversal is the platform's own word for this, and a Cancelled Event
-            is a different thing entirely (CONTEXT.md). */}
-        <span className="font-medium">{label}</span> on this Event — reversed by a buyer or by a
-        Sale Import undo, no longer counted in the totals.
+            is a different thing entirely (CONTEXT.md). The count is emphasised
+            through a rich-text tag rather than by splitting the sentence in two,
+            so the Spanish is free to put the emphasised part where its own
+            grammar wants it. */}
+        {t.rich("reversedNotice", {
+          count,
+          value: (chunks) => <span className="font-medium">{chunks}</span>,
+        })}
       </span>
       {viewingReversed ? (
         <Button
@@ -308,7 +402,7 @@ function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesN
           className="ml-auto"
           onClick={() => onApply({ status: "active" })}
         >
-          Back to active sales
+          {t("backToActive")}
         </Button>
       ) : (
         <Button
@@ -318,7 +412,7 @@ function ReversedSalesNotice({ count, viewingReversed, onApply }: ReversedSalesN
           className="ml-auto"
           onClick={() => onApply({ status: "reversed" })}
         >
-          Show reversed
+          {t("showReversed")}
         </Button>
       )}
     </div>
@@ -336,6 +430,9 @@ type SortableHeaderProps = {
 // SortableHeader is a column header that toggles the Sales list sort. The active
 // column shows a direction arrow; clicking flips it, clicking another column
 // switches to it. aria-sort exposes the state to assistive tech.
+//
+// `label` arrives translated rather than as a key: the header is one of several
+// things this component is handed, and the surface above owns its own words.
 function SortableHeader({ label, field, sort, dir, onSort }: SortableHeaderProps) {
   const active = sort === field;
   return (
@@ -360,19 +457,6 @@ function SortableHeader({ label, field, sort, dir, onSort }: SortableHeaderProps
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm";
 
-const CHANNEL_OPTIONS = [
-  { value: "online", label: "Online" },
-  { value: "in_person", label: "In person" },
-  { value: "import", label: "Import" },
-];
-
-const SOURCE_OPTIONS = [
-  { value: "direct", label: "Direct" },
-  { value: "external_platform", label: "External platform" },
-];
-
-const PAYMENT_METHOD_OPTIONS = PAYMENT_METHODS;
-
 type SalesFilterBarProps = {
   eventId: string;
   filters: SalesFilters;
@@ -390,6 +474,11 @@ type SalesFilterBarProps = {
 //
 // The Download button lives here, among the filters it obeys, so what pressing
 // it will produce is obvious before it is pressed.
+//
+// The option lists are built from the VALUE sets in lib/sales-api.ts and worded
+// here. That keeps one list of what a Sales Channel can be — the same one the
+// rows narrow against — while the words stay where every other word on this
+// surface is.
 function SalesFilterBar({
   eventId,
   filters,
@@ -400,6 +489,7 @@ function SalesFilterBar({
   dir,
   canExport,
 }: SalesFilterBarProps) {
+  const t = useTranslations("sales");
   const [search, setSearch] = useState(filters.q);
 
   // Keep the search box in sync when the URL changes underneath us (e.g. the
@@ -418,43 +508,45 @@ function SalesFilterBar({
             onApply({ q: search.trim() });
           }}
         >
-          <Label htmlFor="sales-search">Search</Label>
+          <Label htmlFor="sales-search">{t("searchLabel")}</Label>
           <div className="flex gap-2">
             <Input
               id="sales-search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Name, email, Tax ID, or reference"
+              placeholder={t("searchPlaceholder")}
               className="h-9"
             />
             <Button type="submit" variant="outline" size="sm">
-              Search
+              {t("searchAction")}
             </Button>
           </div>
         </form>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-status">Status</Label>
+          <Label htmlFor="sales-status">{t("statusLabel")}</Label>
           <select
             id="sales-status"
             className={SELECT_CLASS}
             value={filters.status}
             onChange={(event) => onApply({ status: event.target.value })}
           >
-            <option value="active">Active</option>
-            <option value="reversed">Reversed</option>
+            <option value="active">{t("statusActive")}</option>
+            <option value="reversed">{t("statusReversed")}</option>
           </select>
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-ticket-type">Ticket type</Label>
+          <Label htmlFor="sales-ticket-type">{t("ticketTypeLabel")}</Label>
           <select
             id="sales-ticket-type"
             className={SELECT_CLASS}
             value={filters.ticketTypeId}
             onChange={(event) => onApply({ ticketTypeId: event.target.value })}
           >
-            <option value="">All ticket types</option>
+            <option value="">{t("allTicketTypes")}</option>
+            {/* A Ticket Type's name is the Organization's own word and reads as
+                coined in both languages — it is data, not copy. */}
             {ticketTypes.map((type) => (
               <option key={type.id} value={type.id}>
                 {type.name}
@@ -464,58 +556,58 @@ function SalesFilterBar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-channel">Channel</Label>
+          <Label htmlFor="sales-channel">{t("channelLabel")}</Label>
           <select
             id="sales-channel"
             className={SELECT_CLASS}
             value={filters.channel}
             onChange={(event) => onApply({ channel: event.target.value })}
           >
-            <option value="">All channels</option>
-            {CHANNEL_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            <option value="">{t("allChannels")}</option>
+            {SALE_CHANNELS.map((channel) => (
+              <option key={channel} value={channel}>
+                {t(CHANNEL_KEYS[channel])}
               </option>
             ))}
           </select>
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-source">Source</Label>
+          <Label htmlFor="sales-source">{t("sourceLabel")}</Label>
           <select
             id="sales-source"
             className={SELECT_CLASS}
             value={filters.source}
             onChange={(event) => onApply({ source: event.target.value })}
           >
-            <option value="">All sources</option>
-            {SOURCE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            <option value="">{t("allSources")}</option>
+            {SALE_SOURCES.map((source) => (
+              <option key={source} value={source}>
+                {t(SOURCE_KEYS[source])}
               </option>
             ))}
           </select>
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-payment-method">Payment method</Label>
+          <Label htmlFor="sales-payment-method">{t("paymentMethodLabel")}</Label>
           <select
             id="sales-payment-method"
             className={SELECT_CLASS}
             value={filters.paymentMethod}
             onChange={(event) => onApply({ paymentMethod: event.target.value })}
           >
-            <option value="">All payment methods</option>
-            {PAYMENT_METHOD_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            <option value="">{t("allPaymentMethods")}</option>
+            {PAYMENT_METHODS.map((method) => (
+              <option key={method} value={method}>
+                {t(PAYMENT_METHOD_KEYS[method])}
               </option>
             ))}
           </select>
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-sold-from">Sold from</Label>
+          <Label htmlFor="sales-sold-from">{t("soldFromLabel")}</Label>
           <Input
             id="sales-sold-from"
             type="date"
@@ -527,7 +619,7 @@ function SalesFilterBar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label htmlFor="sales-sold-to">Sold to</Label>
+          <Label htmlFor="sales-sold-to">{t("soldToLabel")}</Label>
           <Input
             id="sales-sold-to"
             type="date"
@@ -543,7 +635,7 @@ function SalesFilterBar({
         <div className="flex flex-wrap items-center justify-end gap-2">
           {filtersActive ? (
             <Button type="button" variant="ghost" size="sm" onClick={() => onApply(EMPTY_SALES_FILTERS)}>
-              Clear filters
+              {t("clearFilters")}
             </Button>
           ) : null}
           {canExport ? <SalesExportButton eventId={eventId} filters={filters} sort={sort} dir={dir} /> : null}
@@ -568,6 +660,8 @@ type SalesExportButtonProps = {
 // generation can take a moment, and the complaint belongs beside the filters
 // that are the way to fix it.
 function SalesExportButton({ eventId, filters, sort, dir }: SalesExportButtonProps) {
+  const t = useTranslations("sales");
+  const errorCopy = useMessages().errors;
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -577,7 +671,22 @@ function SalesExportButton({ eventId, filters, sort, dir }: SalesExportButtonPro
     try {
       await downloadSalesExport(eventId, filters, sort, dir);
     } catch (downloadError: unknown) {
-      setError(downloadError instanceof Error ? downloadError.message : "Failed to export sales");
+      // Three rungs, in this order and for a reason.
+      //
+      // The FIELD error's own sentence comes first, and it is the one message on
+      // these surfaces that deliberately stays the API's English: the row-cap
+      // refusal names how many sales matched and how many may travel at once,
+      // and those numbers reach this app only inside that prose. A translated
+      // sentence here would be Spanish with the actionable fact deleted, which is
+      // worse for the reader than English with it (ADR 0023's floor exists for
+      // exactly this). Then the catalog by code, then this surface's own words
+      // for a request that never reached the API at all.
+      const apiError = downloadError instanceof ApiError ? downloadError : null;
+      setError(
+        exportFieldMessage(apiError?.details) ??
+          apiErrorMessage(errorCopy, apiError) ??
+          t("exportFailed"),
+      );
     } finally {
       setDownloading(false);
     }
@@ -603,7 +712,7 @@ function SalesExportButton({ eventId, filters, sort, dir }: SalesExportButtonPro
         aria-busy={downloading}
         onClick={handleDownload}
       >
-        {downloading ? "Preparing…" : "Download .xlsx"}
+        {downloading ? t("preparingDownload") : t("downloadXlsx")}
       </Button>
     </>
   );
@@ -612,13 +721,23 @@ function SalesExportButton({ eventId, filters, sort, dir }: SalesExportButtonPro
 type SaleRowsProps = {
   sale: SaleListRow;
   timezone: string | null;
+  locale: ReturnType<typeof toAppLocale>;
   expanded: boolean;
   onToggle: () => void;
 };
 
-function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
-  const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || "—";
+function SaleRows({ sale, timezone, locale, expanded, onToggle }: SaleRowsProps) {
+  const t = useTranslations("sales");
+  // A Customer's name is data and is never translated. The zone is the Event's,
+  // and the platform's clock beneath it — never the reader's machine.
+  const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || NOTHING;
   const reversed = sale.status !== "active";
+  const zone = timezone ?? PLATFORM_TIME_ZONE;
+  const taxId = taxIdSnapshot(sale.tax_id_type, sale.tax_id_number);
+  const channelToken = saleChannelToken(sale.channel);
+  const sourceToken = saleSourceToken(sale.source);
+  const channel = channelToken ? t(CHANNEL_KEYS[channelToken]) : sale.channel;
+  const paymentToken = paymentMethodToken(sale.payment_method);
 
   return (
     <tbody className="border-b last:border-b-0">
@@ -635,19 +754,48 @@ function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
               one shows nothing extra (#117). */}
           {reversed ? (
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="destructive">Reversed</Badge>
+              <Badge variant="destructive">{t("reversedBadge")}</Badge>
               <span className="text-xs text-muted-foreground">
-                {reversalLabel(sale.reversed_at, sale.reversed_by, timezone)}
+                <ReversalProvenanceText sale={sale} zone={zone} locale={locale} />
               </span>
             </div>
           ) : null}
         </td>
-        <td className="py-3 pr-4 whitespace-nowrap">{taxIdLabel(sale.tax_id_type, sale.tax_id_number)}</td>
-        <td className="py-3 pr-4">{rollupTicketTypes(sale.ticket_types)}</td>
-        <td className="py-3 pr-4 tabular-nums">{formatPriceCents(sale.amount_cents, sale.currency)}</td>
-        <td className="py-3 pr-4">{formatSaleTimestamp(sale.sold_at, timezone)}</td>
-        <td className="py-3 pr-4 text-muted-foreground">{formatSaleTimestamp(sale.recorded_at, timezone)}</td>
-        <td className="py-3 pr-4">{channelSourceLabel(sale.channel, sale.source)}</td>
+        <td className="py-3 pr-4 whitespace-nowrap">
+          {taxId
+            ? t("taxIdValue", {
+                type: taxId.token ? t(TAX_ID_KEYS[taxId.token]) : taxId.rawType,
+                number: taxId.number,
+              })
+            : NOTHING}
+        </td>
+        <td className="py-3 pr-4">
+          {sale.ticket_types.length === 0
+            ? NOTHING
+            : sale.ticket_types
+                .map((type) =>
+                  t("ticketTypeQuantity", {
+                    quantity: formatNumber(type.quantity, locale),
+                    name: type.ticket_type_name,
+                  }),
+                )
+                .join(", ")}
+        </td>
+        <td className="py-3 pr-4 tabular-nums">
+          {formatMoney(sale.amount_cents, sale.currency, locale)}
+        </td>
+        <td className="py-3 pr-4">{formatDateTime(sale.sold_at, zone, locale)}</td>
+        <td className="py-3 pr-4 text-muted-foreground">
+          {formatDateTime(sale.recorded_at, zone, locale)}
+        </td>
+        <td className="py-3 pr-4">
+          {sourceToken || sale.source
+            ? t("channelWithSource", {
+                channel,
+                source: sourceToken ? t(SOURCE_KEYS[sourceToken]) : (sale.source ?? ""),
+              })
+            : channel}
+        </td>
         <td className="py-3 pr-4 font-mono text-xs">{sale.confirmation_ref}</td>
       </tr>
       {expanded ? (
@@ -656,14 +804,56 @@ function SaleRows({ sale, timezone, expanded, onToggle }: SaleRowsProps) {
           <td className="py-3 pr-4 text-muted-foreground" colSpan={8}>
             <div className="flex flex-wrap gap-x-8 gap-y-1">
               <span>
-                <span className="font-medium text-foreground">Payment method:</span>{" "}
-                {paymentMethodLabel(sale.payment_method)}
+                <span className="font-medium text-foreground">{t("paymentMethodHeading")}</span>{" "}
+                {paymentToken
+                  ? t(PAYMENT_METHOD_KEYS[paymentToken])
+                  : (sale.payment_method ?? NOTHING)}
               </span>
             </div>
           </td>
         </tr>
       ) : null}
     </tbody>
+  );
+}
+
+/**
+ * How a reversed sale came to be reversed: when, and which side asked.
+ *
+ * Three states rather than a built-up string, because they are three sentences —
+ * and because the moment and the actor sit in a different order in Spanish than
+ * in English, which is precisely what interpolating rather than concatenating is
+ * for. A sale reversed before the platform recorded either half says so plainly
+ * rather than guessing a time: history is never backfilled.
+ */
+function ReversalProvenanceText({
+  sale,
+  zone,
+  locale,
+}: {
+  sale: SaleListRow;
+  zone: string;
+  locale: ReturnType<typeof toAppLocale>;
+}) {
+  const t = useTranslations("sales");
+  const provenance = reversalProvenance(sale.reversed_at, sale.reversed_by);
+
+  if (provenance.state === "unrecorded") {
+    return <>{t("reversalUnrecorded")}</>;
+  }
+  const when = formatDateTime(provenance.at, zone, locale) ?? NOTHING;
+  if (provenance.state === "when") {
+    return <>{when}</>;
+  }
+  return (
+    <>
+      {t("reversalBy", {
+        when,
+        actor: provenance.actorToken
+          ? t(REVERSAL_ACTOR_KEYS[provenance.actorToken])
+          : provenance.rawActor,
+      })}
+    </>
   );
 }
 
@@ -675,6 +865,8 @@ type PaginationControlsProps = {
 };
 
 function PaginationControls({ page, totalPages, total, onGo }: PaginationControlsProps) {
+  const t = useTranslations("sales");
+  const locale = toAppLocale(useLocale());
   const [jumpValue, setJumpValue] = useState("");
 
   function handleJump() {
@@ -688,11 +880,18 @@ function PaginationControls({ page, totalPages, total, onGo }: PaginationControl
   return (
     <div className="flex flex-col gap-3 border-t pt-4 text-sm sm:flex-row sm:items-center sm:justify-between">
       <span className="text-muted-foreground">
-        {total} sale{total === 1 ? "" : "s"} · page {page} of {totalPages}
+        {/* One message, not a count glued to " · page " glued to a number: the
+            plural of "sale" and the word order around the page numbers are both
+            the translator's to decide. */}
+        {t("pageSummary", {
+          count: total,
+          page: formatNumber(page, locale),
+          pages: formatNumber(totalPages, locale),
+        })}
       </span>
       <div className="flex items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => onGo(page - 1)}>
-          Previous
+          {t("previousPage")}
         </Button>
         <Button
           type="button"
@@ -701,7 +900,7 @@ function PaginationControls({ page, totalPages, total, onGo }: PaginationControl
           disabled={page >= totalPages}
           onClick={() => onGo(page + 1)}
         >
-          Next
+          {t("nextPage")}
         </Button>
         {totalPages > 1 ? (
           <form
@@ -717,12 +916,12 @@ function PaginationControls({ page, totalPages, total, onGo }: PaginationControl
               max={totalPages}
               value={jumpValue}
               onChange={(event) => setJumpValue(event.target.value)}
-              placeholder="Page"
+              placeholder={t("jumpPlaceholder")}
               className="h-8 w-20"
-              aria-label="Jump to page"
+              aria-label={t("jumpLabel")}
             />
             <Button type="submit" variant="outline" size="sm">
-              Go
+              {t("jumpGo")}
             </Button>
           </form>
         ) : null}

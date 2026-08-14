@@ -1,5 +1,7 @@
 "use client";
 
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
@@ -22,23 +24,22 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import {
   ApiError,
   dateTimeLocalToISO,
   fetchEventsJSON,
-  formatPriceCents,
   isoToDateTimeLocal,
   parsePriceToCents,
   type TicketType,
 } from "@/lib/events-api";
 import { buyerUnitPriceCents, netProceedsUnitCents, type FeeHandling, type FeeRates } from "@/lib/fees";
-import { promotionErrorMessage, promotionState } from "@/lib/promotions";
+import { formatMoney } from "@/lib/format";
+import { isPromotionErrorCode, promotionState } from "@/lib/promotions";
 import {
   parsePurchaseLimit,
   purchaseLimitFormValue,
   purchaseLimitWireValue,
-  PURCHASE_LIMIT_HINT,
-  PURCHASE_LIMIT_INVALID_MESSAGE,
 } from "@/lib/purchase-limit";
 
 import { TicketTypeCard } from "./ticket-type-card";
@@ -101,6 +102,9 @@ export function TicketTypesSection({
   onTicketTypeCountChange,
   missingWarning,
 }: TicketTypesSectionProps) {
+  const t = useTranslations("ticketTypes");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [loading, setLoading] = useState(true);
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -132,11 +136,14 @@ export function TicketTypesSection({
       setTicketTypes(types);
       onTicketTypeCountChange?.(types.length);
     } catch (loadError) {
-      toast.error(loadError instanceof Error ? loadError.message : "Failed to load ticket types");
+      toast.error(
+        apiErrorMessage(errorCopy, loadError instanceof ApiError ? loadError : null) ??
+          t("loadFailed"),
+      );
     } finally {
       setLoading(false);
     }
-  }, [eventId, onTicketTypeCountChange]);
+  }, [errorCopy, eventId, onTicketTypeCountChange, t]);
 
   useEffect(() => {
     void loadTicketTypes();
@@ -192,18 +199,18 @@ export function TicketTypesSection({
     const priceCents = parsePriceToCents(form.price);
     const capacity = Number.parseInt(form.capacity, 10);
     if (priceCents === null) {
-      toast.error("Enter a valid price");
+      toast.error(t("priceInvalid"));
       return;
     }
     if (!Number.isFinite(capacity) || capacity <= 0) {
-      toast.error("Enter a valid capacity");
+      toast.error(t("capacityInvalid"));
       return;
     }
     // The Purchase Limit is optional, so an empty field is an answer rather than
     // an error and must not go through the capacity guard above.
     const purchaseLimit = parsePurchaseLimit(form.maxPerCustomer);
     if (purchaseLimit.kind === "invalid") {
-      toast.error(PURCHASE_LIMIT_INVALID_MESSAGE);
+      toast.error(t("purchaseLimitInvalid"));
       return;
     }
 
@@ -222,9 +229,12 @@ export function TicketTypesSection({
       setAddOpen(false);
       setForm(emptyForm);
       await loadTicketTypes();
-      toast.success("Ticket type added");
+      toast.success(t("addedToast"));
     } catch (createError) {
-      toast.error(createError instanceof Error ? createError.message : "Failed to add ticket type");
+      toast.error(
+        apiErrorMessage(errorCopy, createError instanceof ApiError ? createError : null) ??
+          t("addFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -239,18 +249,18 @@ export function TicketTypesSection({
     const priceCents = parsePriceToCents(form.price);
     const capacity = Number.parseInt(form.capacity, 10);
     if (priceCents === null) {
-      toast.error("Enter a valid price");
+      toast.error(t("priceInvalid"));
       return;
     }
     if (!Number.isFinite(capacity) || capacity <= 0) {
-      toast.error("Enter a valid capacity");
+      toast.error(t("capacityInvalid"));
       return;
     }
     // Clearing the field lifts the Purchase Limit; lowering or lifting it
     // governs future checkouts only and unmakes no Ticket Sale (ADR 0025).
     const purchaseLimit = parsePurchaseLimit(form.maxPerCustomer);
     if (purchaseLimit.kind === "invalid") {
-      toast.error(PURCHASE_LIMIT_INVALID_MESSAGE);
+      toast.error(t("purchaseLimitInvalid"));
       return;
     }
 
@@ -270,18 +280,19 @@ export function TicketTypesSection({
       setEditTarget(null);
       setForm(emptyForm);
       await loadTicketTypes();
-      toast.success("Ticket type updated");
+      toast.success(t("updatedToast"));
     } catch (updateError) {
       // A List Price edit that would sink to or below a live Promotional Price
       // is rejected: say so on the form, where the price the organizer just
-      // typed still is.
-      const inline =
-        updateError instanceof ApiError ? promotionErrorMessage(updateError.code) : null;
-      if (inline) {
-        setTicketTypeError(inline);
+      // typed still is. The module decides WHICH refusals belong there; the
+      // sentence for each is the catalog's, resolved by the code (ADR 0023).
+      const failure = updateError instanceof ApiError ? updateError : null;
+      const message = apiErrorMessage(errorCopy, failure);
+      if (failure && isPromotionErrorCode(failure.code) && message) {
+        setTicketTypeError(message);
         return;
       }
-      toast.error(updateError instanceof Error ? updateError.message : "Failed to update ticket type");
+      toast.error(message ?? t("updateFailed"));
     } finally {
       setSaving(false);
     }
@@ -296,23 +307,27 @@ export function TicketTypesSection({
     setPromotionError(null);
     const promotionalPriceCents = parsePriceToCents(promotionForm.price);
     if (promotionalPriceCents === null) {
-      setPromotionError("Enter a valid promotional price");
+      setPromotionError(t("promotionPriceInvalid"));
       return;
     }
     if (promotionalPriceCents >= promotionTarget.price_cents) {
+      // The refusal the API would give, said before the request is made — and
+      // said in the API's own words, from the same catalog entry, so the form
+      // and the server never word the same rule two ways.
       setPromotionError(
-        promotionErrorMessage("PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE") ?? "Invalid promotional price",
+        apiErrorMessage(errorCopy, { code: "PROMOTIONAL_PRICE_NOT_BELOW_LIST_PRICE" }) ??
+          t("promotionPriceInvalid"),
       );
       return;
     }
     const endsAt = dateTimeLocalToISO(promotionForm.endsAtLocal, timezone);
     if (endsAt === null) {
-      setPromotionError("Enter the date and time the promotion ends");
+      setPromotionError(t("promotionEndsRequired"));
       return;
     }
     const startsAt = dateTimeLocalToISO(promotionForm.startsAtLocal, timezone);
     if (startsAt !== null && startsAt >= endsAt) {
-      setPromotionError("The promotion must end after it starts");
+      setPromotionError(t("promotionWindowInvalid"));
       return;
     }
 
@@ -334,11 +349,11 @@ export function TicketTypesSection({
       setPromotionTarget(null);
       setPromotionForm(emptyPromotionForm);
       await loadTicketTypes();
-      toast.success("Promotion saved");
+      toast.success(t("promotionSavedToast"));
     } catch (saveError) {
-      const inline = saveError instanceof ApiError ? promotionErrorMessage(saveError.code) : null;
       setPromotionError(
-        inline ?? (saveError instanceof Error ? saveError.message : "Failed to save the promotion"),
+        apiErrorMessage(errorCopy, saveError instanceof ApiError ? saveError : null) ??
+          t("promotionSaveFailed"),
       );
     } finally {
       setSavingPromotion(false);
@@ -360,11 +375,11 @@ export function TicketTypesSection({
       setPromotionTarget(null);
       setPromotionForm(emptyPromotionForm);
       await loadTicketTypes();
-      toast.success("Promotion removed");
+      toast.success(t("promotionRemovedToast"));
     } catch (removeError) {
-      const inline = removeError instanceof ApiError ? promotionErrorMessage(removeError.code) : null;
       setPromotionError(
-        inline ?? (removeError instanceof Error ? removeError.message : "Failed to remove the promotion"),
+        apiErrorMessage(errorCopy, removeError instanceof ApiError ? removeError : null) ??
+          t("promotionRemoveFailed"),
       );
     } finally {
       setSavingPromotion(false);
@@ -383,9 +398,12 @@ export function TicketTypesSection({
       );
       setDeleteTarget(null);
       await loadTicketTypes();
-      toast.success("Ticket type deleted");
+      toast.success(t("deletedToast"));
     } catch (deleteError) {
-      toast.error(deleteError instanceof Error ? deleteError.message : "Failed to delete ticket type");
+      toast.error(
+        apiErrorMessage(errorCopy, deleteError instanceof ApiError ? deleteError : null) ??
+          t("deleteFailed"),
+      );
     }
   }
 
@@ -431,9 +449,18 @@ export function TicketTypesSection({
         }),
       ]);
       await loadTicketTypes();
-      setReorderAnnouncement(`Moved ${ticketType.name} ${direction}`);
+      // Two messages, not one with a direction interpolated: "up" and "down"
+      // are not a value a Spanish sentence can take in the same slot.
+      setReorderAnnouncement(
+        direction === "up"
+          ? t("movedUp", { name: ticketType.name })
+          : t("movedDown", { name: ticketType.name }),
+      );
     } catch (reorderError) {
-      toast.error(reorderError instanceof Error ? reorderError.message : "Failed to reorder ticket types");
+      toast.error(
+        apiErrorMessage(errorCopy, reorderError instanceof ApiError ? reorderError : null) ??
+          t("reorderFailed"),
+      );
     }
   }
 
@@ -443,13 +470,25 @@ export function TicketTypesSection({
   // checkout uses: under pass-on what the buyer is charged, under absorb what
   // the sale leaves the Organization. A Promotional Price is the base price
   // while its window holds, so it reads through exactly the same line.
-  function derivedPriceLine(priceCents: number | null): string | null {
+  function derivedPriceLine(priceCents: number | null, promotional = false): string | null {
     if (priceCents === null) {
       return null;
     }
-    return feeHandling === "pass_on"
-      ? `Buyers will pay ${formatPriceCents(buyerUnitPriceCents("pass_on", priceCents, feeRates), currency)}`
-      : `You'll receive ${formatPriceCents(netProceedsUnitCents("absorb", priceCents, feeRates), currency)} per ticket`;
+    // The Organization's currency, whichever language is being read.
+    if (feeHandling === "pass_on") {
+      const amount = formatMoney(
+        buyerUnitPriceCents("pass_on", priceCents, feeRates),
+        currency,
+        locale,
+      );
+      return promotional ? t("promotionBuyersWillPay", { amount }) : t("buyersWillPay", { amount });
+    }
+    const amount = formatMoney(
+      netProceedsUnitCents("absorb", priceCents, feeRates),
+      currency,
+      locale,
+    );
+    return promotional ? t("promotionYouWillReceive", { amount }) : t("youWillReceive", { amount });
   }
 
   function ticketTypeForm(
@@ -461,7 +500,7 @@ export function TicketTypesSection({
 
     return (
       <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
-        <FormField id={`${idPrefix}-name`} label="Name">
+        <FormField id={`${idPrefix}-name`} label={t("nameLabel")}>
           <Input
             id={`${idPrefix}-name`}
             value={form.name}
@@ -469,7 +508,7 @@ export function TicketTypesSection({
             required
           />
         </FormField>
-        <FormField id={`${idPrefix}-description`} label="Description">
+        <FormField id={`${idPrefix}-description`} label={t("descriptionLabel")}>
           <Textarea
             id={`${idPrefix}-description`}
             value={form.description}
@@ -477,11 +516,11 @@ export function TicketTypesSection({
               setForm((current) => ({ ...current, description: changeEvent.target.value }))
             }
             rows={3}
-            placeholder="Optional details about what this ticket includes"
+            placeholder={t("descriptionPlaceholder")}
           />
         </FormField>
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField id={`${idPrefix}-price`} label={`Price (${currency})`}>
+          <FormField id={`${idPrefix}-price`} label={t("priceLabel", { currency })}>
             <Input
               id={`${idPrefix}-price`}
               type="number"
@@ -492,7 +531,7 @@ export function TicketTypesSection({
               required
             />
           </FormField>
-          <FormField id={`${idPrefix}-capacity`} label="Capacity">
+          <FormField id={`${idPrefix}-capacity`} label={t("capacityLabel")}>
             <Input
               id={`${idPrefix}-capacity`}
               type="number"
@@ -511,8 +550,8 @@ export function TicketTypesSection({
             legitimate unrestricted case (ADR 0025), so nothing is suggested. */}
         <FormField
           id={`${idPrefix}-max-per-customer`}
-          label="Purchase Limit"
-          description={PURCHASE_LIMIT_HINT}
+          label={t("purchaseLimitLabel")}
+          description={t("purchaseLimitHint")}
         >
           <Input
             id={`${idPrefix}-max-per-customer`}
@@ -533,10 +572,10 @@ export function TicketTypesSection({
         ) : null}
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button type="submit" disabled={saving} aria-busy={saving}>
-            {saving ? "Saving..." : "Save ticket type"}
+            {saving ? t("saving") : t("save")}
           </Button>
         </DialogFooter>
       </form>
@@ -555,19 +594,17 @@ export function TicketTypesSection({
     return derivedPriceLine(effectiveCents);
   }
 
-  const promotionDerivedLine = derivedPriceLine(parsePriceToCents(promotionForm.price));
+  const promotionDerivedLine = derivedPriceLine(parsePriceToCents(promotionForm.price), true);
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
         <div>
-          <CardTitle>Ticket types</CardTitle>
-          <CardDescription>
-            Define what you sell for this Event. Prices use your organization currency.
-          </CardDescription>
+          <CardTitle>{t("title")}</CardTitle>
+          <CardDescription>{t("description")}</CardDescription>
         </div>
         <Button type="button" onClick={openAddDialog}>
-          Add ticket type
+          {t("add")}
         </Button>
       </CardHeader>
       <CardContent>
@@ -583,10 +620,10 @@ export function TicketTypesSection({
             role={missingWarning ? "alert" : undefined}
           >
             <p className={`text-sm ${missingWarning ? "text-destructive" : "text-muted-foreground"}`}>
-              No ticket types yet. Add at least one before publishing this Event.
+              {t("empty")}
             </p>
             <Button type="button" className="mt-4" onClick={openAddDialog}>
-              Add ticket type
+              {t("add")}
             </Button>
           </div>
         ) : (
@@ -620,8 +657,8 @@ export function TicketTypesSection({
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add ticket type</DialogTitle>
-            <DialogDescription>Create a purchasable ticket category for this Event.</DialogDescription>
+            <DialogTitle>{t("addDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("addDialogDescription")}</DialogDescription>
           </DialogHeader>
           {ticketTypeForm("add", handleCreate, () => setAddOpen(false))}
         </DialogContent>
@@ -630,10 +667,8 @@ export function TicketTypesSection({
       <Dialog open={editTarget !== null} onOpenChange={(open) => !open && setEditTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit ticket type</DialogTitle>
-            <DialogDescription>
-              Update the details of this ticket category, including its Purchase Limit.
-            </DialogDescription>
+            <DialogTitle>{t("editDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("editDialogDescription")}</DialogDescription>
           </DialogHeader>
           {ticketTypeForm("edit", handleUpdate, () => setEditTarget(null))}
         </DialogContent>
@@ -643,22 +678,25 @@ export function TicketTypesSection({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {promotionTarget?.promotion === null ? "Add promotion" : "Edit promotion"}
+              {promotionTarget?.promotion === null
+                ? t("promotionAddTitle")
+                : t("promotionEditTitle")}
             </DialogTitle>
             <DialogDescription>
-              A promotion sells <strong>{promotionTarget?.name}</strong> at a lower price for a set
-              window. Outside the window the list price of{" "}
-              {promotionTarget
-                ? formatPriceCents(promotionTarget.price_cents, promotionTarget.currency)
-                : ""}{" "}
-              applies again.
+              {t.rich("promotionDialogDescription", {
+                name: promotionTarget?.name ?? "",
+                price: promotionTarget
+                  ? formatMoney(promotionTarget.price_cents, promotionTarget.currency, locale)
+                  : "",
+                em: (chunks) => <strong>{chunks}</strong>,
+              })}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={(event) => void handleSavePromotion(event)}>
             <FormField
               id="promotion-price"
-              label={`Promotional price (${currency})`}
-              description="Must be below the list price. Zero makes the ticket free while the promotion is live."
+              label={t("promotionPriceLabel", { currency })}
+              description={t("promotionPriceHint")}
             >
               <Input
                 id="promotion-price"
@@ -675,8 +713,8 @@ export function TicketTypesSection({
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 id="promotion-starts-at"
-                label={`Starts at (${timezone})`}
-                description="Leave empty to start right away."
+                label={t("promotionStartsLabel", { timezone })}
+                description={t("promotionStartsHint")}
               >
                 <Input
                   id="promotion-starts-at"
@@ -692,8 +730,8 @@ export function TicketTypesSection({
               </FormField>
               <FormField
                 id="promotion-ends-at"
-                label={`Ends at (${timezone})`}
-                description="Required. The list price applies again from this moment."
+                label={t("promotionEndsLabel", { timezone })}
+                description={t("promotionEndsHint")}
               >
                 <Input
                   id="promotion-ends-at"
@@ -710,9 +748,7 @@ export function TicketTypesSection({
               </FormField>
             </div>
             {promotionDerivedLine ? (
-              <p className="text-sm text-muted-foreground">
-                {promotionDerivedLine} while the promotion is live
-              </p>
+              <p className="text-sm text-muted-foreground">{promotionDerivedLine}</p>
             ) : null}
             {promotionError ? (
               <p className="text-sm text-destructive" role="alert">
@@ -731,7 +767,7 @@ export function TicketTypesSection({
                   disabled={savingPromotion}
                   onClick={() => void handleRemovePromotion()}
                 >
-                  Remove promotion
+                  {t("promotionRemove")}
                 </Button>
               ) : null}
               <Button
@@ -740,10 +776,10 @@ export function TicketTypesSection({
                 disabled={savingPromotion}
                 onClick={() => setPromotionTarget(null)}
               >
-                Cancel
+                {t("cancel")}
               </Button>
               <Button type="submit" disabled={savingPromotion} aria-busy={savingPromotion}>
-                {savingPromotion ? "Saving..." : "Save promotion"}
+                {savingPromotion ? t("saving") : t("promotionSave")}
               </Button>
             </DialogFooter>
           </form>
@@ -753,17 +789,20 @@ export function TicketTypesSection({
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete ticket type?</DialogTitle>
+            <DialogTitle>{t("deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              Remove <strong>{deleteTarget?.name}</strong> from this draft Event? This cannot be undone.
+              {t.rich("deleteDialogDescription", {
+                name: deleteTarget?.name ?? "",
+                em: (chunks) => <strong>{chunks}</strong>,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button type="button" variant="destructive" onClick={() => void handleDelete()}>
-              Delete ticket type
+              {t("deleteConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

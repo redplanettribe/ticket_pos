@@ -13,17 +13,23 @@ export {
   type StackedBarDatum,
   type StackedBarSeries,
 } from "./components/charts/stacked-bar-chart";
-export { EventShell } from "./components/event-shell";
+export { EventShell, type EventShellLabels } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
 export { Logo, LogoMark } from "./components/logo";
 export { Markdown } from "./components/markdown";
-export { OperatorShell } from "./components/operator-shell";
+export { OperatorShell, type OperatorShellLabels } from "./components/operator-shell";
 export { OrgAvatar } from "./components/org-avatar";
 export { PlatformMark } from "./components/platform-mark";
 export { PageHeader } from "./components/page-header";
-export { SidebarShell, type SidebarHeaderSlot, type SidebarNavItem } from "./components/sidebar-shell";
-export { StaffShell } from "./components/staff-shell";
+export {
+  SidebarShell,
+  DEFAULT_SIDEBAR_LABELS,
+  type SidebarHeaderSlot,
+  type SidebarLabels,
+  type SidebarNavItem,
+} from "./components/sidebar-shell";
+export { StaffShell, type StaffShellLabels } from "./components/staff-shell";
 export { StorefrontShell } from "./components/storefront-shell";
 export { Alert, AlertDescription, AlertTitle } from "./components/ui/alert";
 export { Badge, badgeVariants } from "./components/ui/badge";
@@ -69,5 +75,23 @@ export { Toaster } from "./components/ui/sonner";
 export { Textarea } from "./components/ui/textarea";
 export { chartSeriesColor } from "./lib/chart-palette";
 export { isNavItemActive, isOnOperatorSurface } from "./lib/nav-active";
-export { eventNavItems } from "./lib/event-nav";
+export {
+  eventNavItems,
+  EVENT_NAV_KEYS,
+  type EventNavEntry,
+  type EventNavKey,
+} from "./lib/event-nav";
+export {
+  operatorNavItems,
+  OPERATOR_NAV_KEYS,
+  type OperatorNavEntry,
+  type OperatorNavKey,
+} from "./lib/operator-nav";
+export {
+  staffNavItems,
+  STAFF_NAV_KEYS,
+  type StaffNavEntry,
+  type StaffNavKey,
+  type StaffNavVisibility,
+} from "./lib/staff-nav";
 export { cn } from "./lib/utils";

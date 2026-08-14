@@ -124,13 +124,17 @@ Never show a bare "No results."
 
 ## Locale and formatting
 
-**Two Locales on the Storefront: English and Ecuadorian Spanish.** Staff is English only.
+**Two languages everywhere: English and Ecuadorian Spanish.** The Storefront names its language in
+the page's address; the staff app reads it off the person signed in, as their **Staff Locale**
+([ADR 0041](../adr/0041-the-staff-locale-is-a-property-of-the-person-not-the-page.md)).
 
 A page's **Locale** is named in its own address (see [CONTEXT.md](../../CONTEXT.md) and
 [storefront.md](./storefront.md)). The URL carries a short token because people read and retype it;
 formatting needs a region, so each token maps to one Intl locale: `en` is `en-US`, `es` is `es-EC`.
 Everything a reader sees formatted — month names, the marks inside numbers, the position of a
-currency symbol — follows the Locale of the page they are on.
+currency symbol — follows the Locale of the page they are on. On staff the same two tokens map to
+the same two Intl locales, read from the reader's Staff Locale rather than from an address, and
+never from their browser.
 
 ### A Locale is not a time zone
 
@@ -150,7 +154,7 @@ language it is written in changes. A Locale may never reach the time zone argume
 |---------|------|
 | Language | Full words in UI copy ("Passcode", not "OTP"); copy is keyed by meaning, so the Spanish is free to word it differently |
 | Currency | The Organization's, never the reader's; `$25` in catalog, `$25.00` on summed totals — under `es` that is `$25,50` |
-| Dates (Staff) | Relative when recent ("Today", "Tomorrow"); otherwise `Mon, Jul 12, 2026`; include time when relevant |
+| Dates (Staff) | Relative when recent ("Today", "Tomorrow" / "Hoy", "Mañana"); otherwise `Mon, Jul 12, 2026` under `en` and `lun, 12 jul 2026` under `es`; include time when relevant |
 | Dates (Storefront) | Event pages, same instant in both Locales: `Saturday, July 11, 2026 · 7:00 PM` under `en`, `sábado, 11 de julio de 2026 · 7:00 p. m.` under `es`. Cards use the compact form: `Sat Jul 11, 7:00 PM` / `sáb 11 jul, 7:00 p. m.` — except under a Timeline Day Bucket header, where the date is the header's to say and the card keeps only the time slot: `7:00 PM` / `7:00 p. m.` |
 | Time zone | The Event's timezone for Event times, Ecuador for a Reversal Window deadline; identical in both Locales, and never derived from the reader |
 | Capacity counts | Thousands separators (`1,250 remaining`); never round in a way that hides sold-out |

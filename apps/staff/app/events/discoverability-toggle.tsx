@@ -1,9 +1,11 @@
 "use client";
 
+import { useMessages, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { Button, toast } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError, setEventDiscoverable } from "@/lib/events-api";
 
 type DiscoverabilityToggleProps = {
@@ -14,6 +16,8 @@ type DiscoverabilityToggleProps = {
 };
 
 export function DiscoverabilityToggle({ eventId, status, discoverable, onChange }: DiscoverabilityToggleProps) {
+  const t = useTranslations("events");
+  const errorCopy = useMessages().errors;
   const [saving, setSaving] = useState(false);
   const published = status === "published";
 
@@ -26,10 +30,11 @@ export function DiscoverabilityToggle({ eventId, status, discoverable, onChange 
     try {
       const updated = await setEventDiscoverable(eventId, next);
       onChange(updated.discoverable);
-      toast.success(next ? "Event is now listed publicly." : "Event is no longer listed.");
+      toast.success(next ? t("nowListedToast") : t("noLongerListedToast"));
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Could not update discoverability";
-      toast.error(message);
+      toast.error(
+        apiErrorMessage(errorCopy, error instanceof ApiError ? error : null) ?? t("listingFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -42,13 +47,13 @@ export function DiscoverabilityToggle({ eventId, status, discoverable, onChange 
       size="sm"
       disabled={!published || saving}
       aria-pressed={discoverable}
-      title={published ? undefined : "Publish the event to make it discoverable."}
+      title={published ? undefined : t("publishToList")}
       onClick={(event) => {
         event.preventDefault();
         void toggle();
       }}
     >
-      {discoverable ? "Listed" : "Not listed"}
+      {discoverable ? t("listed") : t("notListed")}
     </Button>
   );
 }

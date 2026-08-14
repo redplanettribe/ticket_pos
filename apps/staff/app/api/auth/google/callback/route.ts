@@ -11,6 +11,7 @@ import {
   googleSignInConfig,
   statesMatch,
 } from "@/lib/google-signin";
+import { detectedStaffLocale } from "@/lib/request-locale";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/session";
 
 // Reads one cookie and writes two. Never cached, never prerendered.
@@ -75,6 +76,11 @@ export async function GET(request: Request) {
         code,
         code_verifier: pending.codeVerifier,
         redirect_uri: config.redirectUri,
+        // The same write the passcode path makes, on the sign-in method that
+        // never touches the browser again: the API records this as the Staff
+        // Locale only if the person has none (ADR 0041). Both doors must record
+        // it or a Member's language would depend on which one they came through.
+        locale: await detectedStaffLocale(),
       }),
     });
     result = envelope.data;

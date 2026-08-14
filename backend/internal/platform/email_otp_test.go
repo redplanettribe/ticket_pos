@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// TestOTPMessageIsWrittenInEnglish is what a Member reads, and what a Customer
-// reads when nothing named a language. Staff mail is English by decision
-// (ADR 0033), so this is also the assertion that the staff door is unchanged.
+// TestOTPMessageIsWrittenInEnglish is what either door's reader gets when
+// nothing names a language: no Storefront page said one, or nobody at the
+// address has stated a Staff Locale. English is the floor under both chains and
+// under nothing else (ADR 0033, ADR 0041).
 func TestOTPMessageIsWrittenInEnglish(t *testing.T) {
 	message := OTPMessage{Code: "123456", Locale: DefaultLocale}
 

@@ -4,18 +4,17 @@
 
 import { isOutstanding } from "./payout-requests.ts";
 
-/**
- * Renders a payout's paid-at day as the calendar date it is. Parsing
- * "YYYY-MM-DD" with the Date constructor would read it as UTC midnight and show
- * the previous day west of Greenwich, which is where this platform sells.
- */
-export function formatPaidAtDate(paidAt: string): string {
-  const [year, month, day] = paidAt.split("-").map(Number);
-  if (!year || !month || !day) {
-    return paidAt;
-  }
-  return new Date(year, month - 1, day).toLocaleDateString();
-}
+// A PAYOUT'S PAID-AT DAY is `formatCalendarDay(payout.paid_at, locale)` from
+// lib/format.ts, called by the screen that draws it in the reader's Staff Locale
+// (ADR 0041). The English wrapper that used to live here served the Operator
+// Dashboard alone and went with #292, which translated it; before that it ended
+// in a bare `toLocaleDateString()`, which followed the BROWSER's locale rather
+// than any language the application chose.
+//
+// `formatCalendarDay` is separate from `formatDate` for a reason worth keeping
+// in mind at every call site: "YYYY-MM-DD" through the Date constructor is UTC
+// midnight, which is the previous day everywhere west of Greenwich, which is
+// where this platform sells.
 
 /**
  * Reports whether an amount being recorded exceeds the Organization's current

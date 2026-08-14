@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import type { AppLocale } from "@ticket-pos/locale";
 import { StackedBarChart, type StackedBarSeries } from "@ticket-pos/ui";
 
 import {
@@ -30,11 +31,25 @@ type TrendsChartProps = {
   plotWidth: number;
   /** Which figure to plot: tickets sold, or Takings. */
   measure: TrendsMeasure;
+  /**
+   * The reader's Staff Locale, which reaches exactly one thing here: the marks
+   * and the month name on the X axis labels. Which DAY each bar is remains the
+   * API's answer, already resolved into the Event's own timezone.
+   */
+  locale: AppLocale;
   /** Renders a figure exactly, for the tooltip. */
   formatValue: (value: number) => string;
   /** Renders a figure short, for an axis tick. Defaults to `formatValue`. */
   formatTickValue?: (value: number) => string;
   totalLabel: string;
+  /**
+   * What assistive technology is told this chart is. It arrives already worded
+   * rather than being assembled from `title` here: gluing a translated title to
+   * a translated tail is exactly the concatenation that puts English word order
+   * into a Spanish sentence, so the whole sentence is one catalog message the
+   * surface fills in.
+   */
+  ariaLabel: string;
   /** Shared with the other chart so hovering one highlights the same day in the
    * other, and the pair is read as one surface rather than two. */
   syncId?: string;
@@ -64,15 +79,20 @@ export function TrendsChart({
   series,
   plotWidth,
   measure,
+  locale,
   formatValue,
   formatTickValue,
   totalLabel,
+  ariaLabel,
   syncId,
 }: TrendsChartProps) {
   const selected = useMemo(() => series.map((entry) => entry.id), [series]);
   // Recomputed on every chip click and on nothing else: the matrix is already
   // in hand, so filtering and rescaling never touch the network.
-  const data = useMemo(() => trendsSeries(days, selected, measure), [days, selected, measure]);
+  const data = useMemo(
+    () => trendsSeries(days, selected, measure, locale),
+    [days, selected, measure, locale],
+  );
   const yMax = useMemo(() => trendsYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
 
@@ -92,7 +112,7 @@ export function TrendsChart({
         formatTickValue={formatTickValue}
         totalLabel={totalLabel}
         syncId={syncId}
-        ariaLabel={`${title}, one bar per day, stacked by Ticket Type`}
+        ariaLabel={ariaLabel}
       />
     </section>
   );

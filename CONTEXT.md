@@ -8,7 +8,8 @@ A point-of-sale system for organizations to create events, define ticket types, 
 A group such as a promoter, venue, or company that owns Events and has members.
 Has an optional Logo.
 Read as **Organizer** wherever the Storefront speaks to a Customer about one — "events from organizers everywhere", "contact the organizer". The public has no use for the word Organization, and Organizer is the word it has been given on every public page; staff surfaces name the entity Organization, as do identifiers everywhere. This is the Organization seen from outside, not a second concept — so prose may name it Organizer when it is that outside view being discussed — and it does not license calling a Member an organizer, see Event Owner.
-_Avoid_: Account, workspace, team
+In Spanish, **Organización** — and never *Organizador*, which is this same entity's public word and belongs to Customer-facing surfaces alone. The distinction the English holds is the one the Spanish must hold.
+_Avoid_: Account, workspace, team. In Spanish: Organizador, cuenta, espacio de trabajo, equipo
 
 **Logo**:
 An Organization's brand image, set by an Org Admin and shown wherever the Organization is represented to staff or Customers (e.g. the Storefront).
@@ -22,7 +23,8 @@ _Avoid_: Support number, helpline, contact number, WhatsApp link
 
 **Member**:
 A person belonging to an Organization who may hold a role such as Org Admin, Event Owner, or Event Staff.
-_Avoid_: User, account, teammate
+In Spanish, **Miembro**.
+_Avoid_: User, account, teammate. In Spanish: Usuario, integrante, colaborador
 
 **Staff Session**:
 A server-side staff sign-in record tied to an email address.
@@ -39,7 +41,8 @@ _Avoid_: Current user, active org, tenant context
 **Org Admin**:
 A member of an Organization with full authority over all Events in that Organization, including member and event assignment management.
 For now, equivalent in scope to an Event Owner on any single Event.
-_Avoid_: Organization owner, super admin
+In Spanish, **Administrador de la organización**.
+_Avoid_: Organization owner, super admin. In Spanish: Admin, Administrador del organizador, Dueño de la organización
 
 **Event assignment**:
 A grant linking a Member to an Event with a role of Event Owner or Event Staff.
@@ -49,11 +52,13 @@ _Avoid_: Permission, ACL, grant
 **Event Owner**:
 A member with full authority over a specific Event.
 For now, equivalent in scope to an Org Admin within that Event.
-_Avoid_: Organizer, host, creator. Organizer is barred here because it names the whole Organization to the public, never a person holding a role inside one.
+In Spanish, **Responsable del evento**.
+_Avoid_: Organizer, host, creator. Organizer is barred here because it names the whole Organization to the public, never a person holding a role inside one. In Spanish: Organizador, Propietario del evento, Dueño del evento, Anfitrión
 
 **Event Staff**:
 A member granted access to manage an Event's catalog and sell tickets for that Event.
-_Avoid_: Ticket Type Manager, collaborator, delegate
+In Spanish, **Personal del evento**.
+_Avoid_: Ticket Type Manager, collaborator, delegate. In Spanish: Staff del evento, Equipo del evento, Colaborador del evento
 
 **Integration Partner**:
 An external service that manages Events, Ticket Types, and sales on behalf of an Organization.
@@ -76,6 +81,13 @@ The Platform Operator's surface inside the staff app, entered by switching to Pl
 A whole surface, not a single screen: what it holds is spread across pages of its own, and it is the authority that makes them one thing, not the layout.
 Does not exist for non-operators.
 _Avoid_: Admin panel, back office, console
+
+**Staff Locale**:
+The language the staff app is written in, and the language staff mail is written in, for the person signed in. English or Ecuadorian Spanish, the two the Storefront serves, and its Spanish is written in usted as Customer mail is (ADR 0033).
+A property of a person rather than of a page or of a Membership, keyed on the email address staff identity already runs on, so it follows somebody across devices and across Organizations, and a Platform Operator who is a Member of nowhere holds one too. Chosen from a switcher in the app shell — a control about you, not about the Organization — and absent, rather than English, until somebody has stated one.
+One term where the Storefront needs two, because a page cannot reach an email and a person can (ADR 0041): it words the screen and the mail together, so the two can never disagree.
+Decides words and the marks around numbers and dates, and nothing about time or money, under the same rule a Locale follows.
+_Avoid_: Locale (which is the Storefront's page property), Member Locale, staff language, UI language, preferred language
 
 ## Catalog
 
@@ -207,9 +219,10 @@ _Avoid_: Shop, web store, e-commerce site
 
 **Locale**:
 The language-and-region identity a Storefront page is rendered under, carried explicitly in the URL (`/{locale}/...`) so that an address always says which language it serves.
+The Storefront's term and only the Storefront's: what the staff app is written in is a Staff Locale, which is a property of the person signed in rather than of a page and carried in no address (ADR 0041).
 Decides words and the marks around numbers and dates. Decides nothing about time or money: an Event's times are drawn in the Event's own timezone and the Reversal Window's cutoff in Ecuador's, and a Ticket Type's currency is the Organization's — none of them follows the reader's language.
 A page's Locale comes from its address alone, never from the reader's browser or cookies; those only choose which Locale an address naming none redirects to.
-A property of a page, so it cannot reach anything written outside one: mail has no address to carry a Locale, and is written in the recipient's Mail Locale instead.
+A property of a page, so it cannot reach anything written outside one: mail has no address to carry a Locale, and mail to a Customer is written in the recipient's Mail Locale instead.
 _Avoid_: Language (as the whole concept), region, translation, i18n, culture
 
 **Online Sale**:
@@ -530,7 +543,7 @@ The language mail to a Customer is written in, remembered from the Storefront th
 Exists because a Locale is a property of a page's address and mail has no address to carry one. Stands behind the Sale Locale rather than beside it: consulted when the mail is about no sale, or about a sale that named no language.
 Words the sentences of a message, not the names inside it: the Follow Digest is the one mail that names Tags, and it alone names Preset Tags in the Customer's language as a Storefront page would while leaving Custom Tags as coined.
 Belongs to the recipient, not to the reader of a page: switching the Storefront's language does not change it, and only a completed sign-in writes it.
-Reaches no Member and no Platform Operator — staff mail is written in English.
+A Customer's, and a Customer's alone: mail to a Member or a Platform Operator is written in their Staff Locale (ADR 0041).
 _Avoid_: Digest Locale, email language, preferred language, user locale
 
 **Sale Locale**:
