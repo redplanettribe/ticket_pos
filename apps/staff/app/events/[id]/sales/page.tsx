@@ -118,7 +118,11 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
           timezone={timezone}
           canExport={isOwner}
         />
-        {isOwner ? <ImportSalesSection eventId={id} /> : null}
+        {/* The Event's timezone reaches the import history for the same reason
+            it reaches the list: an imported batch happened at a moment, and the
+            moment is drawn on the Event's clock rather than on the reader's
+            machine, whichever language the reader is in (ADR 0041). */}
+        {isOwner ? <ImportSalesSection eventId={id} timezone={timezone} /> : null}
       </div>
     </SalesRefreshProvider>
   );

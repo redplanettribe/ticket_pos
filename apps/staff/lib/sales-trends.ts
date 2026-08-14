@@ -1,6 +1,7 @@
 // Relative (not "@/lib") so the module graph resolves under `node --test` as
 // well as the bundler — the unit tests import this file directly.
-import { fetchEventsJSON, formatPriceCents } from "./events-api.ts";
+import { fetchEventsJSON } from "./events-api.ts";
+import { formatMoney, staffIntlLocale, type AppLocale } from "./format.ts";
 
 /**
  * Sales Trends: how an Event's sales moved, day by day, split by Ticket Type
@@ -140,10 +141,18 @@ export function colorSlotFor(catalog: readonly TrendsTicketType[], id: string): 
  * bar it was removed from. A day with no sales keeps its slot with zeros, so a
  * quiet fortnight reads as a quiet fortnight rather than as two adjacent bars.
  */
+/**
+ * The `locale` argument is the reader's Staff Locale, and it reaches exactly one
+ * thing: the axis label's marks and month name. It is a plain value rather than
+ * a `t` or a catalog — this module has no sentences left to say — so the fast
+ * test runner still sees a pure transform and the tests below pin both languages
+ * against each other.
+ */
 export function trendsSeries(
   days: readonly TrendsDay[],
   selected: readonly string[],
   measure: TrendsMeasure,
+  locale: AppLocale,
 ): TrendsDatum[] {
   return days.map((day) => {
     const values: Record<string, number> = {};
@@ -163,7 +172,7 @@ export function trendsSeries(
       values[line.ticket_type_id] += value;
       total += value;
     }
-    return { key: day.date, label: formatTrendsDay(day.date), values, total };
+    return { key: day.date, label: formatTrendsDay(day.date, locale), values, total };
   });
 }
 
@@ -243,12 +252,18 @@ export function trendsYMax(data: readonly TrendsDatum[]): number {
  * formatTakings renders a Takings figure exactly, in the Organization's
  * currency — what the tooltip shows, where the reader came for a precise number.
  *
- * It is the staff app's one money formatter (`formatPriceCents`), the same one
- * the Sales tab's Net Proceeds strip uses, so the two surfaces can differ in
- * what they count but never in how they spell it.
+ * It is `lib/format.ts`'s `formatMoney`, the same one the Sales tab's Net
+ * Proceeds strip uses, so the two surfaces can differ in what they count but
+ * never in how they spell it.
+ *
+ * `currency` and `locale` are separate arguments and neither is derived from the
+ * other, which is the rule stated by shape: the reader's language decides where
+ * the symbol sits and which mark groups the thousands, and it decides nothing
+ * whatever about WHICH currency this is. Takings are in the Organization's,
+ * whichever language the reader picked.
  */
-export function formatTakings(cents: number, currency: string): string {
-  return formatPriceCents(cents, currency);
+export function formatTakings(cents: number, currency: string, locale: AppLocale): string {
+  return formatMoney(cents, currency, locale);
 }
 
 /**
@@ -260,8 +275,14 @@ export function formatTakings(cents: number, currency: string): string {
  * would run out of it. The exact figure is a hover away, which is the right
  * place for it — an axis is read at a glance and a tooltip is read on purpose.
  */
-export function formatTakingsTick(cents: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, {
+export function formatTakingsTick(cents: number, currency: string, locale: AppLocale): string {
+  // The one `Intl` call on these surfaces lib/format.ts does not wrap — compact
+  // currency notation is a shape nothing else asks for — so it takes its tag from
+  // `staffIntlLocale` rather than writing "es-EC" down a second time. What it must
+  // never do is pass `undefined`, which is what it did before #289 and which
+  // follows the BROWSER: a Spanish-speaking organizer on an English laptop read
+  // an axis nothing in this application had chosen the marks for.
+  return new Intl.NumberFormat(staffIntlLocale(locale), {
     style: "currency",
     currency,
     notation: "compact",
@@ -273,19 +294,28 @@ export function formatTakingsTick(cents: number, currency: string): string {
 }
 
 /**
- * formatTrendsDay renders "2026-08-01" as "Aug 1" for the X axis and tooltip.
+ * formatTrendsDay renders "2026-08-01" as "Aug 1" — "1 ago" in Spanish — for the
+ * X axis and the tooltip.
  *
- * The date arrives already resolved into the Event's timezone by the API, so it
- * is formatted in UTC on purpose: re-reading it in the viewer's zone is what
+ * Two things are true of this value at once and both are load-bearing. It is a
+ * CALENDAR DAY, already resolved into the Event's timezone by the API, so it is
+ * read and drawn in UTC on purpose: re-reading it in the viewer's zone is what
  * would slide a bar onto the wrong day, which is exactly the bug the Event
- * timezone bucketing exists to prevent.
+ * timezone bucketing exists to prevent. And it is read by a person, so its month
+ * name and its ordering are the reader's — hence the tag from `staffIntlLocale`
+ * rather than the `undefined` that silently meant "the browser's" before #289.
+ *
+ * Deliberately not `formatCalendarDay` from lib/format.ts, which is the same
+ * idea with the year on it. An axis tick is drawn every few pixels across a span
+ * that can run to a year, and "Aug 1, 2026" repeated across it is unreadable —
+ * the year is the one part of the date the surrounding span already states.
  */
-export function formatTrendsDay(date: string): string {
+export function formatTrendsDay(date: string, locale: AppLocale): string {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) {
     return date;
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(staffIntlLocale(locale), {
     month: "short",
     day: "numeric",
     timeZone: "UTC",

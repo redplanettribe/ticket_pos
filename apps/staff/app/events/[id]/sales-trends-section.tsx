@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
@@ -18,8 +19,11 @@ import {
   type ChartLegendChip,
   type StackedBarSeries,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { reversedCountLabel } from "@/lib/sales-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { formatNumber } from "@/lib/format";
 import {
   colorSlotFor,
   drawnTicketTypes,
@@ -38,9 +42,6 @@ type SalesTrendsSectionProps = {
   eventId: string;
 };
 
-/** Tickets are whole things; the axis and the tooltip both count them plainly. */
-const formatTickets = (value: number) => new Intl.NumberFormat().format(value);
-
 /**
  * The Sales Trends surface: how this Event's sales moved, day by day, split by
  * Ticket Type.
@@ -51,8 +52,17 @@ const formatTickets = (value: number) => new Intl.NumberFormat().format(value);
  * selection (#277) — a selection held inside a chart could only ever filter that
  * chart, and keeping two of them in sync is exactly the bug the shared state
  * avoids.
+ *
+ * Every figure it draws goes through lib/format.ts in the reader's Staff Locale,
+ * and every figure it draws is stated in facts the reader's language has no vote
+ * in: Takings in the currency the API named, and each bar on the calendar day the
+ * API already resolved into the EVENT's timezone. A Spanish reader sees the same
+ * day and the same money as an English one, with Spanish marks on both.
  */
 export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
+  const t = useTranslations("trends");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [trends, setTrends] = useState<SalesTrends | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,7 +84,10 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : "Failed to load sales trends");
+          setLoadError(
+            (error instanceof ApiError ? apiErrorMessage(errorCopy, error) : null) ??
+              t("loadFailed"),
+          );
         }
       })
       .finally(() => {
@@ -85,6 +98,7 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   const catalog = useMemo(() => trends?.ticket_types ?? [], [trends]);
@@ -103,6 +117,8 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
     [catalog],
   );
 
+  // A Ticket Type's name is the Organization's own word: it is data, and reads
+  // as coined in both languages.
   const chips: ChartLegendChip[] = useMemo(
     () => catalog.map((type) => ({ id: type.id, label: type.name, color: colorOf(type.id) })),
     [catalog, colorOf],
@@ -130,18 +146,15 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Trends</CardTitle>
-        <CardDescription>
-          How this Event has sold, day by day, in the Event&apos;s own timezone. Reversed sales are
-          left out, as they are everywhere else.
-        </CardDescription>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
           <Skeleton className="h-80 w-full" />
         ) : loadError ? (
           <Alert variant="destructive">
-            <AlertTitle>Could not load sales trends</AlertTitle>
+            <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
             <AlertDescription>{loadError}</AlertDescription>
           </Alert>
         ) : !trends ? null : (
@@ -152,21 +165,24 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
                   chips={chips}
                   selected={selected}
                   onToggle={onToggle}
-                  ariaLabel="Ticket Types drawn on the chart"
+                  ariaLabel={t("chipsLabel")}
                 />
-                <TrendsCharts trends={trends} series={series} />
+                <TrendsCharts trends={trends} series={series} locale={locale} />
               </>
             ) : (
               <EmptyState />
             )}
             {/* Stated whether or not there is a chart: an Event whose every sale
                 was reversed has nothing to plot, and "no sales yet" on its own
-                would be a lie the reader could not check. */}
+                would be a lie the reader could not check.
+
+                Two whole messages rather than a count with a clause glued after
+                it: the sentence about a quiet Event is not the reversed sentence
+                minus its tail, and in Spanish it is not even the same shape. */}
             <p className="text-xs text-muted-foreground">
-              {reversedCountLabel(trends.reversed_count)}
               {trends.reversed_count > 0
-                ? " — left out of every figure here, which is why a day can be smaller than you remember."
-                : "."}
+                ? t("reversedNotice", { count: trends.reversed_count })
+                : t("reversedNone")}
             </p>
           </>
         )}
@@ -195,62 +211,69 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
  * pointer in the upper chart would sooner or later stop being the day under it
  * in the lower one. One window has one offset and cannot disagree with itself.
  */
-function TrendsCharts({ trends, series }: { trends: SalesTrends; series: StackedBarSeries[] }) {
+function TrendsCharts({
+  trends,
+  series,
+  locale,
+}: {
+  trends: SalesTrends;
+  series: StackedBarSeries[];
+  locale: AppLocale;
+}) {
+  const t = useTranslations("trends");
   const plotWidth = trendsPlotWidth(trends.days.length);
+  const ticketsTitle = t("ticketsTitle");
+  const takingsTitle = t("takingsTitle");
   return (
     <div className="space-y-2">
-      <ChartScrollArea ariaLabel="Sales Trends charts — scroll sideways to move through the Event's selling period">
+      <ChartScrollArea ariaLabel={t("scrollLabel")}>
         <div className="w-max space-y-6">
           <TrendsChart
-            title="Tickets sold"
-            description="How much stock moved each day, stacked by Ticket Type."
+            title={ticketsTitle}
+            description={t("ticketsDescription")}
             days={trends.days}
             series={series}
             plotWidth={plotWidth}
             measure="quantity"
-            formatValue={formatTickets}
-            totalLabel="Total tickets"
+            locale={locale}
+            // Tickets are whole things; the axis and the tooltip both count them
+            // plainly, with the reader's own thousands mark and nobody else's.
+            formatValue={(value) => formatNumber(value, locale)}
+            totalLabel={t("ticketsTotal")}
+            ariaLabel={t("chartLabel", { title: ticketsTitle })}
             syncId={TRENDS_SYNC_ID}
           />
           <TrendsChart
-            title="Takings"
-            description="What this Event made each day, stacked by Ticket Type."
+            title={takingsTitle}
+            description={t("takingsDescription")}
             days={trends.days}
             series={series}
             plotWidth={plotWidth}
             measure="takings_cents"
-            formatValue={(value) => formatTakings(value, trends.currency)}
-            formatTickValue={(value) => formatTakingsTick(value, trends.currency)}
-            totalLabel="Total takings"
+            locale={locale}
+            formatValue={(value) => formatTakings(value, trends.currency, locale)}
+            formatTickValue={(value) => formatTakingsTick(value, trends.currency, locale)}
+            totalLabel={t("takingsTotal")}
+            ariaLabel={t("chartLabel", { title: takingsTitle })}
             syncId={TRENDS_SYNC_ID}
           />
         </div>
       </ChartScrollArea>
       {/* Beneath the scrolling window rather than inside it. A paragraph laid out
           across a plot several thousand pixels wide would be one very long line
-          the reader had to scroll to finish, and this one is here to be read. */}
-      <p className="text-xs text-muted-foreground">{TAKINGS_NOTE}</p>
+          the reader had to scroll to finish, and this one is here to be read.
+
+          Why it exists: Takings counts every Sales Channel and Net proceeds
+          counts online alone (ADR 0040), so on any Event that sold at the door or
+          imported its history the two figures differ — correctly, and by a lot.
+          Somebody meeting that unlabelled files a bug. */}
+      <p className="text-xs text-muted-foreground">{t("takingsNote")}</p>
     </div>
   );
 }
 
 /** Ties the two charts' hover together. One value, used twice, on purpose. */
 const TRENDS_SYNC_ID = "sales-trends";
-
-/**
- * Why this chart's total is bigger than the one on the Sales tab.
- *
- * Takings counts every Sales Channel and Net proceeds counts online alone
- * (ADR 0040), so on any Event that sold at the door or imported its history the
- * two figures differ — correctly, and by a lot. Somebody meeting that unlabelled
- * files a bug. This says which figure is which and leaves it at that: the note
- * is here to make the gap legible, not to teach anyone the platform's costs.
- */
-const TAKINGS_NOTE =
-  "Takings is what the Event made wherever it sold — online, at the door, and in any sales you imported. " +
-  "Net proceeds on the Sales tab counts your online sales alone, so the two figures are answering different " +
-  "questions and a bigger number here is the rest of your selling showing up. Free Ticket Types move stock " +
-  "without earning anything, so they stack in the chart above and add nothing to this one.";
 
 /**
  * What an Event with nothing to chart is told.
@@ -262,14 +285,11 @@ const TAKINGS_NOTE =
  * leaving the reader to wonder whether the tab is failing.
  */
 function EmptyState() {
+  const t = useTranslations("trends");
   return (
     <div className="rounded-md border border-dashed px-6 py-12 text-center">
-      <p className="text-sm font-medium">No sales to chart yet</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        This Event has not sold a ticket, so there is nothing to plot. Trends fills in as sales
-        arrive — and an Event that sends its audience elsewhere to register never sells one here, so
-        it stays empty on purpose.
-      </p>
+      <p className="text-sm font-medium">{t("emptyTitle")}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{t("emptyBody")}</p>
     </div>
   );
 }

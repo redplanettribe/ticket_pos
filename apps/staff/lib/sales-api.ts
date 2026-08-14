@@ -243,19 +243,31 @@ type ExportErrorEnvelope = {
   };
 } | null;
 
-// salesExportErrorMessage is what the person is shown when an export is refused.
+// exportFieldMessage is the field error's own sentence on a refused export, or
+// null when the refusal carried none.
 //
-// It prefers the FIELD error's message over the envelope's own. That is not a
-// cosmetic preference: the row-cap refusal is a VALIDATION_FAILED, whose
+// It exists so the call site can PREFER it over everything else, and that is not
+// a cosmetic preference: the row-cap refusal is a VALIDATION_FAILED, whose
 // top-level message is the generic "Request validation failed", while the
 // sentence that actually helps — how many sales matched, how many may be
 // downloaded at once, and to narrow the filters — is the field error underneath
 // it. Reading only the top level would replace the one useful message in the
 // feature with boilerplate, and the cap is only survivable because the person is
 // told which lever to pull.
-export function salesExportErrorMessage(envelope: ExportErrorEnvelope): string {
-  const fieldMessage = envelope?.error?.details?.fields?.find((f) => f?.message)?.message;
-  return fieldMessage ?? envelope?.error?.message ?? "Failed to export sales";
+//
+// It stays the API's ENGLISH sentence rather than becoming a catalog key, and
+// that is a deliberate trade rather than an oversight. The two numbers in it —
+// how many matched and how many may travel — reach the app only inside the
+// prose; the field error carries no `details` for `apiErrorMessage` to fill a
+// Spanish sentence from. A translated "narrow your filters" would therefore be a
+// Spanish sentence with the one actionable fact deleted, and ADR 0023's floor
+// exists exactly for a refusal the catalog cannot state as well as the API can.
+export function exportFieldMessage(details: unknown): string | null {
+  if (typeof details !== "object" || details === null) return null;
+  const fields = (details as { fields?: { message?: string }[] }).fields;
+  if (!Array.isArray(fields)) return null;
+  const message = fields.find((field) => field?.message)?.message;
+  return typeof message === "string" && message.trim() !== "" ? message : null;
 }
 
 export async function downloadSalesExport(
@@ -267,7 +279,15 @@ export async function downloadSalesExport(
   const response = await fetch(salesExportPath(eventId, filters, sort, dir));
   if (!response.ok) {
     const envelope = (await response.json().catch(() => null)) as ExportErrorEnvelope;
-    throw new ApiError(salesExportErrorMessage(envelope), envelope?.error?.code);
+    // The envelope is re-thrown whole — message, code and details — rather than
+    // pre-worded here. Choosing the sentence is the call site's job now: it
+    // reads `exportFieldMessage` first, then the catalog by code, then its own
+    // copy, and none of those three answers can be spelled in lib/.
+    throw new ApiError(
+      envelope?.error?.message ?? "",
+      envelope?.error?.code,
+      envelope?.error?.details as Record<string, unknown> | undefined,
+    );
   }
 
   const blob = await response.blob();
@@ -290,130 +310,138 @@ export async function fetchSalesSummary(eventId: string): Promise<EventSalesSumm
   return fetchEventsJSON<EventSalesSummary>(`/api/events/${eventId}/sales/summary`);
 }
 
-// rollupTicketTypes renders a sale's Ticket Types as "2× GA, 1× VIP".
-export function rollupTicketTypes(ticketTypes: SaleTicketType[]): string {
-  if (ticketTypes.length === 0) {
-    return "—";
-  }
-  return ticketTypes.map((t) => `${t.quantity}× ${t.ticket_type_name}`).join(", ");
-}
+/* ────────────────────────────────────────────────────────────────────────────
+ * TOKENS, NOT SENTENCES.
+ *
+ * Everything below used to hand the Sales list finished English: "In person",
+ * "Cédula: 1712345678", "3 reversed sales", "Jul 7, 2026, 12:00 by Customer".
+ * It now answers WHICH of a closed set of things is true and hands the facts
+ * over, and messages/{en,es}.json says it in the reader's language (ADR 0041).
+ *
+ * The shape is the same one everywhere: a value the API sends is narrowed to a
+ * token this app has a key for, or to null when it is a value this app has never
+ * heard of. Null is the interesting half — a Sales Channel added by the backend
+ * tomorrow must render as its raw value rather than as a blank cell, which is
+ * the same floor ADR 0023 puts under an unknown error code — so the caller reads
+ * `token ? t(KEY[token]) : raw`.
+ *
+ * Nothing here imports the catalog and nothing is handed a `t`, so this module
+ * stays free of React and of the i18n runtime and `sales-api.test.ts` asserts a
+ * decision rather than prose a copy edit would break.
+ * ──────────────────────────────────────────────────────────────────────────── */
 
-const CHANNEL_LABELS: Record<string, string> = {
-  online: "Online",
-  in_person: "In person",
-  import: "Import",
-};
+/** The Sales Channels a Ticket Sale can be recorded on. */
+export const SALE_CHANNELS = ["online", "in_person", "import"] as const;
+export type SaleChannel = (typeof SALE_CHANNELS)[number];
 
-const SOURCE_LABELS: Record<string, string> = {
-  direct: "Direct",
-  external_platform: "External platform",
-};
+/** Where a sale on its channel came from. Absent on most channels. */
+export const SALE_SOURCES = ["direct", "external_platform"] as const;
+export type SaleSource = (typeof SALE_SOURCES)[number];
 
 // The one place the Payment Method value set is spelled out for the staff app:
-// the filter options and the row-detail labels both read from it.
-export const PAYMENT_METHODS = [
-  { value: "cash", label: "Cash" },
-  { value: "transfer", label: "Transfer" },
-  { value: "payphone", label: "PayPhone" },
-] as const;
+// the filter options and the row-detail labels both read from it. Values only —
+// what each is called on screen is `sales.paymentCash` and its siblings.
+export const PAYMENT_METHODS = ["cash", "transfer", "payphone"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-const PAYMENT_METHOD_LABELS: Record<string, string> = Object.fromEntries(
-  PAYMENT_METHODS.map((method) => [method.value, method.label]),
-);
+/**
+ * The Tax ID Types a sale can have been transacted under.
+ *
+ * Their names are Spanish in BOTH catalogs — Cédula, RUC, Pasaporte — because
+ * they name Ecuadorian documents the buyer physically hands over, and an English
+ * reader looking for a match against a passport is still looking at a document
+ * that says "Cédula" on it. That is a fact about the world rather than a
+ * translation gap, which is why the two catalogs agreeing here is correct.
+ */
+export const TAX_ID_TYPES = ["cedula", "ruc", "passport"] as const;
+export type TaxIdType = (typeof TAX_ID_TYPES)[number];
 
-// channelSourceLabel renders the channel and (when present) source as
-// "Import · Direct".
-export function channelSourceLabel(channel: string, source: string | null): string {
-  const channelLabel = CHANNEL_LABELS[channel] ?? channel;
-  if (!source) {
-    return channelLabel;
-  }
-  const sourceLabel = SOURCE_LABELS[source] ?? source;
-  return `${channelLabel} · ${sourceLabel}`;
+// Who caused a Sale Reversal: the buyer undoing their own Online Sale inside the
+// Reversal Window, their own staff undoing a Sale Import, or the platform
+// recording a refund it made off-platform at the organization's request. The two
+// answers a reversed row has to give are when and which side — and nothing of
+// the platform's own money memo, which is operator-facing only (#125).
+export const REVERSAL_ACTORS = ["customer", "staff", "operator"] as const;
+export type ReversalActor = (typeof REVERSAL_ACTORS)[number];
+
+/** narrow is the shared shape: a known value becomes a token, anything else null. */
+function narrow<T extends string>(known: readonly T[], value: string | null | undefined): T | null {
+  return value != null && (known as readonly string[]).includes(value) ? (value as T) : null;
 }
 
-// The Tax ID Type labels an organizer reads on the Sales list. Spanish for the
-// identifier names, because that is what is printed on the documents the buyer
-// hands over — the same labels the Storefront checkout shows the buyer
-// (apps/storefront/lib/tax-id.ts), mirrored here because the two apps share no
-// domain package.
-const TAX_ID_TYPE_LABELS: Record<string, string> = {
-  cedula: "Cédula",
-  ruc: "RUC",
-  passport: "Pasaporte",
+/** Which Sales Channel a row was sold on, or null for one this app cannot name. */
+export function saleChannelToken(channel: string | null): SaleChannel | null {
+  return narrow(SALE_CHANNELS, channel);
+}
+
+/** Which source a row carries, or null when it has none this app can name. */
+export function saleSourceToken(source: string | null): SaleSource | null {
+  return narrow(SALE_SOURCES, source);
+}
+
+/** Which Payment Method a row was taken by, or null for one this app cannot name. */
+export function paymentMethodToken(paymentMethod: string | null): PaymentMethod | null {
+  return narrow(PAYMENT_METHODS, paymentMethod);
+}
+
+/**
+ * A sale's Tax ID snapshot, or null on a sale recorded without one.
+ *
+ * Null on either half rather than half a Tax ID: a type without a number names
+ * nothing and a number without a type is not confirmable against a document.
+ * History is shown as it is and never backfilled (ADR 0016), so the caller
+ * renders a plain dash rather than a placeholder.
+ */
+export type TaxIdSnapshot = {
+  /** The Type as a key this app has copy for, or null for one it has not. */
+  token: TaxIdType | null;
+  /** The Type exactly as the API stated it — what a null token falls back to. */
+  rawType: string;
+  /** The number, unmasked: an organizer confirms a search match against it and
+   * copies it into a declaration. */
+  number: string;
 };
 
-// taxIdLabel renders a sale's Tax ID snapshot as "Cédula: 1712345678" — the
-// type as a human label with the number, unmasked, so an organizer can confirm
-// a search match and copy the number for a declaration. A sale recorded without
-// one renders a plain "—": history is shown as it is, never backfilled.
-export function taxIdLabel(taxIdType: string | null, taxIdNumber: string | null): string {
+export function taxIdSnapshot(
+  taxIdType: string | null,
+  taxIdNumber: string | null,
+): TaxIdSnapshot | null {
   if (!taxIdType || !taxIdNumber) {
-    return "—";
+    return null;
   }
-  return `${TAX_ID_TYPE_LABELS[taxIdType] ?? taxIdType}: ${taxIdNumber}`;
+  return { token: narrow(TAX_ID_TYPES, taxIdType), rawType: taxIdType, number: taxIdNumber };
 }
 
-// paymentMethodLabel renders a payment method for the row-detail expand.
-export function paymentMethodLabel(paymentMethod: string | null): string {
-  if (!paymentMethod) {
-    return "—";
-  }
-  return PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod;
-}
+/**
+ * What a reversed sale can say about how it came to be reversed.
+ *
+ * Three states rather than a nullable pair, because they are three different
+ * sentences and the component should not be re-deriving which one applies:
+ *
+ * - `unrecorded` — reversed before the platform recorded either half (#117).
+ *   It says so plainly rather than guessing a time.
+ * - `when` — the moment is known and the side is not.
+ * - `whenAndWho` — both, the ordinary case.
+ */
+export type ReversalProvenance =
+  | { state: "unrecorded" }
+  | { state: "when"; at: string }
+  | { state: "whenAndWho"; at: string; actorToken: ReversalActor | null; rawActor: string };
 
-// Who caused a Sale Reversal, as an organizer reads it: the buyer undoing their
-// own Online Sale inside the Reversal Window, their own staff undoing a Sale
-// Import, or the platform recording a refund it made off-platform at the
-// organization's request. The two answers a reversed row has to give are when
-// and which side — and nothing of the platform's own money memo, which is
-// operator-facing only (#125).
-const REVERSAL_ACTOR_LABELS: Record<string, string> = {
-  customer: "Customer",
-  staff: "Staff",
-  operator: "The platform",
-};
-
-// reversalLabel renders a reversed sale's provenance as "Jul 7, 2026, 12:00 by
-// Customer". A sale reversed before the platform recorded either half has none,
-// and says so plainly rather than guessing a time — history is never backfilled.
-export function reversalLabel(
+export function reversalProvenance(
   reversedAt: string | null,
   reversedBy: string | null,
-  timezone: string | null,
-): string {
+): ReversalProvenance {
   if (!reversedAt) {
-    return "Not recorded";
+    return { state: "unrecorded" };
   }
-  const when = formatSaleTimestamp(reversedAt, timezone);
   if (!reversedBy) {
-    return when;
+    return { state: "when", at: reversedAt };
   }
-  return `${when} by ${REVERSAL_ACTOR_LABELS[reversedBy] ?? reversedBy}`;
-}
-
-// reversedCountLabel states how many of the Event's Ticket Sales are reversed.
-// An Event that has never had one says so plainly rather than showing a bare
-// "0": the sentence is the whole point of the figure — it explains a total that
-// dropped without anybody on staff touching it — and on a quiet Event the
-// answer "nothing was reversed" is worth the same words.
-export function reversedCountLabel(count: number): string {
-  if (count <= 0) {
-    return "No reversed sales";
-  }
-  return `${count} reversed sale${count === 1 ? "" : "s"}`;
-}
-
-// formatSaleTimestamp renders an ISO timestamp in the Event timezone (falling
-// back to the viewer's locale zone when the Event has none).
-export function formatSaleTimestamp(iso: string, timezone: string | null): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    ...(timezone ? { timeZone: timezone } : {}),
-  }).format(date);
+  return {
+    state: "whenAndWho",
+    at: reversedAt,
+    actorToken: narrow(REVERSAL_ACTORS, reversedBy),
+    rawActor: reversedBy,
+  };
 }

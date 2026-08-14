@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
 import {
   Alert,
   AlertDescription,
@@ -22,11 +23,19 @@ import {
   Label,
   toast,
 } from "@ticket-pos/ui";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 
-import { ApiError, fetchEventsJSON, formatPriceCents, type TicketType } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError, fetchEventsJSON, type TicketType } from "@/lib/events-api";
+import {
+  PLATFORM_TIME_ZONE,
+  formatCalendarDay,
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+} from "@/lib/format";
 import {
   commitSaleImport,
-  formatBatchTimestamp,
   previewSaleImport,
   undoSaleImport,
   type ImportCommitResult,
@@ -38,9 +47,19 @@ import { useSalesRefreshNotify } from "./sales-refresh";
 
 type ImportSalesSectionProps = {
   eventId: string;
+  /**
+   * The Event's own timezone, which the import history's timestamps are drawn
+   * in. Null on an Event that names none, and then the platform's clock beneath
+   * it — never the reader's laptop, which is what an unqualified `Intl` call
+   * silently used before #289.
+   */
+  timezone: string | null;
 };
 
-export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
+export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProps) {
+  const t = useTranslations("sales");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState("");
@@ -61,6 +80,22 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
   const notifySalesRefresh = useSalesRefreshNotify();
 
   const currency = ticketTypes[0]?.currency ?? "USD";
+  const zone = timezone ?? PLATFORM_TIME_ZONE;
+
+  /**
+   * The sentence for a failed request, in this reader's language.
+   *
+   * The catalog by the API's error code first — IMPORT_NOT_LATEST_BATCH,
+   * IMPORT_ALREADY_REVERSED and the rest are all keyed, because they are the
+   * refusals this surface deliberately shows — then the API's own English for a
+   * code the catalog has not heard of, then this surface's own sentence for a
+   * request that never reached the API at all (ADR 0023).
+   */
+  const failureMessage = useCallback(
+    (failure: unknown, fallback: string) =>
+      (failure instanceof ApiError ? apiErrorMessage(errorCopy, failure) : null) ?? fallback,
+    [errorCopy],
+  );
 
   const loadTicketTypes = useCallback(async () => {
     try {
@@ -108,17 +143,17 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
         });
       } catch (previewError) {
         setPreview(null);
-        setError(previewError instanceof Error ? previewError.message : "Failed to preview file");
+        setError(failureMessage(previewError, t("importPreviewFailed")));
       } finally {
         setPreviewing(false);
       }
     },
-    [eventId],
+    [eventId, failureMessage, t],
   );
 
   async function handlePreview() {
     if (!file) {
-      toast.error("Choose a .csv or .xlsx file first");
+      toast.error(t("importChooseFileFirst"));
       return;
     }
     await runPreview(file);
@@ -137,9 +172,9 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
   }
 
   async function raiseCapacity(ticketTypeId: string, newCapacity: number) {
-    const ticketType = ticketTypes.find((t) => t.id === ticketTypeId);
+    const ticketType = ticketTypes.find((type) => type.id === ticketTypeId);
     if (!ticketType) {
-      toast.error("Ticket type not found; reload and try again");
+      toast.error(t("importTicketTypeMissing"));
       return;
     }
     setRaisingTypeId(ticketTypeId);
@@ -154,13 +189,16 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
           sort_order: ticketType.sort_order,
         }),
       });
-      toast.success(`Raised ${ticketType.name} capacity to ${newCapacity}`);
+      // The Ticket Type's name is data and goes in as it was coined.
+      toast.success(
+        t("importRaised", { name: ticketType.name, capacity: formatNumber(newCapacity, locale) }),
+      );
       await loadTicketTypes();
       if (file) {
         await runPreview(file);
       }
     } catch (raiseError) {
-      toast.error(raiseError instanceof Error ? raiseError.message : "Failed to raise capacity");
+      toast.error(failureMessage(raiseError, t("importRaiseFailed")));
     } finally {
       setRaisingTypeId(null);
     }
@@ -177,18 +215,20 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
       setCommitted(result);
       toast.success(
         result.replayed
-          ? "This batch was already imported"
-          : `Imported ${result.sale_count} sale${result.sale_count === 1 ? "" : "s"}`,
+          ? t("importReplayed")
+          : t("importSucceeded", { count: result.sale_count }),
       );
       await Promise.all([loadTicketTypes(), loadHistory()]);
       // Newly imported sales are now visible: refresh the Sales list's current view.
       notifySalesRefresh();
     } catch (commitError) {
-      const message = commitError instanceof Error ? commitError.message : "Failed to import sales";
+      const message = failureMessage(commitError, t("importFailed"));
       setError(message);
       if (commitError instanceof ApiError && commitError.code === "IMPORT_BATCH_FAILED") {
         // A capacity race was lost since preview: re-preview to show the block.
-        toast.error("Capacity changed since preview. Review the updated preview and try again.");
+        // The toast says what to DO about it, which the code's own catalogued
+        // sentence in the alert above does not.
+        toast.error(t("importCapacityRace"));
         if (file) {
           await runPreview(file);
         }
@@ -212,18 +252,20 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
     setUndoing(true);
     try {
       const result = await undoSaleImport(eventId, undoTarget.batch_id, notifyBuyers);
+      // Two whole sentences, not one with " and notified buyers" appended: the
+      // clause does not sit at the end in every language, and a plural has to
+      // agree inside each of them.
       toast.success(
-        `Undid ${result.sale_count} sale${result.sale_count === 1 ? "" : "s"}${
-          result.notified ? " and notified buyers" : ""
-        }`,
+        result.notified
+          ? t("importUndoneNotified", { count: result.sale_count })
+          : t("importUndone", { count: result.sale_count }),
       );
       setUndoTarget(null);
       await Promise.all([loadTicketTypes(), loadHistory()]);
       // Reversed sales now leave the default active view: refresh the Sales list.
       notifySalesRefresh();
     } catch (undoError) {
-      const message = undoError instanceof Error ? undoError.message : "Failed to undo import";
-      toast.error(message);
+      toast.error(failureMessage(undoError, t("importUndoFailed")));
     } finally {
       setUndoing(false);
     }
@@ -240,27 +282,22 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
   return (
     <Card id="import-sales" className="scroll-mt-6">
       <CardHeader>
-        <CardTitle>Import sales</CardTitle>
-        <CardDescription>
-          Record off-platform (cash or bank transfer) sales. Download the template, fill it in, upload the .csv or
-          .xlsx, review the preview, then confirm.
-        </CardDescription>
+        <CardTitle>{t("importTitle")}</CardTitle>
+        <CardDescription>{t("importDescription")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Step 1 — download template */}
         <div className="space-y-2">
-          <p className="text-sm font-medium">1. Download the template</p>
-          <p className="text-sm text-muted-foreground">
-            The template pre-lists this Event&apos;s Ticket Types so names and IDs match exactly.
-          </p>
+          <p className="text-sm font-medium">{t("importStepTemplate")}</p>
+          <p className="text-sm text-muted-foreground">{t("importTemplateHint")}</p>
           <Button asChild variant="outline" size="sm">
-            <a href={`/api/events/${eventId}/sale-imports/template`}>Download .xlsx template</a>
+            <a href={`/api/events/${eventId}/sale-imports/template`}>{t("importTemplateDownload")}</a>
           </Button>
         </div>
 
         {/* Step 2 — upload + preview */}
         <div className="space-y-2">
-          <p className="text-sm font-medium">2. Upload your file</p>
+          <p className="text-sm font-medium">{t("importStepUpload")}</p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <input
               type="file"
@@ -269,15 +306,18 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
               onChange={(event) => resetForNewFile(event.target.files?.[0] ?? null)}
             />
             <Button type="button" size="sm" disabled={!file || previewing} onClick={() => void handlePreview()}>
-              {previewing ? "Checking..." : "Preview"}
+              {previewing ? t("importChecking") : t("importPreview")}
             </Button>
           </div>
-          {file ? <p className="text-sm text-muted-foreground">Selected: {file.name}</p> : null}
+          {/* A filename is the reader's own and is never translated. */}
+          {file ? (
+            <p className="text-sm text-muted-foreground">{t("importSelectedFile", { name: file.name })}</p>
+          ) : null}
         </div>
 
         {error ? (
           <Alert variant="destructive">
-            <AlertTitle>Import problem</AlertTitle>
+            <AlertTitle>{t("importProblemTitle")}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
@@ -286,33 +326,29 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
         {preview ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">3. Review the preview</p>
+              <p className="text-sm font-medium">{t("importStepReview")}</p>
               <p className="text-sm text-muted-foreground">
-                {preview.valid_rows}/{preview.total_rows} rows valid
+                {t("importRowsValid", {
+                  valid: formatNumber(preview.valid_rows, locale),
+                  total: formatNumber(preview.total_rows, locale),
+                })}
               </p>
             </div>
 
             {invalidCount > 0 ? (
               <Alert variant="destructive">
-                <AlertTitle>
-                  {invalidCount} row{invalidCount === 1 ? "" : "s"} need fixing
-                </AlertTitle>
-                <AlertDescription>
-                  Fix the flagged rows in your file and upload it again. All problems are shown at once below.
-                </AlertDescription>
+                <AlertTitle>{t("importInvalidTitle", { count: invalidCount })}</AlertTitle>
+                <AlertDescription>{t("importInvalidBody")}</AlertDescription>
               </Alert>
             ) : null}
 
             {/* Oversell block + inline raise-capacity */}
             {oversoldImpacts.length > 0 ? (
               <Alert variant="destructive">
-                <AlertTitle>Import would oversell</AlertTitle>
+                <AlertTitle>{t("importOversellTitle")}</AlertTitle>
                 <AlertDescription>
                   <div className="space-y-3">
-                    <p>
-                      Raise the Ticket Type capacity to fit, or remove rows and re-upload. You can&apos;t commit while
-                      any type is oversold.
-                    </p>
+                    <p>{t("importOversellBody")}</p>
                     {oversoldImpacts.map((impact) => {
                       const target = impact.sold_count + impact.requested;
                       return (
@@ -321,8 +357,17 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                           className="flex flex-col gap-2 rounded-md border border-destructive/40 p-3 sm:flex-row sm:items-center sm:justify-between"
                         >
                           <span className="text-sm">
-                            <strong>{impact.ticket_type_name}</strong>: {impact.sold_count} sold +{" "}
-                            {impact.requested} requested exceeds capacity {impact.capacity} by {impact.overage}.
+                            {/* Four numbers and a name in one sentence: exactly
+                                the case where concatenating in JSX would fix the
+                                English word order into the Spanish. */}
+                            {t.rich("importOversellLine", {
+                              name: (chunks) => <strong>{chunks}</strong>,
+                              ticketType: impact.ticket_type_name,
+                              sold: formatNumber(impact.sold_count, locale),
+                              requested: formatNumber(impact.requested, locale),
+                              capacity: formatNumber(impact.capacity, locale),
+                              overage: formatNumber(impact.overage, locale),
+                            })}
                           </span>
                           <Button
                             type="button"
@@ -332,8 +377,8 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                             onClick={() => void raiseCapacity(impact.ticket_type_id, target)}
                           >
                             {raisingTypeId === impact.ticket_type_id
-                              ? "Raising..."
-                              : `Raise capacity to ${target}`}
+                              ? t("importRaising")
+                              : t("importRaiseCapacity", { capacity: formatNumber(target, locale) })}
                           </Button>
                         </div>
                       );
@@ -346,7 +391,7 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
             {/* Capacity impact per Ticket Type */}
             {preview.capacity_impact.length > 0 ? (
               <div className="space-y-2">
-                <p className="text-sm font-medium">Capacity impact</p>
+                <p className="text-sm font-medium">{t("importCapacityImpact")}</p>
                 <div className="space-y-2">
                   {preview.capacity_impact.map((impact) => (
                     <div
@@ -355,8 +400,16 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                     >
                       <span>{impact.ticket_type_name}</span>
                       <span className={impact.oversold ? "text-destructive" : "text-muted-foreground"}>
-                        {impact.sold_count + impact.requested}/{impact.capacity} after import
-                        {impact.oversold ? ` (over by ${impact.overage})` : ""}
+                        {impact.oversold
+                          ? t("importCapacityOver", {
+                              after: formatNumber(impact.sold_count + impact.requested, locale),
+                              capacity: formatNumber(impact.capacity, locale),
+                              overage: formatNumber(impact.overage, locale),
+                            })
+                          : t("importCapacityAfter", {
+                              after: formatNumber(impact.sold_count + impact.requested, locale),
+                              capacity: formatNumber(impact.capacity, locale),
+                            })}
                       </span>
                     </div>
                   ))}
@@ -366,7 +419,7 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
 
             {/* Per-row verdicts */}
             <div className="space-y-2">
-              <p className="text-sm font-medium">Rows</p>
+              <p className="text-sm font-medium">{t("importRowsHeading")}</p>
               <div className="space-y-2">
                 {preview.rows.map((row) => {
                   const skipped = skipRows.has(row.row);
@@ -379,7 +432,10 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">Row {row.row}</span>
+                          <span className="font-medium">
+                            {t("importRowNumber", { row: formatNumber(row.row, locale) })}
+                          </span>
+                          {/* A Customer's name and email are data. */}
                           <span className="text-muted-foreground">
                             {`${row.customer_first_name} ${row.customer_last_name}`.trim() || "—"} · {row.customer_email || "—"}
                           </span>
@@ -388,19 +444,23 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                           ) : row.ticket_type ? (
                             <Badge variant="secondary">{row.ticket_type}</Badge>
                           ) : null}
-                          {row.quantity ? <span className="text-muted-foreground">×{row.quantity}</span> : null}
+                          {row.quantity ? (
+                            <span className="text-muted-foreground">
+                              ×{formatNumber(row.quantity, locale)}
+                            </span>
+                          ) : null}
                           {typeof row.amount_cents === "number" ? (
                             <span className="text-muted-foreground">
-                              @ {formatPriceCents(row.amount_cents, currency)}
+                              @ {formatMoney(row.amount_cents, currency, locale)}
                             </span>
                           ) : null}
                           {row.valid ? (
-                            <Badge variant="success">Valid</Badge>
+                            <Badge variant="success">{t("importValid")}</Badge>
                           ) : (
-                            <Badge variant="destructive">Invalid</Badge>
+                            <Badge variant="destructive">{t("importInvalid")}</Badge>
                           )}
                           {row.possible_duplicate ? (
-                            <Badge variant="warning">Possible duplicate</Badge>
+                            <Badge variant="warning">{t("importPossibleDuplicate")}</Badge>
                           ) : null}
                         </div>
                         {row.possible_duplicate ? (
@@ -410,25 +470,44 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                             variant="outline"
                             onClick={() => toggleSkip(row.row)}
                           >
-                            {skipped ? "Keep" : "Skip"}
+                            {skipped ? t("importKeep") : t("importSkip")}
                           </Button>
                         ) : null}
                       </div>
+                      {/* A row-level validation failure carries no error CODE
+                          from the API — only a column name and an English
+                          sentence — so this is the one place on these surfaces
+                          where ADR 0023's English floor is the whole answer. The
+                          column name is the heading printed in the template the
+                          organizer filled in, so it is left exactly as the file
+                          spells it. */}
                       {row.errors && row.errors.length > 0 ? (
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-destructive">
                           {row.errors.map((rowError, index) => (
                             <li key={`${row.row}-${rowError.field}-${index}`}>
-                              {rowError.field}: {rowError.message}
+                              {t("importRowError", {
+                                field: rowError.field,
+                                message: rowError.message,
+                              })}
                             </li>
                           ))}
                         </ul>
                       ) : null}
                       {row.possible_duplicate && !skipped ? (
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Matches an existing sale on {row.duplicate_of_date}. Kept unless you skip it.
+                          {/* A calendar day, not a moment: it is drawn with
+                              formatCalendarDay so it is never re-read as UTC
+                              midnight and shown as the day before. */}
+                          {t("importDuplicateHint", {
+                            date: row.duplicate_of_date
+                              ? formatCalendarDay(row.duplicate_of_date, locale)
+                              : "—",
+                          })}
                         </p>
                       ) : null}
-                      {skipped ? <p className="mt-2 text-xs text-muted-foreground">Skipped — not imported.</p> : null}
+                      {skipped ? (
+                        <p className="mt-2 text-xs text-muted-foreground">{t("importSkipped")}</p>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -438,10 +517,14 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
             {/* Step 4 — confirm */}
             <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm">
-                <p className="font-medium">4. Confirm import</p>
+                <p className="font-medium">{t("importStepConfirm")}</p>
                 <p className="text-muted-foreground">
-                  {commitCount} sale{commitCount === 1 ? "" : "s"} will be recorded
-                  {skippedCount > 0 ? ` (${skippedCount} skipped)` : ""}. Each customer is emailed a confirmation.
+                  {skippedCount > 0
+                    ? t("importConfirmSummarySkipped", {
+                        count: commitCount,
+                        skipped: formatNumber(skippedCount, locale),
+                      })
+                    : t("importConfirmSummary", { count: commitCount })}
                 </p>
               </div>
               <Button
@@ -449,31 +532,32 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                 disabled={!preview.committable || committing || commitCount === 0}
                 onClick={() => void handleCommit()}
               >
-                {committing ? "Importing..." : `Import ${commitCount} sale${commitCount === 1 ? "" : "s"}`}
+                {committing ? t("importCommitting") : t("importCommit", { count: commitCount })}
               </Button>
             </div>
             {!preview.committable ? (
-              <p className="text-sm text-muted-foreground">
-                Commit is blocked until every row is valid and no Ticket Type is oversold.
-              </p>
+              <p className="text-sm text-muted-foreground">{t("importBlocked")}</p>
             ) : null}
           </div>
         ) : null}
 
         {committed ? (
           <Alert>
-            <AlertTitle>Import complete</AlertTitle>
+            <AlertTitle>{t("importCompleteTitle")}</AlertTitle>
             <AlertDescription>
-              Recorded {committed.sale_count} sale{committed.sale_count === 1 ? "" : "s"} (batch {committed.batch_id}).
+              {t("importCompleteBody", {
+                count: committed.sale_count,
+                batch: committed.batch_id,
+              })}
             </AlertDescription>
           </Alert>
         ) : null}
 
         {/* Import history */}
         <div className="space-y-2 border-t pt-4">
-          <p className="text-sm font-medium">Import history</p>
+          <p className="text-sm font-medium">{t("importHistoryHeading")}</p>
           {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No imports yet for this Event.</p>
+            <p className="text-sm text-muted-foreground">{t("importHistoryEmpty")}</p>
           ) : (
             <div className="space-y-2">
               {history.map((entry) => {
@@ -485,16 +569,21 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
                     key={entry.batch_id}
                     className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <span>{formatBatchTimestamp(entry.created_at)}</span>
+                    <span>{formatDateTime(entry.created_at, zone, locale)}</span>
                     <div className="flex items-center gap-3">
                       <span className="text-muted-foreground">
-                        {entry.sale_count} sale{entry.sale_count === 1 ? "" : "s"}
+                        {t("importHistorySales", { count: entry.sale_count })}
+                        {/* An email address is data; the interpuncts between
+                            these three independent facts are punctuation, not
+                            copy, and read the same in both languages. */}
                         {entry.actor_email ? ` · ${entry.actor_email}` : ""}
-                        {entry.status !== "committed" ? ` · ${entry.status}` : ""}
+                        {entry.status !== "committed"
+                          ? ` · ${entry.status === "reversed" ? t("importStatusReversed") : entry.status}`
+                          : ""}
                       </span>
                       {undoable ? (
                         <Button type="button" size="sm" variant="outline" onClick={() => openUndo(entry)}>
-                          Undo
+                          {t("importUndo")}
                         </Button>
                       ) : null}
                     </div>
@@ -509,11 +598,11 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
       <Dialog open={undoTarget !== null} onOpenChange={(open) => (!open ? setUndoTarget(null) : undefined)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Undo this import?</DialogTitle>
+            <DialogTitle>{t("importUndoTitle")}</DialogTitle>
             <DialogDescription>
-              This reverses{" "}
-              {undoTarget ? `${undoTarget.sale_count} sale${undoTarget.sale_count === 1 ? "" : "s"}` : "the batch"} and
-              restores capacity. Only the most recent import can be undone.
+              {undoTarget
+                ? t("importUndoBody", { count: undoTarget.sale_count })
+                : t("importUndoBodyUnknown")}
             </DialogDescription>
           </DialogHeader>
           <label className="flex items-start gap-2 text-sm">
@@ -524,18 +613,16 @@ export function ImportSalesSection({ eventId }: ImportSalesSectionProps) {
               onChange={(event) => setNotifyBuyers(event.target.checked)}
             />
             <span>
-              <Label className="font-medium">Notify buyers</Label>
-              <span className="block text-muted-foreground">
-                Email each affected buyer that their confirmation is cancelled. Leave unchecked to undo silently.
-              </span>
+              <Label className="font-medium">{t("importNotifyBuyers")}</Label>
+              <span className="block text-muted-foreground">{t("importNotifyHint")}</span>
             </span>
           </label>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={undoing} onClick={() => setUndoTarget(null)}>
-              Cancel
+              {t("importUndoCancel")}
             </Button>
             <Button type="button" disabled={undoing} onClick={() => void confirmUndo()}>
-              {undoing ? "Undoing..." : "Undo import"}
+              {undoing ? t("importUndoing") : t("importUndoConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
