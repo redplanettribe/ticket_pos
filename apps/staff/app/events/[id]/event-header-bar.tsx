@@ -1,5 +1,6 @@
 "use client";
 
+import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -15,12 +16,14 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import {
   ApiError,
+  eventStatusKey,
   fetchEventsJSON,
   getPublishMissingFields,
+  isPublishFieldKey,
   missingFieldsFromDetails,
-  PUBLISH_FIELD_LABELS,
   statusBadgeVariant,
   type EventDetail,
 } from "@/lib/events-api";
@@ -53,8 +56,23 @@ type EventHeaderBarProps = {
   discoverable: boolean;
 };
 
-function fieldLabel(field: string): string {
-  return PUBLISH_FIELD_LABELS[field] ?? field;
+/**
+ * The `event` catalog key a missing publish requirement is named by —
+ * "starts_at" becomes `publishFieldStartsAt`. Derived rather than mapped so a
+ * key added to the mirror is a compile error at the catalog rather than a
+ * silently dropped requirement.
+ */
+function publishFieldKey(field: string) {
+  return `publishField${field
+    .split("_")
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join("")}` as
+    | "publishFieldName"
+    | "publishFieldSlug"
+    | "publishFieldStartsAt"
+    | "publishFieldTimezone"
+    | "publishFieldTicketTypes"
+    | "publishFieldRegistrationUrl";
 }
 
 export function EventHeaderBar({
@@ -70,6 +88,11 @@ export function EventHeaderBar({
   registrationClickCount,
   discoverable: initialDiscoverable,
 }: EventHeaderBarProps) {
+  const t = useTranslations("event");
+  // The Event status vocabulary belongs to the events surface, which coined it;
+  // this surface reads it rather than saying "Published" a second way.
+  const events = useTranslations("events");
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   // The toggle's own endpoint is idempotent and returns the updated Event, so
   // its response is authoritative and nothing else on the page derives from the
@@ -105,10 +128,13 @@ export function EventHeaderBar({
       await fetchEventsJSON<EventDetail>(`/api/events/${eventId}/publish`, {
         method: "POST",
       });
-      toast.success("Event published");
+      toast.success(t("publishedToast"));
       router.refresh();
     } catch (publishError) {
-      toast.error(publishError instanceof Error ? publishError.message : "Failed to publish event");
+      toast.error(
+        apiErrorMessage(errorCopy, publishError instanceof ApiError ? publishError : null) ??
+          t("publishFailed"),
+      );
       if (publishError instanceof ApiError) {
         setBackendMissingFields(missingFieldsFromDetails(publishError.details));
       }
@@ -124,10 +150,13 @@ export function EventHeaderBar({
         method: "POST",
       });
       setCancelOpen(false);
-      toast.success("Event cancelled");
+      toast.success(t("cancelledToast"));
       router.refresh();
     } catch (cancelError) {
-      toast.error(cancelError instanceof Error ? cancelError.message : "Failed to cancel event");
+      toast.error(
+        apiErrorMessage(errorCopy, cancelError instanceof ApiError ? cancelError : null) ??
+          t("cancelFailed"),
+      );
     } finally {
       setCancelling(false);
     }
@@ -138,36 +167,49 @@ export function EventHeaderBar({
       await fetchEventsJSON<{ message: string }>(`/api/events/${eventId}`, {
         method: "DELETE",
       });
-      toast.success("Event deleted");
+      toast.success(t("deletedToast"));
       router.push("/events");
       router.refresh();
     } catch (deleteError) {
-      toast.error(deleteError instanceof Error ? deleteError.message : "Failed to delete event");
+      toast.error(
+        apiErrorMessage(errorCopy, deleteError instanceof ApiError ? deleteError : null) ??
+          t("deleteFailed"),
+      );
     }
   }
 
+  // The list is joined here rather than in the catalog because ICU has no list
+  // formatter and a comma is the same mark in both languages; the SENTENCE
+  // around it is the catalog's, so Spanish is free to put the list elsewhere in
+  // it. A key the server names and this app has no word for is shown raw.
   const publishHint =
     status === "draft" && !canPublish
-      ? `Save the missing details to publish: ${missingFields.map(fieldLabel).join(", ")}.`
+      ? t("publishHint", {
+          fields: missingFields
+            .map((field) => (isPublishFieldKey(field) ? t(publishFieldKey(field)) : field))
+            .join(", "),
+        })
       : null;
+
+  const statusKey = eventStatusKey(status);
 
   return (
     <div className="rounded-lg border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-lg font-semibold">{name || "Event"}</span>
-          <Badge variant={statusBadgeVariant(status)} className="shrink-0 capitalize">
-            {status}
+          <span className="min-w-0 truncate text-lg font-semibold">{name || t("fallbackName")}</span>
+          <Badge variant={statusBadgeVariant(status)} className="shrink-0">
+            {statusKey ? events(statusKey) : status}
           </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {status === "draft" ? (
             <>
               <Button type="button" disabled={!canPublish || publishing} onClick={() => void handlePublish()}>
-                {publishing ? "Publishing..." : "Publish event"}
+                {publishing ? t("publishing") : t("publish")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setDeleteOpen(true)}>
-                Delete
+                {t("delete")}
               </Button>
             </>
           ) : null}
@@ -180,7 +222,7 @@ export function EventHeaderBar({
                 onChange={setDiscoverable}
               />
               <Button type="button" variant="destructive" onClick={() => setCancelOpen(true)}>
-                Cancel event
+                {t("cancelEvent")}
               </Button>
             </>
           ) : null}
@@ -200,7 +242,7 @@ export function EventHeaderBar({
       {registrationMode === "external" ? (
         <div className="mt-2 space-y-1 text-sm text-muted-foreground">
           <p className="flex flex-wrap items-center gap-x-2">
-            <span>Registration link:</span>
+            <span>{t("registrationLinkLabel")}</span>
             {registrationUrl ? (
               <a
                 href={registrationUrl}
@@ -211,16 +253,19 @@ export function EventHeaderBar({
                 {registrationUrl}
               </a>
             ) : (
-              <span>not added yet</span>
+              <span>{t("registrationLinkMissing")}</span>
             )}
           </p>
+          {/* One ICU message rather than a count glued to a noun: "1 click" and
+              "3 clics" do not inflect the same way, and the whole sentence is
+              the translator's to arrange. ICU draws the number in the Staff
+              Locale, which is what replaces the `toLocaleString()` that used to
+              follow the reader's browser instead (ADR 0041). */}
           <p>
-            <span className="font-medium text-foreground">
-              {registrationClickCount.toLocaleString()}{" "}
-              {registrationClickCount === 1 ? "click" : "clicks"}
-            </span>{" "}
-            from this event&apos;s page. Clicks, not registrations — what happens on the other site
-            is not visible here.
+            {t.rich("registrationClicks", {
+              count: registrationClickCount,
+              value: (chunks) => <span className="font-medium text-foreground">{chunks}</span>,
+            })}
           </p>
         </div>
       ) : null}
@@ -228,18 +273,15 @@ export function EventHeaderBar({
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cancel published event?</DialogTitle>
-            <DialogDescription>
-              This marks the event as cancelled. It stays in your catalog with a stable record, but it is no longer
-              active.
-            </DialogDescription>
+            <DialogTitle>{t("cancelDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("cancelDialogDescription")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCancelOpen(false)}>
-              Keep published
+              {t("keepPublished")}
             </Button>
             <Button type="button" variant="destructive" disabled={cancelling} onClick={() => void handleCancel()}>
-              {cancelling ? "Cancelling..." : "Cancel event"}
+              {cancelling ? t("cancelling") : t("cancelEvent")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -248,17 +290,15 @@ export function EventHeaderBar({
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete draft event?</DialogTitle>
-            <DialogDescription>
-              This permanently removes the event and any assignments. This action cannot be undone.
-            </DialogDescription>
+            <DialogTitle>{t("deleteDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("deleteDialogDescription")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button type="button" variant="destructive" onClick={() => void handleDelete()}>
-              Delete event
+              {t("deleteConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

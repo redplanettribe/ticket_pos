@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useMessages, useTranslations } from "next-intl";
+
 import {
   Alert,
   AlertDescription,
@@ -14,12 +17,15 @@ import {
   PageHeader,
 } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import {
-  type EventListItem,
+  ApiError,
+  eventStatusKey,
   fetchEventsJSON,
-  formatEventStartDate,
   statusBadgeVariant,
+  type EventListItem,
 } from "@/lib/events-api";
+import { formatDateTime } from "@/lib/format";
 
 import { DiscoverabilityToggle } from "./discoverability-toggle";
 
@@ -28,6 +34,9 @@ type EventsPageClientProps = {
 };
 
 export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
+  const t = useTranslations("events");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -41,16 +50,21 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
       setEvents(data);
       setForbidden(false);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Failed to load events";
-      if (message.toLowerCase().includes("permission")) {
+      // The API's own code, not a substring of its English sentence. This used
+      // to read `message.includes("permission")`, which stopped being a test of
+      // anything the moment the sentence could arrive in Spanish (ADR 0023).
+      if (loadError instanceof ApiError && loadError.code === "FORBIDDEN") {
         setForbidden(true);
-      } else {
-        setError(message);
+        return;
       }
+      setError(
+        apiErrorMessage(errorCopy, loadError instanceof ApiError ? loadError : null) ??
+          t("loadFailed"),
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [errorCopy, t]);
 
   useEffect(() => {
     void loadEvents();
@@ -63,14 +77,14 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
   }, []);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading events...</p>;
+    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
 
   if (forbidden) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Access denied</AlertTitle>
-        <AlertDescription>You do not have access to these events.</AlertDescription>
+        <AlertTitle>{t("accessDeniedTitle")}</AlertTitle>
+        <AlertDescription>{t("accessDeniedDescription")}</AlertDescription>
       </Alert>
     );
   }
@@ -78,7 +92,7 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load events</AlertTitle>
+        <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
@@ -87,16 +101,12 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Events"
-        description={
-          isOrgAdmin
-            ? "Create and manage Events and Ticket Types."
-            : "Choose which Events are listed on the public storefront."
-        }
+        title={t("title")}
+        description={isOrgAdmin ? t("descriptionOrgAdmin") : t("descriptionMember")}
         actions={
           isOrgAdmin ? (
             <Button asChild>
-              <Link href="/events/new">Create event</Link>
+              <Link href="/events/new">{t("createEvent")}</Link>
             </Button>
           ) : undefined
         }
@@ -107,27 +117,30 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
           <CardContent className="flex flex-col items-start gap-4 py-10">
             {isOrgAdmin ? (
               <>
-                <p className="text-muted-foreground">
-                  No events yet. Create your first Event to start building your catalog.
-                </p>
+                <p className="text-muted-foreground">{t("emptyOrgAdmin")}</p>
                 <Button asChild>
-                  <Link href="/events/new">Create event</Link>
+                  <Link href="/events/new">{t("createEvent")}</Link>
                 </Button>
               </>
             ) : (
-              <p className="text-muted-foreground">No events yet.</p>
+              <p className="text-muted-foreground">{t("empty")}</p>
             )}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
           {events.map((event) => {
+            // The Event's own timezone, whichever language the reader is in: a
+            // locale decides the marks around a date and nothing about which
+            // clock it is on (ADR 0041). An Event that has not picked one yet
+            // has no moment to draw, so nothing is drawn.
+            const startsAt =
+              event.timezone && formatDateTime(event.starts_at, event.timezone, locale);
+            const status = eventStatusKey(event.status);
             const details = (
               <div className="space-y-1">
                 <p className="font-medium">{event.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {formatEventStartDate(event.starts_at, event.timezone)}
-                </p>
+                <p className="text-sm text-muted-foreground">{startsAt || t("noDateSet")}</p>
               </div>
             );
 
@@ -147,8 +160,8 @@ export function EventsPageClient({ isOrgAdmin }: EventsPageClientProps) {
                   details
                 )}
                 <div className="flex items-center gap-3">
-                  <Badge variant={statusBadgeVariant(event.status)} className="w-fit capitalize">
-                    {event.status}
+                  <Badge variant={statusBadgeVariant(event.status)} className="w-fit">
+                    {status ? t(status) : event.status}
                   </Badge>
                   <DiscoverabilityToggle
                     eventId={event.id}

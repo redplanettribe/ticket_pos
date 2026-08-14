@@ -1,5 +1,6 @@
 "use client";
 
+import { useMessages, useTranslations } from "next-intl";
 import { ChangeEvent, useRef, useState } from "react";
 
 import {
@@ -12,13 +13,45 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import {
+  ApiError,
   fetchEventsJSON,
   type CoverUploadURL,
   type EventDetail,
   type EventPatchBody,
 } from "@/lib/events-api";
-import { validateCoverVideo, type CoverVideoFile } from "@/lib/cover-video";
+import {
+  MAX_COVER_VIDEO_BYTES,
+  MAX_COVER_VIDEO_SECONDS,
+  MIN_COVER_VIDEO_WIDTH,
+  validateCoverVideo,
+  type CoverVideoFile,
+  type CoverVideoRejectionReason,
+} from "@/lib/cover-video";
+
+/**
+ * The rule's own numbers, handed to the catalog as ICU arguments so the
+ * sentence about a limit and the limit itself cannot drift apart. Strings, not
+ * numbers: 1280 is a pixel count and reads as "1280" in both languages, where
+ * an ICU number argument would group it into "1,280" / "1.280".
+ */
+const COVER_VIDEO_LIMITS = {
+  width: String(MIN_COVER_VIDEO_WIDTH),
+  seconds: String(MAX_COVER_VIDEO_SECONDS),
+  megabytes: String(MAX_COVER_VIDEO_BYTES / 1024 / 1024),
+};
+
+/** The `event` catalog key a rejection reason is said with. */
+function rejectionKey(reason: CoverVideoRejectionReason) {
+  return `coverVideoReject${reason[0].toUpperCase()}${reason.slice(1)}` as
+    | "coverVideoRejectType"
+    | "coverVideoRejectUnreadable"
+    | "coverVideoRejectSize"
+    | "coverVideoRejectWidth"
+    | "coverVideoRejectAspect"
+    | "coverVideoRejectDuration";
+}
 
 /**
  * The chosen file's dimensions and duration, read the only way a browser
@@ -60,6 +93,8 @@ export function EventCoverVideo({
   patchBody,
   onUpdated,
 }: EventCoverVideoProps) {
+  const t = useTranslations("event");
+  const errorCopy = useMessages().errors;
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -89,7 +124,8 @@ export function EventCoverVideo({
       : { width: 0, height: 0, duration: 0 };
     const validation = validateCoverVideo({ ...measurements, size: file.size, type: file.type });
     if (!validation.ok) {
-      toast.error(validation.message);
+      // The module names the requirement; the catalog says what it means.
+      toast.error(t(rejectionKey(validation.reason), COVER_VIDEO_LIMITS));
       return;
     }
 
@@ -109,13 +145,18 @@ export function EventCoverVideo({
         body: file,
       });
       if (!uploadResponse.ok) {
-        throw new Error("Failed to upload cover video.");
+        // The object store, not the API: no error envelope, so no code to key
+        // a sentence on — the surface's own is the whole answer.
+        throw new Error("cover video upload rejected by object storage");
       }
 
       await attachVideo(presign.object_key);
-      toast.success("Cover video uploaded");
+      toast.success(t("coverVideoUploadedToast"));
     } catch (uploadError) {
-      toast.error(uploadError instanceof Error ? uploadError.message : "Failed to upload cover video");
+      toast.error(
+        apiErrorMessage(errorCopy, uploadError instanceof ApiError ? uploadError : null) ??
+          t("coverVideoUploadFailed"),
+      );
     } finally {
       setUploading(false);
     }
@@ -132,9 +173,12 @@ export function EventCoverVideo({
         }),
       });
       onUpdated(updated);
-      toast.success("Cover video removed");
+      toast.success(t("coverVideoRemovedToast"));
     } catch (removeError) {
-      toast.error(removeError instanceof Error ? removeError.message : "Failed to remove cover video");
+      toast.error(
+        apiErrorMessage(errorCopy, removeError instanceof ApiError ? removeError : null) ??
+          t("coverVideoRemoveFailed"),
+      );
     } finally {
       setRemoving(false);
     }
@@ -143,11 +187,8 @@ export function EventCoverVideo({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cover video</CardTitle>
-        <CardDescription>
-          MP4, landscape 16:9, at least 1280 pixels wide, up to 30 seconds and 50 MB. Plays muted and looping in
-          the event page hero, over the cover image.
-        </CardDescription>
+        <CardTitle>{t("coverVideoTitle")}</CardTitle>
+        <CardDescription>{t("coverVideoDescription", COVER_VIDEO_LIMITS)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {coverVideoUrl ? (
@@ -164,7 +205,7 @@ export function EventCoverVideo({
             />
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No cover video yet.</p>
+          <p className="text-sm text-muted-foreground">{t("coverVideoNone")}</p>
         )}
 
         <input
@@ -176,7 +217,7 @@ export function EventCoverVideo({
         />
 
         {coverImageUrl ? null : (
-          <p className="text-sm text-muted-foreground">Add a cover image first — it&apos;s the video&apos;s poster.</p>
+          <p className="text-sm text-muted-foreground">{t("coverVideoPosterHint")}</p>
         )}
 
         <div className="flex flex-wrap gap-2">
@@ -186,11 +227,15 @@ export function EventCoverVideo({
             disabled={uploading || removing || !coverImageUrl}
             onClick={() => inputRef.current?.click()}
           >
-            {uploading ? "Uploading..." : coverVideoUrl ? "Replace video" : "Upload video"}
+            {uploading
+              ? t("uploading")
+              : coverVideoUrl
+                ? t("coverVideoReplace")
+                : t("coverVideoUpload")}
           </Button>
           {coverVideoUrl ? (
             <Button type="button" variant="ghost" disabled={uploading || removing} onClick={() => void handleRemove()}>
-              {removing ? "Removing..." : "Remove video"}
+              {removing ? t("removing") : t("coverVideoRemove")}
             </Button>
           ) : null}
         </div>

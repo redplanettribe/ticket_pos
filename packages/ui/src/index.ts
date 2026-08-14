@@ -12,7 +12,7 @@ export {
   type StackedBarDatum,
   type StackedBarSeries,
 } from "./components/charts/stacked-bar-chart";
-export { EventShell } from "./components/event-shell";
+export { EventShell, type EventShellLabels } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";
 export { FormField } from "./components/form-field";
 export { Logo, LogoMark } from "./components/logo";
@@ -74,7 +74,12 @@ export { Toaster } from "./components/ui/sonner";
 export { Textarea } from "./components/ui/textarea";
 export { chartSeriesColor } from "./lib/chart-palette";
 export { isNavItemActive, isOnOperatorSurface } from "./lib/nav-active";
-export { eventNavItems } from "./lib/event-nav";
+export {
+  eventNavItems,
+  EVENT_NAV_KEYS,
+  type EventNavEntry,
+  type EventNavKey,
+} from "./lib/event-nav";
 export {
   operatorNavItems,
   OPERATOR_NAV_KEYS,

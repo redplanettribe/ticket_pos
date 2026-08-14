@@ -53,13 +53,41 @@ instead of scattering it.
 | --------- | -------------------------------------------------------------------------------- |
 | `shell`   | Chrome around every page: both side panels, the organization switcher, logout, language |
 | `login`   | The sign-in page, the one surface reachable without a session                     |
+| `events`  | The events list, the create-event page, and the **Event status** vocabulary — every surface that draws a status badge reads it from here rather than coining a second word for "Published" |
+| `event`   | One Event: its own side panel, the header bar, and the Details form — venue, registration, service fee, description, cover image and cover video |
+| `ticketTypes` | An Event's Ticket Types: the list, the cards, the add and edit dialogs, and the Promotion dialog |
+| `tags`    | The Tag editor inside Details. **Tag names are not here** — a Preset Tag's copy is the Storefront's, keyed on canonical key, and a Custom Tag reads as coined in every Locale (ADR 0027) |
+| `affiliateLinks` | An Event's Affiliate Links: the list, the create form, and the rename and delete dialogs |
+| `pos`     | The point of sale: selling at the door, on a phone, often by Event Staff          |
+| `sales`   | The Event's Sales tab — the list, its filters and export, the Net Proceeds strip, and the Sale Import tool that sits under them |
+| `trends`  | Sales Trends: the pair of day-by-day charts and what they are counting            |
 | `errors`  | Failures, keyed on the API's error code — belongs to no single surface            |
 
-**Only these three exist yet, and that is the point.** #286 lands the
-scaffolding and translates the login page; #287 translates the shell and lands
-the two shared mechanisms; the rest of the application is still English and is
-migrated one surface at a time by the tickets after it. A migration adds a
-namespace to this table in the same commit it adds the keys.
+`sales` covers the **Sale Import** tool as well as the list, and there is
+deliberately no `imports` namespace: importing is a section of the Sales tab
+rather than a screen of its own, a Member reading it is reading the Sales tab,
+and its keys are prefixed `import…` inside the one namespace. `trends` is
+separate because it IS its own screen, with its own route and its own nav entry.
+
+`events` and `event` are two surfaces and not one namespace split in half: the
+events list is where an organizer chooses which Event to work on, and everything
+under `/events/[id]` is where they work on it. The one thing that crosses the
+line is the **status vocabulary** — `events.statusDraft` and its two siblings —
+which lives with the list that coined it and is read from the Event's header bar
+and side panel too, because a role or a status translated per screen is how there
+come to be two Spanish words for "Published".
+
+The Event's own side panel gets its words the way the app shell does:
+`eventNavItems` in `@ticket-pos/ui` returns **keys**, and `app/events/[id]/layout.tsx`
+is the single place that turns them into `EventShellLabels`. A nav entry added
+there is a compile error at that one file.
+
+**The table grows one surface at a time, and that is the point.** #286 landed the
+scaffolding and translated the login page; #287 translated the shell and landed
+the two shared mechanisms; every ticket after them migrates one surface and adds
+its namespace to this table in the same commit it adds the keys. A namespace that
+is not in the table above has not been migrated yet, and the screens it would
+speak for are still English.
 
 The names to expect, so that two tickets do not coin two names for one surface:
 `events`, `event`, `ticketTypes`, `tags`, `affiliateLinks`, `pos`, `sales`,

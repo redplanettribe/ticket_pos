@@ -8,7 +8,16 @@
  * so it is directly unit-testable, like [promotions.ts](./promotions.ts).
  */
 
-/** What the card says about buying this Ticket Type at this moment. */
+/**
+ * What the card says about buying this Ticket Type at this moment.
+ *
+ * A token, and only a token. The words for each state live in the message
+ * catalogs under `ticketTypes.availabilityNotOnSale` and its three siblings, so
+ * that this module stays free of English, of React and of the i18n runtime and
+ * its tests keep asserting a decision rather than a sentence (ADR 0041). The
+ * badge still carries the whole meaning in words: colour is never the only
+ * signal for state (docs/design/foundation.md).
+ */
 export type Availability = "not_on_sale" | "sold_out" | "low_stock" | "on_sale";
 
 /** The capacity pool an Availability is read from. */
@@ -58,23 +67,34 @@ export function availabilityBadgeVariant(
 }
 
 /**
- * The badge label. It carries the whole meaning on its own: colour is never the
- * only signal for state (docs/design/foundation.md).
+ * The three numbers the capacity line is made of: how many are gone, how many
+ * there were, and how many are left.
+ *
+ * NOT a sentence, and no longer formatted here. This module used to build
+ * "32 of 100 sold · 68 left" and call `toLocaleString()` on each number, which
+ * was wrong twice over once the staff app learned a second language: the wording
+ * was English nailed into a pure module, and the marks around the numbers came
+ * from the reader's BROWSER rather than from their Staff Locale (ADR 0041). So
+ * the parts come out and the catalog says the sentence, with `lib/format.ts`
+ * drawing each number in the reader's language — `ticketTypes.capacityLine`.
  */
-export const AVAILABILITY_LABELS: Record<Availability, string> = {
-  not_on_sale: "Not on sale",
-  sold_out: "Sold out",
-  low_stock: "Low stock",
-  on_sale: "On sale",
+export type CapacityCounts = {
+  /** Never more than `capacity`: an over-sold pool reports a full house. */
+  sold: number;
+  capacity: number;
+  remaining: number;
 };
 
 /**
- * The capacity line, with thousands separators and never rounded in a way that
- * hides a sold-out pool (docs/design/foundation.md).
+ * The capacity line's parts, never rounded in a way that hides a sold-out pool
+ * (docs/design/foundation.md).
  */
-export function capacitySummary(pool: CapacityPool): string {
-  const sold = Math.min(pool.sold_count, pool.capacity).toLocaleString();
-  return `${sold} of ${pool.capacity.toLocaleString()} sold · ${remainingCapacity(pool).toLocaleString()} left`;
+export function capacityCounts(pool: CapacityPool): CapacityCounts {
+  return {
+    sold: Math.min(pool.sold_count, pool.capacity),
+    capacity: pool.capacity,
+    remaining: remainingCapacity(pool),
+  };
 }
 
 /** How full the meter reads, 0–1, guarding the capacity-zero case. */

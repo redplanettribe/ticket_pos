@@ -1,5 +1,7 @@
 "use client";
 
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useMessages, useTranslations } from "next-intl";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
@@ -33,7 +35,9 @@ import {
   updateAffiliateLink,
   type AffiliateLink,
 } from "@/lib/affiliates-api";
-import { formatPriceCents } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError } from "@/lib/events-api";
+import { formatMoney } from "@/lib/format";
 import { fetchSalesSummary } from "@/lib/sales-api";
 
 type AffiliateLinksSectionProps = {
@@ -41,6 +45,9 @@ type AffiliateLinksSectionProps = {
 };
 
 export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
+  const t = useTranslations("affiliateLinks");
+  const errorCopy = useMessages().errors;
+  const locale = toAppLocale(useLocale());
   const [loading, setLoading] = useState(true);
   // Why the section itself is empty, when it is. A section that will not load is
   // a page-level failure and gets the banner every other one gets — toasts are
@@ -72,11 +79,13 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       setLinks(await listAffiliateLinks(eventId));
       setLoadError(null);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Failed to load affiliate links");
+      setLoadError(
+        apiErrorMessage(errorCopy, error instanceof ApiError ? error : null) ?? t("loadFailed"),
+      );
     } finally {
       setLoading(false);
     }
-  }, [eventId]);
+  }, [errorCopy, eventId, t]);
 
   useEffect(() => {
     void loadLinks();
@@ -111,9 +120,12 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       await createAffiliateLink(eventId, trimmed);
       setName("");
       await loadLinks();
-      toast.success("Affiliate link created");
+      toast.success(t("createdToast"));
     } catch (createError) {
-      toast.error(createError instanceof Error ? createError.message : "Failed to create affiliate link");
+      toast.error(
+        apiErrorMessage(errorCopy, createError instanceof ApiError ? createError : null) ??
+          t("createFailed"),
+      );
     } finally {
       setCreating(false);
     }
@@ -138,9 +150,12 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       await updateAffiliateLink(eventId, renameTarget.id, { name: trimmed });
       setRenameTarget(null);
       await loadLinks();
-      toast.success("Affiliate link renamed");
+      toast.success(t("renamedToast"));
     } catch (renameError) {
-      toast.error(renameError instanceof Error ? renameError.message : "Failed to rename affiliate link");
+      toast.error(
+        apiErrorMessage(errorCopy, renameError instanceof ApiError ? renameError : null) ??
+          t("renameFailed"),
+      );
     } finally {
       setBusyId(null);
     }
@@ -151,10 +166,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
     try {
       await updateAffiliateLink(eventId, link.id, { active: !link.active });
       await loadLinks();
-      toast.success(link.active ? "Affiliate link deactivated" : "Affiliate link reactivated");
+      toast.success(link.active ? t("deactivatedToast") : t("reactivatedToast"));
     } catch (toggleError) {
       toast.error(
-        toggleError instanceof Error ? toggleError.message : "Failed to update affiliate link",
+        apiErrorMessage(errorCopy, toggleError instanceof ApiError ? toggleError : null) ??
+          t("updateFailed"),
       );
     } finally {
       setBusyId(null);
@@ -170,11 +186,15 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       await deleteAffiliateLink(eventId, deleteTarget.id);
       setDeleteTarget(null);
       await loadLinks();
-      toast.success("Affiliate link deleted");
+      toast.success(t("deletedToast"));
     } catch (deleteError) {
-      // The API refuses a link with any history, and its message says to
-      // deactivate instead — surfaced as it comes rather than restated here.
-      toast.error(deleteError instanceof Error ? deleteError.message : "Failed to delete affiliate link");
+      // The API refuses a link with any history, and AFFILIATE_LINK_HAS_HISTORY
+      // is keyed in `errors.envelope` so that refusal — the one an organizer is
+      // most likely to meet here — arrives in their own language.
+      toast.error(
+        apiErrorMessage(errorCopy, deleteError instanceof ApiError ? deleteError : null) ??
+          t("deleteFailed"),
+      );
     } finally {
       setBusyId(null);
     }
@@ -185,11 +205,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       await navigator.clipboard.writeText(link.url);
       setCopiedId(link.id);
       window.setTimeout(() => setCopiedId((current) => (current === link.id ? null : current)), 2000);
-      toast.success("Link copied");
+      toast.success(t("copiedToast"));
     } catch {
       // Clipboard access can be refused (insecure origin, denied permission).
       // The URL is on screen and selectable, so say so rather than fail mutely.
-      toast.error("Could not copy — select the link and copy it manually");
+      toast.error(t("copyFailed"));
     }
   }
 
@@ -204,28 +224,26 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Affiliate Links</CardTitle>
+        <CardTitle>{t("title")}</CardTitle>
         <CardDescription>
           {/* The promise the card makes has to be one this Event can keep. An
               Event that registers externally never attributes a sale, and the
               API says so by reporting no attribution figures at all — so the
               description drops the claim rather than leaving it standing over
               rows that will never show it. */}
-          {attributionMeasured
-            ? "Named links to this Event's page that attribute Online Sales to whoever is promoting it. The code is generated for you and never changes."
-            : "Named links to this Event's page, counting the traffic each one sends. This Event registers elsewhere, so its links are measured by clicks rather than sales. The code is generated for you and never changes."}
+          {attributionMeasured ? t("descriptionAttributed") : t("descriptionClicksOnly")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(event) => void handleCreate(event)}>
           <div className="flex-1">
-            <FormField id="affiliate-link-name" label="Name">
+            <FormField id="affiliate-link-name" label={t("nameLabel")}>
               <Input
                 id="affiliate-link-name"
                 value={name}
                 maxLength={AFFILIATE_LINK_NAME_MAX_LENGTH}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="María's Instagram"
+                placeholder={t("namePlaceholder")}
                 required
               />
             </FormField>
@@ -235,7 +253,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
             disabled={creating || name.trim() === ""}
             aria-busy={creating}
           >
-            {creating ? "Creating…" : "Create affiliate link"}
+            {creating ? t("creating") : t("create")}
           </Button>
         </form>
 
@@ -247,13 +265,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
           </div>
         ) : loadError ? (
           <Alert variant="destructive">
-            <AlertTitle>Could not load affiliate links</AlertTitle>
+            <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
             <AlertDescription>{loadError}</AlertDescription>
           </Alert>
         ) : links.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No affiliate links yet. Create one to give a promoter their own link to this Event.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("empty")}</p>
         ) : (
           <div className="space-y-3">
             {links.map((link) => (
@@ -279,13 +295,19 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                       means something. */}
                   {link.sales_count !== null && link.net_proceeds_cents !== null ? (
                     <p className="mt-1 text-sm text-muted-foreground">
-                      <span className="font-medium text-foreground">{link.sales_count}</span>{" "}
-                      {link.sales_count === 1 ? "sale" : "sales"}
-                      {" · "}
-                      <span className="font-medium text-foreground">
-                        {currency ? formatPriceCents(link.net_proceeds_cents, currency) : "—"}
-                      </span>{" "}
-                      net proceeds
+                      {t.rich("attribution", {
+                        count: link.sales_count,
+                        // The Event's currency, whichever language is read. An
+                        // em dash while the currency is still unknown: a bare
+                        // number would read as a figure in whatever currency
+                        // the reader assumed.
+                        amount: currency
+                          ? formatMoney(link.net_proceeds_cents, currency, locale)
+                          : "—",
+                        value: (chunks) => (
+                          <span className="font-medium text-foreground">{chunks}</span>
+                        ),
+                      })}
                     </p>
                   ) : null}
                 </div>
@@ -293,14 +315,18 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                   {/* Clicks sit next to the link so a bad link reads differently
                       from a bad audience: no clicks means nobody followed it. */}
                   <span className="text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">{link.clicks}</span>{" "}
-                    {link.clicks === 1 ? "click" : "clicks"}
+                    {t.rich("clicks", {
+                      count: link.clicks,
+                      value: (chunks) => (
+                        <span className="font-medium text-foreground">{chunks}</span>
+                      ),
+                    })}
                   </span>
                   <Badge variant={link.active ? "default" : "secondary"}>
-                    {link.active ? "Active" : "Inactive"}
+                    {link.active ? t("active") : t("inactive")}
                   </Badge>
                   <Button type="button" variant="outline" size="sm" onClick={() => void copyURL(link)}>
-                    {copiedId === link.id ? "Copied" : "Copy link"}
+                    {copiedId === link.id ? t("copied") : t("copy")}
                   </Button>
                   <Button
                     type="button"
@@ -310,7 +336,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                     aria-busy={busyId === link.id}
                     onClick={() => openRenameDialog(link)}
                   >
-                    Rename
+                    {t("rename")}
                   </Button>
                   {/* Deactivating leaves everything on this row where it is and
                       only stops the code counting and attributing; reactivating
@@ -325,11 +351,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                   >
                     {busyId === link.id
                       ? link.active
-                        ? "Deactivating…"
-                        : "Reactivating…"
+                        ? t("deactivating")
+                        : t("reactivating")
                       : link.active
-                        ? "Deactivate"
-                        : "Reactivate"}
+                        ? t("deactivate")
+                        : t("reactivate")}
                   </Button>
                   <Button
                     type="button"
@@ -339,7 +365,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
                     aria-busy={busyId === link.id}
                     onClick={() => setDeleteTarget(link)}
                   >
-                    Delete
+                    {t("delete")}
                   </Button>
                 </div>
               </div>
@@ -351,14 +377,11 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       <Dialog open={renameTarget !== null} onOpenChange={(open) => !open && setRenameTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename affiliate link</DialogTitle>
-            <DialogDescription>
-              Only the name changes. The code, the link itself, and everything it has already done stay
-              exactly as they are.
-            </DialogDescription>
+            <DialogTitle>{t("renameDialogTitle")}</DialogTitle>
+            <DialogDescription>{t("renameDialogDescription")}</DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={(event) => void handleRename(event)}>
-            <FormField id="affiliate-link-rename" label="Name">
+            <FormField id="affiliate-link-rename" label={t("nameLabel")}>
               <Input
                 id="affiliate-link-rename"
                 value={renameValue}
@@ -369,14 +392,14 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
             </FormField>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
-                Cancel
+                {t("cancel")}
               </Button>
               <Button
                 type="submit"
                 disabled={busyId !== null || renameValue.trim() === ""}
                 aria-busy={busyId !== null}
               >
-                {busyId !== null ? "Saving…" : "Save name"}
+                {busyId !== null ? t("saving") : t("saveName")}
               </Button>
             </DialogFooter>
           </form>
@@ -386,16 +409,17 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete affiliate link?</DialogTitle>
+            <DialogTitle>{t("deleteDialogTitle")}</DialogTitle>
             <DialogDescription>
-              Remove <strong>{deleteTarget?.name}</strong> from this Event? This cannot be undone. A link
-              that has any clicks or attributed sales cannot be deleted — deactivate it instead, and it
-              keeps its history.
+              {t.rich("deleteDialogDescription", {
+                name: deleteTarget?.name ?? "",
+                em: (chunks) => <strong>{chunks}</strong>,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="button"
@@ -404,7 +428,7 @@ export function AffiliateLinksSection({ eventId }: AffiliateLinksSectionProps) {
               aria-busy={busyId !== null}
               onClick={() => void handleDelete()}
             >
-              {busyId !== null ? "Deleting…" : "Delete affiliate link"}
+              {busyId !== null ? t("deleting") : t("deleteConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

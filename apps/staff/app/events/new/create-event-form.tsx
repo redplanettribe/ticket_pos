@@ -1,5 +1,6 @@
 "use client";
 
+import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -16,9 +17,12 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
-import { fetchEventsJSON, slugify, type EventDetail } from "@/lib/events-api";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { ApiError, fetchEventsJSON, slugify, type EventDetail } from "@/lib/events-api";
 
 export function CreateEventForm() {
+  const t = useTranslations("events");
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -41,11 +45,14 @@ export function CreateEventForm() {
         method: "POST",
         body: JSON.stringify({ name, slug }),
       });
-      toast.success("Event created");
+      toast.success(t("createdToast"));
       router.push(`/events/${created.id}`);
       router.refresh();
     } catch (submitError) {
-      toast.error(submitError instanceof Error ? submitError.message : "Failed to create event");
+      toast.error(
+        apiErrorMessage(errorCopy, submitError instanceof ApiError ? submitError : null) ??
+          t("createFailed"),
+      );
     } finally {
       setLoading(false);
     }
@@ -53,26 +60,19 @@ export function CreateEventForm() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Create event"
-        description="Start with a name and slug. You can add scheduling and details on the next screen."
-      />
+      <PageHeader title={t("newTitle")} description={t("newDescription")} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Event basics</CardTitle>
-          <CardDescription>Draft events can be edited freely until you publish.</CardDescription>
+          <CardTitle>{t("basicsTitle")}</CardTitle>
+          <CardDescription>{t("basicsDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-            <FormField id="event-name" label="Name">
+            <FormField id="event-name" label={t("nameLabel")}>
               <Input value={name} onChange={(event) => handleNameChange(event.target.value)} required />
             </FormField>
-            <FormField
-              id="event-slug"
-              label="Slug"
-              description="Used in Storefront URLs. Lowercase letters, numbers, and hyphens only."
-            >
+            <FormField id="event-slug" label={t("slugLabel")} description={t("slugDescription")}>
               <Input
                 value={slug}
                 onChange={(event) => {
@@ -83,7 +83,7 @@ export function CreateEventForm() {
               />
             </FormField>
             <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create event"}
+              {loading ? t("creating") : t("createEvent")}
             </Button>
           </form>
         </CardContent>

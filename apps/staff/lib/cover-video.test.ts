@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -8,6 +9,7 @@ import {
   MIN_COVER_VIDEO_WIDTH,
   validateCoverVideo,
   type CoverVideoFile,
+  type CoverVideoRejectionReason,
 } from "./cover-video.ts";
 
 /** A file that satisfies every rule, so each test can violate exactly one. */
@@ -22,15 +24,13 @@ function validFile(overrides: Partial<CoverVideoFile> = {}): CoverVideoFile {
   };
 }
 
-function assertRejected(file: CoverVideoFile, expected: string): string {
+function assertRejected(file: CoverVideoFile, expected: string) {
   const result = validateCoverVideo(file);
   assert.equal(result.ok, false, `expected ${JSON.stringify(file)} to be rejected`);
   if (result.ok) {
     throw new Error("unreachable");
   }
   assert.equal(result.reason, expected);
-  assert.ok(result.message.length > 0, "a rejection must carry a human-readable message");
-  return result.message;
 }
 
 function assertAccepted(file: CoverVideoFile) {
@@ -121,10 +121,28 @@ test("the wrong type is reported before unreadable metadata, so the fixable thin
   assertRejected({ width: 0, height: 0, duration: Number.NaN, size: 1024, type: "image/png" }, "type");
 });
 
-test("every rejection message states the requirement it violated", () => {
-  assert.match(assertRejected(validFile({ type: "video/webm" }), "type"), /MP4/i);
-  assert.match(assertRejected(validFile({ size: MAX_COVER_VIDEO_BYTES + 1 }), "size"), /50 MB/i);
-  assert.match(assertRejected(validFile({ duration: 45 }), "duration"), /30 seconds/i);
-  assert.match(assertRejected(validFile({ width: 640, height: 360 }), "width"), /1280/);
-  assert.match(assertRejected(validFile({ width: 1080, height: 1920 }), "aspect"), /16:9/);
+test("every rejection has a sentence to be said in, in both languages", () => {
+  // The sentences moved to the catalogs (ADR 0041). What is worth asserting is
+  // that no reason token can reach an organizer with nothing to say — the same
+  // guard the old "every rejection carries a message" test made, one layer out,
+  // and now covering Spanish too.
+  const reasons: CoverVideoRejectionReason[] = [
+    "type",
+    "unreadable",
+    "size",
+    "width",
+    "aspect",
+    "duration",
+  ];
+  const keyFor = (reason: string) =>
+    `coverVideoReject${reason[0].toUpperCase()}${reason.slice(1)}`;
+
+  for (const locale of ["en", "es"]) {
+    const catalog = JSON.parse(
+      readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+    ) as { event: Record<string, string> };
+    for (const reason of reasons) {
+      assert.ok(catalog.event[keyFor(reason)], `${locale}.json is missing ${keyFor(reason)}`);
+    }
+  }
 });

@@ -3,27 +3,49 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { EventShell, type SidebarNavItem } from "@ticket-pos/ui";
+import { EventShell, type EventShellLabels } from "@ticket-pos/ui";
 
 import { statusBadgeVariant } from "@/lib/events-api";
 
 type EventShellClientProps = {
+  /**
+   * The panel's words, resolved on the server by the Event layout. Handed down
+   * rather than looked up here for the reason the app shell hands its own down:
+   * @ticket-pos/ui is shared with the Storefront and cannot reach the staff
+   * catalog (ADR 0041).
+   */
+  labels: EventShellLabels;
+  eventId: string;
+  fullAccess: boolean;
   eventName: string;
+  /** The API's own token, which still decides the badge's colour. */
   status: string;
-  navItems: SidebarNavItem[];
+  /** The same status in the reader's language, which is what the badge says. */
+  statusLabel: string;
   userMenu: ReactNode;
   children: ReactNode;
 };
 
-export function EventShellClient({ eventName, status, navItems, userMenu, children }: EventShellClientProps) {
+export function EventShellClient({
+  labels,
+  eventId,
+  fullAccess,
+  eventName,
+  status,
+  statusLabel,
+  userMenu,
+  children,
+}: EventShellClientProps) {
   const pathname = usePathname();
 
   return (
     <EventShell
+      labels={labels}
+      eventId={eventId}
+      fullAccess={fullAccess}
       eventName={eventName}
-      status={status}
+      statusLabel={statusLabel}
       statusVariant={statusBadgeVariant(status)}
-      navItems={navItems}
       activePath={pathname}
       userMenu={userMenu}
     >

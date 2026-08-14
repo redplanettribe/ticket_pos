@@ -1,5 +1,6 @@
 "use client";
 
+import { useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -20,9 +21,11 @@ import {
   toast,
 } from "@ticket-pos/ui";
 
+import { apiErrorMessage } from "@/lib/api-errors";
 import type { FeeHandling } from "@/lib/fees";
 import { isValidRegistrationURL, type RegistrationMode } from "@/lib/registration";
 import {
+  ApiError,
   dateTimeLocalToISO,
   fetchEventsJSON,
   getTimezoneOptions,
@@ -41,6 +44,8 @@ type EventDetailFormProps = {
 };
 
 export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps) {
+  const t = useTranslations("event");
+  const errorCopy = useMessages().errors;
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -88,11 +93,14 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
       const event = await fetchEventsJSON<EventDetail>(`/api/events/${eventId}`);
       applyEvent(event);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load event");
+      setError(
+        apiErrorMessage(errorCopy, loadError instanceof ApiError ? loadError : null) ??
+          t("loadFailed"),
+      );
     } finally {
       setLoading(false);
     }
-  }, [applyEvent, eventId]);
+  }, [applyEvent, errorCopy, eventId, t]);
 
   useEffect(() => {
     void loadEvent();
@@ -106,7 +114,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     registrationMode === "external" &&
     registrationUrl.trim() !== "" &&
     !isValidRegistrationURL(registrationUrl)
-      ? "Must be an https link, like https://lu.ma/your-event."
+      ? t("registrationUrlInvalid")
       : null;
 
   async function saveEvent(): Promise<EventDetail | null> {
@@ -135,7 +143,10 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
       applyEvent(updated);
       return updated;
     } catch (saveError) {
-      toast.error(saveError instanceof Error ? saveError.message : "Failed to save event");
+      toast.error(
+        apiErrorMessage(errorCopy, saveError instanceof ApiError ? saveError : null) ??
+          t("saveFailed"),
+      );
       return null;
     }
   }
@@ -150,7 +161,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     try {
       const updated = await saveEvent();
       if (updated) {
-        toast.success("Event saved");
+        toast.success(t("savedToast"));
         // Refresh so the persistent header bar re-reads saved server state and
         // its Publish button reflects the newly-saved Event (Save-then-Publish).
         router.refresh();
@@ -161,13 +172,13 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading event...</p>;
+    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
 
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Could not load event</AlertTitle>
+        <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
@@ -195,17 +206,17 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
     <form className="space-y-6" onSubmit={(event) => void handleSave(event)}>
       <Card>
         <CardHeader>
-          <CardTitle>Details</CardTitle>
-          <CardDescription>Name, slug, and scheduling for this Event.</CardDescription>
+          <CardTitle>{t("detailsTitle")}</CardTitle>
+          <CardDescription>{t("detailsDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <FormField id="detail-name" label="Name">
+          <FormField id="detail-name" label={t("nameLabel")}>
             <Input value={name} onChange={(event) => setName(event.target.value)} required />
           </FormField>
           <FormField
             id="detail-slug"
-            label="Slug"
-            description={slugReadOnly ? "Locked after publish." : "Editable while the event is a draft."}
+            label={t("slugLabel")}
+            description={slugReadOnly ? t("slugLocked") : t("slugEditable")}
           >
             <Input
               value={slug}
@@ -214,18 +225,18 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
               required
             />
           </FormField>
-          <FormField id="detail-timezone" label="Timezone">
+          <FormField id="detail-timezone" label={t("timezoneLabel")}>
             <Combobox
               options={timezoneOptions}
               value={timezone}
               onValueChange={setTimezone}
-              placeholder="Select a timezone"
-              searchPlaceholder="Search timezones…"
-              emptyText="No matching timezone."
+              placeholder={t("timezonePlaceholder")}
+              searchPlaceholder={t("timezoneSearchPlaceholder")}
+              emptyText={t("timezoneEmpty")}
             />
           </FormField>
           <div className="grid gap-4 md:grid-cols-2">
-            <FormField id="detail-starts-at" label="Starts at">
+            <FormField id="detail-starts-at" label={t("startsAtLabel")}>
               <Input
                 id="detail-starts-at"
                 type="datetime-local"
@@ -233,7 +244,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
                 onChange={(event) => setStartsAtLocal(event.target.value)}
               />
             </FormField>
-            <FormField id="detail-ends-at" label="Ends at">
+            <FormField id="detail-ends-at" label={t("endsAtLabel")}>
               <Input
                 id="detail-ends-at"
                 type="datetime-local"
@@ -247,14 +258,14 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
 
       <Card>
         <CardHeader>
-          <CardTitle>Venue</CardTitle>
-          <CardDescription>Optional location details for customers.</CardDescription>
+          <CardTitle>{t("venueTitle")}</CardTitle>
+          <CardDescription>{t("venueDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <FormField id="detail-venue-name" label="Venue name">
+          <FormField id="detail-venue-name" label={t("venueNameLabel")}>
             <Input value={venueName} onChange={(event) => setVenueName(event.target.value)} />
           </FormField>
-          <FormField id="detail-venue-address" label="Venue address">
+          <FormField id="detail-venue-address" label={t("venueAddressLabel")}>
             <Input value={venueAddress} onChange={(event) => setVenueAddress(event.target.value)} />
           </FormField>
         </CardContent>
@@ -284,11 +295,8 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
 
       <Card>
         <CardHeader>
-          <CardTitle>Registration</CardTitle>
-          <CardDescription>
-            Sell tickets here, or send people to another site to sign up. An event does one or the
-            other, and the choice is settled while it is a draft.
-          </CardDescription>
+          <CardTitle>{t("registrationTitle")}</CardTitle>
+          <CardDescription>{t("registrationDescription")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -299,7 +307,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
               disabled={modeLocked}
               onClick={() => setRegistrationMode("tickets")}
             >
-              Sell tickets here
+              {t("registrationModeTickets")}
             </Button>
             <Button
               type="button"
@@ -308,14 +316,14 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
               disabled={modeLocked}
               onClick={() => setRegistrationMode("external")}
             >
-              Register on another site
+              {t("registrationModeExternal")}
             </Button>
           </div>
           {registrationMode === "external" ? (
             <FormField
               id="detail-registration-url"
-              label="Registration link"
-              description="The https page people sign up on — a Luma page, an Eventbrite listing, a form. You can choose this mode now and add the link later."
+              label={t("registrationUrlLabel")}
+              description={t("registrationUrlDescription")}
               error={registrationUrlError}
             >
               <Input
@@ -328,14 +336,10 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
               />
             </FormField>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              People buy ticket types on this event&apos;s page.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("registrationTicketsHint")}</p>
           )}
           {modeLocked ? (
-            <p className="text-sm text-muted-foreground">
-              Locked after publish. Create a new event to change how this one takes sign-ups.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("registrationLocked")}</p>
           ) : null}
         </CardContent>
       </Card>
@@ -346,11 +350,8 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
       {registrationMode === "external" ? null : (
         <Card>
           <CardHeader>
-            <CardTitle>Service fee</CardTitle>
-            <CardDescription>
-              Choose whether buyers cover the platform&apos;s service fee or you absorb it out of your
-              prices. Changes apply to future sales only.
-            </CardDescription>
+            <CardTitle>{t("feeTitle")}</CardTitle>
+            <CardDescription>{t("feeDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2">
@@ -360,7 +361,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
                 aria-pressed={feeHandling === "pass_on"}
                 onClick={() => setFeeHandling("pass_on")}
               >
-                Buyers cover it
+                {t("feePassOn")}
               </Button>
               <Button
                 type="button"
@@ -368,13 +369,11 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
                 aria-pressed={feeHandling === "absorb"}
                 onClick={() => setFeeHandling("absorb")}
               >
-                I absorb it
+                {t("feeAbsorb")}
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              {feeHandling === "pass_on"
-                ? "Buyers pay a little above your ticket prices, and you receive exactly the price you set."
-                : "Buyers pay exactly the price you set, and the service fee comes out of it."}
+              {feeHandling === "pass_on" ? t("feePassOnHint") : t("feeAbsorbHint")}
             </p>
           </CardContent>
         </Card>
@@ -382,16 +381,16 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
 
       <Card>
         <CardHeader>
-          <CardTitle>Description</CardTitle>
-          <CardDescription>Markdown supported.</CardDescription>
+          <CardTitle>{t("descriptionTitle")}</CardTitle>
+          <CardDescription>{t("descriptionHint")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <FormField id="detail-description" label="Description">
+          <FormField id="detail-description" label={t("descriptionLabel")}>
             <Textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               rows={8}
-              placeholder="Tell customers what to expect..."
+              placeholder={t("descriptionPlaceholder")}
             />
           </FormField>
         </CardContent>
@@ -402,7 +401,7 @@ export function EventDetailForm({ eventId, canManageTags }: EventDetailFormProps
       {canManageTags ? <EventTagsSection eventId={eventId} /> : null}
 
       <Button type="submit" disabled={saving}>
-        {saving ? "Saving..." : "Save changes"}
+        {saving ? t("saving") : t("save")}
       </Button>
     </form>
   );

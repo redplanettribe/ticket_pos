@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  AVAILABILITY_LABELS,
   availabilityBadgeVariant,
-  capacitySummary,
+  capacityCounts,
   remainingCapacity,
   soldShare,
   ticketTypeAvailability,
@@ -49,27 +48,34 @@ test("remainingCapacity floors at zero", () => {
   assert.equal(remainingCapacity({ capacity: 100, sold_count: 140 }), 0);
 });
 
-test("availabilityBadgeVariant colours each state and never leans on colour alone", () => {
+test("availabilityBadgeVariant colours each state, and two states share a colour", () => {
   assert.equal(availabilityBadgeVariant("on_sale"), "success");
   assert.equal(availabilityBadgeVariant("low_stock"), "warning");
+  // Sold out and not on sale share the neutral colour, which is exactly why the
+  // badge must also carry a word. The words are the catalog's now
+  // (`ticketTypes.availabilitySoldOut` / `availabilityNotOnSale`), and the
+  // states stay distinct tokens here so the two can never collapse into one.
   assert.equal(availabilityBadgeVariant("sold_out"), "secondary");
   assert.equal(availabilityBadgeVariant("not_on_sale"), "secondary");
-
-  // The two secondary states must stay tellable apart by their label.
-  assert.notEqual(AVAILABILITY_LABELS.sold_out, AVAILABILITY_LABELS.not_on_sale);
-  for (const label of Object.values(AVAILABILITY_LABELS)) {
-    assert.ok(label.length > 0);
-  }
 });
 
-test("capacitySummary separates thousands and never over-counts the sold side", () => {
-  assert.equal(capacitySummary({ capacity: 100, sold_count: 32 }), "32 of 100 sold · 68 left");
-  assert.equal(
-    capacitySummary({ capacity: 1250, sold_count: 1000 }),
-    `${(1000).toLocaleString()} of ${(1250).toLocaleString()} sold · 250 left`,
-  );
+test("capacityCounts returns the line's parts and never over-counts the sold side", () => {
+  assert.deepEqual(capacityCounts({ capacity: 100, sold_count: 32 }), {
+    sold: 32,
+    capacity: 100,
+    remaining: 68,
+  });
+  assert.deepEqual(capacityCounts({ capacity: 1250, sold_count: 1000 }), {
+    sold: 1000,
+    capacity: 1250,
+    remaining: 250,
+  });
   // An over-sold pool reports a full house, not more sold than exist.
-  assert.equal(capacitySummary({ capacity: 100, sold_count: 140 }), "100 of 100 sold · 0 left");
+  assert.deepEqual(capacityCounts({ capacity: 100, sold_count: 140 }), {
+    sold: 100,
+    capacity: 100,
+    remaining: 0,
+  });
 });
 
 test("soldShare stays within the meter and survives a zero pool", () => {

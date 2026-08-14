@@ -167,6 +167,13 @@ export const SUPPORTED_CURRENCIES = [
   "DKK",
 ] as const;
 
+/**
+ * NOT FOR A MIGRATED SURFACE. `Intl` with no locale follows the BROWSER's, which
+ * is the bug ADR 0041 exists to fix — use `formatMoney` from lib/format.ts, which
+ * demands the Staff Locale. This stays only for the surfaces that have not been
+ * migrated yet (payouts, the Operator Dashboard, sales and imports); it goes when
+ * the last of them does.
+ */
 export function formatPriceCents(priceCents: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
@@ -307,6 +314,12 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/**
+ * NOT FOR A MIGRATED SURFACE, for two reasons: the bare `Intl` follows the
+ * BROWSER's locale, and "No date set" is an English sentence in a module that
+ * has no business holding one. Use `formatDateTime` from lib/format.ts and let
+ * the catalog say the absent case. Kept for the surfaces still to be migrated.
+ */
 export function formatEventStartDate(startsAt: string | null, timezone: string | null): string {
   if (!startsAt) {
     return "No date set";
@@ -318,6 +331,32 @@ export function formatEventStartDate(startsAt: string | null, timezone: string |
     ...(timezone ? { timeZone: timezone } : {}),
   };
   return new Intl.DateTimeFormat(undefined, options).format(date);
+}
+
+/**
+ * The `events` catalog key an Event's status is written with, or null for a
+ * status this app has never heard of.
+ *
+ * The status itself is the API's token — "draft", "published", "cancelled" — and
+ * was rendered raw under a `capitalize` class, which is English by accident and
+ * a lie in Spanish. Null rather than a fallback sentence: the caller shows the
+ * raw token, so a status the backend adds later reads as something rather than
+ * as a blank badge, exactly the way an unknown error code falls back to the
+ * API's own words (ADR 0023).
+ */
+export function eventStatusKey(
+  status: string,
+): "statusDraft" | "statusPublished" | "statusCancelled" | null {
+  switch (status) {
+    case "draft":
+      return "statusDraft";
+    case "published":
+      return "statusPublished";
+    case "cancelled":
+      return "statusCancelled";
+    default:
+      return null;
+  }
 }
 
 export function statusBadgeVariant(status: string): "warning" | "success" | "destructive" | "secondary" {
@@ -390,15 +429,35 @@ export function getPublishMissingFields(event: PublishReadinessEvent, ticketType
   return missing;
 }
 
-/** Human-readable labels for the publish-readiness missing-field keys. */
-export const PUBLISH_FIELD_LABELS: Record<string, string> = {
-  name: "name",
-  slug: "slug",
-  starts_at: "schedule",
-  timezone: "timezone",
-  ticket_types: "at least one ticket type",
-  registration_url: "a registration link",
-};
+/**
+ * Every requirement key the mirror above can produce, and the server with it.
+ *
+ * Keys, not labels. This was a map of English words — "at least one ticket
+ * type" — read straight into the publish hint, which put copy in a pure module
+ * and left a Spanish-reading organizer with an English list of what to fix. The
+ * words are `event.publishFieldTicketTypes` and its siblings in the catalogs now
+ * (ADR 0041), and the header bar looks each key up there.
+ *
+ * The list stays here because it is a fact about this mirror rather than about
+ * the copy: the server may name a key this app has never heard of — the two can
+ * drift, which is the whole reason the mirror is documented as advisory — and the
+ * hint shows such a key raw rather than dropping a requirement silently.
+ */
+export const PUBLISH_FIELD_KEYS = [
+  "name",
+  "slug",
+  "starts_at",
+  "timezone",
+  "ticket_types",
+  "registration_url",
+] as const;
+
+export type PublishFieldKey = (typeof PUBLISH_FIELD_KEYS)[number];
+
+/** Whether a missing-field key is one this app has words for. */
+export function isPublishFieldKey(key: string): key is PublishFieldKey {
+  return (PUBLISH_FIELD_KEYS as readonly string[]).includes(key);
+}
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
   const formatter = new Intl.DateTimeFormat("en-US", {

@@ -1,21 +1,22 @@
 "use client";
 
+import { toAppLocale } from "@ticket-pos/locale";
+import { useLocale, useTranslations } from "next-intl";
+
 import { Badge, Button, cn } from "@ticket-pos/ui";
 
-import { formatEventStartDate, formatPriceCents, type TicketType } from "@/lib/events-api";
+import type { TicketType } from "@/lib/events-api";
+import { formatDateTime, formatMoney, formatNumber } from "@/lib/format";
+import { promotionState, promotionStateBadgeVariant } from "@/lib/promotions";
+import { purchaseLimitLine } from "@/lib/purchase-limit";
 import {
-  PROMOTION_STATE_LABELS,
-  promotionState,
-  promotionStateBadgeVariant,
-} from "@/lib/promotions";
-import { purchaseLimitSummary } from "@/lib/purchase-limit";
-import {
-  AVAILABILITY_LABELS,
   availabilityBadgeVariant,
-  capacitySummary,
+  capacityCounts,
   soldShare,
   ticketTypeAvailability,
+  type Availability,
 } from "@/lib/ticket-type-availability";
+import type { PromotionState } from "@/lib/promotions";
 
 type TicketTypeCardProps = {
   ticketType: TicketType;
@@ -33,6 +34,21 @@ type TicketTypeCardProps = {
   onPromotion: () => void;
   onDelete: () => void;
 };
+
+/** The `ticketTypes` catalog key an availability state is said with. */
+const AVAILABILITY_KEYS = {
+  not_on_sale: "availabilityNotOnSale",
+  sold_out: "availabilitySoldOut",
+  low_stock: "availabilityLowStock",
+  on_sale: "availabilityOnSale",
+} as const satisfies Record<Availability, string>;
+
+/** The same for a Promotion's state, badge prefix included. */
+const PROMOTION_STATE_KEYS = {
+  scheduled: "promotionScheduled",
+  live: "promotionLive",
+  ended: "promotionEnded",
+} as const satisfies Record<PromotionState, string>;
 
 /**
  * One Ticket Type as the staff editor shows it: what it is and whether it sells
@@ -54,6 +70,8 @@ export function TicketTypeCard({
   onPromotion,
   onDelete,
 }: TicketTypeCardProps) {
+  const t = useTranslations("ticketTypes");
+  const locale = toAppLocale(useLocale());
   const availability = ticketTypeAvailability(ticketType, eventStatus);
   const promotion = ticketType.promotion;
   const state = promotion ? promotionState(promotion, new Date()) : null;
@@ -64,28 +82,44 @@ export function TicketTypeCard({
   // A Purchase Limit is unset on most Ticket Types, so the line appears only
   // when one is actually set: null here means the card stays silent rather than
   // claiming anything about how many a Customer may hold.
-  const purchaseLimitLine = purchaseLimitSummary(ticketType.max_per_customer);
+  const purchaseLimit = purchaseLimitLine(ticketType.max_per_customer);
+  const capacity = capacityCounts(ticketType);
 
-  const listPrice = formatPriceCents(ticketType.price_cents, ticketType.currency);
+  // The Ticket Type's own currency and the Event's own timezone, whichever
+  // language is being read: a Locale decides marks and never money or time
+  // (ADR 0041).
+  const listPrice = formatMoney(ticketType.price_cents, ticketType.currency, locale);
   const promotionPrice = promotion
-    ? formatPriceCents(promotion.promotional_price_cents, ticketType.currency)
+    ? formatMoney(promotion.promotional_price_cents, ticketType.currency, locale)
     : null;
-  const promotionWindow = promotion
-    ? `${promotion.starts_at ? `from ${formatEventStartDate(promotion.starts_at, timezone)} ` : ""}until ${formatEventStartDate(promotion.ends_at, timezone)}`
-    : null;
+  const promotionEnds = promotion ? formatDateTime(promotion.ends_at, timezone, locale) : null;
+  const promotionStarts =
+    promotion && promotion.starts_at
+      ? formatDateTime(promotion.starts_at, timezone, locale)
+      : null;
+  // Two messages rather than one glued together from a conditional fragment:
+  // "from X until Y" and "until Y" are different sentences, and in Spanish they
+  // are not the same one with a piece missing.
+  const promotionWindow = !promotionEnds
+    ? null
+    : promotionStarts
+      ? t("promotionWindow", { start: promotionStarts, end: promotionEnds })
+      : t("promotionWindowOpenEnded", { end: promotionEnds });
 
   return (
     <li className="rounded-md border p-4 transition-colors hover:bg-muted/40">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
+            {/* The Ticket Type's name and description are the Organization's
+                own words: data, never copy, and untranslated in both. */}
             <h3 className="font-medium">{ticketType.name}</h3>
             <Badge variant={availabilityBadgeVariant(availability)}>
-              {AVAILABILITY_LABELS[availability]}
+              {t(AVAILABILITY_KEYS[availability])}
             </Badge>
             {state ? (
               <Badge variant={promotionStateBadgeVariant(state)}>
-                Promo · {PROMOTION_STATE_LABELS[state]}
+                {t(PROMOTION_STATE_KEYS[state])}
               </Badge>
             ) : null}
           </div>
@@ -99,12 +133,14 @@ export function TicketTypeCard({
 
         <div className="shrink-0 tabular-nums sm:text-right">
           <p className="font-semibold">
-            <span className="sr-only">{promotionLive ? "Promotional price " : "Price "}</span>
+            <span className="sr-only">
+              {promotionLive ? t("promotionalPriceSr") : t("priceSr")}{" "}
+            </span>
             {promotionLive ? promotionPrice : listPrice}
           </p>
           {promotionLive ? (
             <p className="text-sm text-muted-foreground">
-              <span className="sr-only">List price </span>
+              <span className="sr-only">{t("listPriceSr")} </span>
               <span className="line-through">{listPrice}</span>
             </p>
           ) : null}
@@ -136,9 +172,20 @@ export function TicketTypeCard({
             style={{ width: `${share * 100}%` }}
           />
         </div>
-        <p className="text-sm text-muted-foreground tabular-nums">{capacitySummary(ticketType)}</p>
-        {purchaseLimitLine ? (
-          <p className="text-sm text-muted-foreground tabular-nums">{purchaseLimitLine}</p>
+        {/* The counts come from the pure module and the sentence from the
+            catalog, with each number drawn in the Staff Locale rather than the
+            browser's (ADR 0041). */}
+        <p className="text-sm text-muted-foreground tabular-nums">
+          {t("capacityLine", {
+            sold: formatNumber(capacity.sold, locale),
+            capacity: formatNumber(capacity.capacity, locale),
+            remaining: formatNumber(capacity.remaining, locale),
+          })}
+        </p>
+        {purchaseLimit ? (
+          <p className="text-sm text-muted-foreground tabular-nums">
+            {t("purchaseLimitLine", { limit: formatNumber(purchaseLimit.limit, locale) })}
+          </p>
         ) : null}
       </div>
 
@@ -149,7 +196,7 @@ export function TicketTypeCard({
             variant="ghost"
             size="sm"
             disabled={isFirst}
-            aria-label={`Move ${ticketType.name} up`}
+            aria-label={t("moveUp", { name: ticketType.name })}
             onClick={onMoveUp}
           >
             <span aria-hidden>↑</span>
@@ -159,17 +206,17 @@ export function TicketTypeCard({
             variant="ghost"
             size="sm"
             disabled={isLast}
-            aria-label={`Move ${ticketType.name} down`}
+            aria-label={t("moveDown", { name: ticketType.name })}
             onClick={onMoveDown}
           >
             <span aria-hidden>↓</span>
           </Button>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={onEdit}>
-          Edit
+          {t("edit")}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onPromotion}>
-          {promotion === null ? "Add promotion" : "Promotion"}
+          {promotion === null ? t("addPromotion") : t("promotion")}
         </Button>
         {canDelete ? (
           <Button
@@ -179,7 +226,7 @@ export function TicketTypeCard({
             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={onDelete}
           >
-            Delete
+            {t("delete")}
           </Button>
         ) : null}
       </div>
