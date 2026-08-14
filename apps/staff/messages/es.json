@@ -1,0 +1,26 @@
+{
+  "shell": {
+    "languageSwitcherLabel": "Idioma"
+  },
+  "login": {
+    "title": "Iniciar sesión",
+    "description": "Introduzca su correo electrónico para recibir un código de un solo uso.",
+    "createTitle": "Cree su evento",
+    "createDescription": "Inicie sesión con su correo electrónico para empezar: a continuación configurará su organización y luego podrá crear y publicar su evento.",
+    "codeDescription": "Introduzca el código de 6 dígitos enviado a {email}.",
+    "emailLabel": "Correo electrónico",
+    "sendCode": "Enviar código",
+    "sending": "Enviando...",
+    "passcodeSent": "Código enviado.",
+    "passcodeLabel": "Código",
+    "verify": "Verificar",
+    "verifying": "Verificando...",
+    "useDifferentEmail": "Usar otro correo electrónico",
+    "or": "o",
+    "continueWithGoogle": "Continuar con Google",
+    "googleFailed": "No pudimos completar su inicio de sesión con Google. Vuelva a intentarlo o use un código arriba.",
+    "sendFailed": "No se pudo enviar el código",
+    "verifyFailed": "No se pudo verificar el código",
+    "sessionFailed": "No se pudo cargar la sesión"
+  }
+}

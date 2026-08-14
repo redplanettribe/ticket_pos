@@ -1,0 +1,26 @@
+{
+  "shell": {
+    "languageSwitcherLabel": "Language"
+  },
+  "login": {
+    "title": "Sign in",
+    "description": "Enter your email to receive a one-time passcode.",
+    "createTitle": "Create your event",
+    "createDescription": "Sign in with your email to get started — next you'll set up your organization, and then you can create and publish your event.",
+    "codeDescription": "Enter the 6-digit passcode sent to {email}.",
+    "emailLabel": "Email",
+    "sendCode": "Send code",
+    "sending": "Sending...",
+    "passcodeSent": "Passcode sent.",
+    "passcodeLabel": "Passcode",
+    "verify": "Verify",
+    "verifying": "Verifying...",
+    "useDifferentEmail": "Use a different email",
+    "or": "or",
+    "continueWithGoogle": "Continue with Google",
+    "googleFailed": "We couldn't finish signing you in with Google. Try again, or use a passcode above.",
+    "sendFailed": "Could not send passcode",
+    "verifyFailed": "Could not verify passcode",
+    "sessionFailed": "Could not load session"
+  }
+}

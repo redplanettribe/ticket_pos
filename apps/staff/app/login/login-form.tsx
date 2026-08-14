@@ -10,21 +10,25 @@ import {
   buttonVariants,
   cn,
 } from "@ticket-pos/ui";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import { LanguageSwitcher } from "@/app/language-switcher";
 import { applyAuthFork } from "@/lib/auth-fork";
-import type { SignInCopy } from "@/lib/login-copy";
+import type { SignInIntent } from "@/lib/login-copy";
 
 type Step = "email" | "code";
 
 type LoginFormProps = {
   /**
-   * The card's title and its description on the email step, resolved by the
-   * page from the `intent` parameter. Every arrival that is not the Storefront's
-   * create invitation resolves to today's copy, so this is not a branch here.
+   * Which of the two cards is being shown, resolved by the page from the
+   * `intent` parameter. A token rather than a pair of sentences: the words are
+   * the catalog's, in whichever language this request resolved to, and lib/
+   * stays free of copy (#286). Every arrival that is not the Storefront's create
+   * invitation resolves to "default".
    */
-  copy: SignInCopy;
+  intent: SignInIntent;
   /**
    * True when the Member was just bounced back from a Google Sign-In that did
    * not complete. Which failure it was is deliberately not knowable here.
@@ -36,14 +40,6 @@ type LoginFormProps = {
    */
   googleSignInHref: string | null;
 };
-
-/**
- * The one thing said about any failed Google Sign-In. It never states whether
- * the address is known here, because the passcode request endpoint deliberately
- * will not either.
- */
-const GOOGLE_FAILURE_MESSAGE =
-  "We couldn't finish signing you in with Google. Try again, or use a passcode above.";
 
 /** Google's four-colour G, inline so the button needs no network request. */
 function GoogleMark() {
@@ -80,7 +76,11 @@ type Envelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormProps) {
+export function LoginForm({ intent, googleFailed, googleSignInHref }: LoginFormProps) {
+  // Every sentence on this page comes from here, in the language i18n/request.ts
+  // resolved for this request — cookie, then Accept-Language, then English. The
+  // one exception is an error the API worded (below).
+  const t = useTranslations("login");
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -103,13 +103,22 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
       });
       const envelope = (await response.json()) as Envelope<{ message: string }>;
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? "Could not send passcode");
+        // The API's own message is the floor beneath a failure this app has no
+        // words for, exactly as ADR 0023 has the Storefront do it. Keying error
+        // copy on the API's error code is a later ticket in this epic; until
+        // then a rare failure reads in English rather than as a blank.
+        setError(envelope.error?.message ?? t("sendFailed"));
         return;
       }
-      setMessage(envelope.data?.message ?? "Passcode sent");
+      // Deliberately not `envelope.data.message`. That sentence is the API's,
+      // and the API does not speak Spanish and must not start (ADR 0027) — on
+      // the happy path, which every person signing in takes, an English
+      // confirmation in the middle of a Spanish card is the whole page's
+      // translation undone.
+      setMessage(t("passcodeSent"));
       setStep("code");
     } catch {
-      setError("Could not send passcode");
+      setError(t("sendFailed"));
     } finally {
       setLoading(false);
     }
@@ -128,13 +137,13 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
       });
       const envelope = (await response.json()) as Envelope<{ session: SessionData }>;
       if (!response.ok || envelope.error) {
-        setError(envelope.error?.message ?? "Invalid passcode");
+        setError(envelope.error?.message ?? t("verifyFailed"));
         return;
       }
 
       const session = envelope.data?.session;
       if (!session) {
-        setError("Could not load session");
+        setError(t("sessionFailed"));
         return;
       }
 
@@ -146,7 +155,7 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
       router.push(fork.path);
       router.refresh();
     } catch {
-      setError("Could not verify passcode");
+      setError(t("verifyFailed"));
     } finally {
       setLoading(false);
     }
@@ -154,17 +163,28 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
 
   return (
     <AuthCard
-      title={copy.title}
+      title={intent === "create" ? t("createTitle") : t("title")}
       // The code step describes the mailbox the passcode went to, whatever
       // brought the visitor here: once a passcode has been sent, the only useful
       // sentence is where to find it.
+      //
+      // Interpolated rather than concatenated, so the address can sit wherever
+      // the Spanish wants it rather than wherever the English put it.
       description={
-        step === "email" ? copy.description : `Enter the 6-digit passcode sent to ${email}.`
+        step === "email"
+          ? intent === "create"
+            ? t("createDescription")
+            : t("description")
+          : t("codeDescription", { email })
       }
+      // The escape hatch for a language detected wrongly. It sits under the card
+      // rather than in it: it is about the page, not about signing in, and this
+      // is the one surface a signed-out person can reach at all.
+      footer={<LanguageSwitcher />}
     >
       {googleFailed && !error ? (
         <Alert variant="destructive">
-          <AlertDescription>{GOOGLE_FAILURE_MESSAGE}</AlertDescription>
+          <AlertDescription>{t("googleFailed")}</AlertDescription>
         </Alert>
       ) : null}
       {error ? (
@@ -180,7 +200,7 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
 
       {step === "email" ? (
         <form className="space-y-4" onSubmit={handleRequestOTP}>
-          <FormField id="email" label="Email">
+          <FormField id="email" label={t("emailLabel")}>
             <Input
               id="email"
               name="email"
@@ -192,12 +212,12 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
             />
           </FormField>
           <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
-            {loading ? "Sending..." : "Send code"}
+            {loading ? t("sending") : t("sendCode")}
           </Button>
         </form>
       ) : (
         <form className="space-y-4" onSubmit={handleVerifyOTP}>
-          <FormField id="code" label="Passcode">
+          <FormField id="code" label={t("passcodeLabel")}>
             <Input
               id="code"
               name="code"
@@ -212,7 +232,7 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
             />
           </FormField>
           <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
-            {loading ? "Verifying..." : "Verify"}
+            {loading ? t("verifying") : t("verify")}
           </Button>
           <Button
             type="button"
@@ -225,7 +245,7 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
               setError(null);
             }}
           >
-            Use a different email
+            {t("useDifferentEmail")}
           </Button>
         </form>
       )}
@@ -249,7 +269,7 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
-            <span className="text-xs text-muted-foreground">or</span>
+            <span className="text-xs text-muted-foreground">{t("or")}</span>
             <span className="h-px flex-1 bg-border" aria-hidden="true" />
           </div>
           <a
@@ -257,7 +277,7 @@ export function LoginForm({ copy, googleFailed, googleSignInHref }: LoginFormPro
             className={cn(buttonVariants({ variant: "secondary" }), "h-11 w-full gap-3")}
           >
             <GoogleMark />
-            Continue with Google
+            {t("continueWithGoogle")}
           </a>
         </div>
       ) : null}

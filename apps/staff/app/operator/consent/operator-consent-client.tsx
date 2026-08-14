@@ -52,9 +52,11 @@ import {
  * surfable address bar is a disclosure this page has no reason to make. So the
  * lookup happens in place.
  *
- * English only, like the rest of the staff app: staff mail and staff screens are
- * written in English (CONTEXT.md). The Customer's own confirmation email is
- * written in THEIR language by the API, which is where that decision belongs.
+ * Still English, but no longer English by decision: the staff app is being
+ * translated (ADR 0041, #281) and this surface has simply not been migrated yet
+ * — #286 landed the catalogs and the login page, and the Operator Dashboard
+ * follows. The Customer's own confirmation email is written in THEIR language by
+ * the API, which is where that decision belongs and which nothing here changes.
  */
 
 /** The longest artefact reference the API accepts. */
