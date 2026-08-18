@@ -3607,7 +3607,7 @@
                         "type": "integer"
                     },
                     "tickets_sold": {
-                        "description": "TicketsSold is the quantities of the Event's active Ticket Sale Lines\nsummed: one Ticket Sale of four tickets contributes 1 to SalesCount and 4\nhere. It is what an organizer reads to know how many people are coming,\nwhich no count of checkouts can answer.",
+                        "description": "TicketsSold is the quantities of the Event's active Ticket Sale Lines\nsummed — what an organizer reads to know how many people are coming,\nwhich no count of checkouts can answer.",
                         "type": "integer"
                     }
                 },

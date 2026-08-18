@@ -9244,8 +9244,7 @@ export interface components {
             sales_count?: number;
             /**
              * @description TicketsSold is the quantities of the Event's active Ticket Sale Lines
-             *     summed: one Ticket Sale of four tickets contributes 1 to SalesCount and 4
-             *     here. It is what an organizer reads to know how many people are coming,
+             *     summed — what an organizer reads to know how many people are coming,
              *     which no count of checkouts can answer.
              */
             tickets_sold?: number;
