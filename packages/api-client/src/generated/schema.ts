@@ -5334,7 +5334,7 @@ export interface paths {
         };
         /**
          * Get an Event's sales summary
-         * @description Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency and the count of its active Ticket Sales across all channels. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.
+         * @description Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency, the count of its active Ticket Sales across all channels, and tickets_sold — the quantities of those sales' lines summed, likewise across all channels, so one Ticket Sale of four tickets counts 1 toward sales_count and 4 here. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.
          */
         get: {
             parameters: {
@@ -9242,6 +9242,13 @@ export interface components {
             currency?: string;
             net_proceeds_cents?: number;
             sales_count?: number;
+            /**
+             * @description TicketsSold is the quantities of the Event's active Ticket Sale Lines
+             *     summed: one Ticket Sale of four tickets contributes 1 to SalesCount and 4
+             *     here. It is what an organizer reads to know how many people are coming,
+             *     which no count of checkouts can answer.
+             */
+            tickets_sold?: number;
         };
         "service.SalesTrends": {
             /** @description Currency is the Organization's currency, which Takings is denominated in. */

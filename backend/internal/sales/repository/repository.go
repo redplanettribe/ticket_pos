@@ -1441,11 +1441,12 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 const lineNetProceedsSQL = sales.LineNetProceedsSQL
 
 // SalesSummaryRow is the Sales tab's stat strip, read straight off the Event's
-// recorded sales: what the Event has left the Organization, and how many active
-// Ticket Sales it has made.
+// recorded sales: what the Event has left the Organization, how many active
+// Ticket Sales it has made, and how many tickets those sales moved.
 type SalesSummaryRow struct {
 	NetProceedsCents int
 	SalesCount       int
+	TicketsSold      int
 }
 
 // SalesSummary totals an Event's active Ticket Sales two ways.
@@ -1462,20 +1463,37 @@ type SalesSummaryRow struct {
 //
 // SalesCount counts every active Ticket Sale, whatever the channel — it is the
 // Event's sales, not the subset that earned Net Proceeds.
+//
+// TicketsSold sums those sales' line quantities, on every channel for the same
+// reason: a ticket sold at the door and a ticket imported from elsewhere each
+// put a body in the room. It is the count that answers "how many people are
+// coming", where SalesCount answers "how many times did somebody check out" —
+// one Ticket Sale of four tickets is 1 and 4. The absence of a channel filter
+// here is deliberate and load-bearing, exactly as its presence is on the money
+// above: adding one would silently turn Tickets Sold into online tickets only
+// and understate the room worst at the Events that sell hardest at the door.
+//
+// Summed off the sale lines rather than read from ticket_types.sold_count,
+// which maintains the same quantity for capacity. Both are correct, but the
+// strip sits directly above the Sales list drawn from these same rows, and a
+// reader can check one against the other by eye — so the figure that must never
+// drift is the one against the list.
 func (r *Repository) SalesSummary(ctx context.Context, orgID, eventID string) (SalesSummaryRow, error) {
 	var out SalesSummaryRow
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT
 			COALESCE(SUM(net.net_proceeds_cents) FILTER (WHERE ts.channel = 'online'), 0),
-			COUNT(*)
+			COUNT(*),
+			COALESCE(SUM(net.tickets_sold), 0)
 		FROM ticket_sales ts
 		JOIN LATERAL (
-			SELECT COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents
+			SELECT COALESCE(SUM(`+lineNetProceedsSQL+`), 0) AS net_proceeds_cents,
+			       COALESCE(SUM(tsl.quantity), 0) AS tickets_sold
 			FROM ticket_sale_lines tsl
 			WHERE tsl.ticket_sale_id = ts.id
 		) net ON TRUE
 		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = 'active'
-	`, eventID, orgID).Scan(&out.NetProceedsCents, &out.SalesCount)
+	`, eventID, orgID).Scan(&out.NetProceedsCents, &out.SalesCount, &out.TicketsSold)
 	if err != nil {
 		return SalesSummaryRow{}, err
 	}

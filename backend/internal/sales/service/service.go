@@ -1098,17 +1098,29 @@ func salesExportFilename(slug string, generatedAt time.Time) string {
 }
 
 // SalesSummary is the Sales tab's stat strip: what the Event has left the
-// Organization after the platform's withholding, and how many active Ticket
-// Sales it has made. The Platform Fee and its Fee IVA are deliberately absent —
-// the figure is already net, and the platform's cut is never displayed as a
-// number (ADR 0014).
+// Organization after the platform's withholding, how many active Ticket Sales
+// it has made, and how many tickets those sales moved. The Platform Fee and its
+// Fee IVA are deliberately absent — the figure is already net, and the
+// platform's cut is never displayed as a number (ADR 0014).
+//
+// The three figures do not share a scope, and cannot. NetProceedsCents is
+// online money alone, because only Online Sales pass through the platform;
+// SalesCount and TicketsSold count every Sales Channel, because a sale made at
+// the door is still the Event's sale and still fills a seat. One Ticket Sale of
+// four tickets is 1 and 4, so neither count answers for the other, and the
+// tab's copy is what tells the reader which is which.
 type SalesSummary struct {
 	NetProceedsCents int    `json:"net_proceeds_cents"`
 	Currency         string `json:"currency"`
 	SalesCount       int    `json:"sales_count"`
+	// TicketsSold is the quantities of the Event's active Ticket Sale Lines
+	// summed — what an organizer reads to know how many people are coming,
+	// which no count of checkouts can answer.
+	TicketsSold int `json:"tickets_sold"`
 }
 
-// EventSalesSummary returns the Event's Net Proceeds and active sales count.
+// EventSalesSummary returns the Event's Net Proceeds, active sales count, and
+// Tickets Sold.
 // It is read-only and scoped to the acting Member's Organization; the caller's
 // role is gated at the route (Org Admin and Event Owner only — Event Staff see
 // the Sales list without this strip).
@@ -1129,6 +1141,7 @@ func (s *Service) EventSalesSummary(ctx context.Context, actor ActorContext, eve
 		NetProceedsCents: row.NetProceedsCents,
 		Currency:         event.Currency,
 		SalesCount:       row.SalesCount,
+		TicketsSold:      row.TicketsSold,
 	}, nil
 }
 

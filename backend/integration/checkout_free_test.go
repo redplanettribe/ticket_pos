@@ -195,7 +195,7 @@ func TestFreeSaleLinesCarryNoFeeInEitherHandlingMode(t *testing.T) {
 		// The summary carries the take-home figure and nothing else (#92), so
 		// zero Net Proceeds is the entire money claim to make here.
 		summary := salesSummaryOK(t, env, sessionID, eventID)
-		want := salesSummary{NetProceedsCents: 0, Currency: "USD", SalesCount: 1}
+		want := salesSummary{NetProceedsCents: 0, Currency: "USD", SalesCount: 1, TicketsSold: 2}
 		if summary != want {
 			t.Fatalf("%s: sales summary = %+v, want %+v — a free claim earns the Organization nothing", mode, summary, want)
 		}

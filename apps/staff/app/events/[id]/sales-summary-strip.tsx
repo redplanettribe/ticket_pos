@@ -17,13 +17,20 @@ type SalesSummaryStripProps = {
   eventId: string;
 };
 
-// The Sales tab's stat strip: one honest take-home figure for the Event, above
-// the list of the sales that produced it. Net Proceeds is what the Event's
-// Online Sales have left the Organization once platform costs are out; the
-// platform's cut is never shown as a number (ADR 0014). Rendered only for Org
-// Admins and Event Owners — Event Staff get the Sales list on its own.
+// The Sales tab's stat strip: one honest take-home figure for the Event and two
+// counts of it, above the list of the sales that produced them. Net Proceeds is
+// what the Event's Online Sales have left the Organization once platform costs
+// are out; the platform's cut is never shown as a number (ADR 0014). Rendered
+// only for Org Admins and Event Owners — Event Staff get the Sales list on its
+// own.
 //
-// The amount is drawn in the currency the API states it in and the count with
+// Sales and Tickets are both here because neither answers for the other: a
+// checkout of four tickets is 1 sale and 4 Tickets Sold, and it is the second
+// figure that tells an organizer how many people are coming. They sit adjacent,
+// and their hints each say what the other is, because a reader who meets one
+// count alone will read it as whichever they came looking for.
+//
+// The amount is drawn in the currency the API states it in and the counts with
 // the reader's marks, which is the whole of what the Staff Locale changes here:
 // an organizer switching to Spanish reads the same money, spelled differently.
 export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
@@ -33,8 +40,8 @@ export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
   const [summary, setSummary] = useState<EventSalesSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Bumped by the import section on a successful commit/undo: those change the
-  // Event's sales count, so the strip re-reads alongside the list.
+  // Bumped by the import section on a successful commit/undo: those change both
+  // of the Event's counts, so the strip re-reads alongside the list.
   const refreshSignal = useSalesRefreshSignal();
 
   useEffect(() => {
@@ -68,7 +75,7 @@ export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
 
   return (
     <Card>
-      <CardContent className="grid gap-6 py-6 sm:grid-cols-2">
+      <CardContent className="grid gap-6 py-6 sm:grid-cols-3">
         <Stat
           label={t("netProceeds")}
           hint={t("netProceedsHint")}
@@ -82,6 +89,13 @@ export function SalesSummaryStrip({ eventId }: SalesSummaryStripProps) {
           loading={loading}
           error={error}
           value={summary ? formatNumber(summary.sales_count, locale) : null}
+        />
+        <Stat
+          label={t("ticketsSold")}
+          hint={t("ticketsSoldHint")}
+          loading={loading}
+          error={error}
+          value={summary ? formatNumber(summary.tickets_sold, locale) : null}
         />
       </CardContent>
     </Card>

@@ -7,10 +7,14 @@ import (
 )
 
 // The organizer's side of the Platform Fee (issue #92): the Sales tab's stat
-// strip. It answers one question — what has this Event left the Organization
-// after the platform's withholding — from the per-line snapshots the sale
+// strip. Its money question — what has this Event left the Organization after
+// the platform's withholding — is answered from the per-line snapshots the sale
 // froze, never from the current rates (ADR 0014). The platform's cut is never
 // a number on this surface.
+//
+// Beside the money it counts the Event two ways, and the pair is the point:
+// sales_count is checkouts, tickets_sold is Tickets Sold. One Ticket Sale of
+// four tickets is 1 and 4, which is why neither figure can stand for the other.
 //
 // Prices are the $7.99-shaped ones from checkout_fees_test.go so the figures
 // below depend on the rounding, not on round numbers.
@@ -20,6 +24,7 @@ type salesSummary struct {
 	NetProceedsCents int    `json:"net_proceeds_cents"`
 	Currency         string `json:"currency"`
 	SalesCount       int    `json:"sales_count"`
+	TicketsSold      int    `json:"tickets_sold"`
 }
 
 func getSalesSummary(t *testing.T, env *testEnv, sessionID, eventID string) (*http.Response, envelope) {
@@ -64,6 +69,11 @@ func reverseSale(t *testing.T, env *testEnv, confirmationRef string) {
 // tickets sold online net the Organization exactly the price it set, a reversed
 // sale drops out entirely, and an imported cash sale adds to the count while
 // contributing no Net Proceeds.
+//
+// It is also where the two scopes are held apart. Net Proceeds is online money
+// only; Tickets Sold counts every Sales Channel, because a ticket sold at the
+// door and a ticket imported from elsewhere each put a body in the room. A
+// channel filter finding its way onto the ticket aggregate would fail here.
 func TestSalesSummaryNetsThePlatformFeeOutOfOnlineSales(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
@@ -98,7 +108,9 @@ func TestSalesSummaryNetsThePlatformFeeOutOfOnlineSales(t *testing.T) {
 	})
 
 	got := salesSummaryOK(t, env, sessionID, eventID)
-	want := salesSummary{NetProceedsCents: 2 * feeTestBaseCents, Currency: "USD", SalesCount: 2}
+	// Two sales, six tickets: the online pair and the imported four. The three
+	// the buyer undid are in neither figure.
+	want := salesSummary{NetProceedsCents: 2 * feeTestBaseCents, Currency: "USD", SalesCount: 2, TicketsSold: 6}
 	if got != want {
 		t.Fatalf("summary = %+v; want %+v", got, want)
 	}
@@ -123,7 +135,7 @@ func TestSalesSummaryReadsTheSnapshotNotTheMode(t *testing.T) {
 
 	got := salesSummaryOK(t, env, sessionID, eventID)
 	wantNet := 2 * (feeTestBaseCents - feeTestFeeCents - feeTestIVACents)
-	if got != (salesSummary{NetProceedsCents: wantNet, Currency: "USD", SalesCount: 1}) {
+	if got != (salesSummary{NetProceedsCents: wantNet, Currency: "USD", SalesCount: 1, TicketsSold: 2}) {
 		t.Fatalf("absorb summary = %+v; want %d net over 1 sale", got, wantNet)
 	}
 }
@@ -143,12 +155,12 @@ func TestSalesSummaryNeverNamesThePlatformCut(t *testing.T) {
 	if err := json.Unmarshal(body.Data, &fields); err != nil {
 		t.Fatalf("decode summary fields: %v", err)
 	}
-	for _, field := range []string{"net_proceeds_cents", "currency", "sales_count"} {
+	for _, field := range []string{"net_proceeds_cents", "currency", "sales_count", "tickets_sold"} {
 		if _, ok := fields[field]; !ok {
 			t.Fatalf("summary is missing %q; got %v", field, fields)
 		}
 	}
-	if len(fields) != 3 {
+	if len(fields) != 4 {
 		t.Fatalf("summary carries extra fields %v; the platform's cut is never a number here", fields)
 	}
 }
@@ -200,5 +212,58 @@ func TestSalesSummaryAccess(t *testing.T) {
 
 	if resp, _ := env.get(t, "/api/v1/staff/events/"+eventID+"/sales/summary", nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated summary status=%d, want 401", resp.StatusCode)
+	}
+}
+
+// TestSalesSummaryCountsTicketsNotCheckouts is the distinction the strip exists
+// to draw: one Customer, one checkout, four tickets across two Ticket Types.
+// The Event made 1 sale and is expecting 4 people, and an organizer reading
+// either figure for the other would be out by three.
+func TestSalesSummaryCountsTicketsNotCheckouts(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Party Of Four", "party-of-four", feeTestBaseCents, 20)
+	vipID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "VIP", feeTestBaseCents, 20)
+
+	begin := beginCheckoutOK(t, env, "test-org", "party-of-four",
+		checkoutBody("ana@example.com", "Ana", "Lopez",
+			map[string]any{"ticket_type_id": gaID, "quantity": 3},
+			map[string]any{"ticket_type_id": vipID, "quantity": 1}))
+	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
+
+	got := salesSummaryOK(t, env, sessionID, eventID)
+	want := salesSummary{NetProceedsCents: 4 * feeTestBaseCents, Currency: "USD", SalesCount: 1, TicketsSold: 4}
+	if got != want {
+		t.Fatalf("summary = %+v; want %+v — one checkout, four tickets", got, want)
+	}
+}
+
+// TestSalesSummaryReversalDropsEveryTicketOfTheSale: a Sale Reversal is always
+// whole-Sale, so it takes the sale's ENTIRE quantity out of Tickets Sold rather
+// than one ticket of it. The seats the reversed Customer had booked are free
+// again, and the strip has to say so by the same number of seats.
+func TestSalesSummaryReversalDropsEveryTicketOfTheSale(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Undo Fest", "undo-fest", feeTestBaseCents, 20)
+
+	kept := beginCheckoutOK(t, env, "test-org", "undo-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", map[string]any{"ticket_type_id": gaID, "quantity": 2}))
+	confirmCheckoutOK(t, env, kept.ClientTransactionID, "approved")
+
+	undone := beginCheckoutOK(t, env, "test-org", "undo-fest",
+		checkoutBody("bea@example.com", "Bea", "Ruiz", map[string]any{"ticket_type_id": gaID, "quantity": 5}))
+	undoneConfirm := confirmCheckoutOK(t, env, undone.ClientTransactionID, "approved")
+
+	if before := salesSummaryOK(t, env, sessionID, eventID); before.TicketsSold != 7 {
+		t.Fatalf("tickets_sold before the undo = %d, want the 2 and the 5", before.TicketsSold)
+	}
+
+	undoOwnSale(t, env, "bea@example.com", undoneConfirm.ConfirmationRef)
+
+	after := salesSummaryOK(t, env, sessionID, eventID)
+	want := salesSummary{NetProceedsCents: 2 * feeTestBaseCents, Currency: "USD", SalesCount: 1, TicketsSold: 2}
+	if after != want {
+		t.Fatalf("summary after the undo = %+v; want %+v — all five tickets go, not one", after, want)
 	}
 }

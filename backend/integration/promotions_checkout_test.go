@@ -258,7 +258,7 @@ func TestSalesListAndNetProceedsFollowThePromotionalSnapshot(t *testing.T) {
 	// Pass-on: the Organization nets the price the ticket sold at, which is the
 	// Promotional Price and not the List Price.
 	got := salesSummaryOK(t, env, sessionID, eventID)
-	want := salesSummary{NetProceedsCents: 3 * promoPriceCents, Currency: "USD", SalesCount: 1}
+	want := salesSummary{NetProceedsCents: 3 * promoPriceCents, Currency: "USD", SalesCount: 1, TicketsSold: 3}
 	if got != want {
 		t.Fatalf("summary = %+v; want %+v", got, want)
 	}

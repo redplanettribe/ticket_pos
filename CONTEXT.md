@@ -209,6 +209,13 @@ _Avoid_: Order, purchase, transaction
 One Ticket Type and the quantity sold within a Ticket Sale.
 _Avoid_: Line item, cart item
 
+**Tickets Sold**:
+How many tickets an Event has moved: the quantities of its Ticket Sale Lines summed across active Ticket Sales, on every Sales Channel — a ticket sold at the door fills a seat exactly as one sold online does.
+Answers "how many people are coming", where a count of Ticket Sales answers "how many times did somebody check out". One Ticket Sale of four tickets is 1 sale and 4 Tickets Sold, so neither figure can be read off the other and a surface showing one of them has to say which it is. Dropped by a Sale Reversal whole-Sale, like every other figure.
+Not a count of people: a ticket is a thing sold, and the platform does not yet know who walks in on it — which is why Tickets Sold is the honest name for the closest answer the model has.
+Summable at any grain the question needs: a day of an Event, a Ticket Type, an Event entire.
+_Avoid_: Sales (as a word for tickets), attendees, headcount, seats, admissions
+
 **Sales Channel**:
 The medium through which a Ticket Sale is recorded: `online`, `in_person`, or `import`. Distinct from Sales Source, which further qualifies where an imported sale originated.
 _Avoid_: Sale type, payment method
@@ -314,7 +321,7 @@ Summable at any grain the question needs: a day of an Event, a Ticket Type, an E
 _Avoid_: Revenue, gross, earnings, income, sales (as a word for money), Net Proceeds (as a loose synonym)
 
 **Sales Trends**:
-The staff surface for reading how an Event's sales moved over time: one bar per day, split by Ticket Type, shown twice over — once counting tickets and once counting Takings — so a day's size and its composition are read in one look.
+The staff surface for reading how an Event's sales moved over time: one bar per day, split by Ticket Type, shown twice over — once counting Tickets Sold and once counting Takings — so a day's size and its composition are read in one look.
 Answers which days sold and what sold on them; the Sales list answers what one Ticket Sale was. Reads a sale on the day it was made rather than the day it was recorded, so a Sale Import of last year's history lands in last year.
 Restricted to Org Admins and Event Owners, the guard the Event's money already carries, rather than the Sales list's.
 _Avoid_: Report, analytics, dashboard, sales graph, chart (as the surface's name)

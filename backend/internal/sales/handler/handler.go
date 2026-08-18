@@ -372,7 +372,7 @@ func (h *Handler) ExportSales(w http.ResponseWriter, r *http.Request) {
 // the Sales tab's stat strip.
 //
 // @Summary      Get an Event's sales summary
-// @Description  Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency and the count of its active Ticket Sales across all channels. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.
+// @Description  Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency, the count of its active Ticket Sales across all channels, and tickets_sold — the quantities of those sales' lines summed, likewise across all channels, so one Ticket Sale of four tickets counts 1 toward sales_count and 4 here. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth

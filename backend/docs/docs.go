@@ -3612,6 +3612,10 @@ const docTemplate = `{
                     },
                     "sales_count": {
                         "type": "integer"
+                    },
+                    "tickets_sold": {
+                        "description": "TicketsSold is the quantities of the Event's active Ticket Sale Lines\nsummed: one Ticket Sale of four tickets contributes 1 to SalesCount and 4\nhere. It is what an organizer reads to know how many people are coming,\nwhich no count of checkouts can answer.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -9679,7 +9683,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales/summary": {
             "get": {
-                "description": "Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency and the count of its active Ticket Sales across all channels. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.",
+                "description": "Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency, the count of its active Ticket Sales across all channels, and tickets_sold — the quantities of those sales' lines summed, likewise across all channels, so one Ticket Sale of four tickets counts 1 toward sales_count and 4 here. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.",
                 "parameters": [
                     {
                         "description": "Event ID",

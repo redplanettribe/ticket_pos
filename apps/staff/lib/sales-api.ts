@@ -61,12 +61,19 @@ export type SalesListResponse = {
 
 // EventSalesSummary is the Sales tab stat strip: what this Event's active
 // Online Sales have left the Organization after platform costs (already net —
-// the platform's cut is never a number on this surface, ADR 0014), and how many
-// active Ticket Sales the Event has made across every channel.
+// the platform's cut is never a number on this surface, ADR 0014), how many
+// active Ticket Sales the Event has made across every channel, and how many
+// tickets those sales moved.
+//
+// The last two are different questions and the strip shows both because one
+// cannot be read off the other: a Customer who buys four tickets in one
+// checkout is 1 sale and 4 Tickets Sold. Tickets Sold is the figure that
+// answers how many people are coming.
 export type EventSalesSummary = {
   net_proceeds_cents: number;
   currency: string;
   sales_count: number;
+  tickets_sold: number;
 };
 
 export const SALES_PAGE_SIZE = 50;
