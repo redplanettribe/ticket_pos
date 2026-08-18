@@ -16,6 +16,25 @@ const SUNDAY_EVENING = "2026-07-12T23:00:00Z";
 // Inside the Reversal Window's 20:00 Ecuador cutoff on Tuesday the 7th.
 const REVERSAL_CUTOFF = "2026-07-08T01:00:00Z";
 
+/**
+ * Compare rendered text without pinning which invisible space ICU chose.
+ *
+ * The space inside Spanish's "p. m." moves with the ICU the runtime was built
+ * against: a no-break U+00A0 under the ICU 76 in Node 22, a plain U+0020 under
+ * the ICU 78 in the Node 26 the containers and CI run. Which one it is was never
+ * what these tests are about — they are about the words, the part order, and the
+ * hour not moving with the language — so pinning the codepoint made the suite
+ * pass or fail on the Node it happened to run under rather than on the code.
+ *
+ * Both sides are flattened to a plain space and the expectations below are
+ * written with one. What is deliberately NOT asserted here is which space the
+ * Storefront ships; see `normalizeNarrowSpaces` in format.ts, whose premise the
+ * same ICU change has outdated.
+ */
+function assertText(actual: string | null, expected: string) {
+  assert.equal(actual?.replace(/[\u00a0\u202f]/gu, " ") ?? null, expected);
+}
+
 test("en-US prices are unchanged: whole amounts drop the cents, the rest keep them", () => {
   assert.equal(formatPrice(2500, "USD"), "$25");
   assert.equal(formatPrice(123450, "USD"), "$1,234.50");
@@ -47,9 +66,9 @@ test("en-US long Event dates are unchanged", () => {
 });
 
 test("es-EC long Event dates are Spanish", () => {
-  assert.equal(
+  assertText(
     formatEventDateTime(SUNDAY_EVENING, "America/Guayaquil", "es-EC"),
-    "domingo, 12 de julio de 2026 · 6:00 p.\u00a0m.",
+    "domingo, 12 de julio de 2026 · 6:00 p. m.",
   );
 });
 
@@ -66,16 +85,16 @@ test("the time-only form is the short form's time slot and nothing else", () => 
   // has always produced.
   assert.equal(formatEventTime(SUNDAY_EVENING, "America/Guayaquil"), "6:00 PM");
   assert.equal(formatEventTime(SUNDAY_EVENING, "Europe/Madrid"), "1:00 AM");
-  assert.equal(formatEventTime(SUNDAY_EVENING, "America/Guayaquil", "es-EC"), "6:00 p. m.");
+  assertText(formatEventTime(SUNDAY_EVENING, "America/Guayaquil", "es-EC"), "6:00 p. m.");
   assert.equal(formatEventTime(null, "America/Guayaquil"), null);
   assert.equal(formatEventTime("not-a-date", "America/Guayaquil"), null);
 });
 
 test("es-EC short Event dates are Spanish, in Spanish part order", () => {
   // Day before month, lowercase abbreviations, "p. m." for the afternoon.
-  assert.equal(
+  assertText(
     formatEventDateShort(SUNDAY_EVENING, "America/Guayaquil", "es-EC"),
-    "dom 12 jul, 6:00 p.\u00a0m.",
+    "dom 12 jul, 6:00 p. m.",
   );
 });
 
@@ -95,7 +114,7 @@ test("the Reversal Window deadline stays on Ecuador's clock in every language", 
   // Ecuadorian wall-clock rule (ADR 0018), so the hour must not move with the
   // language the buyer reads it in.
   assert.equal(formatReversalDeadline(REVERSAL_CUTOFF), "Tue Jul 7, 8:00 PM");
-  assert.equal(formatReversalDeadline(REVERSAL_CUTOFF, "es-EC"), "mar 7 jul, 8:00 p.\u00a0m.");
+  assertText(formatReversalDeadline(REVERSAL_CUTOFF, "es-EC"), "mar 7 jul, 8:00 p. m.");
   assert.equal(ECUADOR_TIME_ZONE, "America/Guayaquil");
 });
 
@@ -103,12 +122,12 @@ test("an Event's time stays in the Event's own timezone in every language", () =
   // Same instant, two Events: the wall time follows the Event's timezone field
   // and never the reader's language.
   assert.equal(formatEventDateShort(SUNDAY_EVENING, "Europe/Madrid"), "Mon Jul 13, 1:00 AM");
-  assert.equal(
+  assertText(
     formatEventDateShort(SUNDAY_EVENING, "Europe/Madrid", "es-EC"),
-    "lun 13 jul, 1:00 a.\u00a0m.",
+    "lun 13 jul, 1:00 a. m.",
   );
-  assert.equal(
+  assertText(
     formatEventDateTime(SUNDAY_EVENING, "Europe/Madrid", "es-EC"),
-    "lunes, 13 de julio de 2026 · 1:00 a.\u00a0m.",
+    "lunes, 13 de julio de 2026 · 1:00 a. m.",
   );
 });

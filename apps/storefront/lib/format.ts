@@ -162,6 +162,14 @@ export function formatEventTime(
  * one character is put back the way the whole app has always rendered it. The
  * no-break space inside Spanish's "p. m." is left alone: `format()` keeps that
  * one too.
+ *
+ * Both halves of that premise are ICU 76's, which is what Node 22 was built
+ * against. Under the ICU 78 in the Node 26 the containers run, `format()` and
+ * `formatToParts()` agree and neither emits U+202F at all, so this is a no-op
+ * there — and Spanish's "p. m." now arrives with a plain space, having lost the
+ * no-break this was written to preserve. Kept because it still does its job on
+ * an older runtime; whether the Storefront should put that no-break space back
+ * is a typography decision nobody has made yet, not something to settle here.
  */
 function normalizeNarrowSpaces(value: string): string {
   return value.replaceAll("\u202f", " ");
