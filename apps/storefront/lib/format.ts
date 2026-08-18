@@ -96,7 +96,7 @@ export function formatEventDateTime(
     timeZone: timeZoneOrUndefined(timezone),
   }).format(date);
 
-  return `${day} · ${time}`;
+  return normalizeDayPeriodSpaces(`${day} · ${time}`);
 }
 
 /**
@@ -145,7 +145,7 @@ export function formatEventTime(
   const date = new Date(startsAt);
   if (Number.isNaN(date.getTime())) return null;
 
-  return normalizeNarrowSpaces(
+  return normalizeDayPeriodSpaces(
     new Intl.DateTimeFormat(locale, {
       hour: "numeric",
       minute: "2-digit",
@@ -155,24 +155,29 @@ export function formatEventTime(
 }
 
 /**
- * `format()` and `formatToParts()` disagree about the space before "PM": the
- * first hands back U+0020, the second the narrow no-break space ICU actually
- * specifies. Composing from parts therefore changes bytes nobody asked to
- * change — invisible on screen, but enough to break a string comparison — so the
- * one character is put back the way the whole app has always rendered it. The
- * no-break space inside Spanish's "p. m." is left alone: `format()` keeps that
- * one too.
+ * Put the day period's spacing beyond ICU's reach.
  *
- * Both halves of that premise are ICU 76's, which is what Node 22 was built
- * against. Under the ICU 78 in the Node 26 the containers run, `format()` and
- * `formatToParts()` agree and neither emits U+202F at all, so this is a no-op
- * there — and Spanish's "p. m." now arrives with a plain space, having lost the
- * no-break this was written to preserve. Kept because it still does its job on
- * an older runtime; whether the Storefront should put that no-break space back
- * is a typography decision nobody has made yet, not something to settle here.
+ * Two spaces are at stake and they want opposite things. The one before English
+ * "PM" must be an ordinary U+0020: `format()` hands one back while
+ * `formatToParts()` hands back the narrow no-break space ICU specifies, so
+ * composing from parts would change bytes nobody asked to change — invisible on
+ * screen, but enough to break a string comparison. The one INSIDE Spanish's
+ * "p. m." must be a no-break U+00A0, because that is one abbreviation in two
+ * halves and a line allowed to break between them reads as a typo.
+ *
+ * Neither can be left to ICU, which has changed its mind about both. ICU 76, in
+ * the Node 22 on many dev machines, writes Spanish's inner space as U+00A0 and
+ * disagrees with itself across `format()`/`formatToParts()`; ICU 78, in the
+ * Node 26 the containers and CI run, agrees with itself and writes a plain
+ * space — which is how the no-break quietly went missing from every Spanish
+ * Storefront page at the Node 26 upgrade. Stating the rendering here rather
+ * than inheriting it means the next runtime upgrade cannot move it either way.
+ *
+ * Idempotent, and applied to every path that renders an hour, since the
+ * abbreviation reaches the reader the same way from all of them.
  */
-function normalizeNarrowSpaces(value: string): string {
-  return value.replaceAll("\u202f", " ");
+function normalizeDayPeriodSpaces(value: string): string {
+  return value.replaceAll("\u202f", " ").replace(/([ap])\.\s(m)\./giu, "$1.\u00a0$2.");
 }
 
 /**
@@ -246,5 +251,5 @@ export function formatEventDateShort(
   }
 
   const day = [slots.weekday, slots.date].filter(Boolean).join(" ");
-  return normalizeNarrowSpaces([day, slots.time].filter(Boolean).join(", "));
+  return normalizeDayPeriodSpaces([day, slots.time].filter(Boolean).join(", "));
 }
