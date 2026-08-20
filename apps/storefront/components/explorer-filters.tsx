@@ -174,6 +174,9 @@ export function ExplorerFilters({
             // draws the only one there is. Bordering the halves separately put a
             // rule down the middle of a single object, and a filter chip does
             // not need to be fenced off from the heart that follows it.
+            // A selected Tag lights the pill's outline rather than filling the
+            // word's half — a fill stopped short of the heart and read as a
+            // block dropped inside the pill, not as the pill being on.
             const chip = (
               <button
                 type="button"
@@ -182,7 +185,7 @@ export function ExplorerFilters({
                 className={cn(
                   "rounded-l-full py-1 pr-2 pl-3 text-sm transition-colors",
                   active
-                    ? "bg-primary text-primary-foreground"
+                    ? "font-medium text-primary"
                     : "text-foreground hover:bg-muted",
                 )}
               >
@@ -196,7 +199,12 @@ export function ExplorerFilters({
                 // One pill, one border, two controls inside it. The heart is
                 // spaced off the word by its own width rather than divided from
                 // it by a line.
-                className="inline-flex items-center rounded-full border border-input bg-background"
+                className={cn(
+                  "inline-flex items-center rounded-full border bg-background transition-colors",
+                  active
+                    ? "border-primary ring-1 ring-primary"
+                    : "border-input",
+                )}
               >
                 {chip}
                 {/* Drawn for anybody. A signed-out press carries the Tag
