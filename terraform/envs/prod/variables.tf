@@ -55,32 +55,43 @@ variable "email_from" {
 # transactional domain is the one delivering the One-time Passcodes people sign
 # in with.
 #
-# This deployment nonetheless SHARES the transactional domain, because the Resend
-# plan it runs on verifies only one — see digest_email_allow_shared_domain below
-# for what that trades away and how to undo it.
+# This deployment sends Digests from that separate domain, which is ADR 0030 as
+# originally written. It did not always: between 2026-08-05 and 2026-08-20 it
+# shared the transactional domain, because the Resend plan of the day verified
+# only one and the alternative was shipping the feature dark. The paid plan
+# removed that constraint and the exception was retired — see
+# digest_email_allow_shared_domain below.
 
 variable "digest_email_domain" {
-  description = "Sending subdomain for the Follow Digest when it has one of its own. Registered in Resend and DNS-verified at Namecheap by hand; Terraform does not create it. Unused while digest_email_allow_shared_domain is true."
+  description = "Sending subdomain for the Follow Digest. Registered in Resend and DNS-verified at Namecheap by hand; Terraform does not create it."
   type        = string
   default     = "digest.multiticketing.com"
 }
 
-# TRUE HERE, against the module's safe default, because this deployment is on a
-# Resend plan that verifies exactly ONE domain. digest.multiticketing.com cannot
-# be added at all on that plan, so the choice was never "two domains or one" —
-# it was "one domain or no Follow Digests", and a discovery feature that never
-# sends is worth less than the reputation risk it avoids at these volumes.
+# FALSE, matching the module's safe default, because the Resend plan now
+# verifies a second domain and digest.multiticketing.com exists.
 #
-# Flip it back to false after verifying a second domain in Resend, and follow
-# the checklist the digest_email_dns_setup output prints in that state.
+# It was true here for two weeks. Setting it back to true would re-accept what
+# ADR 0030 exists to avoid: spam complaints about marketing mail bearing on the
+# reputation of the domain that delivers the One-time Passcodes people sign in
+# with — a discovery feature able to impair authentication. Do that only to keep
+# the Digest sending at all, never as a shortcut around a DNS problem on the
+# digest domain. The right response to an unverified digest domain is to fix the
+# DNS or pause follow_digest_enqueue_enabled, both of which are recoverable;
+# sharing the OTP domain's reputation is not.
 variable "digest_email_allow_shared_domain" {
-  description = "Send Follow Digests from the transactional domain (send.multiticketing.com) rather than a separate one. True because the Resend plan verifies a single domain. Accepts the reputation coupling ADR 0030 otherwise avoids."
+  description = "Send Follow Digests from the transactional domain (send.multiticketing.com) rather than a separate one. False: the Digest has its own verified domain. Setting it true accepts the reputation coupling ADR 0030 avoids."
   type        = bool
-  default     = true
+  default     = false
 }
 
+# REQUIRED now that the domain is not shared. The fallback to resend_api_key
+# lives behind digest_email_allow_shared_domain, so with that false an empty key
+# here is not "reuse the transactional one" — it is a Digest sender the API
+# refuses to build, and every composed Digest then burns its five attempts and is
+# abandoned. Supply it in the same apply that flips the flag.
 variable "digest_resend_api_key" {
-  description = "Resend API key for Digest sends. Leave unset while the domain is shared: the API then reuses the transactional key, the two identities being on one Resend domain, and a second copy of that credential would only be a rotation hazard. Set via TF_VAR_digest_resend_api_key from a sourced .env if a separate restricted key is ever wanted."
+  description = "Resend API key for the Follow Digest's own sending domain, scoped to it and never the transactional key. Required while digest_email_allow_shared_domain is false. Set via TF_VAR_digest_resend_api_key from a sourced .env, never a committed tfvars."
   type        = string
   default     = ""
   sensitive   = true

@@ -38,11 +38,17 @@ module "ticket_pos" {
   resend_api_key = var.resend_api_key
   email_from     = var.email_from
 
-  # The Follow Digest's sending identity (#225, ADR 0030). Its own variables,
-  # though this deployment points them at the transactional domain because the
-  # Resend plan verifies only one — see digest_email_allow_shared_domain. With
-  # the domain shared no separate key is sourced, so unlike the pair above there
-  # is no apply that silently removes a secret version and stops Digests.
+  # The Follow Digest's sending identity (#225, ADR 0030). Its own variables and
+  # its own domain, digest.multiticketing.com. This deployment shared the
+  # transactional domain until 2026-08-20, when a paid Resend plan let the second
+  # domain be verified — see digest_email_allow_shared_domain.
+  #
+  # Now that a separate key IS sourced, this pair carries the same trap as the
+  # transactional one above: an apply without TF_VAR_digest_resend_api_key in the
+  # environment removes the secret version, and Digests stop. They stop loudly —
+  # the API refuses to build a Digest sender rather than falling back to the
+  # transactional identity — but each Digest composed meanwhile is retried five
+  # times and abandoned, and the week does not come round again.
   digest_email_domain              = var.digest_email_domain
   digest_email_allow_shared_domain = var.digest_email_allow_shared_domain
   digest_resend_api_key            = var.digest_resend_api_key

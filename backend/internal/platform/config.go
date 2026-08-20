@@ -133,8 +133,11 @@ func (c PayPhoneConfig) Configured() bool {
 // risk it avoids is a reputation effect that only appears at a complaint volume
 // a free tier's sending limits cannot reach. So the flag says yes, out loud, in
 // a place an operator sets deliberately and can unset the day the plan changes.
-// It is never inferred from the domains matching — that shape is also what a
-// typo in DIGEST_EMAIL_FROM looks like, and that one should still be refused.
+// Production set it on 2026-08-05 and unset it on 2026-08-20, having moved to a
+// plan that verifies the second domain; the flag remains for deployments that
+// cannot. It is never inferred from the domains matching — that shape is also
+// what a typo in DIGEST_EMAIL_FROM looks like, and that one should still be
+// refused.
 type DigestEmailConfig struct {
 	ResendAPIKey             string
 	From                     string
