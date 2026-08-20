@@ -69,10 +69,12 @@ resource "google_secret_manager_secret_iam_member" "api_resend_api_key" {
 # before either value exists is a no-op on behaviour, exactly as it is above.
 #
 # ONE deployment shape may collapse the two onto a single domain, and only by
-# saying so: digest_email_allow_shared_domain, below. Resend's free tier verifies
-# one domain, which makes the separation a paid plan rather than a setting, and
-# the choice there is between sharing the domain and shipping no Digests at all.
-# Nothing infers the sharing; an undeclared collision is still refused.
+# saying so: digest_email_allow_shared_domain, below. A provider plan that
+# verifies a single domain makes the separation a billing question rather than a
+# setting, and the choice there is between sharing the domain and shipping no
+# Digests at all. Production took that branch for two weeks in August 2026 and
+# has since left it. Nothing infers the sharing; an undeclared collision is still
+# refused.
 #
 # WHAT THIS FILE DOES NOT DO — read this before assuming the domain exists.
 # It does not create the Resend domain object and it does not create DNS
@@ -91,13 +93,14 @@ variable "digest_email_domain" {
 
 # The escape hatch for a deployment that cannot HAVE a second sending domain.
 #
-# Resend's free tier verifies exactly one domain, so the separation ADR 0030
-# asks for is not a configuration step on that plan — it is a paid plan. The
-# reasoning behind the separation does not stop being true; the deployment
-# simply cannot act on it, and the alternative to sharing is shipping the
-# feature dark. Sharing is the lesser cost at free-tier volumes, where the
-# complaint rates that damage a domain's reputation need a sending rate the plan
-# does not permit. Set it back to false the day a second domain is affordable.
+# A plan that verifies exactly one domain makes the separation ADR 0030 asks for
+# unreachable by configuration — it is a paid plan, not a setting. The reasoning
+# behind the separation does not stop being true; such a deployment simply cannot
+# act on it, and the alternative to sharing is shipping the feature dark. Sharing
+# is the lesser cost at the volumes those plans permit, where the complaint rates
+# that damage a domain's reputation need a sending rate the plan does not allow.
+# Set it back to false the day a second domain is affordable — production did
+# exactly that on 2026-08-20, having shared the domain since 2026-08-05.
 #
 # It is deliberately a stated choice and never inferred from the two domains
 # matching, because a typo in digest_email_from looks exactly the same and the

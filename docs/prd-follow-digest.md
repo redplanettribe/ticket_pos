@@ -337,12 +337,17 @@ from the transactional sender. Marketing mail attracts complaints in a way trans
 not, and complaint rates degrade domain reputation — sharing a domain would let an annoying digest
 impair delivery of the One-time Passcodes people need to sign in.
 
-**Amended 2026-08-05.** Production sends from the transactional domain instead. Resend's free tier
-verifies a single domain, so the separate subdomain is not a configuration step on that plan but a
-paid one, and the real choice is between sharing the domain and never sending a Digest at all. The
-API keeps refusing the shared domain by default and sends only when a deployment declares the
-sharing outright, so an accidental collision — a typo pointing the Digest at the transactional
-domain — still fails. See ADR 0030 for what this trades away and how it is undone.
+*Amended 2026-08-05.* Production sent from the transactional domain instead, because Resend's free
+tier verifies a single domain — making the separate subdomain a paid plan rather than a
+configuration step, and the real choice one between sharing the domain and never sending a Digest
+at all.
+
+**Amended 2026-08-20.** A paid plan verifies the second domain; `digest.multiticketing.com` is
+verified and production sends Digests from it. The separation described above is what actually
+runs. Throughout both periods the API refused the shared domain by default and sent only when a
+deployment declared the sharing outright, so an accidental collision — a typo pointing the Digest
+at the transactional domain — always failed. No Digest was ever sent while the domain was shared:
+the scheduler jobs were still paused. See ADR 0030.
 
 ### Unsubscribe
 
