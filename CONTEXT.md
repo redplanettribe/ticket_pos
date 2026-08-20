@@ -321,10 +321,10 @@ Summable at any grain the question needs: a day of an Event, a Ticket Type, an E
 _Avoid_: Revenue, gross, earnings, income, sales (as a word for money), Net Proceeds (as a loose synonym)
 
 **Sales Trends**:
-The staff surface for reading how an Event's sales moved over time: one bar per day, split by Ticket Type, shown twice over — once counting Tickets Sold and once counting Takings — so a day's size and its composition are read in one look.
-Answers which days sold and what sold on them; the Sales list answers what one Ticket Sale was. Reads a sale on the day it was made rather than the day it was recorded, so a Sale Import of last year's history lands in last year.
+The staff surface for reading how an Event's sales moved over time, split by Ticket Type and shown twice over — once counting Tickets Sold and once counting Takings — in one of two views chosen together for both figures: the **Daily view**, each day's own count, and the **Cumulative view**, the running total up to each day.
+The Daily view answers which days sold and what sold on them; the Cumulative view answers how far the Event has come and when it accelerated; the Sales list answers what one Ticket Sale was. Reads a sale on the day it was made rather than the day it was recorded, so a Sale Import of last year's history lands in last year.
 Restricted to Org Admins and Event Owners, the guard the Event's money already carries, rather than the Sales list's.
-_Avoid_: Report, analytics, dashboard, sales graph, chart (as the surface's name)
+_Avoid_: Report, analytics, dashboard, sales graph, chart (as the surface's name). For the Cumulative view: burn-up, burn down, running total (as its name)
 
 **Payout**:
 A recorded settlement in which the platform transfers accumulated Net Proceeds to an Organization. Recorded per Organization — money is settled with the Organization, not with individual Events. A Platform Operator records it from the Operator Dashboard after settling off-platform, and the record remembers who recorded it. A record of money that already moved, so recording is never refused for exceeding the Withdrawable Balance — the balance simply goes negative and says so.

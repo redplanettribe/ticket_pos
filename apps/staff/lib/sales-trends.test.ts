@@ -4,6 +4,8 @@ import test from "node:test";
 import { formatMoney } from "./format.ts";
 import {
   colorSlotFor,
+  cumulativePlotWidth,
+  cumulativeTrends,
   drawnTicketTypes,
   formatTakings,
   formatTakingsTick,
@@ -469,3 +471,164 @@ function trends(days: TrendsDay[]): SalesTrends {
     reversed_count: 0,
   };
 }
+
+// --- the Cumulative view --------------------------------------------------
+
+// The Cumulative view is the same matrix counted differently: each day carries
+// the running total up to and including itself, rather than its own takings.
+// It is built by accumulating the Daily view, so the two can never disagree
+// about which days exist, which Ticket Types are drawn, or what a day is called.
+
+test("each day carries the total up to it, not the day's own count", () => {
+  const daily = trendsSeries(DAYS, ALL, "quantity", "en");
+  const running = cumulativeTrends(daily);
+  // 14 sold on the 1st, nothing on the 2nd, 4 more on the 3rd.
+  assert.deepEqual(
+    running.map((datum) => datum.total),
+    [14, 14, 18],
+  );
+  assert.deepEqual(
+    daily.map((datum) => datum.total),
+    [14, 0, 4],
+  );
+});
+
+test("a silent day holds the total it inherited rather than dropping to zero", () => {
+  const running = cumulativeTrends(trendsSeries(DAYS, ALL, "quantity", "en"));
+  // The whole point of the view: a day nobody bought on is a flat stretch, not
+  // a hole. A curve that fell back to zero would say the Event un-sold them.
+  assert.equal(running[1]?.total, running[0]?.total);
+});
+
+test("the running total never falls, whatever the days did", () => {
+  const running = cumulativeTrends(trendsSeries(longSpan(120), ALL, "takings_cents", "en"));
+  for (let index = 1; index < running.length; index += 1) {
+    assert.ok(
+      (running[index]?.total ?? 0) >= (running[index - 1]?.total ?? 0),
+      `day ${index} fell below the day before it`,
+    );
+  }
+});
+
+test("the running total is kept per Ticket Type, so the stack still says who sold what", () => {
+  const running = cumulativeTrends(trendsSeries(DAYS, ALL, "quantity", "en"));
+  // GA sold on both busy days and is the only type that did; Early Bird stops
+  // contributing after the 1st but never leaves the stack it is already in.
+  assert.deepEqual(
+    running.map((datum) => datum.values.tt_ga),
+    [4, 4, 7],
+  );
+  assert.deepEqual(
+    running.map((datum) => datum.values.tt_early),
+    [10, 10, 10],
+  );
+  assert.deepEqual(
+    running.map((datum) => datum.values.tt_vip),
+    [0, 0, 1],
+  );
+});
+
+test("a day's segments still sum to its stack", () => {
+  const running = cumulativeTrends(trendsSeries(DAYS, ALL, "takings_cents", "en"));
+  for (const datum of running) {
+    const summed = Object.values(datum.values).reduce((sum, value) => sum + value, 0);
+    assert.equal(summed, datum.total);
+  }
+});
+
+test("the last day of the span is the whole span's total", () => {
+  const daily = trendsSeries(DAYS, ALL, "takings_cents", "en");
+  const whole = daily.reduce((sum, datum) => sum + datum.total, 0);
+  assert.equal(cumulativeTrends(daily).at(-1)?.total, whole);
+  assert.equal(whole, 145_000);
+});
+
+test("a deselected Ticket Type never enters the running total", () => {
+  // Accumulating what is drawn, rather than drawing a slice of an accumulation:
+  // a hidden Ticket Type must be genuinely absent from the curve, not merely
+  // invisible inside a total it is still propping up.
+  const running = cumulativeTrends(trendsSeries(DAYS, ["tt_ga"], "quantity", "en"));
+  assert.deepEqual(
+    running.map((datum) => datum.total),
+    [4, 4, 7],
+  );
+  assert.deepEqual(Object.keys(running.at(-1)?.values ?? {}), ["tt_ga"]);
+});
+
+test("the days, their order and their labels are the Daily view's own", () => {
+  const daily = trendsSeries(DAYS, ALL, "quantity", "en");
+  const running = cumulativeTrends(daily);
+  // Switching view must move the reader along the same axis they were reading:
+  // the same days, in the same places, called the same things.
+  assert.deepEqual(
+    running.map((datum) => datum.key),
+    daily.map((datum) => datum.key),
+  );
+  assert.deepEqual(
+    running.map((datum) => datum.label),
+    daily.map((datum) => datum.label),
+  );
+});
+
+test("accumulating leaves the Daily view untouched", () => {
+  // Both views are derived from one matrix on every render; accumulating in
+  // place would make the daily bars grow every time the toggle was pressed.
+  const daily = trendsSeries(DAYS, ALL, "quantity", "en");
+  cumulativeTrends(daily);
+  assert.deepEqual(
+    daily.map((datum) => datum.total),
+    [14, 0, 4],
+  );
+  assert.equal(daily[1]?.values.tt_early, 0);
+});
+
+test("a span with nothing in it accumulates to nothing", () => {
+  assert.deepEqual(cumulativeTrends([]), []);
+});
+
+test("the axis of a cumulative chart tops its final total, not its biggest day", () => {
+  // A long span is where the two scales part company: the tallest single day is
+  // a fraction of what the whole span added up to, so an axis built for the
+  // Daily view would leave most of the curve above the top of the chart.
+  const daily = trendsSeries(longSpan(120), ALL, "quantity", "en");
+  const running = cumulativeTrends(daily);
+  const finalTotal = running.at(-1)?.total ?? 0;
+  assert.ok(trendsYMax(running) >= finalTotal);
+  assert.ok(trendsYMax(daily) < finalTotal);
+});
+
+// --- how wide the Cumulative view is drawn --------------------------------
+
+test("the whole span is drawn inside the card rather than scrolled through", () => {
+  // The Daily view gives every day a minimum width and lets the plot outgrow
+  // the card, because a day is a thing to be read one at a time. The Cumulative
+  // view is read as a shape — how fast, and from when — and a shape you have to
+  // scroll to finish is not a shape. So a year fits in the card exactly as a
+  // fortnight does.
+  assert.equal(cumulativePlotWidth(A_CARD), A_CARD);
+  assert.ok(trendsPlotWidth(400, A_CARD) > cumulativePlotWidth(A_CARD));
+});
+
+test("the cumulative width answers to the card alone, at any length of span", () => {
+  // Nothing about the span reaches it: the same card draws a month and a decade
+  // at one width, which is what makes the toggle a change of counting rather
+  // than a change of scale. Stated against the Daily view, where the same two
+  // spans differ by two orders of magnitude.
+  assert.equal(cumulativePlotWidth(A_CARD), A_CARD);
+  assert.notEqual(trendsPlotWidth(30, A_CARD), trendsPlotWidth(3000, A_CARD));
+  assert.equal(cumulativePlotWidth(640), 640);
+});
+
+test("an unmeasured card still gives the curve somewhere to sit", () => {
+  // The first client frame and the server-rendered pass have measured nothing.
+  // Here the floor is the whole answer, because no span is going to raise it.
+  assert.equal(cumulativePlotWidth(0), TRENDS_MIN_PLOT_WIDTH);
+  assert.equal(cumulativePlotWidth(), TRENDS_MIN_PLOT_WIDTH);
+});
+
+test("a card narrower than the floor scrolls rather than squeezing the curve", () => {
+  // A very narrow card is the one case the Cumulative view overflows, and it
+  // overflows to the same floor the Daily view has. Below that width a chart is
+  // unreadable in either view, and the axis alone would fill it.
+  assert.equal(cumulativePlotWidth(120), TRENDS_MIN_PLOT_WIDTH);
+});

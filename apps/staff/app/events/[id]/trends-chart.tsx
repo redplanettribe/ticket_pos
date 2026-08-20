@@ -3,14 +3,16 @@
 import { useMemo } from "react";
 
 import type { AppLocale } from "@ticket-pos/locale";
-import { StackedBarChart, type StackedBarSeries } from "@ticket-pos/ui";
+import { StackedAreaChart, StackedBarChart, type StackedSeries } from "@ticket-pos/ui";
 
 import {
+  cumulativeTrends,
   trendsSeries,
   trendsYMax,
   trendsYTicks,
   type TrendsDay,
   type TrendsMeasure,
+  type TrendsView,
 } from "@/lib/sales-trends";
 
 type TrendsChartProps = {
@@ -21,7 +23,16 @@ type TrendsChartProps = {
   /** The whole zero-filled span. The chart filters it; it is never refetched. */
   days: TrendsDay[];
   /** The drawn Ticket Types with their colours, in catalog display order. */
-  series: StackedBarSeries[];
+  series: StackedSeries[];
+  /**
+   * Which counting to draw, and therefore which shape: the Daily view's own
+   * figure per day as bars, or the running total up to each day as an area.
+   *
+   * Handed down rather than held here for the same reason the chip selection is:
+   * one control moves both charts on the surface, and a view held in a chart
+   * could only move that chart.
+   */
+  view: TrendsView;
   /**
    * How wide to draw the plot area. Handed down rather than worked out here so
    * that every chart on the surface is drawn at one width: two charts that each
@@ -79,6 +90,7 @@ export function TrendsChart({
   series,
   plotWidth,
   measure,
+  view,
   locale,
   formatValue,
   formatTickValue,
@@ -87,14 +99,32 @@ export function TrendsChart({
   syncId,
 }: TrendsChartProps) {
   const selected = useMemo(() => series.map((entry) => entry.id), [series]);
-  // Recomputed on every chip click and on nothing else: the matrix is already
-  // in hand, so filtering and rescaling never touch the network.
-  const data = useMemo(
+  // Recomputed on every chip click, on every view switch, and on nothing else:
+  // the matrix is already in hand, so filtering, accumulating and rescaling
+  // never touch the network.
+  //
+  // The Cumulative view is built by adding up the Daily view rather than by
+  // reading the matrix a second way, so the two can never disagree about which
+  // days exist or which Ticket Types are in them — and a deselected Ticket Type
+  // is absent from the running total rather than hidden inside it.
+  const daily = useMemo(
     () => trendsSeries(days, selected, measure, locale),
     [days, selected, measure, locale],
   );
+  const data = useMemo(
+    () => (view === "cumulative" ? cumulativeTrends(daily) : daily),
+    [daily, view],
+  );
+  // Scaled to what is drawn, so the Cumulative view's axis tops the span's final
+  // total rather than its busiest day — otherwise most of the curve would sit
+  // above the top of the chart.
   const yMax = useMemo(() => trendsYMax(data), [data]);
   const yTicks = useMemo(() => trendsYTicks(yMax), [yMax]);
+
+  // Bars for a figure that stands alone, an area for one carrying its own
+  // history: a running total drawn as bars is a row of near-equal columns that
+  // hides the only thing it has to say, which is its slope.
+  const Chart = view === "cumulative" ? StackedAreaChart : StackedBarChart;
 
   return (
     <section className="w-max">
@@ -102,7 +132,7 @@ export function TrendsChart({
         <h3 className="text-sm font-medium">{title}</h3>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
-      <StackedBarChart
+      <Chart
         data={data}
         series={series}
         yMax={yMax}

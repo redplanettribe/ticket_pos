@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { toAppLocale, type AppLocale } from "@ticket-pos/locale";
 import {
@@ -15,10 +15,12 @@ import {
   CHART_PLOT_INSET,
   ChartLegendChips,
   ChartScrollArea,
+  ChartViewToggle,
   Skeleton,
   chartSeriesColor,
   type ChartLegendChip,
-  type StackedBarSeries,
+  type ChartViewOption,
+  type StackedSeries,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
@@ -27,6 +29,7 @@ import { ApiError } from "@/lib/events-api";
 import { formatNumber } from "@/lib/format";
 import {
   colorSlotFor,
+  cumulativePlotWidth,
   drawnTicketTypes,
   fetchSalesTrends,
   formatTakings,
@@ -35,6 +38,7 @@ import {
   toggleTicketTypeSelection,
   trendsPlotWidth,
   type SalesTrends,
+  type TrendsView,
 } from "@/lib/sales-trends";
 
 import { TrendsChart } from "./trends-chart";
@@ -70,6 +74,12 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
   // Which Ticket Types are drawn. Every type starts selected: the first look is
   // the whole Event, and narrowing is the reader's move to make.
   const [selected, setSelected] = useState<string[]>([]);
+  // Which counting both charts show. Local, like the chip selection: it is not
+  // in the address and not remembered between visits, so every visit opens on
+  // the Daily view — the primary reading of the surface, and one click from the
+  // other. Worth carrying in the URL only once somebody wants to send a link to
+  // a particular view, which nothing on this tab supports today.
+  const [view, setView] = useState<TrendsView>("daily");
 
   useEffect(() => {
     let cancelled = false;
@@ -125,8 +135,19 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
     [catalog, colorOf],
   );
 
+  // The two countings, worded once. Both charts take the same one: the pair is
+  // read as one surface, and a daily figure above a running total would put two
+  // different questions on one set of days.
+  const viewOptions: ChartViewOption<TrendsView>[] = useMemo(
+    () => [
+      { id: "daily", label: t("viewDaily") },
+      { id: "cumulative", label: t("viewCumulative") },
+    ],
+    [t],
+  );
+
   // The drawn series, in catalog display order — the order the bars stack in.
-  const series: StackedBarSeries[] = useMemo(
+  const series: StackedSeries[] = useMemo(
     () =>
       drawnTicketTypes(catalog, selected).map((type) => ({
         id: type.id,
@@ -162,13 +183,24 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
           <>
             {hasSales(trends) ? (
               <>
-                <ChartLegendChips
-                  chips={chips}
-                  selected={selected}
-                  onToggle={onToggle}
-                  ariaLabel={t("chipsLabel")}
-                />
-                <TrendsCharts trends={trends} series={series} locale={locale} />
+                {/* The two controls sit on one row and wrap onto two when they
+                    must: the chips decide what is counted and the toggle decides
+                    how, and both act on both charts. */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <ChartLegendChips
+                    chips={chips}
+                    selected={selected}
+                    onToggle={onToggle}
+                    ariaLabel={t("chipsLabel")}
+                  />
+                  <ChartViewToggle
+                    options={viewOptions}
+                    value={view}
+                    onChange={setView}
+                    ariaLabel={t("viewLabel")}
+                  />
+                </div>
+                <TrendsCharts trends={trends} series={series} view={view} locale={locale} />
               </>
             ) : (
               <EmptyState />
@@ -215,56 +247,81 @@ export function SalesTrendsSection({ eventId }: SalesTrendsSectionProps) {
 function TrendsCharts({
   trends,
   series,
+  view,
   locale,
 }: {
   trends: SalesTrends;
-  series: StackedBarSeries[];
+  series: StackedSeries[];
+  view: TrendsView;
   locale: AppLocale;
 }) {
   const t = useTranslations("trends");
   const [scrollArea, setScrollArea] = useState<HTMLDivElement | null>(null);
   const availableWidth = useElementWidth(scrollArea);
-  // The plot fills the card when the span fits inside it, and overflows it when
-  // the span does not. Measured rather than assumed: the card's width answers to
-  // the viewport and to the sidebar, so it is not something this component can
-  // work out from what it was passed.
-  const plotWidth = trendsPlotWidth(
-    trends.days.length,
-    availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0,
-  );
+  // Measured rather than assumed: the card's width answers to the viewport and
+  // to the sidebar, so it is not something this component can work out from what
+  // it was passed.
+  const plotShare = availableWidth > 0 ? availableWidth - CHART_PLOT_INSET : 0;
+  const isCumulative = view === "cumulative";
+  // The two views want opposite things from the width, which is why the rule is
+  // chosen here rather than baked into one function. The Daily view owes every
+  // day a minimum width and overflows the card, because a day is read one at a
+  // time. The Cumulative view fits the whole span inside the card, because a
+  // curve is read as a shape and a shape you scroll through is not one.
+  const plotWidth = isCumulative
+    ? cumulativePlotWidth(plotShare)
+    : trendsPlotWidth(trends.days.length, plotShare);
+  useLatestDaysFirst(scrollArea, view, plotWidth);
   const ticketsTitle = t("ticketsTitle");
   const takingsTitle = t("takingsTitle");
   return (
     <div className="space-y-2">
-      <ChartScrollArea ref={setScrollArea} ariaLabel={t("scrollLabel")}>
+      <ChartScrollArea
+        ref={setScrollArea}
+        // The label says the region scrolls, so it must only say so where it
+        // does: the Cumulative view fits its card, and promising a reader who
+        // cannot see the scrollbar that there is more sideways would send them
+        // looking for days that are already on screen.
+        ariaLabel={isCumulative ? t("scrollLabelCumulative") : t("scrollLabel")}
+      >
         <div className="w-max space-y-6">
           <TrendsChart
             title={ticketsTitle}
-            description={t("ticketsDescription")}
+            description={isCumulative ? t("ticketsDescriptionCumulative") : t("ticketsDescription")}
             days={trends.days}
             series={series}
             plotWidth={plotWidth}
             measure="quantity"
+            view={view}
             locale={locale}
             // Tickets are whole things; the axis and the tooltip both count them
             // plainly, with the reader's own thousands mark and nobody else's.
             formatValue={(value) => formatNumber(value, locale)}
             totalLabel={t("ticketsTotal")}
-            ariaLabel={t("chartLabel", { title: ticketsTitle })}
+            ariaLabel={
+              isCumulative
+                ? t("chartLabelCumulative", { title: ticketsTitle })
+                : t("chartLabel", { title: ticketsTitle })
+            }
             syncId={TRENDS_SYNC_ID}
           />
           <TrendsChart
             title={takingsTitle}
-            description={t("takingsDescription")}
+            description={isCumulative ? t("takingsDescriptionCumulative") : t("takingsDescription")}
             days={trends.days}
             series={series}
             plotWidth={plotWidth}
             measure="takings_cents"
+            view={view}
             locale={locale}
             formatValue={(value) => formatTakings(value, trends.currency, locale)}
             formatTickValue={(value) => formatTakingsTick(value, trends.currency, locale)}
             totalLabel={t("takingsTotal")}
-            ariaLabel={t("chartLabel", { title: takingsTitle })}
+            ariaLabel={
+              isCumulative
+                ? t("chartLabelCumulative", { title: takingsTitle })
+                : t("chartLabel", { title: takingsTitle })
+            }
             syncId={TRENDS_SYNC_ID}
           />
         </div>
@@ -310,6 +367,65 @@ function useElementWidth(element: HTMLElement | null): number {
     return () => observer.disconnect();
   }, [element]);
   return width;
+}
+
+/**
+ * Opens the scrolling window on the most recent days rather than on the oldest.
+ *
+ * A span longer than the card is drawn from the Event's first sale onwards, so
+ * left is months ago and right is this week — and the reader almost always came
+ * to see how it is selling now. Landing at the left means scrolling to the end
+ * before the surface answers anything, every single visit.
+ *
+ * It anchors once per `anchorKey` and then leaves the reader alone, which is the
+ * whole point of the key: a chip click, a resize and a re-render must not drag
+ * the viewport back from the launch week somebody deliberately scrolled to.
+ *
+ * The key is the view and nothing else. A change of view has to re-anchor,
+ * because the Cumulative view fits its card and the browser clamps the offset to
+ * zero on the way through — so the return to the Daily view would otherwise land
+ * on the oldest days again. Nothing about the data belongs in the key: this
+ * Event's matrix is fetched once and never refetched under a mounted chart, and
+ * keying on the span's length would mean a span that grew by a day yanked a
+ * reader out of the fortnight they were looking at.
+ *
+ * `plotWidth` is a dependency rather than a value it reads: the plot is measured
+ * over the frames after mount, so the effect must run again as the width settles
+ * and the content actually becomes wider than the window. Until it does, there
+ * is no overflow to take up and the anchor stays untaken.
+ *
+ * A layout effect, so the offset is set before the browser paints. In an
+ * ordinary effect the reader sees the oldest days for a frame and then a jump.
+ */
+function useLatestDaysFirst(
+  element: HTMLElement | null,
+  anchorKey: string,
+  plotWidth: number,
+): void {
+  const anchor = useRef({ key: "", taken: false });
+  useLayoutEffect(() => {
+    // A new key is a fresh anchor to take, so the flag is cleared here rather
+    // than compared against the key below. Comparing would look equivalent and
+    // is not: the Cumulative view fits its card and so never takes its anchor,
+    // leaving the flag still reading `daily` — and the return to the Daily view
+    // would find the key it had already anchored for and do nothing, which is
+    // exactly the case this hook exists to handle.
+    if (anchor.current.key !== anchorKey) {
+      anchor.current = { key: anchorKey, taken: false };
+    }
+    if (!element || anchor.current.taken) {
+      return;
+    }
+    const overflow = element.scrollWidth - element.clientWidth;
+    if (overflow <= 0) {
+      // Either the span fits — in which case there is no "end" to open on — or
+      // nothing has been laid out yet. Neither is a state worth remembering, so
+      // the anchor stays untaken and a later frame may still take it.
+      return;
+    }
+    element.scrollLeft = overflow;
+    anchor.current.taken = true;
+  }, [element, anchorKey, plotWidth]);
 }
 
 /**

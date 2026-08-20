@@ -7,11 +7,23 @@ export {
 } from "./components/charts/chart-legend-chips";
 export { ChartScrollArea, type ChartScrollAreaProps } from "./components/charts/chart-scroll-area";
 export {
+  ChartViewToggle,
+  type ChartViewOption,
+  type ChartViewToggleProps,
+} from "./components/charts/chart-view-toggle";
+export {
   CHART_PLOT_INSET,
+  type StackedChartProps,
+  type StackedDatum,
+  type StackedSeries,
+} from "./components/charts/chart-frame";
+export {
+  StackedAreaChart,
+  type StackedAreaChartProps,
+} from "./components/charts/stacked-area-chart";
+export {
   StackedBarChart,
   type StackedBarChartProps,
-  type StackedBarDatum,
-  type StackedBarSeries,
 } from "./components/charts/stacked-bar-chart";
 export { EventShell, type EventShellLabels } from "./components/event-shell";
 export { InProgressPanel } from "./components/in-progress-panel";

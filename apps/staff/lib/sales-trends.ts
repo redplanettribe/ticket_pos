@@ -177,6 +177,50 @@ export function trendsSeries(
 }
 
 /**
+ * Which counting the surface is showing (CONTEXT.md, Sales Trends).
+ *
+ * `daily` is each day's own figure; `cumulative` is the running total up to
+ * each day. One choice for both charts, because the pair is read as one surface
+ * — a spike in the tickets chart above a ramp in the Takings chart would put two
+ * different questions on one set of days and invite the reader to compare them.
+ */
+export type TrendsView = "daily" | "cumulative";
+
+/**
+ * cumulativeTrends turns each day's own figure into the running total up to it.
+ *
+ * It accumulates the Daily view rather than reading the matrix again, so the two
+ * views cannot disagree about which days exist, what they are called, or which
+ * Ticket Types are drawn: the Cumulative view is the Daily view added up, and
+ * saying so in code is what keeps it true. It follows that a deselected Ticket
+ * Type is genuinely absent from the curve rather than hidden inside a total it
+ * is still propping up — the filtering has already happened by the time this
+ * runs.
+ *
+ * Every datum is built fresh. Accumulating in place would mutate the Daily
+ * view's own data, and since both views are derived from one matrix on every
+ * render, the daily bars would grow a little every time the toggle was pressed.
+ *
+ * A silent day inherits the total rather than falling to zero, which is the
+ * whole reason the view is worth having: a quiet fortnight reads as a flat
+ * stretch — the Event stopped selling — instead of as a hole that would say the
+ * Event un-sold what it had already sold.
+ */
+export function cumulativeTrends(data: readonly TrendsDatum[]): TrendsDatum[] {
+  const running: Record<string, number> = {};
+  let runningTotal = 0;
+  return data.map((datum) => {
+    const values: Record<string, number> = {};
+    for (const [id, value] of Object.entries(datum.values)) {
+      running[id] = (running[id] ?? 0) + value;
+      values[id] = running[id];
+    }
+    runningTotal += datum.total;
+    return { key: datum.key, label: datum.label, values, total: runningTotal };
+  });
+}
+
+/**
  * The horizontal room one day is owed, in pixels.
  *
  * This is the number that makes a long selling period scroll instead of
@@ -229,6 +273,29 @@ export const TRENDS_MIN_PLOT_WIDTH = 360;
 export function trendsPlotWidth(dayCount: number, availableWidth = 0): number {
   const spanWidth = dayCount <= 0 ? 0 : dayCount * TRENDS_MIN_BAR_WIDTH;
   return Math.max(spanWidth, availableWidth, TRENDS_MIN_PLOT_WIDTH);
+}
+
+/**
+ * cumulativePlotWidth is how wide the Cumulative view's plot is drawn: the room
+ * available, and nothing about the span.
+ *
+ * The opposite rule to `trendsPlotWidth`, and deliberately so. A day in the
+ * Daily view is a thing to be read one at a time, so it is owed a minimum width
+ * and the plot outgrows the card. A cumulative curve is read as a shape — how
+ * fast the Event sold, and from when it started to — and a shape the reader has
+ * to scroll through is not a shape at all: the acceleration they came to see is
+ * the relationship between its ends. Compressing costs the curve nothing,
+ * because a running total is monotone and legible at any density; compressing
+ * the Daily view would cost every bar its identity.
+ *
+ * So the two views differ in what scrolling means: the Daily view is scrolled
+ * through, and the Cumulative view is looked at.
+ *
+ * The floor still applies, so a very narrow card overflows to the same minimum
+ * the Daily view has rather than drawing a curve narrower than its own axis.
+ */
+export function cumulativePlotWidth(availableWidth = 0): number {
+  return Math.max(availableWidth, TRENDS_MIN_PLOT_WIDTH);
 }
 
 /** The tick steps a Y axis is allowed to round up to, per decade. Chosen so the
