@@ -64,6 +64,28 @@ type SaleConfirmation struct {
 	// word or never resolves at all. It sits below the Confirmation Link, because
 	// the receipt's job is the tickets and this is an aside.
 	ConsentConfirmationLink string
+	// HasOutstandingAnswers says whether any Ticket on this Sale still owes a
+	// required Ticket Question an Answer (#315, ADR 0044). True adds ONE sentence
+	// pointing back at the ConfirmationLink above; false — the zero value, and
+	// what every caller written before this feature passes — changes nothing at
+	// all, and there is a test freezing the rendered receipt against a literal to
+	// keep that true.
+	//
+	// A BOOLEAN AND NOT A COUNT, deliberately. "Three tickets still need answers"
+	// reads as more precise and is a promise the mail cannot keep: the debt is
+	// derived live and the buyer may answer two of them between the send and the
+	// read, at which point the receipt in their inbox is wrong forever. The page
+	// behind the Confirmation Link states the real figure at the moment it is
+	// looked at, which is the only moment it is true.
+	//
+	// WHAT IS DELIBERATELY ABSENT IS ANY ANSWER LINK. The sentence points at the
+	// Confirmation Link this mail already carries and introduces no URL of its
+	// own. An Answer Link is meant to be forwarded and this receipt is meant not
+	// to be — it holds the reference, the total and the Tax ID — so a per-Ticket
+	// link in the body would make "send my friend the t-shirt question" and "send
+	// my friend my receipt" the same gesture. Distribution happens on the page,
+	// where the buyer copies one link at a time.
+	HasOutstandingAnswers bool
 	// TaxID is the Tax ID this Ticket Sale was transacted under, printed on the
 	// receipt so the buyer can file it against their own expense records
 	// (ADR 0016). It is the sale's immutable snapshot, never the Customer's

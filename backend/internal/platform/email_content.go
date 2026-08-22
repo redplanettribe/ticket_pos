@@ -414,6 +414,31 @@ var (
 		"View your tickets:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
 		"Vea sus entradas:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
 	)
+	// The Outstanding Answers line (#315, ADR 0044), carried only by receipts for
+	// a Sale whose Tickets still owe a required Ticket Question an Answer.
+	//
+	// IT TAKES NO ARGUMENT, which is the whole of the mail half of this feature.
+	// Every other conditional line here is a Sprintf with a URL in it; this one
+	// is prose, and says "the link above" rather than printing a link of its own.
+	// An Answer Link opens one Ticket and is built to be forwarded into a group
+	// chat; this receipt holds the reference, the total and the Tax ID and is
+	// built not to be. Putting one inside the other would make forwarding a
+	// t-shirt question the same gesture as forwarding a receipt, which is the
+	// failure ADR 0044 names. The buyer distributes the per-Ticket links from the
+	// page behind the Confirmation Link, one at a time and by hand.
+	//
+	// IT NAMES NO NUMBER, for the reason HasOutstandingAnswers is a bool: the
+	// debt is derived live, and a count baked into an inbox is wrong the moment
+	// the buyer answers one.
+	//
+	// "Tickets" here is the buyer's word for the things they bought, not the
+	// domain's Ticket — the receipt has always called them that ("View your
+	// tickets"), and a receipt that switched vocabulary to match a schema would
+	// be the platform talking to itself.
+	saleConfirmationOutstandingCopy = translated(
+		"Some of the tickets on this purchase still need answers. Open the link above to answer them there, or to copy and pass each ticket's own link to whoever will be using it.",
+		"Algunas de las entradas de esta compra aún necesitan respuestas. Abra el enlace anterior para responderlas allí, o para copiar y enviar el enlace de cada entrada a quien vaya a usarla.",
+	)
 	// The double opt-in's one line (#255, ADR 0035), carried only by receipts
 	// whose checkout left an optional consent in Pending Confirmation.
 	//
@@ -445,7 +470,7 @@ func (c SaleConfirmation) Subject() string {
 // Text is the Sale Confirmation's plain-text body: what the Customer keeps as
 // their receipt.
 //
-// Three parts are conditional, and all are absent rather than blank when they
+// Four parts are conditional, and all are absent rather than blank when they
 // do not apply — an empty label on a receipt reads as a fault in the platform,
 // and there is nothing a Customer could do about it either way.
 func (c SaleConfirmation) Text() string {
@@ -467,6 +492,21 @@ func (c SaleConfirmation) Text() string {
 	// this purchase months later, at the gate, with one tap and no typing.
 	if c.ConfirmationLink != "" {
 		text += "\n\n" + fmt.Sprintf(saleConfirmationLinkCopy.in(c.Locale), c.ConfirmationLink)
+	}
+
+	// The Outstanding Answers sentence sits DIRECTLY BELOW the Confirmation Link,
+	// because "the link above" is the whole of what it says and a line between
+	// them would make that phrase point at the wrong thing. It is above the
+	// consent line for the same reason the consent line is last: this is about
+	// the tickets the buyer just bought, and that is the platform's own business.
+	//
+	// GATED ON THE LINK AS WELL AS ON THE DEBT. With no Confirmation Link there
+	// is no link above to open, and the sentence would be an instruction the
+	// reader cannot follow — worse than silence, since they would go looking for
+	// it. A missing link already means a misconfigured deployment rather than
+	// anything about this Sale, and the receipt still goes out without it.
+	if c.HasOutstandingAnswers && c.ConfirmationLink != "" {
+		text += "\n\n" + saleConfirmationOutstandingCopy.in(c.Locale)
 	}
 
 	// Last, and only when something actually pends. It goes below the tickets
