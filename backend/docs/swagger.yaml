@@ -538,6 +538,39 @@ components:
           example: ok
           type: string
       type: object
+    handler.heldAnswerBody:
+      properties:
+        checked:
+          description: Checked answers checkbox.
+          type: boolean
+        date:
+          description: |-
+            Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+            date carries no time and no zone, so nothing can shift it by a day.
+          type: string
+        number:
+          description: |-
+            Number answers number, as a decimal STRING rather than a JSON number.
+            JSON numbers are doubles in most parsers, and a value that survives a
+            NUMERIC column only to be rounded on the way through the wire would defeat
+            the column. See catalog.SubmittedAnswer.
+          type: string
+        option_ids:
+          description: |-
+            OptionIDs answers single_choice (one) and multi_choice (any number). They
+            are OPTION IDENTITIES and never labels, because a label could not survive
+            a rename — which is the whole reason an Option has an id.
+
+            An empty array is somebody clearing their choices, which is refused as an
+            empty Answer; the way to say "not said" is to DELETE the Answer.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        text:
+          description: Text answers short_text and long_text.
+          type: string
+      type: object
     handler.importSaleRow:
       properties:
         amount_cents:
@@ -1283,6 +1316,27 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/service.EnqueueResult'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeHeldTicket:
+      properties:
+        data:
+          $ref: '#/components/schemas/service.HeldTicketAnswersView'
+        error:
+          $ref: '#/components/schemas/platform.APIError'
+        request_id:
+          type: string
+      type: object
+    openapi.EnvelopeHeldTickets:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/service.HeldTicketAnswersView'
+          type: array
+          uniqueItems: false
         error:
           $ref: '#/components/schemas/platform.APIError'
         request_id:
@@ -2673,6 +2727,51 @@ components:
             $ref: '#/components/schemas/service.FollowView'
           type: array
           uniqueItems: false
+      type: object
+    service.HeldTicketAnswersView:
+      properties:
+        answerable:
+          description: |-
+            Answerable and AnswerableRefusal are the write window, exactly as on the
+            staff and buyer views: false once the Event has started and on a
+            reversed Sale, with the refusal as a token the Storefront translates.
+            The READ is never gated by it.
+          type: boolean
+        answerable_refusal:
+          type: string
+        event_name:
+          description: |-
+            EventName and EventSlug are the two public facts about the Event — both
+            already readable on the Storefront — that let the panel say which Event
+            this Ticket is for and link there.
+          type: string
+        event_slug:
+          type: string
+        outstanding_count:
+          description: |-
+            OutstandingCount is how many required questions this Ticket has not yet
+            answered — what keeps the panel open (ADR 0049).
+          type: integer
+        questions:
+          description: |-
+            Questions carries the Ticket Type's questions in the order they are
+            asked, retired ones last, each with this Ticket's Answer or null.
+          items:
+            $ref: '#/components/schemas/service.TicketQuestionAnswerView'
+          type: array
+          uniqueItems: false
+        ticket_id:
+          description: |-
+            TicketID names which Ticket this is, so the panel can write back against
+            it and the buyer's sale page can match it to its row. Safe: the reader
+            holds it.
+          type: string
+        ticket_type_name:
+          description: |-
+            TicketTypeName is the only thing telling two held Tickets on one Event
+            apart that this reader is entitled to. NOT the ordinal: "2 of 4" is a
+            fact about the Sale's other Tickets.
+          type: string
       type: object
     service.HeldTicketView:
       properties:
@@ -5574,6 +5673,130 @@ paths:
       security:
       - BearerAuth: []
       summary: Follow a Tag
+      tags:
+      - customer
+  /api/v1/customer/held-tickets:
+    get:
+      description: 'Returns every Ticket the signed-in Customer holds — the Self-held
+        Ticket of their own purchase and every Ticket they accepted by Assignment
+        Link, indistinguishably (ADR 0049) — each with the Ticket Questions its Ticket
+        Type asks, whatever has been answered so far and its Outstanding Answer count.
+        Authorization is the Customer Session and nothing else: a Ticket is listed
+        because this Customer holds it, never because they bought the Sale it is on.
+        A Confirmation Link session is narrowed to the Sale it names and sees only
+        that Sale''s Self-held Ticket. A Holder''s row shows the Event, the Ticket
+        Type and their own questions — never the buyer, the price, the Tax ID, the
+        Sale Confirmation reference or the Sale''s other Tickets. A reversed Sale''s
+        Ticket stays listed only for its buyer, read-only; a Holder who is not the
+        buyer stops holding it, as they do when the buyer reassigns it. Answers 404
+        while the Ticket Question feature flag is off.'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeHeldTickets'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      security:
+      - BearerAuth: []
+      summary: List the tickets you hold
+      tags:
+      - customer
+  /api/v1/customer/held-tickets/{ticketId}/answers/{questionId}:
+    put:
+      description: 'Writes the Answer to one Ticket Question on one Ticket the signed-in
+        Customer holds, creating it or correcting what was there, and returns that
+        Ticket with its questions, Answers and Outstanding Answer count. Only the
+        Holder answers (ADR 0049): the buyer for their Self-held Ticket, a Holder
+        for the Ticket they accepted, both through this route. A Ticket the caller
+        does not hold — one on their own Sale that somebody else holds included —
+        is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does
+        not exist. Refused with 400 INVALID_ANSWER when the value does not fit the
+        question''s kind, with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED)
+        or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while
+        the Ticket Question feature flag is off.'
+      parameters:
+      - description: Ticket id
+        in: path
+        name: ticketId
+        required: true
+        schema:
+          type: string
+      - description: Ticket question ID
+        in: path
+        name: questionId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/handler.heldAnswerBody'
+                description: The answer, in the shape its question's kind takes
+                summary: body
+        description: The answer, in the shape its question's kind takes
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/openapi.EnvelopeHeldTicket'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/platform.Envelope'
+          description: Internal Server Error
+      security:
+      - BearerAuth: []
+      summary: Answer a ticket question on a ticket you hold
       tags:
       - customer
   /api/v1/customer/privacy:

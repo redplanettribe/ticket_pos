@@ -596,3 +596,69 @@ func (r *Repository) GetAnswerLinkTicket(ctx context.Context, ticketID string) (
 	}
 	return &t, nil
 }
+
+// HeldTicket is one Ticket read through the person who HOLDS it (#343,
+// ADR 0049): an AnswerableTicket plus the two public facts about its Event the
+// Holder's own surface shows.
+//
+// It carries the whole AnswerableTicket rather than a narrower row so that the
+// answer window (SaleStatus, EventStartsAt) and the write path (TicketTypeID)
+// come from the same read every other Answer write uses. What the HOLDER may
+// SEE of it is the service's decision, and deliberately less than is here:
+// ConfirmationRef and TicketSaleID ride along and never leave the process.
+type HeldTicket struct {
+	AnswerableTicket
+	EventName string
+	EventSlug string
+}
+
+// ListHeldTicketsForCustomer returns every Ticket one Customer holds: the
+// Self-held Ticket of their own purchase and every Ticket they accepted by
+// Assignment Link, indistinguishably (#343, ADR 0049).
+//
+// THE SCOPE IS holder_customer_id AND NOTHING ELSE. Not the Sale's customer_id:
+// a buyer who assigned a Ticket away no longer holds it, and a Ticket on their
+// own Sale that somebody else accepted is not theirs to read here. The column is
+// written only by the accept flow and by checkout for the Self-held Ticket
+// (migration 080's CHECK refuses one without an acceptance), so what this lists
+// is what somebody proved or paid for — never what a buyer typed about them.
+//
+// A REVERSED SALE'S TICKET STAYS ONLY FOR ITS BUYER. This is the same split the
+// Customer Area makes (customers/repository.ListHeldTicketsForCustomer): the
+// buyer keeps the reversed Sale as their financial record and its Self-held
+// Ticket's Answers stay readable on it — a Reversal voids a purchase, it does
+// not erase what was said — while a Holder who is not the buyer simply stops
+// holding it. A Ticket the buyer reassigned needs no clause: reassignment
+// clears holder_customer_id with the address.
+//
+// Ordered soonest Event first, then by acceptance, so the Customer's list has a
+// stable order to draw.
+func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID string) ([]HeldTicket, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+answerableTicketColumns+`, e.name, e.slug
+		`+answerableTicketFrom+`
+		WHERE tk.holder_customer_id = $1
+		  AND tk.accepted_at IS NOT NULL
+		  AND (s.status = 'active' OR s.customer_id = $1)
+		ORDER BY e.starts_at ASC NULLS LAST, tk.accepted_at DESC, tk.id ASC
+	`, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tickets := make([]HeldTicket, 0)
+	for rows.Next() {
+		var t HeldTicket
+		if err := rows.Scan(
+			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
+			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+			&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
+			&t.EventName, &t.EventSlug,
+		); err != nil {
+			return nil, err
+		}
+		tickets = append(tickets, t)
+	}
+	return tickets, rows.Err()
+}

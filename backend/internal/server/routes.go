@@ -325,6 +325,17 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
 	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}",
 		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerOwnTicketQuestion)))
+	// The Tickets the Customer HOLDS, and the one write on them (#343, ADR
+	// 0049): the buyer's Self-held Ticket and every Ticket they accepted by
+	// Assignment Link, through one route, keyed on the holder customer id of
+	// the Ticket row and on no Sale at all. Behind the same gate as the buyer's
+	// routes above, for the same reason: a Confirmation Link session is the
+	// buyer of the Sale it names, and answering a t-shirt size is the thing
+	// the person holding a forwarded receipt most likely opened it to do.
+	mux.Handle("GET /api/v1/customer/held-tickets",
+		signedIn(http.HandlerFunc(app.CatalogHandler.ListHeldTickets)))
+	mux.Handle("PUT /api/v1/customer/held-tickets/{ticketId}/answers/{questionId}",
+		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerHeldTicketQuestion)))
 	// The buyer assigns one of their own Tickets to an email address (#324,
 	// parent #322). Registered here rather than under a namespace of its own
 	// because it is the same surface as the two routes above it — the

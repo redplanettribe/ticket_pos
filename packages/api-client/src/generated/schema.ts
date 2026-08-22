@@ -1272,6 +1272,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/held-tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the tickets you hold
+         * @description Returns every Ticket the signed-in Customer holds — the Self-held Ticket of their own purchase and every Ticket they accepted by Assignment Link, indistinguishably (ADR 0049) — each with the Ticket Questions its Ticket Type asks, whatever has been answered so far and its Outstanding Answer count. Authorization is the Customer Session and nothing else: a Ticket is listed because this Customer holds it, never because they bought the Sale it is on. A Confirmation Link session is narrowed to the Sale it names and sees only that Sale's Self-held Ticket. A Holder's row shows the Event, the Ticket Type and their own questions — never the buyer, the price, the Tax ID, the Sale Confirmation reference or the Sale's other Tickets. A reversed Sale's Ticket stays listed only for its buyer, read-only; a Holder who is not the buyer stops holding it, as they do when the buyer reassigns it. Answers 404 while the Ticket Question feature flag is off.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHeldTickets"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/held-tickets/{ticketId}/answers/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Answer a ticket question on a ticket you hold
+         * @description Writes the Answer to one Ticket Question on one Ticket the signed-in Customer holds, creating it or correcting what was there, and returns that Ticket with its questions, Answers and Outstanding Answer count. Only the Holder answers (ADR 0049): the buyer for their Self-held Ticket, a Holder for the Ticket they accepted, both through this route. A Ticket the caller does not hold — one on their own Sale that somebody else holds included — is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED) or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while the Ticket Question feature flag is off.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket id */
+                    ticketId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The answer, in the shape its question's kind takes */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.heldAnswerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHeldTicket"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/privacy": {
         parameters: {
             query?: never;
@@ -9370,6 +9530,33 @@ export interface components {
             /** @example ok */
             status?: string;
         };
+        "handler.heldAnswerBody": {
+            /** @description Checked answers checkbox. */
+            checked?: boolean;
+            /**
+             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+             *     date carries no time and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number answers number, as a decimal STRING rather than a JSON number.
+             *     JSON numbers are doubles in most parsers, and a value that survives a
+             *     NUMERIC column only to be rounded on the way through the wire would defeat
+             *     the column. See catalog.SubmittedAnswer.
+             */
+            number?: string;
+            /**
+             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
+             *     are OPTION IDENTITIES and never labels, because a label could not survive
+             *     a rename — which is the whole reason an Option has an id.
+             *
+             *     An empty array is somebody clearing their choices, which is refused as an
+             *     empty Answer; the way to say "not said" is to DELETE the Answer.
+             */
+            option_ids?: string[];
+            /** @description Text answers short_text and long_text. */
+            text?: string;
+        };
         "handler.importSaleRow": {
             amount_cents?: number;
             customer_email?: string;
@@ -9826,6 +10013,16 @@ export interface components {
         };
         "openapi.EnvelopeFollowDigestEnqueue": {
             data?: components["schemas"]["service.EnqueueResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeHeldTicket": {
+            data?: components["schemas"]["service.HeldTicketAnswersView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeHeldTickets": {
+            data?: components["schemas"]["service.HeldTicketAnswersView"][];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -10845,6 +11042,45 @@ export interface components {
              */
             digest_enabled?: boolean;
             follows?: components["schemas"]["service.FollowView"][];
+        };
+        "service.HeldTicketAnswersView": {
+            /**
+             * @description Answerable and AnswerableRefusal are the write window, exactly as on the
+             *     staff and buyer views: false once the Event has started and on a
+             *     reversed Sale, with the refusal as a token the Storefront translates.
+             *     The READ is never gated by it.
+             */
+            answerable?: boolean;
+            answerable_refusal?: string;
+            /**
+             * @description EventName and EventSlug are the two public facts about the Event — both
+             *     already readable on the Storefront — that let the panel say which Event
+             *     this Ticket is for and link there.
+             */
+            event_name?: string;
+            event_slug?: string;
+            /**
+             * @description OutstandingCount is how many required questions this Ticket has not yet
+             *     answered — what keeps the panel open (ADR 0049).
+             */
+            outstanding_count?: number;
+            /**
+             * @description Questions carries the Ticket Type's questions in the order they are
+             *     asked, retired ones last, each with this Ticket's Answer or null.
+             */
+            questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
+            /**
+             * @description TicketID names which Ticket this is, so the panel can write back against
+             *     it and the buyer's sale page can match it to its row. Safe: the reader
+             *     holds it.
+             */
+            ticket_id?: string;
+            /**
+             * @description TicketTypeName is the only thing telling two held Tickets on one Event
+             *     apart that this reader is entitled to. NOT the ordinal: "2 of 4" is a
+             *     fact about the Sale's other Tickets.
+             */
+            ticket_type_name?: string;
         };
         "service.HeldTicketView": {
             /** @description AcceptedAt is when they accepted, RFC3339 in UTC. */

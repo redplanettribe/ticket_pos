@@ -156,6 +156,27 @@ type EnvelopeBuyerTicketAnswers struct {
 	RequestID string                           `json:"request_id"`
 }
 
+// EnvelopeHeldTickets documents the list of Tickets the signed-in Customer
+// HOLDS (#343, ADR 0049), and EnvelopeHeldTicket the one Ticket an Answer
+// write on it returns.
+//
+// ITS DATA IS service.HeldTicketAnswersView, a fourth shape distinct from the three
+// above and narrower than the buyer's: no Answer Link, no Holder address, no
+// assignment state, no ordinal, no Sale. The reader holds the Ticket and may
+// not be the party of record, so the generated client must not offer the
+// Storefront anything about the purchase to render.
+type EnvelopeHeldTickets struct {
+	Data      []service.HeldTicketAnswersView `json:"data"`
+	Error     *platform.APIError       `json:"error"`
+	RequestID string                   `json:"request_id"`
+}
+
+type EnvelopeHeldTicket struct {
+	Data      service.HeldTicketAnswersView `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
+}
+
 // EnvelopeTagList documents tag list success responses (search and event tags).
 type EnvelopeTagList struct {
 	Data      []service.TagView  `json:"data"`
