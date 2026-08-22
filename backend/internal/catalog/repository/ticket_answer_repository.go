@@ -546,6 +546,20 @@ type AnswerLinkTicket struct {
 	// not said when it starts. Read live for the same reason: an Organization
 	// that moves its Event moves every Answer Link's deadline with it.
 	EventStartsAt sql.NullTime
+	// AcceptedAt is when a Holder accepted this Ticket, invalid until one has
+	// (#325, ADR 0046).
+	//
+	// IT IS HERE TO CLOSE THIS DOOR. Once somebody has proved the address and
+	// accepted, the Answer Link stops opening for good: it is the door for a
+	// Ticket nobody has claimed, and a link still sitting in a group chat must
+	// not be able to overwrite what the Holder said about themselves. That is
+	// what makes the accept click mean something, and it is CONTEXT.md's own
+	// account of the Answer Link.
+	//
+	// It never reaches the wire. What the holder of a retired link is told is
+	// that the link is not valid — the same thing every other closed door says,
+	// and it discloses nothing about the person who now holds the Ticket.
+	AcceptedAt sql.NullTime
 }
 
 // GetAnswerLinkTicket loads one Ticket by id, UNSCOPED BY ORGANIZATION.
@@ -565,7 +579,7 @@ type AnswerLinkTicket struct {
 // copy of catalog.AnswerWindow into SQL.
 func (r *Repository) GetAnswerLinkTicket(ctx context.Context, ticketID string) (*AnswerLinkTicket, error) {
 	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT tk.id, l.ticket_type_id, tt.name, e.name, s.status, e.starts_at
+		SELECT tk.id, l.ticket_type_id, tt.name, e.name, s.status, e.starts_at, tk.accepted_at
 		`+answerableTicketFrom+`
 		WHERE tk.id = $1
 	`, ticketID)
@@ -573,6 +587,7 @@ func (r *Repository) GetAnswerLinkTicket(ctx context.Context, ticketID string) (
 	var t AnswerLinkTicket
 	if err := row.Scan(
 		&t.ID, &t.TicketTypeID, &t.TicketTypeName, &t.EventName, &t.SaleStatus, &t.EventStartsAt,
+		&t.AcceptedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

@@ -31,6 +31,18 @@ type AssignTicketResult struct {
 	// AnswersCleared is how many Answers were sent back to Outstanding by this
 	// reassignment. Zero on a first assignment and on a no-op.
 	AnswersCleared int64
+	// AssignedAt is the instant the row now carries, AS POSTGRES STORED IT, and
+	// it is why this write reports a time at all (#325).
+	//
+	// THE TOKEN IS SIGNED FROM THIS VALUE AND NEVER FROM THE Go CLOCK THAT
+	// PRODUCED IT. A TIMESTAMPTZ keeps microseconds; time.Now() keeps
+	// nanoseconds. An Assignment Link signed over the un-rounded value would
+	// carry a timestamp that never equals the one read back from the row, so
+	// every link would open exactly nowhere — a failure that would not appear on
+	// a machine whose clock happens to tick in whole microseconds.
+	//
+	// Zero on a no-op, where nothing was written and no mail is sent.
+	AssignedAt time.Time
 }
 
 // AssignTicketToHolder names the address that holds one Ticket, creating the
@@ -102,16 +114,23 @@ func (r *Repository) AssignTicketToHolder(
 	}
 	result.Changed = true
 
-	if _, err := tx.ExecContext(ctx, `
+	// RETURNING the stored timestamp rather than trusting the one sent in: it
+	// comes back rounded to the column's microseconds, and #325 signs the
+	// Assignment Link over exactly that value.
+	if err := tx.QueryRowContext(ctx, `
 		UPDATE tickets
 		SET holder_email = $2,
 		    assigned_at = $3,
 		    -- Both cleared with the address, always. See above: unreachable in
-		    -- #324 because nothing sets them, and load-bearing from #325.
+		    -- #324 because nothing sets them, and load-bearing from #325 — a
+		    -- Ticket handed to somebody new has not been accepted by them, and
+		    -- every Assignment Link mailed to the previous address dies here,
+		    -- because assigned_at is what those links were signed over.
 		    accepted_at = NULL,
 		    holder_customer_id = NULL
 		WHERE id = $1
-	`, ticketID, holderEmail, now); err != nil {
+		RETURNING assigned_at
+	`, ticketID, holderEmail, now).Scan(&result.AssignedAt); err != nil {
 		return result, err
 	}
 

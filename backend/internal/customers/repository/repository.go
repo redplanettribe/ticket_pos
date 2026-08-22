@@ -205,6 +205,45 @@ func (r *Repository) UpdateProfile(ctx context.Context, in UpdateProfileInput) (
 	return c, nil
 }
 
+// HolderNameInput is the name a Holder gave when they accepted a Ticket
+// Assignment (#325). Two halves and nothing else — there is deliberately no Tax
+// ID, phone or email on this input, so no caller can reach them through it.
+type HolderNameInput struct {
+	CustomerID string
+	FirstName  string
+	LastName   string
+}
+
+// UpdateHolderName writes the name a Holder asserted when they accepted a Ticket
+// Assignment, and touches nothing else on the record (#325, ADR 0046).
+//
+// A SEPARATE STATEMENT FROM UpdateProfile RATHER THAN A REUSE OF IT, and the
+// separation is the point. UpdateProfile is a full restatement of the editable
+// half of a Customer: it writes the Tax ID and the phone from its input, so
+// calling it from the accept flow would mean composing an input that named
+// values for both — and the honest value for a Holder is "do not touch", which
+// that input cannot say about the Tax ID. A Holder is NEVER ASKED FOR A TAX ID,
+// which is a fact about the sale's buyer, and a statement that cannot write one
+// is a stronger guarantee of that than a caller that remembers not to.
+//
+// NO VERIFICATION GUARD, unlike Upsert's name clause. The person writing here
+// clicked a link that only ever travelled to their own address, which is the
+// proof this platform accepts (ADR 0035) — the same standing a Customer Session
+// gives the profile form. What Upsert guards against is a guest CHECKOUT typing
+// over a Verified Customer's name, which is somebody asserting about a person
+// who may not be them.
+//
+// A Customer that has gone is reported as no error and no write: there is no
+// state left for the caller to reconcile, and the acceptance it accompanies has
+// its own foreign key to protest with.
+func (r *Repository) UpdateHolderName(ctx context.Context, in HolderNameInput) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		UPDATE customers SET first_name = $2, last_name = $3
+		WHERE id = $1
+	`, in.CustomerID, in.FirstName, in.LastName)
+	return err
+}
+
 // UpdateAvatarKey writes the Customer's Avatar object key — a set key attaches
 // an Avatar, null removes it — and returns the record as it now stands.
 //

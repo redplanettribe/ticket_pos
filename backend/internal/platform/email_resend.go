@@ -193,6 +193,32 @@ func (s *ResendEmailSender) SendAnswerReminder(ctx context.Context, r AnswerRemi
 	return nil
 }
 
+// SendTicketAssignment delivers the Assignment mail carrying an Assignment Link
+// (#325, ADR 0046).
+//
+// The error is returned rather than swallowed, but the CALLER treats it as best
+// effort: a provider hiccup must not undo an assignment the buyer made, because
+// the buyer's record of who they gave which ticket to is worth keeping even when
+// the mail failed. What the caller does instead is log it — see the catalog
+// service's mailTicketAssignment.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally (ADR 0030). That is not a filing
+// preference here: this message is addressed to somebody who has consented to
+// nothing, so it must not be reachable from the identity that carries marketing
+// at all.
+//
+// NEITHER THE LINK NOR THE EVENT IS LOGGED ON FAILURE, only the address and the
+// error. The link is a credential that mints an identity, and a log aggregator
+// is a wider audience than an inbox.
+func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
+	if err := s.send(ctx, a.To, a.Subject(), a.Text()); err != nil {
+		s.logger.Error("resend send ticket assignment failed", "email", a.To, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort: the request is recorded whether or
 // not anybody was told, and the pending count on the operator navigation is the

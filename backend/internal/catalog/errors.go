@@ -563,3 +563,66 @@ func ErrAssignmentEventStarted() apperror.DomainError {
 		nil,
 	)
 }
+
+// ErrAssignmentLinkInvalid is returned when an Assignment Link does not open
+// (#325, parent #322, ADR 0046).
+//
+// ONE ERROR COVERING EVERY REASON IT DID NOT, exactly as its Answer Link twin
+// does, and for a reason that is if anything stronger here. A forged token, one
+// truncated by a mail client, one naming a Ticket that no longer exists, one
+// whose Ticket Sale has been REVERSED, and one whose Ticket has been REASSIGNED
+// to somebody else all answer identically.
+//
+// The last two are the ones worth defending. "Your friend cancelled the
+// purchase" and "your friend gave your ticket to someone else" are both facts
+// about a third party's decisions, and this page must never name the buyer or
+// describe what they did — CONTEXT.md is explicit that the disclosure rule holds
+// in the error state too. What the Storefront says instead is that the link no
+// longer opens, which is the true statement available to the reader.
+//
+// A SEPARATE CODE FROM ANSWER_LINK_INVALID even though the two read alike,
+// because these are two different tokens with two different lifecycles and a
+// shared code would let a page draw one link's copy for the other's failure.
+func ErrAssignmentLinkInvalid() apperror.DomainError {
+	return apperror.New("ASSIGNMENT_LINK_INVALID", "This link is not valid.", nil)
+}
+
+// ErrAssignmentLinkExpired is returned when an Assignment Link is opened after
+// its Event has started (#325).
+//
+// TOLD APART FROM INVALID, and the only refusal that is, for the reason its
+// Answer Link twin is: an Event's start is already published on the Storefront,
+// so saying "the event has started" discloses nothing and lets the page explain
+// a deadline rather than imply a forgery. It is also the moment #322's purge
+// takes an unaccepted address, so a link that opened past it would be offering
+// to mint a Customer from a fact the platform is in the act of forgetting.
+func ErrAssignmentLinkExpired() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_LINK_EXPIRED",
+		"This event has started, so this ticket can no longer be accepted.",
+		nil,
+	)
+}
+
+// ErrAssignmentLinkUnavailable is returned when no link secret is configured.
+// A deployment fault and not the Holder's, so it is a 500 beside
+// ANSWER_LINK_UNAVAILABLE — and here there is no buyer to go back to for a
+// replacement, because the Holder does not know who the buyer is.
+func ErrAssignmentLinkUnavailable() apperror.DomainError {
+	return apperror.New("ASSIGNMENT_LINK_UNAVAILABLE", "Assignment links are unavailable.", nil)
+}
+
+// ErrInvalidHolderName is returned when the name a Holder gave is not one
+// (#325). See catalog.ParseHolderName.
+//
+// 400 beside INVALID_HOLDER_EMAIL: the body is wrong and restating it correctly
+// is what fixes it. BOTH HALVES ARE REQUIRED — the name is stored separately
+// (ADR 0005) and is written to the Customer as their current asserted name, so
+// half a name would be half a person on the Organization's guest list.
+func ErrInvalidHolderName() apperror.DomainError {
+	return apperror.New(
+		"INVALID_HOLDER_NAME",
+		"Please give a first name and a last name.",
+		map[string]any{"max_length": MaxHolderNameLength},
+	)
+}

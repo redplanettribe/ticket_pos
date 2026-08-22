@@ -688,10 +688,14 @@ func TestCustomerWithNoPurchasesGetsWellFormedEmptyCustomerArea(t *testing.T) {
 	if body.Error != nil {
 		t.Fatalf("error=%+v, want none", body.Error)
 	}
-	// Both collections must be present and empty, not null: an empty state, not a
-	// missing one.
-	if got := string(body.Data); got != `{"upcoming":[],"past":[]}` {
-		t.Fatalf("data = %s, want empty upcoming and past arrays", got)
+	// All THREE collections must be present and empty, not null: an empty state,
+	// not a missing one. `holding` joined them with #325 — the Tickets somebody
+	// else bought and assigned to this address, which this Customer has accepted
+	// — and it is asserted here for the reason the other two are: a client that
+	// meets null where it expected a list crashes on the page a person reaches
+	// most often on their first visit.
+	if got := string(body.Data); got != `{"upcoming":[],"past":[],"holding":[]}` {
+		t.Fatalf("data = %s, want empty upcoming, past and holding arrays", got)
 	}
 }
 

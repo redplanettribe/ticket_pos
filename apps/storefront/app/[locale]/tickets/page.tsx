@@ -1,7 +1,17 @@
 import type { Metadata } from "next";
-import { getMessages, getTranslations, setRequestLocale } from "next-intl/server";
+import {
+  getMessages,
+  getTranslations,
+  setRequestLocale,
+} from "next-intl/server";
 
-import { Alert, AlertDescription, AlertTitle, Button, PageHeader } from "@ticket-pos/ui";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  PageHeader,
+} from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { MyInfo } from "@/components/my-info";
@@ -17,6 +27,7 @@ import {
   getCustomerArea,
   getCustomerSession,
   type CustomerArea as CustomerAreaData,
+  type HeldTicket,
   type TicketSale,
 } from "@/lib/customer-session";
 
@@ -29,7 +40,9 @@ export const dynamic = "force-dynamic";
  * the language the page is served in. The `robots` line is unchanged and stays
  * unconditional: the Customer Area is private in both languages.
  */
-export async function generateMetadata({ params }: CustomerAreaPageProps): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: CustomerAreaPageProps): Promise<Metadata> {
   const { locale } = await params;
   // Metadata renders before the page declares its locale, so the namespace is
   // asked for the locale off the URL explicitly rather than for the request's.
@@ -55,17 +68,23 @@ type CustomerAreaPageProps = {
  * passes no identifier of any kind to the API, and there is no route parameter
  * here that could name a different Customer.
  */
-export default async function CustomerAreaPage({ params }: CustomerAreaPageProps) {
+export default async function CustomerAreaPage({
+  params,
+}: CustomerAreaPageProps) {
   const { locale } = await params;
   // Every page declares its own locale; see the note in app/[locale]/layout.tsx.
   setRequestLocale(locale);
-  const [area, session] = await Promise.all([getCustomerArea(), getCustomerSession()]);
+  const [area, session] = await Promise.all([
+    getCustomerArea(),
+    getCustomerSession(),
+  ]);
 
   // A Confirmation Link session names the one Ticket Sale it was minted for.
   // The page reads it only to explain itself: the narrowing is enforced by the
   // API, which returns that one sale and nothing else regardless of what this
   // page believes.
-  const fromConfirmationLink = session.status === "ok" && session.data.ticket_sale_id !== null;
+  const fromConfirmationLink =
+    session.status === "ok" && session.data.ticket_sale_id !== null;
 
   if (area.status === "signed-out") {
     // A session that ran out or was signed out elsewhere sends the visitor to
@@ -77,7 +96,9 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
     // was read in, so a Customer whose session ran out is not also moved into
     // another language on the way to the sign-in form.
     return redirect({
-      href: hadSession ? "/signin?expired=1&next=/tickets" : "/signin?next=/tickets",
+      href: hadSession
+        ? "/signin?expired=1&next=/tickets"
+        : "/signin?next=/tickets",
       locale,
     });
   }
@@ -89,7 +110,8 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
   // the API was never reached and so said nothing at all.
   const loadFailure =
     area.status === "error"
-      ? (apiErrorMessage((await getMessages()).errors, area) ?? t("loadNetworkFailed"))
+      ? (apiErrorMessage((await getMessages()).errors, area) ??
+        t("loadNetworkFailed"))
       : null;
 
   return (
@@ -97,10 +119,14 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
       <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-10 sm:py-12">
         <PageHeader
           title={fromConfirmationLink ? t("linkedTitle") : t("title")}
-          description={fromConfirmationLink ? t("linkedDescription") : t("description")}
+          description={
+            fromConfirmationLink ? t("linkedDescription") : t("description")
+          }
         />
 
-        {fromConfirmationLink && area.status === "ok" && linkedSaleReversed(area.data) ? (
+        {fromConfirmationLink &&
+        area.status === "ok" &&
+        linkedSaleReversed(area.data) ? (
           <ReversedSaleNotice />
         ) : null}
 
@@ -126,6 +152,10 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
           <CustomerArea
             upcoming={area.data.upcoming}
             past={area.data.past}
+            // The Tickets somebody gave this Customer and they accepted (#325).
+            // Empty for almost everybody, and empty for a Confirmation Link
+            // session by construction.
+            holding={area.data.holding ?? []}
             // A Confirmation Link arrival reads their purchase and acts on
             // nothing (#121): the cards state the Reversal Window and offer the
             // way to sign in, never the undo itself. The email travels with it
@@ -156,7 +186,9 @@ export default async function CustomerAreaPage({ params }: CustomerAreaPageProps
  * either list holds it.
  */
 function linkedSaleReversed(area: CustomerAreaData): boolean {
-  return [...area.upcoming, ...area.past].some((sale) => sale.status === "reversed");
+  return [...area.upcoming, ...area.past].some(
+    (sale) => sale.status === "reversed",
+  );
 }
 
 /**
@@ -205,15 +237,21 @@ async function ConfirmationLinkNotice() {
 async function CustomerArea({
   upcoming,
   past,
+  holding,
   viaConfirmationLink,
   customerEmail,
 }: {
   upcoming: TicketSale[];
   past: TicketSale[];
+  holding: HeldTicket[];
   viaConfirmationLink: boolean;
   customerEmail: string | null;
 }) {
-  if (upcoming.length === 0 && past.length === 0) {
+  // Somebody who has bought nothing may still HOLD something: a friend bought
+  // them a ticket and they accepted it (#325). Showing them the "you have no
+  // purchases" page while they hold a ticket would be the platform denying the
+  // thing it just mailed them.
+  if (upcoming.length === 0 && past.length === 0 && holding.length === 0) {
     return <NoPurchases />;
   }
   const t = await getTranslations("customerArea");
@@ -221,7 +259,9 @@ async function CustomerArea({
   return (
     <>
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">{t("upcomingHeading")}</h2>
+        <h2 className="text-lg font-semibold tracking-tight">
+          {t("upcomingHeading")}
+        </h2>
         {upcoming.length > 0 ? (
           <ul className="space-y-4">
             {upcoming.map((sale) => (
@@ -236,7 +276,9 @@ async function CustomerArea({
         ) : (
           <div className="rounded-lg border border-dashed p-8 text-center">
             <p className="font-medium">{t("nothingUpcomingTitle")}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t("nothingUpcomingDescription")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("nothingUpcomingDescription")}
+            </p>
             <Button asChild variant="secondary" className="mt-4">
               <Link href="/">{t("discoverEvents")}</Link>
             </Button>
@@ -244,9 +286,13 @@ async function CustomerArea({
         )}
       </section>
 
+      {holding.length > 0 ? <HeldTickets holding={holding} /> : null}
+
       {past.length > 0 ? (
         <section className="space-y-4">
-          <h2 className="text-lg font-semibold tracking-tight">{t("pastHeading")}</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            {t("pastHeading")}
+          </h2>
           <ul className="space-y-4">
             {past.map((sale) => (
               <TicketSaleCard
@@ -260,6 +306,53 @@ async function CustomerArea({
         </section>
       ) : null}
     </>
+  );
+}
+
+/**
+ * The Events somebody else bought a ticket for and this Customer accepted (#325,
+ * ADR 0046).
+ *
+ * A SECTION OF ITS OWN AND NOT ROWS AMONG THE PURCHASES, because these are not
+ * purchases: the Ticket Sale, the money, the Sale Confirmation and the Reversal
+ * Window all stayed with the buyer. What is drawn is the Event, the
+ * Organization and the Ticket Type — and no amount, no confirmation reference,
+ * no Tax ID and no Undo, none of which the API sends here.
+ *
+ * It is the way back that does not depend on keeping the mail, which is the
+ * whole reason a Holder becomes a Customer at all.
+ */
+async function HeldTickets({ holding }: { holding: HeldTicket[] }) {
+  const t = await getTranslations("customerArea");
+  return (
+    <section className="space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold tracking-tight">
+          {t("holdingHeading")}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {t("holdingDescription")}
+        </p>
+      </div>
+      <ul className="space-y-4">
+        {holding.map((ticket) => (
+          <li key={ticket.ticket_id} className="rounded-lg border p-4">
+            {/* The Event's name and its Organization's are drawn AS COINED in
+                either language, like every other Organization-authored string
+                on this platform (ADR 0027). */}
+            <Link
+              href={`/${ticket.organization.slug}/${ticket.event.slug}`}
+              className="font-medium underline"
+            >
+              {ticket.event.name}
+            </Link>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {ticket.organization.name} · {ticket.ticket_type_name}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -285,7 +378,9 @@ async function NoPurchases() {
   return (
     <div className="rounded-lg border border-dashed p-10 text-center">
       <p className="font-medium">{t("emptyTitle")}</p>
-      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{t("emptyDescription")}</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+        {t("emptyDescription")}
+      </p>
       <Button asChild className="mt-6">
         <Link href="/">{t("discoverEvents")}</Link>
       </Button>

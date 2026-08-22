@@ -67,6 +67,15 @@ type BuyerTicketAnswersView struct {
 	// The same reasoning applies to a link the deployment could not sign at all,
 	// which is a misconfiguration rather than anything about this Sale, and which
 	// must not take the rest of the page down with it.
+	//
+	// AND EMPTY ONCE A HOLDER HAS ACCEPTED THIS TICKET (#325, ADR 0046). The
+	// Answer Link stops opening at that moment — retired in favour of the person
+	// who proved the address, so that a copy still sitting in a group chat cannot
+	// overwrite what they said about themselves — and a page that kept offering
+	// it would be offering the buyer a dead end. It is NOT replaced by the
+	// Assignment Link: that token is delivered only to the address and must never
+	// appear in a response to the buyer, which is the property the whole feature
+	// rests on.
 	AnswerLink string `json:"answer_link"`
 	// Answerable is whether this Ticket's Answers may still be written — false
 	// once the Event has started and false on a reversed Sale. Never a reason to
@@ -287,7 +296,12 @@ func (s *Service) buyerTicketAnswersViews(
 		// A link is minted only while the Ticket can still be answered. Handing
 		// out a link that opens nothing would be worse than handing out none: the
 		// buyer forwards it, believes the job done, and nobody finds out.
-		if staff.Answerable {
+		// AND NEVER ONCE A HOLDER HAS ACCEPTED (#325, ADR 0046). Accepting retires
+		// the Answer Link in the Holder's favour, so a link minted here would open
+		// nothing — the buyer would copy it, forward it, and believe the job done.
+		// The buyer keeps their OWN route to the Answers either way (ADR 0044's
+		// three-party rule); what they stop being handed is a door that has closed.
+		if staff.Answerable && !tickets[i].AcceptedAt.Valid {
 			// A deployment with no link secret cannot sign, which is a
 			// misconfiguration and not a fact about this Sale. The rest of the page
 			// — the questions, the Answers, the buyer's own ability to answer — is

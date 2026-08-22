@@ -65,7 +65,10 @@ export function customerSessionCookieOptions() {
 const CONFIRMATION_LINK_SESSION_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 export function confirmationLinkSessionCookieOptions() {
-  return { ...customerSessionCookieOptions(), maxAge: CONFIRMATION_LINK_SESSION_MAX_AGE_SECONDS };
+  return {
+    ...customerSessionCookieOptions(),
+    maxAge: CONFIRMATION_LINK_SESSION_MAX_AGE_SECONDS,
+  };
 }
 
 /** Attributes that erase the cookie, used on sign-out and on a dead session. */
@@ -280,7 +283,8 @@ export type TicketSale = {
  * be reported to the Customer, so it is spelled out rather than left to fall in
  * with the rest.
  */
-export type ReversalRequestStatus = "in_flight" | "succeeded" | "refused" | "needs_attention";
+export type ReversalRequestStatus =
+  "in_flight" | "succeeded" | "refused" | "needs_attention";
 
 /**
  * What the API returns when a purchase has been undone: the sale, still carrying
@@ -327,9 +331,50 @@ export type TicketSaleReversalPending = {
 export type TicketSaleReversal = TicketSaleReversed | TicketSaleReversalPending;
 
 /** The Customer Area read: purchases split into what is still to come and what has happened. */
+/**
+ * One Ticket this Customer HOLDS rather than bought: an Event somebody else paid
+ * for, assigned to their address, and which they accepted (#325, ADR 0046).
+ *
+ * A SEPARATE SHAPE FROM TicketSale, AND THE SEPARATION IS THE DISCLOSURE RULE. A
+ * Holder is not the party of record — the money, the Sale Confirmation, the
+ * confirmation reference and the Reversal Window all stayed with the buyer — so
+ * there is no amount here, no reference, no Tax ID, no reversal state and no
+ * Undo. The API does not send them; this type is why nothing here can start
+ * drawing them.
+ */
+export type HeldTicket = {
+  ticket_id: string;
+  accepted_at: string;
+  ticket_type_name: string;
+  // The same two shapes a TicketSale carries, written out rather than shared,
+  // because sharing them would put this type one refactor away from carrying the
+  // rest of a sale.
+  event: {
+    id: string;
+    name: string;
+    slug: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    timezone: string | null;
+    venue_name: string | null;
+  };
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
 export type CustomerArea = {
   upcoming: TicketSale[];
   past: TicketSale[];
+  /**
+   * The Tickets somebody gave this Customer and they accepted. Empty for almost
+   * everybody, and empty for a Confirmation Link session by construction: that
+   * credential opens one Ticket Sale, and a Ticket held on somebody else's sale
+   * is not it.
+   */
+  holding: HeldTicket[];
 };
 
 /**
@@ -375,7 +420,10 @@ async function readWithSession<T>(path: string): Promise<SessionOutcome<T>> {
   }
 
   try {
-    const envelope = await callBackend<T>(path, { method: "GET", sessionToken: token });
+    const envelope = await callBackend<T>(path, {
+      method: "GET",
+      sessionToken: token,
+    });
     if (!envelope.data) {
       return { status: "signed-out" };
     }
@@ -394,7 +442,9 @@ async function readWithSession<T>(path: string): Promise<SessionOutcome<T>> {
 }
 
 /** Reads the current Customer Session, extending its sliding window as a side effect. */
-export async function getCustomerSession(): Promise<SessionOutcome<CustomerSession>> {
+export async function getCustomerSession(): Promise<
+  SessionOutcome<CustomerSession>
+> {
   return readWithSession<CustomerSession>("/api/v1/customer/auth/session");
 }
 
@@ -576,8 +626,12 @@ export type FollowSuggestions = {
  * Following page for suggestions, so an error banner about a feature the reader
  * never asked for is worse than its absence.
  */
-export async function getFollowSuggestions(): Promise<SessionOutcome<FollowSuggestions>> {
-  return readWithSession<FollowSuggestions>("/api/v1/customer/follow-suggestions");
+export async function getFollowSuggestions(): Promise<
+  SessionOutcome<FollowSuggestions>
+> {
+  return readWithSession<FollowSuggestions>(
+    "/api/v1/customer/follow-suggestions",
+  );
 }
 
 /**
@@ -594,7 +648,8 @@ export async function getFollowSuggestions(): Promise<SessionOutcome<FollowSugge
  * `unanswered` exists on the wire only. The platform stores NULL, because the
  * absence of an answer is not a fourth kind of answer.
  */
-export type ConsentState = "granted" | "denied" | "pending_confirmation" | "unanswered";
+export type ConsentState =
+  "granted" | "denied" | "pending_confirmation" | "unanswered";
 
 /** The two optional consents, which are the only two a Customer can move. */
 export type OptionalConsents = {

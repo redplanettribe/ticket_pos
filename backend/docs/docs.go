@@ -79,6 +79,64 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.assignmentLinkAnswerBody": {
+                "properties": {
+                    "checked": {
+                        "description": "Checked answers checkbox.",
+                        "type": "boolean"
+                    },
+                    "date": {
+                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
+                        "type": "string"
+                    },
+                    "option_ids": {
+                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "text": {
+                        "description": "Text answers short_text and long_text.",
+                        "type": "string"
+                    },
+                    "token": {
+                        "description": "Token is the signed Assignment Link token, and it is the ONLY authority\nthis write has.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.assignmentLinkBody": {
+                "properties": {
+                    "token": {
+                        "description": "Token is the signed Assignment Link token, exactly as it arrived in the\naddress. The Storefront reads it out of its own URL and relays it here;\nnothing else about the caller is asked for, or would be believed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.assignmentLinkNameBody": {
+                "properties": {
+                    "first_name": {
+                        "description": "FirstName and LastName are stored separately (ADR 0005) and written to the\nCustomer as their current asserted name. Trimmed, bounded and refused when\neither half is blank by catalog.ParseHolderName in the service, and NOT\nhere: a name is a domain value with one definition, and a second check in\nthe handler is a second place for it to disagree.",
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "token": {
+                        "description": "Token is the signed Assignment Link token, exactly as it arrived in the\naddress. The Storefront reads it out of its own URL and relays it here;\nnothing else about the caller is asked for, or would be believed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.avatarUploadURLBody": {
                 "properties": {
                     "content_type": {
@@ -1072,6 +1130,20 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.AnswerReminderSweepResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeAssignmentLink": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AssignmentLinkView"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2315,6 +2387,33 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.AssignmentLinkView": {
+                "properties": {
+                    "event_name": {
+                        "description": "EventName and TicketTypeName are the two public facts the page shows, as\non the Answer Link's page and for the same reason: both are already\nreadable by anybody on the Event's Storefront page.",
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "description": "HolderFirstName and HolderLastName are the name the platform currently\nholds for this Customer, for the form to start from. Both are empty for\nsomebody it has never named.\n\nTHIS IS THE PREFILL, AND IT EXISTS ONLY ON THIS SIDE OF THE CLICK. There is\nno route anywhere that reports it before the accept: a page reachable\nwithout the click that showed a known Customer's name would be an oracle\nfor whether an address is registered, which ADR 0035 is explicit about\navoiding. The click is what buys it, and the click is proof that the person\nasking is the person asked about.\n\nSEPARATE HALVES, per ADR 0005, and written to the Customer as their current\nasserted name. There is no Tax ID here and there is no field for one: a Tax\nID is a fact about the sale's BUYER and is never asked of an attendee.",
+                        "type": "string"
+                    },
+                    "holder_last_name": {
+                        "type": "string"
+                    },
+                    "questions": {
+                        "description": "Questions is this Ticket Type's Ticket Questions with whatever this Ticket\nhas already said — the Holder answering for themselves, which is the whole\nreason the accept step is worth having.\n\nEMPTY WHILE TICKET_QUESTIONS_ENABLED IS CLOSED, rather than the route\nrefusing. The two flags are separate on purpose (ADR 0046), and a Ticket\nType that asks nothing is an ordinary Ticket Type: accepting is worth doing\nfor the guest list alone.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.BeginCheckoutResult": {
                 "properties": {
                     "amount_cents": {
@@ -2350,7 +2449,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "answer_link": {
-                        "description": "AnswerLink is the per-Ticket link this page exists to hand out, and is\nEMPTY once the Ticket can no longer be answered.\n\nEmpty rather than present-but-dead, because the copy button is a promise:\na buyer who copies a link into a group chat has finished the task as far as\nthey know, and will not find out for weeks that what they sent opened\nnothing. Better to have no button than a button that forwards a dead end.\nThe same reasoning applies to a link the deployment could not sign at all,\nwhich is a misconfiguration rather than anything about this Sale, and which\nmust not take the rest of the page down with it.",
+                        "description": "AnswerLink is the per-Ticket link this page exists to hand out, and is\nEMPTY once the Ticket can no longer be answered.\n\nEmpty rather than present-but-dead, because the copy button is a promise:\na buyer who copies a link into a group chat has finished the task as far as\nthey know, and will not find out for weeks that what they sent opened\nnothing. Better to have no button than a button that forwards a dead end.\nThe same reasoning applies to a link the deployment could not sign at all,\nwhich is a misconfiguration rather than anything about this Sale, and which\nmust not take the rest of the page down with it.\n\nAND EMPTY ONCE A HOLDER HAS ACCEPTED THIS TICKET (#325, ADR 0046). The\nAnswer Link stops opening at that moment — retired in favour of the person\nwho proved the address, so that a copy still sitting in a group chat cannot\noverwrite what they said about themselves — and a page that kept offering\nit would be offering the buyer a dead end. It is NOT replaced by the\nAssignment Link: that token is delivered only to the address and must never\nappear in a response to the buyer, which is the property the whole feature\nrests on.",
                         "type": "string"
                     },
                     "answerable": {
@@ -2515,6 +2614,14 @@ const docTemplate = `{
             },
             "service.CustomerAreaView": {
                 "properties": {
+                    "holding": {
+                        "description": "Holding is the Events somebody ELSE bought a ticket for and assigned to\nthis Customer, which they accepted (#325, parent #322, ADR 0046).\n\nA THIRD LIST RATHER THAN ROWS MIXED INTO THE FIRST TWO, and the separation\nis the disclosure rule made structural. These are not this person's\npurchases: the Ticket Sale, the money, the Sale Confirmation and the\nReversal Window all stayed with the buyer. A held Ticket rendered as a\nTicketSaleView would need an amount, a confirmation reference and a\nreversal offer, and a Holder may see none of them — so it is a different\nshape carrying different facts, and no surface can accidentally draw an\nUndo button on somebody else's purchase.\n\nEmpty for almost everybody, and empty for a Confirmation Link session by\nconstruction: that credential opens ONE Ticket Sale, and a Ticket held on\nsomebody else's sale is not it.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.HeldTicketView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "past": {
                         "items": {
                             "$ref": "#/components/schemas/service.TicketSaleView"
@@ -2904,6 +3011,29 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.HeldTicketView": {
+                "properties": {
+                    "accepted_at": {
+                        "description": "AcceptedAt is when they accepted, RFC3339 in UTC.",
+                        "type": "string"
+                    },
+                    "event": {
+                        "$ref": "#/components/schemas/service.EventView"
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/internal_customers_service.OrganizationView"
+                    },
+                    "ticket_id": {
+                        "description": "TicketID is this person's handle on the thing they hold. It is not a\ncredential: every route that acts on a Ticket is reached either by a signed\ntoken or by the buyer's own session, and neither takes an id from here.",
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "description": "TicketTypeName is what kind of ticket it is — public, and a row on the\nEvent's own page with its price beside it. What is NOT here is the price\nthis Ticket was actually sold at, which a Promotion may have made different\nand which is the buyer's business either way.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -8509,6 +8639,270 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Answer a ticket question through an answer link",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/assignment-link": {
+            "post": {
+                "description": "Accepts the Ticket Assignment the signed Assignment Link names: the Ticket moves to ` + "`" + `accepted` + "`" + `, and a Customer is created or matched on the normalised email address the buyer gave and marked Verified — the click being Proof of Email Ownership (ADR 0035, ADR 0046). Requires no sign-in, no passcode and no password, and mints no session. **Accepting twice is idempotent**, so a second click lands on the same page and keeps the first acceptance's instant. **It grants no Marketing Consent and no consent of any kind.** The response discloses only the Event name, the Ticket Type name, the Holder's own current name for the form to prefill, and this Ticket's Ticket Questions — never the buyer's name or email, the price, the Tax ID, the Sale Confirmation reference, or the Sale's other Tickets. **The name is prefilled only here, after the click**: no route reports it before, which would make this an oracle for whether an address is registered. Refused with 401 ASSIGNMENT_LINK_INVALID when the token was tampered with, truncated, signed by another deployment or for another purpose, names a Ticket that no longer exists, names one whose Ticket Sale has been reversed, or names an assignment the Ticket no longer carries because it was reassigned; those causes are deliberately indistinguishable, because telling them apart would disclose what the buyer did. Refused with 401 ASSIGNMENT_LINK_EXPIRED once the Event has started, which is told apart only because an Event's start is already published. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off. The questions list is empty while the separate Ticket Question flag is off.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.assignmentLinkBody",
+                                        "summary": "body",
+                                        "description": "The signed assignment link token"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The signed assignment link token",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Accept a ticket assignment",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/assignment-link/name": {
+            "put": {
+                "description": "Writes the first and last name of the Holder who accepted the Ticket the signed Assignment Link names, as that Customer's current asserted name — stored separately (ADR 0005), and overwriting whatever the record held, since the person editing is the person the record is about. **A Holder is never asked for a Tax ID**: it is a fact about the sale's buyer, never about an attendee, and this body has nowhere to put one. It accepts the assignment first if it has not been accepted already, so the name and the click are one act. No sign-in, no session minted, and no consent granted. Refused with 400 INVALID_HOLDER_NAME when either half is blank or too long, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.assignmentLinkNameBody",
+                                        "summary": "body",
+                                        "description": "The signed token and the holder's name"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The signed token and the holder's name",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Give the holder's name through an assignment link",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/assignment-link/questions/{questionId}": {
+            "put": {
+                "description": "Writes the Answer to one Ticket Question on the Ticket a signed Assignment Link names, given by the Holder themselves. It accepts the assignment first if it has not been accepted already. Once a Ticket is accepted its Answer Link stops opening, so an answer given here cannot be overwritten by somebody still holding a forwarded link — which is what accepting buys. The buyer and Event Staff keep their own routes to correct an Answer (ADR 0044). Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, and 404 while the separate Ticket Question flag is off.",
+                "parameters": [
+                    {
+                        "description": "Ticket question ID",
+                        "in": "path",
+                        "name": "questionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.assignmentLinkAnswerBody",
+                                        "summary": "body",
+                                        "description": "The signed token, and the answer in the shape its question's kind takes"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The signed token, and the answer in the shape its question's kind takes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Answer a ticket question through an assignment link",
                 "tags": [
                     "public"
                 ]

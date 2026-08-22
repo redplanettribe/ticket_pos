@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
@@ -101,8 +102,32 @@ func (s *Service) AssignOwnTicket(
 	// otherwise. A parent buying for three children holds one themselves; a
 	// rule that refused the buyer's own address would refuse the commonest shape
 	// this feature has.
-	if _, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, s.now()); err != nil {
+	assignment, err := s.repo.AssignTicketToHolder(ctx, ticket.ID, email, s.now())
+	if err != nil {
 		return nil, err
+	}
+
+	// ONE MAIL PER ASSIGNMENT THAT ACTUALLY CHANGED SOMETHING (#325). A buyer who
+	// presses save twice, or who "corrects" a typo back to what it already said,
+	// has changed nothing about who holds this Ticket — and the person at that
+	// address has already been written to once. `Changed` is the repository's
+	// report of whether a row moved, and it is the whole of the rationing this
+	// route needs: without it, a doubled click is a doubled mail to somebody who
+	// never asked for the first.
+	//
+	// A REASSIGNMENT MAILS THE NEW ADDRESS AND NOT THE OLD ONE. The mail telling
+	// a Holder they have stopped holding a Ticket is a separate message, owed
+	// only to somebody who ACCEPTED — an address that was typed and ignored was
+	// never told it had anything, and telling it now that it has lost something
+	// would be the platform's first and last word to that person. It is not in
+	// this ticket.
+	//
+	// THE SEND HAPPENS AFTER THE WRITE COMMITTED, never inside it. A mail cannot
+	// be rolled back, so the only honest order is to record the fact and then
+	// tell somebody about it; the reverse would risk a stranger holding a link to
+	// an assignment that never happened.
+	if assignment.Changed {
+		s.mailAssignedTicket(ctx, ticket.ID, email, assignment.AssignedAt)
 	}
 
 	// THE WHOLE SALE COMES BACK rather than the one Ticket that changed, exactly
@@ -196,4 +221,35 @@ func assignmentRefusalToken(refusal catalog.AssignmentRefusal) string {
 	default:
 		return ""
 	}
+}
+
+// mailAssignedTicket re-reads the one Ticket through the accept flow's own read
+// and sends the Assignment mail.
+//
+// A SECOND READ RATHER THAN THE ROW ALREADY IN HAND, and it buys two things. The
+// buyer's row (repository.AnswerableTicket) carries the Sale's id and its
+// Confirmation reference and does not carry the Event's name — so composing the
+// mail from it would mean either adding the Event name to the buyer's read or
+// carrying a struct full of things this message must never mention past the one
+// place that could mention them. Reading through GetAssignmentLinkTicket means
+// the mail is composed from a struct that never selected the buyer, the price,
+// the Tax ID or the reference at all.
+//
+// It is also the read the ACCEPT flow uses, so the Event name a Holder sees in
+// their inbox and the one they see on the page cannot come from two places and
+// differ.
+//
+// A FAILURE HERE IS SWALLOWED, deliberately, and the assignment stands. The
+// buyer's record of who they gave which ticket to is worth keeping even when the
+// mail did not go out, and they can send a fresh one by correcting the address.
+func (s *Service) mailAssignedTicket(ctx context.Context, ticketID, holderEmail string, assignedAt time.Time) {
+	if s.mailer == nil {
+		return
+	}
+	ticket, err := s.repo.GetAssignmentLinkTicket(ctx, ticketID)
+	if err != nil || ticket == nil {
+		s.logAssignmentMailFailure("assignment mail not composed: ticket unreadable", err)
+		return
+	}
+	s.mailTicketAssignment(ctx, ticket, holderEmail, assignedAt)
 }

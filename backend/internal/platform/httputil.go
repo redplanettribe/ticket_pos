@@ -237,6 +237,25 @@ func domainHTTPStatus(code string) int {
 	// a deadline instead of implying a forgery.
 	case "ANSWER_LINK_INVALID", "ANSWER_LINK_EXPIRED":
 		return http.StatusUnauthorized
+	// An Assignment Link that does not open (#325, ADR 0046). 401 beside the
+	// Answer Link's pair and for the same reason: the token IS the credential.
+	//
+	// ASSIGNMENT_LINK_INVALID covers more ground than its twin — it also answers
+	// a Ticket that has been REASSIGNED away from this address — and that breadth
+	// is the disclosure rule holding in the error state. "Your friend gave your
+	// ticket to somebody else" is a fact about the buyer's decisions, and this
+	// page never names the buyer or describes what they did.
+	case "ASSIGNMENT_LINK_INVALID", "ASSIGNMENT_LINK_EXPIRED":
+		return http.StatusUnauthorized
+	// No link secret configured, as above: the deployment's fault, not the
+	// Holder's — and this reader has no buyer to ask for a new link, because they
+	// are not told who the buyer is.
+	case "ASSIGNMENT_LINK_UNAVAILABLE":
+		return http.StatusInternalServerError
+	// A Holder's name that is not one (#325). 400 beside INVALID_HOLDER_EMAIL:
+	// the body itself is wrong and restating it correctly is what fixes it.
+	case "INVALID_HOLDER_NAME":
+		return http.StatusBadRequest
 	// No link secret configured is a deployment fault and not the holder's, so it
 	// is a 500 beside CONFIRMATION_LINK_UNAVAILABLE. Telling somebody their link
 	// is broken when it is the server that is broken sends them back to the buyer

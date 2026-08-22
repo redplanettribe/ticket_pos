@@ -129,6 +129,50 @@ type TicketSaleView struct {
 type CustomerAreaView struct {
 	Upcoming []TicketSaleView `json:"upcoming"`
 	Past     []TicketSaleView `json:"past"`
+	// Holding is the Events somebody ELSE bought a ticket for and assigned to
+	// this Customer, which they accepted (#325, parent #322, ADR 0046).
+	//
+	// A THIRD LIST RATHER THAN ROWS MIXED INTO THE FIRST TWO, and the separation
+	// is the disclosure rule made structural. These are not this person's
+	// purchases: the Ticket Sale, the money, the Sale Confirmation and the
+	// Reversal Window all stayed with the buyer. A held Ticket rendered as a
+	// TicketSaleView would need an amount, a confirmation reference and a
+	// reversal offer, and a Holder may see none of them — so it is a different
+	// shape carrying different facts, and no surface can accidentally draw an
+	// Undo button on somebody else's purchase.
+	//
+	// Empty for almost everybody, and empty for a Confirmation Link session by
+	// construction: that credential opens ONE Ticket Sale, and a Ticket held on
+	// somebody else's sale is not it.
+	Holding []HeldTicketView `json:"holding"`
+}
+
+// HeldTicketView is one Ticket this Customer holds because a Holder accepted it,
+// as their Customer Area shows it.
+//
+// WHAT IS ABSENT IS THE WHOLE OF THE TYPE'S DESIGN: no buyer, no price, no
+// amount, no Sale Confirmation reference, no Tax ID, no reversal state, no Undo,
+// and no sibling Tickets. A Holder holds the ticket and nothing else
+// (CONTEXT.md); everything about the PURCHASE belongs to the person who made it.
+//
+// The Event and the Organization are here because they are already public — the
+// Event has a Storefront page anybody can read — and because they are the whole
+// reason this list exists: a Holder wanted a way back to the Event that does not
+// depend on keeping the mail.
+type HeldTicketView struct {
+	// TicketID is this person's handle on the thing they hold. It is not a
+	// credential: every route that acts on a Ticket is reached either by a signed
+	// token or by the buyer's own session, and neither takes an id from here.
+	TicketID string `json:"ticket_id"`
+	// AcceptedAt is when they accepted, RFC3339 in UTC.
+	AcceptedAt string `json:"accepted_at"`
+	// TicketTypeName is what kind of ticket it is — public, and a row on the
+	// Event's own page with its price beside it. What is NOT here is the price
+	// this Ticket was actually sold at, which a Promotion may have made different
+	// and which is the buyer's business either way.
+	TicketTypeName string           `json:"ticket_type_name"`
+	Event          EventView        `json:"event"`
+	Organization   OrganizationView `json:"organization"`
 }
 
 // GetCustomerArea returns the Customer Area for the session behind the token.
@@ -199,9 +243,22 @@ func (s *Service) GetCustomerArea(ctx context.Context, token string) (*CustomerA
 	sortByEventDate(upcoming, true)
 	sortByEventDate(past, false)
 
+	// The Tickets this person HOLDS rather than bought (#325). Read only for a
+	// full session: a Confirmation Link session is a credential scoped to one
+	// Ticket Sale, and a Ticket held on somebody else's sale is not that sale —
+	// listing it would widen a forwarded email past the one purchase it names.
+	var holding []repository.HeldTicketRow
+	if actor.TicketSaleID == "" {
+		holding, err = s.repo.ListHeldTicketsForCustomer(ctx, actor.CustomerID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	area := &CustomerAreaView{
 		Upcoming: ticketSaleViews(upcoming, now, s.reversal),
 		Past:     ticketSaleViews(past, now, s.reversal),
+		Holding:  heldTicketViews(holding),
 	}
 	return area, nil
 }
@@ -375,6 +432,43 @@ func ticketSaleView(sale repository.TicketSaleRow, now time.Time, reversal platf
 		ReversalPending: sale.ReversalPending,
 		ReversalStatus:  nullStringPtr(sale.ReversalStatus),
 	}
+}
+
+// heldTicketViews renders the Tickets a Holder accepted.
+//
+// NEVER NIL, always at least an empty array, so a Storefront never has to tell
+// "holds nothing" apart from "this build does not have the feature" — the
+// distinction ADR 0045 says no surface may make.
+//
+// THERE IS NO UPCOMING/PAST SPLIT HERE, unlike the sales above, and the reason
+// is the query: a Ticket on a reversed Sale is already gone from this list,
+// because a Holder who no longer holds a ticket must not be shown an Event they
+// cannot get into. What remains is ordered soonest first, which is the order
+// somebody reading "what am I going to" wants.
+func heldTicketViews(tickets []repository.HeldTicketRow) []HeldTicketView {
+	out := make([]HeldTicketView, 0, len(tickets))
+	for _, ticket := range tickets {
+		out = append(out, HeldTicketView{
+			TicketID:       ticket.TicketID,
+			AcceptedAt:     ticket.AcceptedAt.UTC().Format(time.RFC3339),
+			TicketTypeName: ticket.TicketTypeName,
+			Event: EventView{
+				ID:        ticket.EventID,
+				Name:      ticket.EventName,
+				Slug:      ticket.EventSlug,
+				StartsAt:  timePtr(ticket.EventStartsAt.Valid, ticket.EventStartsAt.Time),
+				EndsAt:    timePtr(ticket.EventEndsAt.Valid, ticket.EventEndsAt.Time),
+				Timezone:  stringPtr(ticket.EventTimezone.Valid, ticket.EventTimezone.String),
+				VenueName: stringPtr(ticket.EventVenueName.Valid, ticket.EventVenueName.String),
+			},
+			Organization: OrganizationView{
+				ID:   ticket.OrganizationID,
+				Name: ticket.OrganizationName,
+				Slug: ticket.OrganizationSlug,
+			},
+		})
+	}
+	return out
 }
 
 func timePtr(valid bool, t time.Time) *string {

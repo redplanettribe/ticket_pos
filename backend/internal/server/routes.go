@@ -535,6 +535,29 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// would be a second, unsigned way to say which Ticket this is.
 	mux.HandleFunc("POST /api/v1/public/answer-link", app.CatalogHandler.OpenAnswerLink)
 	mux.HandleFunc("PUT /api/v1/public/answer-link/questions/{questionId}", app.CatalogHandler.AnswerByAnswerLink)
+
+	// The Assignment Link's three routes (#325, parent #322, ADR 0046): accept,
+	// give the Holder's name, answer a Ticket Question as the Holder.
+	//
+	// UNDER /public LIKE THE ANSWER LINK'S PAIR, AND UNLIKE THEM THESE MINT A
+	// PERSON. The click is Proof of Email Ownership (ADR 0035), so the first call
+	// creates or matches a Verified Customer — and still mints no session, which
+	// is why they are not under /customer: nothing here signs anybody in.
+	//
+	// A DIFFERENT TOKEN FROM THE ONE ABOVE, and that is the security property of
+	// the feature rather than a routing detail. The Answer Link is copyable off
+	// the buyer's own sale page; if these routes accepted one, a buyer could
+	// accept on their friend's behalf and the Verified Customer minted from it
+	// would be a fiction. The two are separately keyed, so a token of one kind
+	// fails cryptographically on the other's routes.
+	//
+	// NO TICKET ID IN ANY PATH, on all three: the token names the Ticket, and a
+	// path segment naming it too would be a second, unsigned way to say which.
+	// The token is in the BODY on every verb, the accept included, so it reaches
+	// no access log and no Referer header.
+	mux.HandleFunc("POST /api/v1/public/assignment-link", app.CatalogHandler.AcceptAssignmentLink)
+	mux.HandleFunc("PUT /api/v1/public/assignment-link/name", app.CatalogHandler.NameByAssignmentLink)
+	mux.HandleFunc("PUT /api/v1/public/assignment-link/questions/{questionId}", app.CatalogHandler.AnswerByAssignmentLink)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

@@ -602,6 +602,100 @@ func (r AnswerReminder) Text() string {
 	return text
 }
 
+// The Assignment mail (#325, parent #322, ADR 0046): the message telling
+// somebody a friend bought them a ticket, and carrying the link whose click
+// accepts it.
+//
+// IT IS WRITTEN FOR A STRANGER, and every sentence below is shaped by that. The
+// reader never came to this platform, did not give it their address, and has no
+// idea why this arrived — so the first thing the message does is say where the
+// address came from. "Someone who bought a ticket for this event gave us your
+// email address" is the whole explanation, and it is deliberately as close as
+// the copy ever gets to the buyer: it NAMES NOBODY. Who bought it is a fact
+// about the purchase, and mail gets forwarded.
+//
+// IT STATES WHAT ACCEPTING DISCLOSES, BEFORE THE LINK. Accepting hands the
+// reader's email address to the Organization running the Event — a separate
+// controller — and somebody deciding whether to click is entitled to know that
+// before they do, not after. That sentence is an acceptance criterion of #325
+// and not a nicety; anyone shortening this message has to keep it.
+//
+// IT SAYS IGNORING IS FINE, and means it: nothing happens to the ticket, the
+// buyer can still answer for them, and #322's purge takes the address when the
+// Event starts. There is no decline button anywhere in this feature, because
+// ignoring the mail IS the decline (ADR 0046).
+//
+// WHAT IS ABSENT: the buyer's name or email, the price, the Tax ID, the Sale
+// Confirmation reference, the Sale's other Tickets, and any Answer Link. The
+// first six are ADR 0044's disclosure rule carried over unchanged. The last is
+// sharper — an Answer Link is copyable off the buyer's own page, so putting one
+// in this mail would put a token that proves nothing beside a token that proves
+// an identity, in one message, for a reader who cannot tell them apart.
+//
+// The Spanish is usted throughout, as every Customer-facing message here is, and
+// takes "entrada" for the thing the reader now has, matching the receipt.
+var (
+	ticketAssignmentSubjectCopy = translated(
+		"You have a ticket for %s",
+		"Tiene una entrada para %s",
+	)
+	// Where the address came from and what the reader now holds, declared whole
+	// in both languages: one block of prose, so a translator cannot reorder half
+	// of it and lose the disclaimer.
+	//
+	// NO GREETING BY NAME. The platform does not know this person's name — that
+	// is what accepting is for — and "Hi there" reads worse than beginning with
+	// the fact.
+	ticketAssignmentOpeningCopy = translated(
+		"Someone who bought tickets for %s gave us your email address so that one of them could be yours.\n\nEvent: %s\nTicket: %s",
+		"Alguien que compró entradas para %s nos dio su dirección de correo para que una de ellas sea suya.\n\nEvento: %s\nEntrada: %s",
+	)
+	// The disclosure and the link, in that order and never the other way round.
+	// A reader must be able to decide before they press, and a link above the
+	// sentence explaining it is a link some readers will press first.
+	ticketAssignmentActionCopy = translated(
+		"If you accept, your email address is shared with the organizer of this event, and you can give your name and answer any questions they ask about your ticket.\n\nAccept your ticket here:\n%s",
+		"Si la acepta, su dirección de correo se comparte con la organización de este evento, y podrá dar su nombre y responder las preguntas que hagan sobre su entrada.\n\nAcepte su entrada aquí:\n%s",
+	)
+	// The closing, and the sentence that makes ignoring a real option rather than
+	// a silence the reader has to interpret. It promises three things the code
+	// enforces: the ticket is unaffected (the Answer Link and the buyer's own
+	// routes keep working while a Ticket is merely `assigned`), the link dies at
+	// the Event's start (catalog.AnswerWindow, read live), and the address is
+	// deleted then (#322's purge). Anyone changing one of those has to come here.
+	ticketAssignmentClosingCopy = translated(
+		"You do not have to do anything. If you ignore this message the ticket still works and the person who bought it can still use it, this link stops working when the event starts, and we delete your email address then.",
+		"No tiene que hacer nada. Si ignora este mensaje la entrada sigue siendo válida y quien la compró puede seguir usándola, este enlace deja de funcionar cuando empieza el evento, y entonces eliminamos su dirección de correo.",
+	)
+)
+
+// Subject is the Assignment mail's subject line: that the reader has a ticket,
+// and for what.
+//
+// IT LEADS WITH THE FACT AND NOT WITH THE ACTION. "You have a ticket for X" is
+// what makes somebody open a message from a platform they have never heard of;
+// "Accept your ticket" reads like every phishing mail ever written, and this
+// message already has the hardest deliverability job on the platform — it is the
+// one going to somebody with no prior relationship to the sender.
+func (a TicketAssignment) Subject() string {
+	return fmt.Sprintf(ticketAssignmentSubjectCopy.in(a.Locale), a.EventName)
+}
+
+// Text is the Assignment mail's plain-text body: where the address came from,
+// what the ticket is, what accepting discloses, the link, and that ignoring it
+// costs nothing.
+//
+// NOTHING HERE IS CONDITIONAL. A message with no link is not a shorter message,
+// it is a notification its reader cannot act on — so the caller refuses to
+// compose one at all rather than sending it linkless (see the catalog service's
+// mailTicketAssignment).
+func (a TicketAssignment) Text() string {
+	text := fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName, a.EventName, a.TicketTypeName)
+	text += "\n\n" + fmt.Sprintf(ticketAssignmentActionCopy.in(a.Locale), a.AcceptURL)
+	text += "\n\n" + ticketAssignmentClosingCopy.in(a.Locale)
+	return text
+}
+
 // The Sale Voided notice (#246, ADR 0033) — the mail that says a purchase is
 // gone.
 //

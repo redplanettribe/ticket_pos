@@ -229,6 +229,63 @@ type AnswerReminder struct {
 	Locale Locale
 }
 
+// TicketAssignment is the mail telling somebody that a friend bought them a
+// ticket, and carrying the Assignment Link whose click accepts it (#325, parent
+// #322, ADR 0046).
+//
+// IT IS THE ONE MESSAGE THIS PLATFORM SENDS TO SOMEBODY WHO NEVER CAME HERE, at
+// an address supplied by a person with no authority to supply it. That is the
+// price of the feature and ADR 0046 is where it is paid; everything odd about
+// the shape below is that price being paid in fields.
+//
+// IT NAMES NO BUYER. There is no CustomerName here and there must never be one:
+// the reader is owed the fact that somebody bought them a ticket, not that
+// person's identity, and a mail that named them would disclose a fact about the
+// purchase to whoever the mail was forwarded to. For the same reason there is no
+// price, no Tax ID and no Sale Confirmation reference — the Answer Link's
+// disclosure rule (ADR 0044), carried over unchanged and applied to an inbox.
+//
+// IT IS TRANSACTIONAL, and its place on EmailSender's transactional half is what
+// makes that structural rather than remembered. Nothing reads Marketing Consent
+// before sending it and it is not reachable from the marketing sending identity
+// (ADR 0030, ADR 0034). What bounds it instead is that only a buyer naming a NEW
+// address sends one at all: re-submitting the address a Ticket already carries
+// writes nothing and mails nobody.
+type TicketAssignment struct {
+	// To is the address the buyer named, normalised by NormalizeEmail before it
+	// was stored (migration 080). It belongs to a third party who has agreed to
+	// nothing, which is why #322's purge takes it when the Event starts.
+	To string
+	// EventName and TicketTypeName are what the reader has to recognise this by,
+	// and both are already public: they are rows on a Storefront page anybody can
+	// read. They are the whole of what this mail says about the purchase.
+	EventName      string
+	TicketTypeName string
+	// AcceptURL is the Assignment Link: the Storefront address whose click
+	// accepts, carrying a token distinct from the Answer Link and delivered ONLY
+	// here.
+	//
+	// IT IS THE WHOLE MESSAGE, like the Answer Reminder's link and unlike the
+	// receipt's: a message telling somebody they have a ticket and giving them no
+	// way to claim it would be an instruction its reader cannot follow. The
+	// caller refuses to compose one rather than sending it linkless.
+	//
+	// THIS FIELD IS WHY THIS TYPE EXISTS AT ALL. The link must never appear on a
+	// buyer surface or in any API response to the buyer — the Answer Link is
+	// copyable off the buyer's own sale page, so a design that showed this one
+	// there too would mean the click proves nothing and the Verified Customer
+	// minted from it is a fiction (ADR 0046). Mail is the only carrier.
+	AcceptURL string
+	// Locale is the language this is written in, ALREADY RESOLVED by the caller
+	// (ADR 0033).
+	//
+	// IT IS THE ONE MAIL WHOSE READER IS NOT PARTY TO THE SALE, so the usual
+	// chain is read in the other order: the recipient's own remembered Mail
+	// Locale outranks the language the BUYER was reading when they paid. See
+	// service.assignmentMailLocale.
+	Locale Locale
+}
+
 // ConsentWithdrawalConfirmation is the message a Customer receives when a
 // Consent Withdrawal actually took something away (#267, parent #265).
 //
@@ -661,6 +718,19 @@ type EmailSender interface {
 	// anywhere near the code that sends it. What bounds it is catalog.MayRemind,
 	// which is the only thing that does.
 	SendAnswerReminder(ctx context.Context, reminder AnswerReminder) error
+	// SendTicketAssignment delivers the Assignment mail carrying an Assignment
+	// Link (#325, ADR 0046).
+	//
+	// TRANSACTIONAL, beside the Answer Reminder, and the placement is load
+	// bearing twice over. It means no consent state is anywhere near the code
+	// that sends it — which is right, because the recipient has consented to
+	// nothing and could not have, having never been here — and it means the
+	// message cannot be reached from the marketing sending identity at all.
+	//
+	// It is also the only method on this interface that carries a credential
+	// capable of MINTING AN IDENTITY. Anything that widens where TicketAssignment
+	// values travel is widening where that credential travels.
+	SendTicketAssignment(ctx context.Context, assignment TicketAssignment) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
@@ -723,6 +793,16 @@ func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 // which purchase, and in which language.
 func (s *LoggingEmailSender) SendAnswerReminder(_ context.Context, r AnswerReminder) error {
 	s.Logger.Info("answer reminder sent", "email", r.To, "reference", r.Reference, "locale", string(r.Locale))
+	return nil
+}
+
+// SendTicketAssignment logs the Assignment mail for local development. The
+// address and the link are logged, because locally there is no mailbox and the
+// link is the whole point of the message — the same reason the OTP code is
+// logged. Nothing about the buyer is logged, because nothing about the buyer is
+// in the message.
+func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
+	s.Logger.Info("ticket assignment sent", "email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale))
 	return nil
 }
 
@@ -805,6 +885,11 @@ func (NoopEmailSender) SendAnswerReminder(_ context.Context, _ AnswerReminder) e
 	return nil
 }
 
+// SendTicketAssignment discards the Assignment mail.
+func (NoopEmailSender) SendTicketAssignment(_ context.Context, _ TicketAssignment) error {
+	return nil
+}
+
 // SendPayoutRequestSubmitted discards the operator's submission notice.
 func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutRequestSubmitted) error {
 	return nil
@@ -869,6 +954,17 @@ type CaptureEmailSender struct {
 	// mailed a second time inside the week" cannot be told from any message's
 	// contents, only from there being none.
 	AnswerReminders []AnswerReminder
+	// The Assignment mails delivered (#325). Kept whole rather than as rendered
+	// strings, for the reason the Answer Reminders above are: a test calls
+	// Subject() and Text() itself, which is the only way the Mail Locale and the
+	// copy's promises are visible at all.
+	//
+	// It is also the ONLY way an integration test can see an Assignment Link. The
+	// token is never on a buyer surface and never in an API response — that is
+	// the security property of the whole feature — so the captured mail is the
+	// one place a test can get one, exactly as a Holder's inbox is the one place
+	// a person can.
+	TicketAssignments []TicketAssignment
 	// The five Payout Request notices (#179, #188).
 	SubmittedPayoutRequests    []PayoutRequestSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
@@ -981,6 +1077,17 @@ func (s *CaptureEmailSender) SendAnswerReminder(_ context.Context, r AnswerRemin
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.AnswerReminders = append(s.AnswerReminders, r)
+	return nil
+}
+
+// SendTicketAssignment records a delivered Assignment mail.
+func (s *CaptureEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TicketAssignments = append(s.TicketAssignments, a)
 	return nil
 }
 
@@ -1101,6 +1208,21 @@ func (s *CaptureEmailSender) AnswerRemindersSent() []AnswerReminder {
 	return out
 }
 
+// TicketAssignmentsSent returns the Assignment mails delivered so far, in the
+// order they were sent.
+//
+// Tests assert on the LENGTH as much as on the contents. "Re-submitting the same
+// address mailed nobody" and "assigning does not mail the buyer" cannot be told
+// from any message's contents, only from there being none — and the second of
+// those is the acceptance criterion the whole feature rests on.
+func (s *CaptureEmailSender) TicketAssignmentsSent() []TicketAssignment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]TicketAssignment, len(s.TicketAssignments))
+	copy(out, s.TicketAssignments)
+	return out
+}
+
 // PayoutRequestsSubmitted returns a copy of the captured operator submission
 // notices. Tests assert on its LENGTH as much as on its contents: one notice per
 // allowlisted operator, and none at all when a repeated submission is handed the
@@ -1200,6 +1322,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.RefusedReversals = nil
 	s.WithdrawalConfirmations = nil
 	s.AnswerReminders = nil
+	s.TicketAssignments = nil
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil

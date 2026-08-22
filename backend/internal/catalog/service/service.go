@@ -249,6 +249,34 @@ type Service struct {
 	// Storefront URL and never this API's: the holder must land on a page, and
 	// no browser addresses the Go API directly (ADR 0008).
 	answerLinkBaseURL string
+	// assignmentLinks signs and verifies Assignment Links (#325, ADR 0046).
+	//
+	// A SECOND SIGNER BESIDE answerLinks AND NEVER A REUSE OF IT. That is the
+	// security property the whole feature rests on: the Answer Link is copyable
+	// off the buyer's own sale page, so a flow that accepted one would let the
+	// buyer accept on their friend's behalf and the Verified Customer minted
+	// from it would be a fiction. Each derives its own key under its own purpose
+	// label, so a token of one kind cannot verify as the other however its
+	// payload is spelled.
+	//
+	// Its zero value is UNCONFIGURED, which mints nothing and opens nothing.
+	assignmentLinks catalog.AssignmentLinkSigner
+	// assignmentLinkBaseURL is the Storefront origin an Assignment Link points
+	// at. Kept separate from answerLinkBaseURL even though both are set from the
+	// same configured origin, so that the two links cannot be made to share a
+	// field and then a path.
+	assignmentLinkBaseURL string
+	// mailer delivers the Assignment mail — the ONLY carrier an Assignment Link
+	// ever has, since the token may never appear on a buyer surface or in an API
+	// response (ADR 0046).
+	//
+	// Nil is a service that assigns and mails nobody, which is what every test
+	// with no opinion about mail gets, and what #324 shipped.
+	mailer AssignmentMailer
+	// holders writes the Customer a Holder's click mints or matches. Nil is a
+	// service that accepts nothing: the accept route reports the link
+	// unavailable rather than accepting a Ticket on behalf of nobody.
+	holders HolderCustomers
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
@@ -317,6 +345,51 @@ func (s *Service) WithTicketAssignment(enabled bool) *Service {
 func (s *Service) WithAnswerLinks(secret []byte, storefrontBaseURL string) *Service {
 	s.answerLinks = catalog.NewAnswerLinkSigner(secret)
 	s.answerLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")
+	return s
+}
+
+// WithAssignmentLinks gives this service the key it signs Assignment Links with
+// and the Storefront origin they point at (#325, ADR 0046).
+//
+// The secret is the DEPLOYMENT's link secret — the same value every other signed
+// link is derived from — and is turned into this purpose's own key here rather
+// than used directly. Four signed links now travel in one mail flow and none may
+// open what the others do; this is the fourth, and the only one that mints an
+// identity.
+//
+// A WithX rather than a constructor argument, beside WithAnswerLinks and for the
+// same reason: an unwired service is one that signs nothing, which is the safe
+// way to be unwired.
+func (s *Service) WithAssignmentLinks(secret []byte, storefrontBaseURL string) *Service {
+	s.assignmentLinks = catalog.NewAssignmentLinkSigner(secret)
+	s.assignmentLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")
+	return s
+}
+
+// WithAssignmentMail gives this service the sender that delivers the Assignment
+// mail (#325).
+//
+// A NARROW SEAM AND NOT platform.EmailSender ENTIRE, so that nothing in catalog
+// can reach the Sale Confirmation, the passcode or the Follow Digest. Nil leaves
+// the service silent, which is what #324 was and what every test with no opinion
+// about mail wants.
+func (s *Service) WithAssignmentMail(mailer AssignmentMailer) *Service {
+	s.mailer = mailer
+	return s
+}
+
+// WithHolderCustomers gives this service the seam that turns a click into a
+// Customer (#325, ADR 0046).
+//
+// Satisfied by the customers service, which owns `verified_at` and every other
+// statement this platform makes about who somebody is (ADR 0010). Catalog never
+// imports that package; see HolderCustomers.
+//
+// A WithX rather than a constructor argument because the wiring is late by
+// necessity — the customers service is built after this one — and because the
+// unwired state is safe: a service without it accepts nothing at all.
+func (s *Service) WithHolderCustomers(holders HolderCustomers) *Service {
+	s.holders = holders
 	return s
 }
 
