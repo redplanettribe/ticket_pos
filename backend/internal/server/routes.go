@@ -83,18 +83,21 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// shape of mistake as letting a caller name a Digest week.
 	mux.HandleFunc("POST /api/v1/internal/checkout-answers/purge", app.SalesHandler.PurgeAbandonedAnswers)
 
-	// The Answer Reminder sweep (#317, ADR 0044): one mail to each buyer whose
-	// Ticket Sale still owes Answers and whose rationing allows it. Served by the
-	// SALES handler because the message is about a Ticket Sale and is addressed
-	// to its buyer — the catalog decides WHO is owed one, this module writes to
-	// them.
+	// The Answer Reminder sweep (#317, ADR 0044; #328, ADR 0046): one mail to
+	// each person who can answer what a Ticket still owes and whose rationing
+	// allows it — the Holder of an `accepted` Ticket, the buyer for every other
+	// Ticket on the Sale. Served by the SALES handler because both messages are
+	// mail, and mail about a purchase is this module's; the catalog decides who
+	// is owed one AND who it is addressed to, and this module writes to them.
 	//
 	// It is the one route in this namespace whose effect is somebody's INBOX, so
 	// the rule that a caller cannot aim a route is at its sharpest here: nothing
-	// names an Event, an Organization, a Sale or — the parameter that would
-	// matter most — a moment. WHO is written to is a property of the database and
-	// the clock, and a caller able to name the clock could lift the seven-day
-	// silence and mail the platform's whole outstanding backlog on demand.
+	// names an Event, an Organization, a Sale, a Ticket or — the parameter that
+	// would matter most — a moment. WHO is written to is a property of the
+	// database and the clock, and a caller able to name the clock could lift the
+	// seven-day silence and mail the platform's whole outstanding backlog on
+	// demand. Since #328 that backlog reaches more inboxes than buyers' alone,
+	// which makes the rule stricter rather than looser.
 	mux.HandleFunc("POST /api/v1/internal/answer-reminders/sweep", app.SalesHandler.SweepAnswerReminders)
 
 	// The Holder Address Purge (#331, parent #322, ADR 0046): the address a

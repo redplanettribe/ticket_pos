@@ -175,14 +175,18 @@ func TestTheAnswerReminderCapIsTwo(t *testing.T) {
 	}
 }
 
-// DueAnswerReminder.Inputs is the only way a candidate becomes a decision, so
-// what it carries across is worth pinning: a candidate that came back from the
-// sweep has a debt by construction, and every rationing fact travels with the
-// row rather than being re-read from somewhere else.
-func TestDueAnswerReminderInputsCarryTheWholeRule(t *testing.T) {
+// AnswerReminderCandidate.Inputs is the only way a candidate becomes a decision,
+// so what it carries across is worth pinning: a candidate that came back from
+// the sweep has a debt by construction, and every rationing fact travels with
+// the row rather than being re-read from somewhere else.
+//
+// THE CANDIDATE IS A TICKET SINCE #328, and RemindersSent is that Ticket's own
+// ledger rather than its Sale's. That is the whole of what moved here.
+func TestAnswerReminderCandidateInputsCarryTheWholeRule(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	last := now.Add(-8 * 24 * time.Hour)
-	due := DueAnswerReminder{
+	candidate := AnswerReminderCandidate{
+		TicketID:       "ticket-1",
 		TicketSaleID:   "sale-1",
 		SaleStatus:     TicketSaleStatusActive,
 		EventStartsAt:  now.Add(48 * time.Hour),
@@ -190,16 +194,50 @@ func TestDueAnswerReminderInputsCarryTheWholeRule(t *testing.T) {
 		LastRemindedAt: last,
 	}
 
-	in := due.Inputs(now)
+	in := candidate.Inputs(now)
 	if !in.HasOutstandingAnswers {
 		t.Fatal("a candidate the sweep returned owes Answers by construction")
 	}
-	if in.SaleStatus != due.SaleStatus || !in.EventStartsAt.Equal(due.EventStartsAt) ||
-		in.RemindersSent != due.RemindersSent || !in.LastRemindedAt.Equal(due.LastRemindedAt) ||
+	if in.SaleStatus != candidate.SaleStatus || !in.EventStartsAt.Equal(candidate.EventStartsAt) ||
+		in.RemindersSent != candidate.RemindersSent || !in.LastRemindedAt.Equal(candidate.LastRemindedAt) ||
 		!in.Now.Equal(now) {
 		t.Fatalf("Inputs dropped or transposed a fact: %+v", in)
 	}
 	if !MayRemind(in) {
 		t.Fatal("an eight-day-old first reminder on an upcoming event is due its second")
+	}
+}
+
+// THE RULE HAS NO OPINION ABOUT WHO IS ADDRESSED, which is what makes "the
+// Holder is chased on exactly the terms the buyer was" true rather than hoped
+// for. Two candidates differing only in recipient must decide identically:
+// AnswerReminderInputs has no field for it, and this test is what notices if
+// somebody adds one.
+func TestMayRemindDoesNotDependOnWhoIsAddressed(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	base := AnswerReminderCandidate{
+		TicketID:      "ticket-1",
+		TicketSaleID:  "sale-1",
+		SaleStatus:    TicketSaleStatusActive,
+		EventStartsAt: now.Add(48 * time.Hour),
+	}
+
+	toBuyer := base
+	toBuyer.Recipient = RemindTheBuyer
+	toHolder := base
+	toHolder.Recipient = RemindTheHolder
+	toHolder.HolderEmail = "carla@example.com"
+
+	if MayRemind(toBuyer.Inputs(now)) != MayRemind(toHolder.Inputs(now)) {
+		t.Fatal("the rationing decided differently for a Holder than for a buyer: whether somebody may be chased is a fact about the Ticket, and who is chased is a separate question")
+	}
+
+	// And the allowance is the TICKET'S, so a Ticket that has spent it is silent
+	// whoever it would now be addressed to. This is what stops a reassignment or
+	// an acceptance from buying a fresh chase.
+	spent := toHolder
+	spent.RemindersSent = MaxAnswerReminders
+	if MayRemind(spent.Inputs(now)) {
+		t.Fatal("a Ticket that had spent its allowance was chased again because it had changed hands: the cap is the Ticket's for its whole life")
 	}
 }

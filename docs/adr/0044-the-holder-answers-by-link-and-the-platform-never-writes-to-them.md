@@ -86,6 +86,14 @@ rest.
 write to the buyer and no one else. This is the accepted cost of collecting no holder addresses, and
 it is why the Answer Reminder is addressed to buyers.
 
+> Superseded in part by [ADR 0046](./0046-a-ticket-is-assigned-to-a-holder-who-accepts-by-mail.md).
+> This still holds for a Ticket that is `unassigned` or `assigned` — most of them, for a long time —
+> and it is exactly where it stops holding. Once a Holder has **accepted**, the platform holds an
+> address that its owner proved from their own inbox, and the Answer Reminder is addressed to them
+> about their own Ticket; a Sale with a mix produces one mail to the buyer covering the Tickets still
+> theirs to chase and one to each Holder. The rationing moved from the Ticket Sale to the **Ticket**
+> at the same time, because a per-Sale allowance cannot ration several Holders at all.
+
 **Answer Links are unauthenticated URLs that answer for a person.** Their safety rests entirely on
 disclosing nothing and on expiring at Event start. Anyone widening what the page shows — adding the
 buyer's name "for context", or the confirmation reference "to help support" — is reversing this

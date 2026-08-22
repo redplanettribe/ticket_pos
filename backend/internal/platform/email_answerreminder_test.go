@@ -120,3 +120,148 @@ func TestAnswerReminderCarriesNoUnsubscribe(t *testing.T) {
 		}
 	}
 }
+
+// What the HOLDER'S Answer Reminder actually says (#328, parent #322, ADR 0046).
+//
+// SAME DISCIPLINE, DIFFERENT READER. These assert on the rendered words for the
+// reason the buyer's do — a job nobody is watching sends this, so the text is
+// the only place its wording is ever inspected — and they carry one extra
+// burden: this reader is entitled to almost nothing about the purchase, so what
+// is ABSENT is as much under test as what is present.
+
+func holderAnswerReminder() HolderAnswerReminder {
+	return HolderAnswerReminder{
+		To:             "carla@example.com",
+		EventName:      "Noche de Jazz",
+		TicketTypeName: "General",
+		AnswerURL:      "https://storefront.test/accept?token=x",
+	}
+}
+
+// The zero Locale is English, as everywhere: the floor of ADR 0033's chain, and
+// what a Holder gets when neither their record nor the sale named a language.
+func TestHolderAnswerReminderIsWrittenInEnglishWhenNothingNamedALanguage(t *testing.T) {
+	reminder := holderAnswerReminder()
+
+	if got := reminder.Subject(); got != "Your ticket for Noche de Jazz still needs an answer" {
+		t.Fatalf("subject = %q, want the English subject", got)
+	}
+	text := reminder.Text()
+	for _, want := range []string{
+		"The ticket you accepted still needs an answer",
+		"Event: Noche de Jazz",
+		"Ticket: General",
+		"https://storefront.test/accept?token=x",
+		"This link opens your ticket only",
+		"Answering is optional and your ticket is valid either way.",
+		"at most one more reminder",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text = %q, want it to contain %q", text, want)
+		}
+	}
+}
+
+// Written in the RECIPIENT'S Mail Locale, which for this reader is resolved from
+// their own record before the sale's (#325's inversion, ADR 0033, ADR 0046).
+// This test pins the copy; where the Locale comes from is the sweep's business
+// and is pinned in the integration suite.
+//
+// It pins the REGISTER too: usted, matching the Assignment mail that reached
+// this same person first. A tú-form rewrite would pass any test that only
+// checked the language had branched.
+func TestHolderAnswerReminderIsWrittenInSpanish(t *testing.T) {
+	reminder := holderAnswerReminder()
+	reminder.Locale = LocaleES
+
+	if got := reminder.Subject(); got != "Su entrada para Noche de Jazz aún necesita una respuesta" {
+		t.Fatalf("subject = %q, want the Spanish subject", got)
+	}
+	text := reminder.Text()
+	for _, want := range []string{
+		"La entrada que aceptó aún necesita respuesta",
+		"Evento: Noche de Jazz",
+		"Entrada: General",
+		"https://storefront.test/accept?token=x",
+		"Este enlace abre solo su entrada",
+		"Responder es opcional y su entrada es válida igualmente.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text = %q, want it to contain %q", text, want)
+		}
+	}
+	// No English may survive into the Spanish message. "still needs an answer" is
+	// the phrase that would leak first if a line were ever added in one language
+	// only, since it is the sentence the mail is about.
+	if strings.Contains(text, "still needs an answer") {
+		t.Fatalf("text = %q, want no English left in it", text)
+	}
+}
+
+// IT NAMES NOTHING ABOUT THE PURCHASE, and this is the test to keep passing.
+//
+// The struct has no field for a buyer, a price, a Tax ID or a Sale Confirmation
+// reference, which is the real enforcement — but a template is edited by hand
+// and a greeting or a "bought for you by" line would be a one-line change. ADR
+// 0044's disclosure rule, carried over unchanged by ADR 0046 and applied to an
+// inbox: a Holder sees the Event, the Ticket Type and their own link. Being a
+// Verified Customer of this platform buys nobody a fact about somebody else's
+// purchase.
+func TestHolderAnswerReminderNamesNothingAboutThePurchase(t *testing.T) {
+	rendered := holderAnswerReminder().Subject() + "\n" + holderAnswerReminder().Text()
+	for _, forbidden := range []string{
+		"bought", "purchase", "reference", "Reference",
+		"compró", "compra", "referencia", "Referencia",
+		"$", "Tax ID", "RUC",
+	} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("the Holder's reminder contains %q:\n%s\n"+
+				"It names the Event, the Ticket Type and their own link and nothing else (ADR 0044, ADR 0046).", forbidden, rendered)
+		}
+	}
+}
+
+// ONE URL AND ONLY ONE, and it is the Assignment Link.
+//
+// Sharper here than for the buyer's mail, which carries one link for the same
+// tidiness reason. This one is a credential that MINTS AN IDENTITY, so a second
+// URL beside it — an Answer Link, a Confirmation Link, a tracking wrapper —
+// would put a token that proves nothing next to a token that proves everything,
+// in one message, for a reader who cannot tell them apart.
+func TestHolderAnswerReminderCarriesTheAssignmentLinkAndNoOther(t *testing.T) {
+	text := holderAnswerReminder().Text()
+	if links := strings.Count(text, "https://"); links != 1 {
+		t.Fatalf("the Holder's reminder carries %d links, want exactly one — their own Assignment Link and nothing else", links)
+	}
+	if strings.Contains(text, "/confirm") {
+		t.Fatalf("the Holder's reminder carries a Confirmation Link: that opens a whole Ticket Sale, which this reader may never see.\n%s", text)
+	}
+}
+
+// It names no figure, for the reason the buyer's does not: the debt is derived
+// live and a count baked into an inbox is wrong the moment somebody answers one.
+// A Holder holds exactly one Ticket anyway, so the copy speaks of "an answer"
+// and never of how many.
+func TestHolderAnswerReminderNamesNoNumberOfOutstandingAnswers(t *testing.T) {
+	text := holderAnswerReminder().Text()
+	for _, digit := range []string{"1 question", "2 questions", "3 questions", "1 pregunta", "2 preguntas"} {
+		if strings.Contains(text, digit) {
+			t.Fatalf("text = %q, want no count of what is owed in it", text)
+		}
+	}
+}
+
+// It offers no way to unsubscribe, and here that is load-bearing rather than
+// merely correct. This reader accepted a ticket and consented to NOTHING (ADR
+// 0046), so there is no subscription to cancel; the Follow Digest is the only
+// mail a Customer can turn off (ADR 0034), and what bounds this one is
+// catalog.MaxAnswerReminders. An unsubscribe footer here would imply the reader
+// had signed up for something.
+func TestHolderAnswerReminderCarriesNoUnsubscribe(t *testing.T) {
+	text := strings.ToLower(holderAnswerReminder().Text())
+	for _, forbidden := range []string{"unsubscribe", "darse de baja", "cancelar la suscripción"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("text = %q, want no unsubscribe in a transactional mail", text)
+		}
+	}
+}

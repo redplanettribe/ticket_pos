@@ -448,8 +448,8 @@ func (s *Service) mailTicketAssignment(
 		return false
 	}
 
-	token, ok := s.assignmentLinks.Sign(ticket.ID, assignedAt, holderEmail)
-	if !ok {
+	acceptURL := s.assignmentLinkURL(ticket.ID, assignedAt, holderEmail)
+	if acceptURL == "" {
 		s.logAssignmentMailFailure("assignment link unavailable: no link secret configured", nil)
 		return false
 	}
@@ -458,7 +458,7 @@ func (s *Service) mailTicketAssignment(
 		To:             holderEmail,
 		EventName:      ticket.EventName,
 		TicketTypeName: ticket.TicketTypeName,
-		AcceptURL:      s.assignmentLinkBaseURL + assignmentLinkPath + "?token=" + token,
+		AcceptURL:      acceptURL,
 		Locale:         s.assignmentMailLocale(ctx, holderEmail, ticket.SaleLocale.String),
 	}
 	if err := s.mailer.SendTicketAssignment(ctx, mail); err != nil {
@@ -468,6 +468,36 @@ func (s *Service) mailTicketAssignment(
 	// TRUE MEANS A PROVIDER ACCEPTED IT, which is the only claim the #332 ledger
 	// row beside the caller is entitled to make.
 	return true
+}
+
+// assignmentLinkURL composes the Assignment Link a Ticket's Holder opens, and
+// is THE ONLY PLACE ON THIS PLATFORM WHERE ONE IS BUILT.
+//
+// TWO CALLERS AND THERE MUST NEVER BE A THIRD OUTSIDE THIS FILE'S MODULE: the
+// Assignment mail above, which tells a stranger they have a ticket, and the
+// Holder's Answer Reminder (#328), which tells somebody who accepted one that it
+// still owes an Answer. Both are messages addressed to the Holder's own inbox at
+// the address the token is signed against, and that is the whole set of places
+// this URL may go. ADR 0046 rates a link appearing on a buyer surface or in an
+// API response to the buyer as a defect of the same severity as leaking the
+// signing key, so a third caller is a decision and never a convenience.
+//
+// IT IS MINTED FRESH EVERY TIME AND NEVER STORED. The signer is a pure function
+// of the secret, the Ticket, the instant the address was named and the address
+// itself, so the reminder's link and the Assignment mail's link are the same
+// string without either being kept anywhere — and a reassignment invalidates
+// both at once, because both name the assignment they were minted for.
+//
+// EMPTY MEANS UNCONFIGURED: a deployment with no link secret, which NewApp
+// refuses to build in production. Every caller treats "" as "compose no message
+// at all" rather than as "send it without the link", because a message whose
+// link is its whole content is an instruction its reader cannot follow.
+func (s *Service) assignmentLinkURL(ticketID string, assignedAt time.Time, holderEmail string) string {
+	token, ok := s.assignmentLinks.Sign(ticketID, assignedAt, holderEmail)
+	if !ok {
+		return ""
+	}
+	return s.assignmentLinkBaseURL + assignmentLinkPath + "?token=" + token
 }
 
 // logAssignmentMailFailure records a mail that did not go out — WITHOUT the

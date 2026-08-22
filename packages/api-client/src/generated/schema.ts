@@ -2033,7 +2033,7 @@ export interface paths {
         get?: never;
         /**
          * Assign one of your own tickets to an email address
-         * @description Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **No mail is sent by this endpoint**; the Assignment mail and the Holder's accept flow are a later ticket, so a Ticket assigned here reaches the `assigned` state and stops. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
+         * @description Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes `accepted`; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
          */
         put: {
             parameters: {
@@ -2092,6 +2092,15 @@ export interface paths {
                 };
                 /** @description Conflict */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2181,7 +2190,7 @@ export interface paths {
         put?: never;
         /**
          * Send Answer Reminders
-         * @description Sweeps the active Ticket Sales whose Tickets still owe required Ticket Question Answers and emails each buyer one reminder pointing at their sale's page, where they can answer what they know and copy each Ticket's own Answer Link for whoever will use it (ADR 0044). Addressed to the BUYER and never to a holder: the platform stores no holder address and asks for none. Rationed per Ticket Sale — at most one mail every 7 days and at most two ever — silent once the Event has started, and never sent for a reversed Sale. Swept rather than triggered by an edit, so an Organization authoring four questions in ten minutes cannot mail the same people four times. Transactional: it is not gated by Marketing Consent, exactly as a Sale Confirmation is not, and it is written in the recipient's Mail Locale (the Sale Locale first, then the Customer's, then English). Sends nothing at all while TICKET_QUESTIONS_ENABLED is off (ADR 0045), and the Cloud Scheduler job that drives it ships paused. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. The response reports how many Sales were due, how many mails went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names no buyer, no address and no sale.
+         * @description Sweeps the Tickets of active Ticket Sales that still owe required Ticket Question Answers and emails whoever can actually answer them (ADR 0044, ADR 0046). A Ticket that is `accepted` produces a reminder to its HOLDER, carrying their own Assignment Link and naming no buyer, no price and no Sale Confirmation reference; a Ticket that is `unassigned` or `assigned` produces one to the BUYER, pointing at their sale's page where they answer what they know and copy each Ticket's own Answer Link for whoever will use it. A Sale with a mix produces both — one mail to the buyer covering only the Tickets still theirs to chase, and one to each accepted Holder about their own — never one mail listing everything to everybody. Rationed per TICKET: at most one mail every 7 days and at most two ever, so a four-ticket sale can chase two Holders without mailing either twice. Silent once the Event has started, and never sent for a reversed Sale. Swept rather than triggered by an edit, so an Organization authoring four questions in ten minutes cannot mail the same people four times. Transactional: it is not gated by Marketing Consent, exactly as a Sale Confirmation is not — which matters most for a Holder, who accepted a ticket and opted into nothing. Written in the recipient's Mail Locale: the Sale Locale first for the buyer, whose own purchase it is about, and the recipient's own remembered locale first for a Holder, who is not party to the sale. Sends nothing at all while TICKET_QUESTIONS_ENABLED is off (ADR 0045); with TICKET_ASSIGNMENT_ENABLED off every Ticket is addressed to its buyer, exactly as before ADR 0046. The Cloud Scheduler job that drives it ships paused. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale, not a Ticket — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. The response reports how many mails were due, how many went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names nobody and does not say which recipients were Holders.
          */
         post: {
             parameters: {
@@ -2343,6 +2352,54 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["openapi.EnvelopeFollowDigestEnqueue"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/holder-addresses/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge unaccepted holder addresses at Event start
+         * @description Deletes the holder email address from every Ticket still in `assigned` — an address was given and nobody has accepted it — whose Event has started (ADR 0046). Read as an instant: `events.starts_at` is fixed in the Event's own timezone, so the comparison already carries it. The purge takes the ADDRESS ONLY: the Ticket, its Ticket Question Answers, its Ticket Sale and the fact that the Ticket was assigned all survive, the last of them as a purge timestamp on the Ticket, because the platform is entitled to remember that it sold a ticket and that somebody was named for it and is not entitled to keep the name. An `accepted` Ticket loses nothing at any age: its Holder proved the address from their own inbox and is an ordinary Customer under ordinary Customer retention. An Event that has never said when it starts is never purged, matching the reading the assignment window gives a missing start. A reversed Ticket Sale is purged like any other. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The moment cannot be named by the caller; it is taken from the clock, and the instant actually used is echoed back. Not gated on the Ticket Assignment feature flag, deliberately — the switch that turns a deletion off must never be the switch that turns collection off. Safe to call by hand at any time and idempotent: a second run purges nothing and reports zeros. The response reports how many addresses went, how many Events they came off, the instant used, and how many unaccepted addresses are still held across the platform, so two runs a day apart say whether anybody is assigning at all. It names no address, no Ticket, no buyer and no Event, because the address is the data this job exists to remove.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHolderAddressPurge"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -9768,6 +9825,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeHolderAddressPurge": {
+            data?: components["schemas"]["service.HolderAddressPurgeResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeLogout": {
             data?: components["schemas"]["internal_identity_openapi.MessageData"];
             error?: components["schemas"]["platform.APIError"];
@@ -10140,48 +10202,54 @@ export interface components {
         };
         "service.AnswerReminderSweepResult": {
             /**
-             * @description Due is how many Ticket Sales this run found waiting, bounded by the batch.
-             *     It is what the run had to work with, and DueTotal below is what there was.
+             * @description Due is how many MAILS this run found to send, after grouping and bounded by
+             *     the batch. It is what the run had to work with, and DueTotal below is what
+             *     there was.
              */
             due?: number;
             /**
-             * @description DueTotal is how many Ticket Sales are due a reminder across the platform,
-             *     ignoring the batch — the standing backlog, in the sense the purge's
-             *     answers_held is. Two curls a day apart say whether the sweep is keeping up.
+             * @description DueTotal is how many reminders are due across the platform, ignoring the
+             *     batch — the standing backlog, in the sense the purge's answers_held is. Two
+             *     curls a day apart say whether the sweep is keeping up.
              */
             due_total?: number;
             /**
              * @description Failed is reminders the provider refused. They are NOT recorded in the
-             *     ledger, so the buyer is due again on the next tick and has lost nothing.
+             *     ledger, so the reader is due again on the next tick and has lost nothing.
              *     This is the number that says a provider is unwell.
              */
             failed?: number;
             /**
-             * @description Sent is reminders the provider accepted and the ledger recorded. On a
-             *     platform where the feature ships dark and the job ships paused, zero is the
-             *     only answer.
+             * @description Sent is reminders the provider accepted and the ledger recorded, to buyers
+             *     and Holders alike. On a platform where the feature ships dark and the job
+             *     ships paused, zero is the only answer.
+             *
+             *     IT DOES NOT SAY WHICH KIND, and adding a breakdown was considered and
+             *     refused: on a platform with one Organization, "two of today's reminders
+             *     went to Holders" is close enough to naming somebody, and an operator
+             *     diagnosing this job needs to know that mail moved rather than who read it.
              */
             sent?: number;
             /**
-             * @description Skipped is candidates this run deliberately did not mail: a Confirmation
-             *     Link that could not be signed, or an address the Sale does not carry.
-             *     NOTHING WAS SENT and nothing was recorded, so they are due again on the
-             *     next tick — which is right, because the fault is the deployment's rather
-             *     than the buyer's.
+             * @description Skipped is candidates this run deliberately did not mail: a link that could
+             *     not be signed, or an address the row does not carry. NOTHING WAS SENT and
+             *     nothing was recorded, so they are due again on the next tick — which is
+             *     right, because the fault is the deployment's rather than the reader's.
              *
              *     A number that stays high is a misconfiguration, not a backlog: the only way
-             *     to fail to sign a Confirmation Link is to have no link secret.
+             *     to fail to sign a Confirmation Link or an Assignment Link is to have no
+             *     link secret.
              */
             skipped?: number;
             /**
-             * @description Unrecorded is sends the provider accepted whose ledger row could not be
+             * @description Unrecorded is sends the provider accepted whose ledger rows could not be
              *     written. It is its own number rather than folded into Failed because it
-             *     means the opposite thing: the buyer HAS the mail, and the platform has
+             *     means the opposite thing: the reader HAS the mail, and the platform has
              *     forgotten it sent it, so they may receive one more than the cap intended.
              *
              *     It should always be zero. A non-zero value is the one outcome of this job
              *     that is worth waking somebody for, because the rationing is only as true as
-             *     this table.
+             *     that table.
              */
             unrecorded?: number;
         };
@@ -10774,6 +10842,43 @@ export interface components {
              *     and which is the buyer's business either way.
              */
             ticket_type_name?: string;
+        };
+        "service.HolderAddressPurgeResult": {
+            /**
+             * @description AddressesHeld is how many unaccepted holder addresses are sitting on
+             *     Tickets across the platform once this run finished — the standing backlog,
+             *     in the Reconciler's sense.
+             *
+             *     IT IS WHAT MAKES A RUN THAT DELETED NOTHING LEGIBLE. Zero purged and a
+             *     rising held figure is a healthy job on a platform whose Events have not
+             *     started yet; zero purged and zero held is a platform where nobody is
+             *     assigning anything. Neither is the same as a scheduler that is paused, and
+             *     the log line below is where that distinction is actually recorded.
+             */
+            addresses_held?: number;
+            /**
+             * @description AddressesPurged is how many holder addresses this run took. Zero is the
+             *     ordinary answer, and while TICKET_ASSIGNMENT_ENABLED is closed it is the
+             *     only answer.
+             */
+            addresses_purged?: number;
+            /**
+             * @description EventsPurged is how many Events those addresses came off, which is the
+             *     figure that means something in human terms: forty addresses off one Event
+             *     is a festival that has just happened, and forty off forty Events is a
+             *     month of ordinary attrition.
+             */
+            events_purged?: number;
+            /**
+             * @description PurgedAt is the instant this run read the clock at (RFC3339, UTC): every
+             *     Event that had started by it lost the addresses nobody had accepted.
+             *
+             *     Echoed back because the moment is the whole correctness argument, exactly
+             *     as the Abandoned Answer Purge echoes its cutoff. An operator staring at an
+             *     unexpected count should be able to see, without a deploy or a database
+             *     session, which instant the job actually compared Event starts against.
+             */
+            purged_at?: string;
         };
         "service.MembershipView": {
             member_id?: string;
