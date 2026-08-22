@@ -2362,6 +2362,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/holder-addresses/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge unaccepted holder addresses at Event start
+         * @description Deletes the holder email address from every Ticket still in `assigned` — an address was given and nobody has accepted it — whose Event has started (ADR 0046). Read as an instant: `events.starts_at` is fixed in the Event's own timezone, so the comparison already carries it. The purge takes the ADDRESS ONLY: the Ticket, its Ticket Question Answers, its Ticket Sale and the fact that the Ticket was assigned all survive, the last of them as a purge timestamp on the Ticket, because the platform is entitled to remember that it sold a ticket and that somebody was named for it and is not entitled to keep the name. An `accepted` Ticket loses nothing at any age: its Holder proved the address from their own inbox and is an ordinary Customer under ordinary Customer retention. An Event that has never said when it starts is never purged, matching the reading the assignment window gives a missing start. A reversed Ticket Sale is purged like any other. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The moment cannot be named by the caller; it is taken from the clock, and the instant actually used is echoed back. Not gated on the Ticket Assignment feature flag, deliberately — the switch that turns a deletion off must never be the switch that turns collection off. Safe to call by hand at any time and idempotent: a second run purges nothing and reports zeros. The response reports how many addresses went, how many Events they came off, the instant used, and how many unaccepted addresses are still held across the platform, so two runs a day apart say whether anybody is assigning at all. It names no address, no Ticket, no buyer and no Event, because the address is the data this job exists to remove.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHolderAddressPurge"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/reversals/drain": {
         parameters: {
             query?: never;
@@ -9454,6 +9502,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeHolderAddressPurge": {
+            data?: components["schemas"]["service.HolderAddressPurgeResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeLogout": {
             data?: components["schemas"]["internal_identity_openapi.MessageData"];
             error?: components["schemas"]["platform.APIError"];
@@ -10376,6 +10429,43 @@ export interface components {
              */
             digest_enabled?: boolean;
             follows?: components["schemas"]["service.FollowView"][];
+        };
+        "service.HolderAddressPurgeResult": {
+            /**
+             * @description AddressesHeld is how many unaccepted holder addresses are sitting on
+             *     Tickets across the platform once this run finished — the standing backlog,
+             *     in the Reconciler's sense.
+             *
+             *     IT IS WHAT MAKES A RUN THAT DELETED NOTHING LEGIBLE. Zero purged and a
+             *     rising held figure is a healthy job on a platform whose Events have not
+             *     started yet; zero purged and zero held is a platform where nobody is
+             *     assigning anything. Neither is the same as a scheduler that is paused, and
+             *     the log line below is where that distinction is actually recorded.
+             */
+            addresses_held?: number;
+            /**
+             * @description AddressesPurged is how many holder addresses this run took. Zero is the
+             *     ordinary answer, and while TICKET_ASSIGNMENT_ENABLED is closed it is the
+             *     only answer.
+             */
+            addresses_purged?: number;
+            /**
+             * @description EventsPurged is how many Events those addresses came off, which is the
+             *     figure that means something in human terms: forty addresses off one Event
+             *     is a festival that has just happened, and forty off forty Events is a
+             *     month of ordinary attrition.
+             */
+            events_purged?: number;
+            /**
+             * @description PurgedAt is the instant this run read the clock at (RFC3339, UTC): every
+             *     Event that had started by it lost the addresses nobody had accepted.
+             *
+             *     Echoed back because the moment is the whole correctness argument, exactly
+             *     as the Abandoned Answer Purge echoes its cutoff. An operator staring at an
+             *     unexpected count should be able to see, without a deploy or a database
+             *     session, which instant the job actually compared Event starts against.
+             */
+            purged_at?: string;
         };
         "service.MembershipView": {
             member_id?: string;
