@@ -273,6 +273,16 @@ type Service struct {
 	// Nil is a service that assigns and mails nobody, which is what every test
 	// with no opinion about mail gets, and what #324 shipped.
 	mailer AssignmentMailer
+	// noLongerHoldingMailer delivers the one mail an accepted Holder gets when a
+	// Ticket stops being theirs (#327).
+	//
+	// A SECOND FIELD RATHER THAN A SECOND METHOD ON mailer, because the two
+	// messages have opposite risk profiles and the seams should say so: one
+	// carries a credential that mints an identity and goes to a stranger, and
+	// this one carries no link at all and goes to a Customer who proved their
+	// address. Nil leaves the service silent — a build that reassigns and reverses
+	// and tells nobody, which is what every ticket before this one was.
+	noLongerHoldingMailer NoLongerHoldingMailer
 	// holders writes the Customer a Holder's click mints or matches. Nil is a
 	// service that accepts nothing: the accept route reports the link
 	// unavailable rather than accepting a Ticket on behalf of nobody.
@@ -427,6 +437,24 @@ func (s *Service) WithAssignmentMail(mailer AssignmentMailer) *Service {
 // A WithX rather than a constructor argument because the wiring is late by
 // necessity — the customers service is built after this one — and because the
 // unwired state is safe: a service without it accepts nothing at all.
+// WithNoLongerHoldingMail gives this service the seam the No Longer Holding mail
+// travels through (#327, ADR 0046).
+//
+// A SEPARATE SEAM FROM THE ASSIGNMENT MAIL'S, satisfied in production by the same
+// split sender, so this message is structurally on the transactional identity
+// (ADR 0030) — which matters because a Holder consented to nothing by accepting a
+// ticket, and being told the ticket is gone must not be suppressible by a
+// marketing preference.
+//
+// Nil leaves the service silent. That is the safe way to be unwired here: a
+// Holder who is not told still stops holding the Ticket, and the Event still
+// leaves their Customer Area, so the state stays consistent and only the telling
+// is missing — visible in the log rather than in a failed request.
+func (s *Service) WithNoLongerHoldingMail(mailer NoLongerHoldingMailer) *Service {
+	s.noLongerHoldingMailer = mailer
+	return s
+}
+
 func (s *Service) WithHolderCustomers(holders HolderCustomers) *Service {
 	s.holders = holders
 	return s

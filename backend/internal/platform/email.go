@@ -286,6 +286,60 @@ type TicketAssignment struct {
 	Locale Locale
 }
 
+// NoLongerHolding is the mail telling an accepted Holder that a Ticket they held
+// is no longer theirs (#327, parent #322, ADR 0046).
+//
+// ONE MESSAGE FOR TWO CAUSES, AND THE SHAPE IS WHERE THAT RULE IS ENFORCED. A
+// Holder stops holding a Ticket for exactly two reasons — the buyer reassigned
+// it, or the Ticket Sale was reversed — and from where the Holder sits the
+// outcome is identical: they had a ticket and now they do not. So there is one
+// type, with NO field naming the cause and no room to add one. A platform
+// talkative about a reassignment and silent about a reversal would be teaching
+// its readers to infer the cause from the silence.
+//
+// IT NAMES NO BUYER AND GIVES NO CAUSE. There is no CustomerName here, no
+// `reason`, no `reversed_at`, no Sale Confirmation reference and no price. Who
+// bought the ticket and what they decided to do with it are facts about somebody
+// else's purchase, and ADR 0044's disclosure rule — carried over unchanged by
+// ADR 0046 — binds this message exactly as it binds the Assignment mail. Mail
+// gets forwarded; "your friend cancelled" is not this platform's to say.
+//
+// IT CARRIES NO LINK, and that absence is deliberate rather than unfinished.
+// There is nothing left for the reader to do: the Ticket is not theirs, no page
+// would show it, and an Assignment Link for it has already stopped opening. A
+// message with a button on it would be inviting somebody to press their way back
+// to something that is gone.
+//
+// IT IS OWED ONLY TO SOMEBODY WHO ACCEPTED. An address that was typed and never
+// accepted is never sent this, because the platform never told that person they
+// had anything — so telling them now that they have lost it would be the
+// platform's first and only word to a stranger, about a ticket they never knew
+// existed. The caller enforces that; this type simply never gets built for them.
+//
+// TRANSACTIONAL, on EmailSender's transactional half with the receipts, so no
+// consent state is read before sending it and it is not reachable from the
+// marketing sending identity at all (ADR 0030, ADR 0034). A Holder consented to
+// nothing by accepting a ticket, and being told the ticket is gone is not
+// marketing.
+type NoLongerHolding struct {
+	// To is the Holder's own address — proven by their click, which is what makes
+	// this the one mail in this flow whose recipient is certainly a real person
+	// who chose to be here.
+	To string
+	// EventName is the whole of what this message says about the ticket, and it
+	// is already public: the Event has a Storefront page anybody can read. There
+	// is deliberately no Ticket Type here either — "which kind of ticket you no
+	// longer have" is a distinction with nothing behind it for a reader who has
+	// none.
+	EventName string
+	// Locale is the language this is written in, ALREADY RESOLVED by the caller
+	// (ADR 0033), and resolved RECIPIENT-FIRST for the reason the Assignment
+	// mail's is: this reader is not party to the sale. Unlike that mail's reader,
+	// though, this one is certainly a Customer — they accepted — so the
+	// remembered Mail Locale is usually there to be found.
+	Locale Locale
+}
+
 // ConsentWithdrawalConfirmation is the message a Customer receives when a
 // Consent Withdrawal actually took something away (#267, parent #265).
 //
@@ -731,6 +785,19 @@ type EmailSender interface {
 	// capable of MINTING AN IDENTITY. Anything that widens where TicketAssignment
 	// values travel is widening where that credential travels.
 	SendTicketAssignment(ctx context.Context, assignment TicketAssignment) error
+	// SendNoLongerHolding delivers the one mail an accepted Holder gets when a
+	// Ticket stops being theirs (#327, ADR 0046).
+	//
+	// TRANSACTIONAL, beside the Assignment mail whose reader it is written to
+	// second. The recipient granted no consent by accepting a ticket, so there is
+	// none to consult and none is consulted; and being told that a ticket is gone
+	// must not be suppressible by a marketing preference.
+	//
+	// ONE METHOD FOR BOTH CAUSES, which is this interface's share of the rule.
+	// Two methods — one for a reassignment, one for a reversal — would be two
+	// places for the copy to drift apart, and the whole point is that the reader
+	// cannot tell which happened.
+	SendNoLongerHolding(ctx context.Context, notice NoLongerHolding) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
@@ -803,6 +870,14 @@ func (s *LoggingEmailSender) SendAnswerReminder(_ context.Context, r AnswerRemin
 // in the message.
 func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
 	s.Logger.Info("ticket assignment sent", "email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale))
+	return nil
+}
+
+// SendNoLongerHolding logs the No Longer Holding notice for local development.
+// The address and the Event are logged and there is nothing else in the message
+// to log: it carries no link, no cause and nothing about the buyer.
+func (s *LoggingEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
+	s.Logger.Info("no longer holding notice sent", "email", n.To, "event", n.EventName, "locale", string(n.Locale))
 	return nil
 }
 
@@ -890,6 +965,11 @@ func (NoopEmailSender) SendTicketAssignment(_ context.Context, _ TicketAssignmen
 	return nil
 }
 
+// SendNoLongerHolding discards the No Longer Holding notice.
+func (NoopEmailSender) SendNoLongerHolding(_ context.Context, _ NoLongerHolding) error {
+	return nil
+}
+
 // SendPayoutRequestSubmitted discards the operator's submission notice.
 func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutRequestSubmitted) error {
 	return nil
@@ -965,6 +1045,15 @@ type CaptureEmailSender struct {
 	// one place a test can get one, exactly as a Holder's inbox is the one place
 	// a person can.
 	TicketAssignments []TicketAssignment
+	// The No Longer Holding notices delivered (#327). Kept whole, so a test can
+	// render Subject() and Text() itself and read what the Holder read — which is
+	// the only way "it gives no cause and names no buyer" can be asserted at all.
+	//
+	// Its LENGTH carries as much of this ticket as its contents do: "an assigned
+	// Holder who never accepted is mailed in NEITHER case" and "the Holder is
+	// told exactly once" are both facts about how many of these exist, and
+	// neither is visible in any message's words.
+	NoLongerHoldings []NoLongerHolding
 	// The five Payout Request notices (#179, #188).
 	SubmittedPayoutRequests    []PayoutRequestSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
@@ -1088,6 +1177,17 @@ func (s *CaptureEmailSender) SendTicketAssignment(_ context.Context, a TicketAss
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.TicketAssignments = append(s.TicketAssignments, a)
+	return nil
+}
+
+// SendNoLongerHolding records a delivered No Longer Holding notice.
+func (s *CaptureEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.NoLongerHoldings = append(s.NoLongerHoldings, n)
 	return nil
 }
 
@@ -1223,6 +1323,21 @@ func (s *CaptureEmailSender) TicketAssignmentsSent() []TicketAssignment {
 	return out
 }
 
+// NoLongerHoldingsSent returns the No Longer Holding notices delivered so far,
+// in the order they were sent.
+//
+// Tests assert on the LENGTH first and the contents second, because the sharpest
+// rules in #327 are rules about counting: exactly one notice per displaced
+// Holder however the displacement happened, none at all to somebody who was
+// merely assigned, and none to the buyer, who keeps their reversed sale.
+func (s *CaptureEmailSender) NoLongerHoldingsSent() []NoLongerHolding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]NoLongerHolding, len(s.NoLongerHoldings))
+	copy(out, s.NoLongerHoldings)
+	return out
+}
+
 // PayoutRequestsSubmitted returns a copy of the captured operator submission
 // notices. Tests assert on its LENGTH as much as on its contents: one notice per
 // allowlisted operator, and none at all when a repeated submission is handed the
@@ -1323,6 +1438,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.WithdrawalConfirmations = nil
 	s.AnswerReminders = nil
 	s.TicketAssignments = nil
+	s.NoLongerHoldings = nil
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil

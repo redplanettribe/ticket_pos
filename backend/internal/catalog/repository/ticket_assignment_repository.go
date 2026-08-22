@@ -43,6 +43,26 @@ type AssignTicketResult struct {
 	//
 	// Zero on a no-op, where nothing was written and no mail is sent.
 	AssignedAt time.Time
+	// DisplacedHolderEmail is the address of a Holder who had ACCEPTED this
+	// Ticket and has just stopped holding it, and "" in every other case (#327).
+	//
+	// IT IS REPORTED FROM INSIDE THE LOCK, which is why it is a field here rather
+	// than a read the service does beforehand. The statement below clears
+	// holder_email and accepted_at together, so a service that wanted to know who
+	// it displaced would have to read the row first — and between that read and
+	// this write another buyer surface could reassign, leaving the two callers
+	// agreeing to mail the same person twice or nobody at all. The row is locked;
+	// this is the only place the answer is knowable exactly once.
+	//
+	// EMPTY FOR AN ASSIGNMENT THAT WAS NEVER ACCEPTED, and that is the sharpest
+	// rule in #327 rather than an optimisation. An address that was typed and
+	// ignored was never told it had anything: telling it now that it has lost
+	// something would be the platform's first and only word to a stranger, about
+	// a ticket they never knew existed. So this reads accepted_at and not merely
+	// holder_email — a previous address is not a previous Holder.
+	//
+	// Empty on a first assignment and on a no-op, where nobody was displaced.
+	DisplacedHolderEmail string
 }
 
 // AssignTicketToHolder names the address that holds one Ticket, creating the
@@ -95,10 +115,15 @@ func (r *Repository) AssignTicketToHolder(
 	// different addresses at once cannot both read "unassigned", both decide
 	// nothing needs clearing, and leave the loser's Answers attached to the
 	// winner's Holder.
+	//
+	// BOTH COLUMNS COME BACK, not just the address: accepted_at is what tells a
+	// previous HOLDER from a previous address (#327), and it has to be read
+	// before the UPDATE below sets it to NULL.
 	var previous sql.NullString
+	var previouslyAccepted sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
-		SELECT holder_email FROM tickets WHERE id = $1 FOR UPDATE
-	`, ticketID).Scan(&previous); err != nil {
+		SELECT holder_email, accepted_at FROM tickets WHERE id = $1 FOR UPDATE
+	`, ticketID).Scan(&previous, &previouslyAccepted); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// The caller resolved this Ticket a moment ago through its own scoped
 			// read; it is gone now. Reported as "nothing changed" rather than as an
@@ -113,6 +138,13 @@ func (r *Repository) AssignTicketToHolder(
 		return result, nil
 	}
 	result.Changed = true
+
+	// WHO IS ABOUT TO STOP HOLDING THIS TICKET, decided here and recorded before
+	// the columns that say so are cleared. A previous address that never accepted
+	// leaves this empty, and the service mails nobody — see DisplacedHolderEmail.
+	if previous.Valid && previouslyAccepted.Valid {
+		result.DisplacedHolderEmail = previous.String
+	}
 
 	// RETURNING the stored timestamp rather than trusting the one sent in: it
 	// comes back rounded to the column's microseconds, and #325 signs the

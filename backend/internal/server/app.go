@@ -344,6 +344,19 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// structurally on the transactional identity (ADR 0030), which matters
 	// because its recipient has consented to nothing and could not have.
 	catalogService = catalogService.WithAssignmentMail(emailSender)
+	// The other mail this flow sends: the one an accepted Holder gets when a
+	// Ticket stops being theirs (#327, ADR 0046).
+	//
+	// THE SAME SPLIT SENDER, THROUGH ITS OWN ONE-METHOD SEAM, so this message is
+	// structurally on the transactional identity (ADR 0030) — which matters
+	// because a Holder consented to nothing by accepting a ticket, and being told
+	// the ticket is gone must not be suppressible by a marketing preference.
+	//
+	// A separate seam from the Assignment mail's, because the two have opposite
+	// risk profiles: that one carries a credential capable of minting an identity
+	// and goes to a stranger, this one carries no link at all and goes to
+	// somebody who proved their address.
+	catalogService = catalogService.WithNoLongerHoldingMail(emailSender)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on
@@ -376,6 +389,21 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// which is the inner of the two switches this job ships behind. The outer one
 	// is Terraform's: the Cloud Scheduler job is created paused.
 	salesService = salesService.WithAnswerReminders(catalogService)
+
+	// A Sale Reversal takes every Holder on the Sale with it, and they are told
+	// (#327, parent #322, ADR 0046). Tied on here for the same reason and at the
+	// same moment as the two above it, and pointing the same way: sales knows a
+	// Sale was reversed, and catalog owns Tickets, Holders and the message.
+	//
+	// IT COMPLETES ONE RULE THAT HAS TWO CAUSES. The other cause — the buyer
+	// reassigning an accepted Ticket — needs no wiring, because it happens inside
+	// catalog already. This is the half that has to cross a module boundary, and
+	// a build that forgot it would be talkative about a reassignment and silent
+	// about a reversal, which is exactly what #327 forbids.
+	//
+	// The far side reads TICKET_ASSIGNMENT_ENABLED, so a dark deployment reverses
+	// sales and mails nobody (ADR 0045).
+	salesService = salesService.WithDisplacedHolders(catalogService)
 
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
 	// the canonical key the Storefront's chips already carry (#218). Turning the
