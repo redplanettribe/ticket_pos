@@ -424,8 +424,9 @@ var (
 	// chat; this receipt holds the reference, the total and the Tax ID and is
 	// built not to be. Putting one inside the other would make forwarding a
 	// t-shirt question the same gesture as forwarding a receipt, which is the
-	// failure ADR 0044 names. The buyer distributes the per-Ticket links from the
-	// page behind the Confirmation Link, one at a time and by hand.
+	// failure ADR 0044 names. Since ADR 0049 the buyer answers only their own
+	// Ticket; every other Ticket is handed on by naming an address on the page
+	// behind the Confirmation Link, and its Holder answers for themself.
 	//
 	// IT NAMES NO NUMBER, for the reason HasOutstandingAnswers is a bool: the
 	// debt is derived live, and a count baked into an inbox is wrong the moment
@@ -436,8 +437,8 @@ var (
 	// tickets"), and a receipt that switched vocabulary to match a schema would
 	// be the platform talking to itself.
 	saleConfirmationOutstandingCopy = translated(
-		"Some of the tickets on this purchase still need answers. Open the link above to answer them there, or to copy and pass each ticket's own link to whoever will be using it.",
-		"Algunas de las entradas de esta compra aún necesitan respuestas. Abra el enlace anterior para responderlas allí, o para copiar y enviar el enlace de cada entrada a quien vaya a usarla.",
+		"Some of the tickets on this purchase still need answers. Open the link above to answer for your own ticket, or to enter the email address of whoever will be using each of the others.",
+		"Algunas de las entradas de esta compra aún necesitan respuestas. Abra el enlace anterior para responder por su propia entrada, o para indicar el correo electrónico de quien vaya a usar cada una de las demás.",
 	)
 	// The double opt-in's one line (#255, ADR 0035), carried only by receipts
 	// whose checkout left an optional consent in Pending Confirmation.

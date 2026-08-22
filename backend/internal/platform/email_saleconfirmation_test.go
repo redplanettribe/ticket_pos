@@ -354,8 +354,8 @@ func TestSaleConfirmationOutstandingAnswersLineIsWrittenInEnglish(t *testing.T) 
 		"Some of the tickets on this purchase still need answers.",
 		// The two things the buyer can do, both of which happen on the page and
 		// neither of which happens in this mail.
-		"answer them there",
-		"pass each ticket's own link",
+		"answer for your own ticket",
+		"enter the email address of whoever will be using each of the others",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
@@ -374,8 +374,8 @@ func TestSaleConfirmationOutstandingAnswersLineIsWrittenInSpanish(t *testing.T) 
 	text := owing.Text()
 	for _, want := range []string{
 		"Algunas de las entradas de esta compra aún necesitan respuestas.",
-		"responderlas allí",
-		"el enlace de cada entrada",
+		"responder por su propia entrada",
+		"el correo electrónico de quien vaya a usar",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
