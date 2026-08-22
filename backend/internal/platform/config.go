@@ -91,6 +91,31 @@ type Config struct {
 	// surface changes, and no export changes — the staff endpoints answer 404 as
 	// a build without the feature does.
 	TicketQuestionsEnabled bool
+	// TicketAssignmentEnabled opens Ticket Assignment — the buyer naming an
+	// email address for one of their Tickets — from TICKET_ASSIGNMENT_ENABLED
+	// (#324, parent #322).
+	//
+	// A SEPARATE FLAG FROM TicketQuestionsEnabled ABOVE, AND THAT SEPARATION IS
+	// THE POINT. The two features are genuinely separable: Ticket Questions are
+	// merged and work with no assignment at all, and a guest list is worth
+	// having on a Ticket Type that asks nothing. Two flags mean assignment can
+	// be killed without taking questions dark, which is the one operational
+	// property this pair exists to give. Never fold them into one.
+	//
+	// IT STARTS FALSE, AND FLIPPING IT IS A DECISION SOMEBODY MUST TAKE ON
+	// PURPOSE — more so than its neighbour, because what it opens is the
+	// platform storing, and later mailing, an address supplied by somebody with
+	// no authority to supply it. The published Privacy Policy does not describe
+	// that collection, so this flips only once a Policy Version that does has
+	// published; the clause is drafted for counsel and is batched with the one
+	// ADR 0045 is already waiting on, so Customers are re-gated once and not
+	// twice.
+	//
+	// With it off, no address can be stored, no Ticket leaves the `unassigned`
+	// state, no mail is sent, and the buyer's surfaces carry no assignment
+	// fields at all — a build with the flag closed answers exactly as a build
+	// without the feature.
+	TicketAssignmentEnabled bool
 }
 
 // FeeConfig is the platform-wide fee schedule: the Platform Fee rate and the
@@ -385,6 +410,12 @@ func LoadConfig() (Config, error) {
 		// leaves Ticket Question authoring closed. A typo in this setting must
 		// never be what opens it (ADR 0045).
 		TicketQuestionsEnabled: envIsTrue("TICKET_QUESTIONS_ENABLED"),
+
+		// Read the same permissive way round as its neighbour, and read from
+		// its OWN variable: a deployment that opened Ticket Questions has said
+		// nothing about assignment, and inheriting the answer would be the
+		// separation of the two flags quietly ending at configuration.
+		TicketAssignmentEnabled: envIsTrue("TICKET_ASSIGNMENT_ENABLED"),
 	}
 	return cfg, nil
 }

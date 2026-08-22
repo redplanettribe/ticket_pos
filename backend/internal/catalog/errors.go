@@ -482,3 +482,182 @@ func ErrAnswerLinkExpired() apperror.DomainError {
 func ErrAnswerLinkUnavailable() apperror.DomainError {
 	return apperror.New("ANSWER_LINK_UNAVAILABLE", "Answer links are unavailable.", nil)
 }
+
+// ErrTicketAssignmentUnavailable is returned when any Ticket Assignment surface
+// is asked for while TICKET_ASSIGNMENT_ENABLED is off (#324, parent #322).
+//
+// ITS OWN FLAG AND ITS OWN REFUSAL, separate from
+// ErrTicketQuestionsUnavailable. The two features are genuinely separable —
+// Ticket Questions are merged and work without assignment, and a guest list is
+// worth having on a Ticket Type that asks nothing — and separate refusals are
+// what make "killing assignment does not take questions dark" a testable
+// property rather than a claim.
+//
+// It maps to 404 and not 403, for the reason its Ticket Question neighbour
+// does: 403 would say "this exists and you may not have it", and while the flag
+// is off there is nothing here. This endpoint answers exactly as an unrouted
+// path does on a build without the feature.
+func ErrTicketAssignmentUnavailable() apperror.DomainError {
+	return apperror.New("TICKET_ASSIGNMENT_UNAVAILABLE", "Not found.", nil)
+}
+
+// ErrInvalidHolderEmail is returned when what the buyer typed is not an address
+// (#324). See catalog.ParseHolderEmail for what "is not" means and why the
+// check is as weak as it is.
+//
+// 400 AND NOT 409: the body itself is wrong and restating it correctly is
+// exactly what fixes it, which is the same line INVALID_ANSWER sits on. It
+// carries no detail about the address — there is nothing useful to say beyond
+// "that is not an email address", and the buyer can see what they typed.
+func ErrInvalidHolderEmail() apperror.DomainError {
+	return apperror.New(
+		"INVALID_HOLDER_EMAIL",
+		"That is not a valid email address.",
+		map[string]any{"max_length": MaxHolderEmailLength},
+	)
+}
+
+// ErrAssignmentChannelUnsupported is returned when a Ticket of an `in_person`
+// Ticket Sale is assigned (#324).
+//
+// A DOOR SALE HAS NO BUYER SURFACE. Assignment happens after purchase, from the
+// Confirmation Link page or the Customer Area, and neither exists for a sale
+// recorded at the door. The refusal states that rather than pretending the
+// feature is off, because the buyer of an `online` sale standing beside them
+// can do it.
+func ErrAssignmentChannelUnsupported() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_CHANNEL_UNSUPPORTED",
+		"Tickets sold at the door cannot be assigned to an email address.",
+		nil,
+	)
+}
+
+// ErrAssignmentSaleReversed is returned when a Ticket of a reversed Ticket Sale
+// is assigned (#324).
+//
+// A CODE OF ITS OWN RATHER THAN TICKET_SALE_REVERSED, even though the fact is
+// the same one. The two refusals are told apart because the sentence a surface
+// must show differs — one is about answers no longer changing, the other about
+// there being nobody to hand a refunded ticket to — and a shared code would
+// make the Storefront guess which it meant from the route it called.
+func ErrAssignmentSaleReversed() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_SALE_REVERSED",
+		"This ticket's sale has been reversed, so it can no longer be assigned.",
+		nil,
+	)
+}
+
+// ErrAssignmentEventStarted is returned when a Ticket is assigned after its
+// Event has started (#324).
+//
+// The window closes at the doors, exactly as the Answer window does. Told apart
+// from its Answer twin for the reason above, and because this deadline is also
+// when #322's retention purge takes an unaccepted address — so an assignment
+// made after it would be naming somebody the platform is about to forget.
+func ErrAssignmentEventStarted() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_EVENT_STARTED",
+		"This event has started, so its tickets can no longer be assigned.",
+		nil,
+	)
+}
+
+// ErrAssignmentMailCapReached is returned when one Ticket has sent every
+// Assignment mail it will ever send (#332, parent #322, ADR 0046).
+//
+// THE CHANGE IS REFUSED OUTRIGHT AND NOT MERELY THE MAIL. That is the whole of
+// what this error means, and it is stated here because the alternative is a
+// tempting bug: writing the new address and skipping the send would move
+// `assigned_at`, which every outstanding Assignment Link is signed over, so the
+// Holder who already had a link would lose it and the new address would never
+// get one. A Ticket with a live link and no way to reach anybody is strictly
+// worse than a refusal the buyer can read.
+//
+// THE MESSAGE POINTS SOMEWHERE. A refusal a buyer cannot act on is a dead end,
+// and this one has an exit: the Answer Link still works for every Ticket nobody
+// has accepted, which is exactly the degradation path ADR 0046 kept it alive
+// for. The Storefront says so in the reader's own language, keyed on the code.
+func ErrAssignmentMailCapReached() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_MAIL_CAP_REACHED",
+		"This ticket has been sent to as many addresses as it can be. Share its answer link instead.",
+		nil,
+	)
+}
+
+// ErrAssignmentRateLimited is returned when a buyer has sent every Assignment
+// mail their window allows (#332, parent #322, ADR 0046).
+//
+// TOLD APART FROM THE CAP ABOVE AND NEVER FOLDED INTO IT, on the discipline the
+// OTP service already keeps between its per-key limit and its global ceiling:
+// both are refusals, and an operator reading the logs — or a buyer reading the
+// page — must be able to tell "come back later" from "this Ticket is finished".
+// They also carry different statuses for that reason.
+//
+// NO RETRY-AFTER AND NO COUNT IN THE DETAILS. Either would tell a script exactly
+// how long to sleep and exactly how much allowance it has left, which is a
+// tuning aid for the only caller this limit exists to inconvenience. The honest
+// buyer needs "later", and "later" is what they get.
+func ErrAssignmentRateLimited() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_RATE_LIMITED",
+		"You have named a lot of new addresses recently. Please try again later.",
+		nil,
+	)
+}
+
+// ErrAssignmentLinkInvalid is returned when an Assignment Link does not open
+// (#325, parent #322, ADR 0046).
+//
+// ONE ERROR COVERING EVERY REASON IT DID NOT, exactly as its Answer Link twin
+// does, and for a reason that is if anything stronger here. A forged token, one
+// truncated by a mail client, one naming a Ticket that no longer exists, one
+// whose Ticket Sale has been REVERSED, and one whose Ticket has been REASSIGNED
+// to somebody else all answer identically.
+//
+// The last two are the ones worth defending. "Your friend cancelled the
+// purchase" and "your friend gave your ticket to someone else" are both facts
+// about a third party's decisions, and this page must never name the buyer or
+// describe what they did — CONTEXT.md is explicit that the disclosure rule holds
+// in the error state too. What the Storefront says instead is that the link no
+// longer opens, which is the true statement available to the reader.
+//
+// A SEPARATE CODE FROM ANSWER_LINK_INVALID even though the two read alike,
+// because these are two different tokens with two different lifecycles and a
+// shared code would let a page draw one link's copy for the other's failure.
+func ErrAssignmentLinkInvalid() apperror.DomainError {
+	return apperror.New("ASSIGNMENT_LINK_INVALID", "This link is not valid.", nil)
+}
+
+// ErrAssignmentLinkExpired is returned when an Assignment Link is opened after
+// its Event has started (#325).
+//
+// TOLD APART FROM INVALID, and the only refusal that is, for the reason its
+// Answer Link twin is: an Event's start is already published on the Storefront,
+// so saying "the event has started" discloses nothing and lets the page explain
+// a deadline rather than imply a forgery. It is also the moment #322's purge
+// takes an unaccepted address, so a link that opened past it would be offering
+// to mint a Customer from a fact the platform is in the act of forgetting.
+func ErrAssignmentLinkExpired() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_LINK_EXPIRED",
+		"This event has started, so this ticket can no longer be accepted.",
+		nil,
+	)
+}
+
+// ErrAssignmentLinkUnavailable is returned when no link secret is configured.
+// A deployment fault and not the Holder's, so it is a 500 beside
+// ANSWER_LINK_UNAVAILABLE — and here there is no buyer to go back to for a
+// replacement, because the Holder does not know who the buyer is.
+func ErrAssignmentLinkUnavailable() apperror.DomainError {
+	return apperror.New("ASSIGNMENT_LINK_UNAVAILABLE", "Assignment links are unavailable.", nil)
+}
+
+// A Holder's name that is blank or overlong is refused by the HANDLER as
+// VALIDATION_FAILED, not here (#336): the Assignment Link token names the
+// Ticket, so there is no id an early 400 could leak — unlike the Holder EMAIL,
+// whose ErrInvalidHolderEmail stays a domain error above precisely because
+// there is one. See catalog.ParseHolderName for the domain's definition.

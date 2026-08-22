@@ -377,15 +377,42 @@ func infoLines(info Info, loc *time.Location, rowCount int, answers Answers) []s
 	// file has no other way to learn that the workbook is plural — and because
 	// what a blank cell on it MEANS is the one thing about it that cannot be
 	// read off it.
-	if answers.asked() {
-		lines = append(lines,
-			"",
-			"The "+AnswersSheet+" sheet lists one row per ticket, for the same sales as this "+
-				"file's other sheet, with one column per Ticket Question — and one TRUE/FALSE "+
-				"column per option where a question takes several. Join it back on "+
-				colConfirmationRef+". A blank cell there is a question that ticket has not "+
-				"answered, or was never asked because it belongs to another Ticket Type.",
-		)
+	if answers.present() {
+		if answers.asked() {
+			lines = append(lines,
+				"",
+				"The "+AnswersSheet+" sheet lists one row per ticket, for the same sales as this "+
+					"file's other sheet, with one column per Ticket Question — and one TRUE/FALSE "+
+					"column per option where a question takes several. Join it back on "+
+					colConfirmationRef+". A blank cell there is a question that ticket has not "+
+					"answered, or was never asked because it belongs to another Ticket Type.",
+			)
+		} else {
+			// The sheet exists for its Holder columns alone (#333): nothing was
+			// asked, so there are no question columns to explain, and saying so
+			// beats a reader hunting for columns that were never there.
+			lines = append(lines,
+				"",
+				"The "+AnswersSheet+" sheet lists one row per ticket, for the same sales as this "+
+					"file's other sheet. Join it back on "+colConfirmationRef+". This event asks "+
+					"no Ticket Questions, so the sheet carries no question columns.",
+			)
+		}
+		// And who the ticket is for, once assignment is open. The sentence about
+		// what is NOT there is the load-bearing half (ADR 0047): an Organizer who
+		// typed an address into their own event and cannot find it in the file
+		// would otherwise report the export as broken, and the answer is that the
+		// address is not theirs to see until the person it belongs to has said so.
+		if answers.Assignment {
+			lines = append(lines,
+				"",
+				"That sheet also names each ticket's holder: its "+colAssignmentState+" — "+
+					"unassigned, assigned or accepted — and, for a ticket whose holder has "+
+					"accepted, their name and email address. An address a buyer entered that "+
+					"its owner has not accepted is not shown here: it is theirs to disclose, "+
+					"not ours, and it is deleted when the event starts.",
+			)
+		}
 	}
 
 	return lines
@@ -754,10 +781,11 @@ func Build(sales []Sale, types []TicketTypeColumn, answers Answers, loc *time.Lo
 		return nil, err
 	}
 
-	// The per-Ticket sheet, when the Event asks anything at all. It is added
-	// after the data sheet so it lands to the right of it, and before the Info
-	// sheet so the move that puts Info first still puts it first.
-	if answers.asked() {
+	// The per-Ticket sheet, when the Event asks anything at all or Ticket
+	// Assignment is open (#333). It is added after the data sheet so it lands
+	// to the right of it, and before the Info sheet so the move that puts Info
+	// first still puts it first.
+	if answers.present() {
 		if err := addAnswersSheet(f, answers); err != nil {
 			return nil, err
 		}

@@ -102,6 +102,26 @@ Validation `details` shape:
 }
 ```
 
+#### Named exception: `INVALID_HOLDER_EMAIL` (id-oracle ordering)
+
+The Holder email on the buyer's assign-ticket write
+(`catalog.ErrInvalidHolderEmail`, `internal/catalog/service/ticket_assignment.go`)
+stays a **service-layer domain error**, deliberately.
+
+The rule it protects: a Ticket that is not the caller's answers 404
+`TICKET_NOT_FOUND`, indistinguishable from one that never existed. If the
+handler parsed the address, a malformed address on somebody else's Ticket
+would return 400 before the Ticket was resolved — telling the caller their
+guessed id was at least reachable. The service resolves the Ticket **first**
+and only then parses the address, so the ordering is part of the disclosure
+rule (ADR 0035), not a validation convenience.
+
+The exception is only for fields whose early rejection would leak whether an
+id or resource exists. It does not extend to sibling fields with no id to
+leak: the Holder *name* on the Assignment Link write is ordinary handler
+validation (`VALIDATION_FAILED`), because the signed token names the Ticket
+(#336).
+
 ### Domain errors
 
 Services return typed errors with stable codes.

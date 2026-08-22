@@ -59,4 +59,5 @@ override.tf.json
 # Playwright
 e2e/test-results/
 e2e/playwright-report/
+e2e/.e2e-state/
 e2e/blob-report/

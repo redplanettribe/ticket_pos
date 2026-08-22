@@ -43,30 +43,51 @@ func outstandingPageSizeParam(raw string) int {
 	return n
 }
 
-// ListOutstandingAnswers returns the Event's Tickets that still owe required
-// Answers.
+// outstandingFilterParam reads the Outstanding Answers filter (#333): `true`
+// narrows the Holder List to the Tickets that still owe a required Answer, and
+// anything else — including absence, and including a hand-mangled value — is
+// the whole roster. Lenient for the pagers' reason: there is nothing a caller
+// could do about a refusal of `outstanding=yes` except send the roster request
+// they were one typo away from.
+func outstandingFilterParam(raw string) bool {
+	return strings.TrimSpace(raw) == "true"
+}
+
+// ListHolderList returns the Event's Holder List: every Ticket of the Event,
+// who is coming on each, and — where the Event asks Ticket Questions — what
+// each still owes (#333; the Outstanding Answers read of #313, widened to the
+// roster it was always standing on).
+//
+// ONE ROUTE AND NOT TWO. The Holder List rides on the read #313 built rather
+// than on a second staff endpoint, because both walk the Event's Tickets and an
+// Organizer asking "who is coming" is looking at the same list as an Organizer
+// asking "who has not told me their size". The path keeps its historical name;
+// what changed is what a row IS — every Ticket of every live sale — and that
+// Outstanding Answers became the `outstanding` FILTER on it rather than the
+// list's definition.
 //
 // A READ AND NOTHING ELSE. There is no act on this route and there is no state
 // behind it: an Outstanding Answer is DERIVED on every read from what the Ticket
-// Type asks and what the Ticket has said, so the list empties by itself as
+// Type asks and what the Ticket has said, so the debts clear by themselves as
 // Answers arrive from any of the three routes — Event Staff, the checkout
 // capture, or an Answer Link — and a reversed Ticket Sale's Tickets drop out of
-// it whole.
+// the roster whole.
 //
-// @Summary      List an event's outstanding answers
-// @Description  A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because "twelve people never told us" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.
+// @Summary      List an event's holder list
+// @Description  A page of the Event's Holder List: EVERY Ticket of every live Ticket Sale, oldest sale first — the Organization's answer to "who is coming". Available while EITHER the Ticket Assignment or the Ticket Question feature flag is open, and 404 only when both are dark. Each row carries the Ticket's `assignment_state` — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED, that Holder's own name and email address (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as `assigned` and never named. A Ticket whose unaccepted address the retention purge took reads `assigned` with `never_accepted` beside it, derived at read time from the purge marker — somebody was named and never claimed the Ticket, which after the Event has started is a different fact from nobody having been named; no address travels with it, because the address is gone by definition. All assignment fields are ABSENT while the Ticket Assignment flag is off. Where the Ticket Question feature is open, each row also names the required questions it has not answered, in `outstanding` — an empty array is a Ticket that owes nothing, and stays on the list, because the roster is the point and the questions are a column on it. `outstanding=true` filters the list to the Tickets that still owe — Outstanding Answers is a filter of this list, not its definition. `outstanding_count` is the Event's total number of debts across the whole roster, unaffected by the filter, while `pagination.total` counts the Tickets of the current view. Both `outstanding` and `outstanding_count` are absent while the Ticket Question flag is off. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Started Events still report the whole roster and its debts, because "who came and who never told us" is what a reader after the fact came to find out.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id         path      string  true   "Event ID"
-// @Param        page       query     int     false  "Page number (default 1)"
-// @Param        page_size  query     int     false  "Rows per page (default 50, max 100)"
-// @Success      200  {object}  openapi.EnvelopeOutstandingAnswers
+// @Param        id           path      string  true   "Event ID"
+// @Param        page         query     int     false  "Page number (default 1)"
+// @Param        page_size    query     int     false  "Rows per page (default 50, max 100)"
+// @Param        outstanding  query     bool    false  "Only the Tickets that still owe a required Answer"
+// @Success      200  {object}  openapi.EnvelopeHolderList
 // @Failure      401  {object}  platform.Envelope
 // @Failure      403  {object}  platform.Envelope
 // @Failure      404  {object}  platform.Envelope
 // @Router       /api/v1/staff/events/{id}/outstanding-answers [get]
-func (h *Handler) ListOutstandingAnswers(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListHolderList(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 	eventID, ok := pathValueRequired(w, r, reqID, "id")
 	if !ok {
@@ -74,10 +95,11 @@ func (h *Handler) ListOutstandingAnswers(w http.ResponseWriter, r *http.Request)
 	}
 
 	query := r.URL.Query()
-	result, err := h.svc.ListOutstandingAnswers(
+	result, err := h.svc.ListHolderList(
 		r.Context(), actorFromRequest(r), eventID,
 		outstandingPageParam(query.Get("page")),
 		outstandingPageSizeParam(query.Get("page_size")),
+		outstandingFilterParam(query.Get("outstanding")),
 	)
 	if err != nil {
 		_ = platform.WriteDomainError(w, reqID, err)

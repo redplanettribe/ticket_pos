@@ -115,10 +115,31 @@ module "ticket_pos" {
   answer_reminder_schedule                 = var.answer_reminder_schedule
   answer_reminder_attempt_deadline_seconds = var.answer_reminder_attempt_deadline_seconds
 
+  # The Holder Address Purge (#331, parent #322, ADR 0046). Threaded through on
+  # the Abandoned Answer Purge's terms, and read the enabled flag as BOTH levers
+  # at once for a sharper reason than that job's. It is the incident stop — this
+  # is the only switch on it, because the backend deliberately does not gate a
+  # deletion on the collection flag — and it is also a gate somebody must
+  # remember to OPEN: it ships false, and leaving it false once
+  # ticket_assignment_enabled below is open means the platform is holding
+  # third-party contact details with no scheduled end. Both directions are a
+  # reviewable diff in this file rather than a console click the next apply
+  # undoes.
+  holder_address_purge_enabled                  = var.holder_address_purge_enabled
+  holder_address_purge_schedule                 = var.holder_address_purge_schedule
+  holder_address_purge_attempt_deadline_seconds = var.holder_address_purge_attempt_deadline_seconds
+
   # Ticket Question authoring (#309, ADR 0045). Threaded through the root for a
   # different reason than the two above: this one is not an incident lever but a
   # gate somebody must deliberately open, and declaring it here is what makes
   # opening it a reviewable diff in this file rather than a module default
   # nobody reads.
   ticket_questions_enabled = var.ticket_questions_enabled
+
+  # Ticket Assignment (#324, parent #322). Threaded through on the line above's
+  # terms and declared SEPARATELY on purpose: the two are different decisions
+  # with different legal prerequisites, and a deployment must be able to shut
+  # assignment without shutting questions. It has no entry in terraform.tfvars,
+  # so it is false until somebody writes one.
+  ticket_assignment_enabled = var.ticket_assignment_enabled
 }

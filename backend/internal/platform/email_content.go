@@ -602,6 +602,354 @@ func (r AnswerReminder) Text() string {
 	return text
 }
 
+// The Holder's Answer Reminder (#328, parent #322, ADR 0046): the message
+// telling somebody that the ticket they accepted still owes an answer.
+//
+// IT IS WRITTEN FOR SOMEBODY WHO HAS ALREADY SAID YES, and every sentence below
+// is shaped by that — which is what makes it a different message from the
+// Assignment mail rather than a variation on it. That one had to explain where
+// the address came from to a stranger; this reader clicked a link from their own
+// inbox, gave their name and knows perfectly well what event this is. So this
+// one begins with the fact, exactly as the buyer's reminder does.
+//
+// IT NAMES NOBODY AND NO PURCHASE. There is no greeting by name even though the
+// platform now knows the name — the Assignment mail set that precedent and
+// mail gets forwarded — and above all no buyer, no price, no Tax ID and no Sale
+// Confirmation reference. That is ADR 0044's disclosure rule carried over
+// unchanged, and it holds despite this reader being a Verified Customer: being a
+// Customer of this platform buys nobody a fact about somebody else's purchase.
+//
+// IT NAMES THE TICKET TYPE WHERE THE BUYER'S NAMES A REFERENCE, and for the same
+// job. A buyer holding two sales for one Event tells them apart by the
+// reference; a Holder has one Ticket and tells it apart by what it is. Both are
+// public facts on the Event's own Storefront page.
+//
+// IT SAYS ANSWERING IS OPTIONAL AND THAT THE CHASE IS NEARLY OVER, exactly as
+// the buyer's closing does and enforcing the same constant: this mail carries no
+// unsubscribe, because it is transactional (ADR 0034 keeps that footer for the
+// one message it belongs on), so catalog.MaxAnswerReminders is the only thing
+// standing between this reader and an unbounded chase. Anyone raising the cap
+// has to come here and either change this sentence or break it.
+//
+// The Spanish is usted throughout and takes "entrada" for the thing the reader
+// holds, matching the Assignment mail that reached them first.
+var (
+	holderAnswerReminderSubjectCopy = translated(
+		"Your ticket for %s still needs an answer",
+		"Su entrada para %s aún necesita una respuesta",
+	)
+	// What is owed and which ticket it is about, declared whole in both
+	// languages: one block of prose, so a translator cannot reorder half of it.
+	holderAnswerReminderOpeningCopy = translated(
+		"The ticket you accepted still needs an answer to a question from the organizer.\n\nEvent: %s\nTicket: %s",
+		"La entrada que aceptó aún necesita respuesta a una pregunta de la organización.\n\nEvento: %s\nEntrada: %s",
+	)
+	// The instruction and the link, which are the whole point of the message. The
+	// link is the reader's OWN — it opens their one ticket and nothing else — and
+	// the sentence says so, because a reader who has been told this platform
+	// never shows them somebody else's purchase should not have to wonder what
+	// they are about to open.
+	holderAnswerReminderActionCopy = translated(
+		"Open your ticket to answer:\n%s\n\nThis link opens your ticket only, and stops working when the event starts.",
+		"Abra su entrada para responder:\n%s\n\nEste enlace abre solo su entrada y deja de funcionar cuando empieza el evento.",
+	)
+	// The closing, and the sentence that makes the rationing visible to the
+	// person it protects. "At most one more" is true of the first reminder and
+	// generous about the second, which is the safe direction for a promise
+	// printed in an inbox.
+	holderAnswerReminderClosingCopy = translated(
+		"Answering is optional and your ticket is valid either way. We will send at most one more reminder about it.",
+		"Responder es opcional y su entrada es válida igualmente. Enviaremos como máximo un recordatorio más al respecto.",
+	)
+
+	// THE PLURAL SHAPE, WHICH #335 RULED INTO EXISTENCE: one mail per Holder per
+	// sweep, listing each owed Ticket with its own Assignment Link. The singular
+	// copy above is untouched — a Holder of one Ticket reads exactly the mail
+	// they always did — and these variants exist only for the person who
+	// accepted several, who used to get one envelope per Ticket and now gets a
+	// list. Same reader, same register (usted), same disclosure rule: Events,
+	// Ticket Types, their own links, and nothing about anybody's purchase.
+	holderAnswerReminderSubjectPluralCopy = translated(
+		"Your tickets for %s still need answers",
+		"Sus entradas para %s aún necesitan respuestas",
+	)
+	// When the listed Tickets span more than one Event, no single Event can
+	// honestly headline the subject, so none does. Each Ticket's own block names
+	// its Event in the body.
+	holderAnswerReminderSubjectMixedCopy = translated(
+		"Your tickets still need answers",
+		"Sus entradas aún necesitan respuestas",
+	)
+	holderAnswerReminderOpeningPluralCopy = translated(
+		"The tickets you accepted still need answers to questions from the organizer.",
+		"Las entradas que aceptó aún necesitan respuesta a preguntas de la organización.",
+	)
+	// One block per Ticket: what it is, and the link that answers for it. The
+	// link sits INSIDE its Ticket's block so a reader holding a General and a
+	// VIP ticket cannot mistake which questions a link opens.
+	holderAnswerReminderTicketPluralCopy = translated(
+		"Event: %s\nTicket: %s\nAnswer here:\n%s",
+		"Evento: %s\nEntrada: %s\nResponda aquí:\n%s",
+	)
+	holderAnswerReminderLinksPluralCopy = translated(
+		"Each link opens its own ticket only, and stops working when the event starts.",
+		"Cada enlace abre solo su entrada y deja de funcionar cuando empieza el evento.",
+	)
+	// "About each of them" rather than "about it": the promise is per Ticket
+	// because the cap is (catalog.MaxAnswerReminders), and only the envelope was
+	// ever shared. Anyone raising the cap has to come here and either change
+	// this sentence or break it, exactly as for the singular closing.
+	holderAnswerReminderClosingPluralCopy = translated(
+		"Answering is optional and your tickets are valid either way. We will send at most one more reminder about each of them.",
+		"Responder es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más sobre cada una.",
+	)
+)
+
+// Subject is the Holder's Answer Reminder's subject line: their ticket or
+// tickets, the Event where one can honestly headline it, and what is owed.
+//
+// IT SAYS "YOUR TICKET(S)" AND NEVER "SOME TICKETS", which is the difference
+// between this and the buyer's subject and is the whole of what #328 is about:
+// this reader is told about what THEY hold, never about a purchase, which
+// would be somebody else's. Since #335 the mail may list several Tickets, so
+// the subject goes plural when it does — named after the Event when every
+// listed Ticket shares one, and Event-less when they do not, because a subject
+// that named one Event over a list spanning two would be wrong about half of
+// what it announces.
+func (r HolderAnswerReminder) Subject() string {
+	if len(r.Tickets) == 1 {
+		return fmt.Sprintf(holderAnswerReminderSubjectCopy.in(r.Locale), r.Tickets[0].EventName)
+	}
+	event := r.Tickets[0].EventName
+	for _, ticket := range r.Tickets[1:] {
+		if ticket.EventName != event {
+			return holderAnswerReminderSubjectMixedCopy.in(r.Locale)
+		}
+	}
+	return fmt.Sprintf(holderAnswerReminderSubjectPluralCopy.in(r.Locale), event)
+}
+
+// Text is the Holder's Answer Reminder's plain-text body.
+//
+// NOTHING HERE IS CONDITIONAL, for the reason the other two reminders' bodies
+// have nothing conditional in them: a reminder without its link is not a shorter
+// reminder, it is an instruction its reader cannot follow. The sweep refuses to
+// compose one at all — a Ticket whose Assignment Link cannot be signed is
+// dropped and stays due — so by the time this renders, every part of it is
+// present.
+//
+// ONE TICKET RENDERS EXACTLY THE MAIL IT ALWAYS DID; a list only appears for
+// the Holder who accepted several (#335). The two shapes share the discipline:
+// every Ticket's link sits inside its own block, and the closing states the
+// per-Ticket cap in the reader's own terms.
+func (r HolderAnswerReminder) Text() string {
+	if len(r.Tickets) == 1 {
+		ticket := r.Tickets[0]
+		text := fmt.Sprintf(holderAnswerReminderOpeningCopy.in(r.Locale), ticket.EventName, ticket.TicketTypeName)
+		text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), ticket.AnswerURL)
+		text += "\n\n" + holderAnswerReminderClosingCopy.in(r.Locale)
+		return text
+	}
+
+	text := holderAnswerReminderOpeningPluralCopy.in(r.Locale)
+	for _, ticket := range r.Tickets {
+		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale),
+			ticket.EventName, ticket.TicketTypeName, ticket.AnswerURL)
+	}
+	text += "\n\n" + holderAnswerReminderLinksPluralCopy.in(r.Locale)
+	text += "\n\n" + holderAnswerReminderClosingPluralCopy.in(r.Locale)
+	return text
+}
+
+// The Assignment mail (#325, parent #322, ADR 0046): the message telling
+// somebody a friend bought them a ticket, and carrying the link whose click
+// accepts it.
+//
+// IT IS WRITTEN FOR A STRANGER, and every sentence below is shaped by that. The
+// reader never came to this platform, did not give it their address, and has no
+// idea why this arrived — so the first thing the message does is say where the
+// address came from. "Someone who bought a ticket for this event gave us your
+// email address" is the whole explanation, and it is deliberately as close as
+// the copy ever gets to the buyer: it NAMES NOBODY. Who bought it is a fact
+// about the purchase, and mail gets forwarded.
+//
+// IT STATES WHAT ACCEPTING DISCLOSES, BEFORE THE LINK. Accepting hands the
+// reader's email address to the Organization running the Event — a separate
+// controller — and somebody deciding whether to click is entitled to know that
+// before they do, not after. That sentence is an acceptance criterion of #325
+// and not a nicety; anyone shortening this message has to keep it.
+//
+// IT SAYS IGNORING IS FINE, and means it: nothing happens to the ticket, the
+// buyer can still answer for them, and #322's purge takes the address when the
+// Event starts. There is no decline button anywhere in this feature, because
+// ignoring the mail IS the decline (ADR 0046).
+//
+// WHAT IS ABSENT: the buyer's name or email, the price, the Tax ID, the Sale
+// Confirmation reference, the Sale's other Tickets, and any Answer Link. The
+// first six are ADR 0044's disclosure rule carried over unchanged. The last is
+// sharper — an Answer Link is copyable off the buyer's own page, so putting one
+// in this mail would put a token that proves nothing beside a token that proves
+// an identity, in one message, for a reader who cannot tell them apart.
+//
+// The Spanish is usted throughout, as every Customer-facing message here is, and
+// takes "entrada" for the thing the reader now has, matching the receipt.
+var (
+	ticketAssignmentSubjectCopy = translated(
+		"You have a ticket for %s",
+		"Tiene una entrada para %s",
+	)
+	// Where the address came from and what the reader now holds, declared whole
+	// in both languages: one block of prose, so a translator cannot reorder half
+	// of it and lose the disclaimer.
+	//
+	// NO GREETING BY NAME. The platform does not know this person's name — that
+	// is what accepting is for — and "Hi there" reads worse than beginning with
+	// the fact.
+	ticketAssignmentOpeningCopy = translated(
+		"Someone who bought tickets for %s gave us your email address so that one of them could be yours.\n\nEvent: %s\nTicket: %s",
+		"Alguien que compró entradas para %s nos dio su dirección de correo para que una de ellas sea suya.\n\nEvento: %s\nEntrada: %s",
+	)
+	// The disclosure and the link, in that order and never the other way round.
+	// A reader must be able to decide before they press, and a link above the
+	// sentence explaining it is a link some readers will press first.
+	ticketAssignmentActionCopy = translated(
+		"If you accept, your email address is shared with the organizer of this event, and you can give your name and answer any questions they ask about your ticket.\n\nAccept your ticket here:\n%s",
+		"Si la acepta, su dirección de correo se comparte con la organización de este evento, y podrá dar su nombre y responder las preguntas que hagan sobre su entrada.\n\nAcepte su entrada aquí:\n%s",
+	)
+	// The closing, and the sentence that makes ignoring a real option rather than
+	// a silence the reader has to interpret. It promises three things the code
+	// enforces: the ticket is unaffected (the Answer Link and the buyer's own
+	// routes keep working while a Ticket is merely `assigned`), the link dies at
+	// the Event's start (catalog.AnswerWindow, read live), and the address is
+	// deleted then (#322's purge). Anyone changing one of those has to come here.
+	ticketAssignmentClosingCopy = translated(
+		"You do not have to do anything. If you ignore this message the ticket still works and the person who bought it can still use it, this link stops working when the event starts, and we delete your email address then.",
+		"No tiene que hacer nada. Si ignora este mensaje la entrada sigue siendo válida y quien la compró puede seguir usándola, este enlace deja de funcionar cuando empieza el evento, y entonces eliminamos su dirección de correo.",
+	)
+)
+
+// Subject is the Assignment mail's subject line: that the reader has a ticket,
+// and for what.
+//
+// IT LEADS WITH THE FACT AND NOT WITH THE ACTION. "You have a ticket for X" is
+// what makes somebody open a message from a platform they have never heard of;
+// "Accept your ticket" reads like every phishing mail ever written, and this
+// message already has the hardest deliverability job on the platform — it is the
+// one going to somebody with no prior relationship to the sender.
+func (a TicketAssignment) Subject() string {
+	return fmt.Sprintf(ticketAssignmentSubjectCopy.in(a.Locale), a.EventName)
+}
+
+// Text is the Assignment mail's plain-text body: where the address came from,
+// what the ticket is, what accepting discloses, the link, and that ignoring it
+// costs nothing.
+//
+// NOTHING HERE IS CONDITIONAL. A message with no link is not a shorter message,
+// it is a notification its reader cannot act on — so the caller refuses to
+// compose one at all rather than sending it linkless (see the catalog service's
+// mailTicketAssignment).
+func (a TicketAssignment) Text() string {
+	text := fmt.Sprintf(ticketAssignmentOpeningCopy.in(a.Locale), a.EventName, a.EventName, a.TicketTypeName)
+	text += "\n\n" + fmt.Sprintf(ticketAssignmentActionCopy.in(a.Locale), a.AcceptURL)
+	text += "\n\n" + ticketAssignmentClosingCopy.in(a.Locale)
+	return text
+}
+
+// The No Longer Holding mail (#327, parent #322, ADR 0046): the message telling
+// somebody who accepted a ticket that it is not theirs any more.
+//
+// ONE MESSAGE FOR TWO CAUSES, AND THE COPY IS WHERE THAT IS SPENT. A Holder
+// stops holding a Ticket because the buyer reassigned it or because the Ticket
+// Sale was reversed. From where the reader sits those are the same fact — they
+// had a ticket and now they do not — so there is one set of words, and it must
+// be true of both. Every sentence below was written by asking whether it stays
+// true if the other cause had happened instead. That is the whole discipline of
+// this copy, and it is why nothing here says "cancelled", "reversed", "refunded",
+// "given to somebody else" or "changed hands".
+//
+// IT GIVES NO CAUSE, and that is a disclosure decision rather than a stylistic
+// one. Both causes are facts about the BUYER'S decisions — they asked for their
+// money back, or they gave the ticket to another friend — and this reader is
+// never told who the buyer is, let alone what they chose. ADR 0044's disclosure
+// rule, carried over unchanged by ADR 0046 and binding here exactly as it binds
+// the Assignment mail: Event only, never the buyer, the price, the Tax ID, the
+// Sale Confirmation reference or the Sale's other Tickets. The Storefront's own
+// dead-link copy is written to the same rule — "Tickets can change hands, and a
+// link stops working when that happens" — so a Holder who presses their old link
+// after reading this meets one explanation rather than two.
+//
+// IT NAMES NOBODY. Not the buyer, and not the reader either: the platform may
+// know this Holder's name, but a greeting buys nothing in a message this short
+// and putting a name beside a lost ticket reads worse than beginning with the
+// fact. The Assignment mail's opening set the same precedent for the same
+// reason.
+//
+// IT CARRIES NO LINK AND NO BUTTON. There is nothing to press: the Ticket is not
+// theirs, the Event has left their Customer Area, and their Assignment Link
+// stopped opening at the same moment. A message with an action on it would be an
+// instruction whose only outcome is a refusal.
+//
+// IT SAYS WHAT DID NOT HAPPEN, WHICH IS THE KINDEST TRUE THING AVAILABLE. The
+// reader keeps their account, stays Verified, and keeps the name and the Answers
+// they gave — nothing about them was deleted, and somebody who has just been
+// told they lost something is entitled to know the rest of it is still there.
+// That sentence is enforced by code: nothing in this flow deletes a Customer.
+//
+// The Spanish is usted throughout, and takes "entrada" for the ticket, matching
+// the Assignment mail and the receipt so one word means one thing across the
+// flow.
+var (
+	noLongerHoldingSubjectCopy = translated(
+		"You no longer have a ticket for %s",
+		"Ya no tiene una entrada para %s",
+	)
+	// The fact, declared whole in both languages and stated twice — once as the
+	// subject and once as the first line — because a subject line is often all
+	// that is read, and a body that opened on anything else would bury it.
+	//
+	// "is no longer yours" and NOT "has been cancelled" or "was given to someone
+	// else": the passive here is not evasion, it is the disclosure rule. Either
+	// alternative would name a cause, and each is false in the other case.
+	noLongerHoldingOpeningCopy = translated(
+		"You are no longer holding a ticket for %s.\n\nWe are telling you because you accepted that ticket, and it is no longer yours. It has been removed from your account.",
+		"Ya no tiene una entrada para %s.\n\nLe avisamos porque usted aceptó esa entrada y ya no es suya. La hemos quitado de su cuenta.",
+	)
+	// What is left, and what the reader should do — in that order, because the
+	// reassurance is worth more than the instruction and a person who has just
+	// lost a ticket should not have to read to the end to find out whether they
+	// also lost their account.
+	//
+	// The last sentence points at the organizer, who is the only party this
+	// reader can be sent to: they do not know who bought the ticket, so "ask
+	// whoever sent it to you" is advice they cannot follow.
+	noLongerHoldingClosingCopy = translated(
+		"There is nothing you need to do. Your account stays as it is, along with your name and anything you told us about your ticket.\n\nIf you were planning to go, you can still get a ticket from the event's page.",
+		"No tiene que hacer nada. Su cuenta sigue igual, junto con su nombre y lo que nos haya dicho sobre su entrada.\n\nSi pensaba asistir, todavía puede conseguir una entrada en la página del evento.",
+	)
+)
+
+// Subject is the No Longer Holding mail's subject line: the fact, and what it is
+// about.
+//
+// IT LEADS WITH THE LOSS AND NAMES THE EVENT, because a subject that hedged
+// would be opened late by exactly the person who most needs to read it early —
+// somebody who would otherwise travel to an Event they cannot get into.
+func (n NoLongerHolding) Subject() string {
+	return fmt.Sprintf(noLongerHoldingSubjectCopy.in(n.Locale), n.EventName)
+}
+
+// Text is the No Longer Holding mail's plain-text body: the fact, that nothing
+// is required of them, and that everything else about them is untouched.
+//
+// NOTHING HERE IS CONDITIONAL, and there is no branch on why the Ticket was
+// lost, because there is no field to branch on — see platform.NoLongerHolding.
+// Anyone adding one is undoing the decision this message exists to make.
+func (n NoLongerHolding) Text() string {
+	text := fmt.Sprintf(noLongerHoldingOpeningCopy.in(n.Locale), n.EventName)
+	text += "\n\n" + noLongerHoldingClosingCopy.in(n.Locale)
+	return text
+}
+
 // The Sale Voided notice (#246, ADR 0033) — the mail that says a purchase is
 // gone.
 //

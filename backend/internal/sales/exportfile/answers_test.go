@@ -357,6 +357,143 @@ func TestAnswersSheetLeavesOutstandingAnswersBlank(t *testing.T) {
 	}
 }
 
+// threeStates is one Ticket in each of the three assignment states, on one sale,
+// as the repository would hand them over: an accepted Ticket carries a Holder, an
+// `assigned` one carries the word and nothing else, and an `unassigned` one
+// carries only the word.
+//
+// NOTE WHAT THE `assigned` ROW DOES NOT HAVE. There is no address on it, and
+// there is nowhere on TicketRow to put one — that is ADR 0047's line, and the
+// fixture is shaped the way the production read is.
+func threeStates() []TicketRow {
+	return []TicketRow{
+		{
+			ConfirmationRef: "ABC123",
+			TicketTypeName:  "GA",
+			AssignmentState: "accepted",
+			HolderFirstName: "Carla",
+			HolderLastName:  "Ruiz",
+			HolderEmail:     "carla@example.com",
+			Answers:         map[string]Answer{"q-1": {Text: ptr("L")}},
+		},
+		{
+			ConfirmationRef: "ABC123",
+			TicketTypeName:  "GA",
+			AssignmentState: "assigned",
+		},
+		{
+			ConfirmationRef: "ABC123",
+			TicketTypeName:  "GA",
+			AssignmentState: "unassigned",
+		},
+	}
+}
+
+// TestAnswersSheetHolderColumns: who the Ticket is for, beside what they
+// answered (#330, ADR 0047).
+//
+// THE `assigned` ROW IS THE ONE THAT MATTERS. Its address exists — a buyer typed
+// it and the platform mailed it — and it is NOT IN THIS FILE, because nobody at
+// that address has agreed to be in it. The row says `assigned` and stops, which
+// is precisely what an Organizer needs to know: somebody was named, and they
+// have not clicked.
+func TestAnswersSheetHolderColumns(t *testing.T) {
+	f := openBuilt(t, oneSale(), gaColumn(), Answers{
+		Assignment: true,
+		Questions:  []QuestionColumn{{ID: "q-1", Label: "T-shirt size"}},
+		Tickets:    threeStates(),
+	})
+	rows, err := f.GetRows(AnswersSheet)
+	if err != nil {
+		t.Fatalf("get rows: %v", err)
+	}
+
+	// The Holder sits between the Ticket Type and the questions: the person,
+	// then what the person said, read left to right in one sheet.
+	want := []string{
+		"confirmation_ref", "ticket_type",
+		"assignment_state", "holder_first_name", "holder_last_name", "holder_email",
+		"T-shirt size",
+	}
+	if len(rows) != 4 || !sameStrings(rows[0], want) {
+		t.Fatalf("header = %v, want %v", rows[0], want)
+	}
+
+	for _, tc := range []struct {
+		name string
+		row  int
+		want []string
+	}{
+		{
+			// Accepted: the whole person, and their size on the same row. This
+			// is the one sheet "who is coming and what size are they" is meant
+			// to be.
+			name: "accepted",
+			row:  1,
+			want: []string{"ABC123", "GA", "accepted", "Carla", "Ruiz", "carla@example.com", "L"},
+		},
+		{
+			// Assigned: the word, and three blanks where an unconsented address
+			// is not. Blanks and not zeros, empty strings or a placeholder — an
+			// Organizer filtering the sheet on "holder_email is blank" is asking
+			// "who has not claimed their ticket", and must get this row.
+			name: "assigned, and the address stays out of the file",
+			row:  2,
+			want: []string{"ABC123", "GA", "assigned", "", "", "", ""},
+		},
+		{
+			// Unassigned: nobody was ever named. Also the state a Ticket whose
+			// address was purged at Event start reads as (migration 081) — there
+			// is no fourth word, and this file does not invent one.
+			name: "unassigned",
+			row:  3,
+			want: []string{"ABC123", "GA", "unassigned", "", "", "", ""},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rows[tc.row]
+			// GetRows trims trailing empty cells, and a blank IS the value under
+			// test on two of these rows.
+			for len(got) < len(tc.want) {
+				got = append(got, "")
+			}
+			if !sameStrings(got, tc.want) {
+				t.Fatalf("row = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAnswersSheetHolderColumnsAppearOnlyWithAssignment: with
+// TICKET_ASSIGNMENT_ENABLED closed the sheet is the one #314 built, column for
+// column — and it is closed on every deployment until a Policy Version describes
+// the disclosure (ADR 0045).
+//
+// The Tickets handed in below are FULLY POPULATED HOLDERS. The flag has to be a
+// real off switch rather than a filter on empty data: an address must not leave
+// the building in a file just because a row happened to carry one.
+func TestAnswersSheetHolderColumnsAppearOnlyWithAssignment(t *testing.T) {
+	f := openBuilt(t, oneSale(), gaColumn(), Answers{
+		Questions: []QuestionColumn{{ID: "q-1", Label: "T-shirt size"}},
+		Tickets:   threeStates(),
+	})
+	rows, err := f.GetRows(AnswersSheet)
+	if err != nil {
+		t.Fatalf("get rows: %v", err)
+	}
+	want := []string{"confirmation_ref", "ticket_type", "T-shirt size"}
+	if !sameStrings(rows[0], want) {
+		t.Fatalf("header = %v, want %v while assignment is dark", rows[0], want)
+	}
+	for _, row := range rows[1:] {
+		for _, cell := range row {
+			if cell == "carla@example.com" || cell == "Carla" || cell == "accepted" {
+				t.Fatalf("row = %v carries a Holder while assignment is dark", row)
+			}
+		}
+	}
+}
+
 // sameStrings compares two string slices element for element.
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {

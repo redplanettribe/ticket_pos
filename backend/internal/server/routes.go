@@ -83,19 +83,39 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// shape of mistake as letting a caller name a Digest week.
 	mux.HandleFunc("POST /api/v1/internal/checkout-answers/purge", app.SalesHandler.PurgeAbandonedAnswers)
 
-	// The Answer Reminder sweep (#317, ADR 0044): one mail to each buyer whose
-	// Ticket Sale still owes Answers and whose rationing allows it. Served by the
-	// SALES handler because the message is about a Ticket Sale and is addressed
-	// to its buyer — the catalog decides WHO is owed one, this module writes to
-	// them.
+	// The Answer Reminder sweep (#317, ADR 0044; #328, ADR 0046): one mail to
+	// each person who can answer what a Ticket still owes and whose rationing
+	// allows it — the Holder of an `accepted` Ticket, the buyer for every other
+	// Ticket on the Sale. Served by the SALES handler because both messages are
+	// mail, and mail about a purchase is this module's; the catalog decides who
+	// is owed one AND who it is addressed to, and this module writes to them.
 	//
 	// It is the one route in this namespace whose effect is somebody's INBOX, so
 	// the rule that a caller cannot aim a route is at its sharpest here: nothing
-	// names an Event, an Organization, a Sale or — the parameter that would
-	// matter most — a moment. WHO is written to is a property of the database and
-	// the clock, and a caller able to name the clock could lift the seven-day
-	// silence and mail the platform's whole outstanding backlog on demand.
+	// names an Event, an Organization, a Sale, a Ticket or — the parameter that
+	// would matter most — a moment. WHO is written to is a property of the
+	// database and the clock, and a caller able to name the clock could lift the
+	// seven-day silence and mail the platform's whole outstanding backlog on
+	// demand. Since #328 that backlog reaches more inboxes than buyers' alone,
+	// which makes the rule stricter rather than looser.
 	mux.HandleFunc("POST /api/v1/internal/answer-reminders/sweep", app.SalesHandler.SweepAnswerReminders)
+
+	// The Holder Address Purge (#331, parent #322, ADR 0046): the address a
+	// buyer typed for a friend who never accepted it, taken once the Event has
+	// started. Served by the CATALOG handler, unlike the purge above it, because
+	// the columns are on `tickets` (migration 080) and a Ticket is the catalog's
+	// — sales owns what a checkout collected, the catalog owns the Ticket and
+	// everything said about it.
+	//
+	// It is the second route in this namespace that DELETES, and the only one
+	// that deletes data belonging to somebody who never came to this platform.
+	// The rule that a caller cannot aim a route is therefore at its sharpest
+	// here: nothing names an Event, an Organization, a Ticket or — the parameter
+	// that would matter most — a moment. WHICH addresses go is a property of the
+	// database and the backend's own clock, and a caller able to name that clock
+	// could take the holder address off every future Event on the platform in
+	// one request.
+	mux.HandleFunc("POST /api/v1/internal/holder-addresses/purge", app.CatalogHandler.PurgeUnacceptedHolderAddresses)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.
@@ -305,6 +325,39 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
 	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}",
 		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerOwnTicketQuestion)))
+	// The buyer assigns one of their own Tickets to an email address (#324,
+	// parent #322). Registered here rather than under a namespace of its own
+	// because it is the same surface as the two routes above it — the
+	// Confirmation Link page and the Customer Area, which are one page — and
+	// because a Ticket Assignment is a fact about a TICKET, which is the
+	// catalog's, while who is asking is this namespace's.
+	//
+	// NOT A ROUTE OF ITS OWN PER VERB. Assigning, reassigning and correcting a
+	// mistyped address are one statement — "this Ticket's Holder address is now
+	// X" — so they are one PUT. A second `reassign` route would be a second
+	// place to remember that a change of address CLEARS THAT TICKET'S ANSWERS,
+	// and the first place it would be forgotten; an Answer is a fact about a
+	// person and must never be inherited by a new Holder.
+	//
+	// BEHIND THE SAME GATE AS ITS NEIGHBOURS AND NOT BEHIND ONE MORE. A
+	// Confirmation Link session may assign, exactly as it may answer, and for
+	// the reason stated above: this feature exists so that the person holding
+	// the receipt can distribute the tickets they bought, and demanding a
+	// passcode of the buyer would put the platform's own distribution route
+	// behind a stricter door than the forwarded Answer Link it replaces. What it
+	// still may not do is undo the purchase. The session narrows to its one Sale
+	// inside the service, so a link session naming any other Ticket Sale is
+	// answered as if it did not exist.
+	//
+	// BEHIND ITS OWN FLAG, WHICH SHIPS CLOSED. TICKET_ASSIGNMENT_ENABLED is
+	// separate from TICKET_QUESTIONS_ENABLED (ADR 0045 governs both): the
+	// service reads it before it reads anything else and answers 404, so this
+	// path behaves exactly as an unrouted one until a Policy Version describes
+	// the platform storing an address a buyer supplied for somebody else. NO
+	// MAIL IS SENT from here — the Assignment mail and the Holder's accept flow
+	// are #325, which is also what makes the `accepted` state reachable.
+	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment",
+		signedIn(http.HandlerFunc(app.CatalogHandler.AssignOwnTicket)))
 	// The Customer Area's one write: "My info" (#102). Scoped by the session
 	// like every route above it, and narrowed once more inside the service — a
 	// Confirmation Link session may read its one sale but may not rewrite the
@@ -502,6 +555,29 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// would be a second, unsigned way to say which Ticket this is.
 	mux.HandleFunc("POST /api/v1/public/answer-link", app.CatalogHandler.OpenAnswerLink)
 	mux.HandleFunc("PUT /api/v1/public/answer-link/questions/{questionId}", app.CatalogHandler.AnswerByAnswerLink)
+
+	// The Assignment Link's three routes (#325, parent #322, ADR 0046): accept,
+	// give the Holder's name, answer a Ticket Question as the Holder.
+	//
+	// UNDER /public LIKE THE ANSWER LINK'S PAIR, AND UNLIKE THEM THESE MINT A
+	// PERSON. The click is Proof of Email Ownership (ADR 0035), so the first call
+	// creates or matches a Verified Customer — and still mints no session, which
+	// is why they are not under /customer: nothing here signs anybody in.
+	//
+	// A DIFFERENT TOKEN FROM THE ONE ABOVE, and that is the security property of
+	// the feature rather than a routing detail. The Answer Link is copyable off
+	// the buyer's own sale page; if these routes accepted one, a buyer could
+	// accept on their friend's behalf and the Verified Customer minted from it
+	// would be a fiction. The two are separately keyed, so a token of one kind
+	// fails cryptographically on the other's routes.
+	//
+	// NO TICKET ID IN ANY PATH, on all three: the token names the Ticket, and a
+	// path segment naming it too would be a second, unsigned way to say which.
+	// The token is in the BODY on every verb, the accept included, so it reaches
+	// no access log and no Referer header.
+	mux.HandleFunc("POST /api/v1/public/assignment-link", app.CatalogHandler.AcceptAssignmentLink)
+	mux.HandleFunc("PUT /api/v1/public/assignment-link/name", app.CatalogHandler.NameByAssignmentLink)
+	mux.HandleFunc("PUT /api/v1/public/assignment-link/questions/{questionId}", app.CatalogHandler.AnswerByAssignmentLink)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {
@@ -698,8 +774,9 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// never deleted": an Answer points at nothing, so removing one restores the
 	// state the Ticket was in before anybody answered.
 	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
-	// The Outstanding Answers list (#313): which of this Event's Tickets still
-	// owe required Answers, and which questions they owe.
+	// The Holder List (#333; the Outstanding Answers list of #313, widened to
+	// the roster): every Ticket of this Event, who is coming on each, and —
+	// where the Event asks Ticket Questions — what each still owes.
 	//
 	// HUNG OFF THE EVENT and not off a Ticket Sale, because that is the question
 	// being asked. The per-sale route above is how staff reach ONE Ticket when
@@ -707,15 +784,23 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// the whole Event before it orders the shirts, and the two cannot be the
 	// same address because they are aggregated over different things.
 	//
+	// THE PATH KEEPS ITS HISTORICAL NAME. The read was built as Outstanding
+	// Answers and every bookmark and BFF route points here; what #333 changed
+	// is what the list IS, and `outstanding=true` is where its old definition
+	// went — a filter of the roster, never its definition.
+	//
 	// A READ WITH NO STATE BEHIND IT. There is no outstanding_answers table:
 	// the debt is derived on every request from what the Ticket Type asks and
-	// what the Ticket has said, which is exactly why this list empties by itself
-	// as Answers arrive from any of the three routes and why a Sale Reversal
-	// drops a whole sale out of it without anything having to sweep.
+	// what the Ticket has said, which is exactly why the debts clear by
+	// themselves as Answers arrive from any of the three routes and why a Sale
+	// Reversal drops a whole sale out of the roster without anything having to
+	// sweep.
 	//
-	// Same `orgAdmin` gate and the same 404-while-dark as every route above, for
-	// the same reasons.
-	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListOutstandingAnswers)))
+	// Same `orgAdmin` gate as every route above. Its 404-while-dark is its own:
+	// the service answers only when EITHER TICKET_ASSIGNMENT_ENABLED or
+	// TICKET_QUESTIONS_ENABLED is open (#333), because an Organization that
+	// assigns tickets and asks nothing still has a Holder List.
+	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListHolderList)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

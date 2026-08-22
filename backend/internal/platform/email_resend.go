@@ -193,6 +193,86 @@ func (s *ResendEmailSender) SendAnswerReminder(ctx context.Context, r AnswerRemi
 	return nil
 }
 
+// SendHolderAnswerReminder delivers the Answer Reminder addressed to the Holder
+// of an accepted Ticket (#328, ADR 0046).
+//
+// The error is returned rather than swallowed, and the sweep that calls this
+// depends on it for the reason the buyer's does: a reminder is recorded in the
+// ledger only once the provider has accepted it, because the ledger is what
+// rations the next one. Reporting a failed send as a success would ration a
+// Holder out of a reminder they never received, permanently — the cap counts for
+// the life of the Ticket.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally by embedding this sender rather than
+// listing its methods (ADR 0030). That is not a filing preference here: this
+// reader accepted a ticket and consented to nothing, so the message must not be
+// reachable from the identity that carries marketing at all.
+//
+// NEITHER THE LINK NOR THE EVENT IS LOGGED ON FAILURE, only the address and the
+// error, exactly as for the Assignment mail below. The link is a credential that
+// mints an identity, and a log aggregator is a wider audience than an inbox.
+func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send holder answer reminder failed", "email", r.To, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendTicketAssignment delivers the Assignment mail carrying an Assignment Link
+// (#325, ADR 0046).
+//
+// The error is returned rather than swallowed, but the CALLER treats it as best
+// effort: a provider hiccup must not undo an assignment the buyer made, because
+// the buyer's record of who they gave which ticket to is worth keeping even when
+// the mail failed. What the caller does instead is log it — see the catalog
+// service's mailTicketAssignment.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally (ADR 0030). That is not a filing
+// preference here: this message is addressed to somebody who has consented to
+// nothing, so it must not be reachable from the identity that carries marketing
+// at all.
+//
+// NEITHER THE LINK NOR THE EVENT IS LOGGED ON FAILURE, only the address and the
+// error. The link is a credential that mints an identity, and a log aggregator
+// is a wider audience than an inbox.
+func (s *ResendEmailSender) SendTicketAssignment(ctx context.Context, a TicketAssignment) error {
+	if err := s.send(ctx, a.To, a.Subject(), a.Text()); err != nil {
+		s.logger.Error("resend send ticket assignment failed", "email", a.To, "error", err)
+		return err
+	}
+	return nil
+}
+
+// SendNoLongerHolding delivers the notice that a Ticket a Holder accepted is no
+// longer theirs (#327, ADR 0046).
+//
+// The error is returned rather than swallowed, and the CALLER treats it as best
+// effort for the reason every other notice in this flow is: the Ticket changed
+// hands, or the Sale was reversed, whether or not the mail landed, and re-running
+// a reversal to retry an email would be far worse than a missing one. What the
+// caller does instead is log it where an operator can count it.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally (ADR 0030). The recipient consented
+// to nothing beyond holding a ticket, so this must not be reachable from the
+// identity that carries marketing.
+//
+// THE EVENT IS NOT LOGGED, only the address and the error. That is stricter than
+// the Assignment mail's line above, and deliberately: which Event somebody has
+// stopped holding a ticket to is a fact about a person's plans, and a log
+// aggregator is a wider audience than an inbox. What an operator needs here is
+// that a Holder was not told.
+func (s *ResendEmailSender) SendNoLongerHolding(ctx context.Context, n NoLongerHolding) error {
+	if err := s.send(ctx, n.To, n.Subject(), n.Text()); err != nil {
+		s.logger.Error("resend send no longer holding failed", "email", n.To, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort: the request is recorded whether or
 // not anybody was told, and the pending count on the operator navigation is the

@@ -127,8 +127,14 @@ func (r *Repository) GetCustomerByID(ctx context.Context, id string) (*Customer,
 // time, so the moment a person claimed their record is preserved.
 //
 // This is the only write in the system that sets verified_at. No Sales Channel,
-// no import, and no Confirmation Link redemption may reach it: only a completed
-// one-time passcode proves ownership of the address.
+// no import, and no Confirmation Link redemption may reach it: it is reached
+// only by acts that PROVE OWNERSHIP OF THE ADDRESS — a completed one-time
+// passcode, a Google Sign-In, and now a click on an Assignment Link, which is
+// proof by the standard ADR 0035 set and ADR 0046 spends (#325, service.
+// AcceptHolder). The third is the only one that does not begin with somebody
+// arriving at this platform under their own steam, and it is deliberately the
+// SAME statement rather than a second one: two writes could disagree about
+// whether the person accepting a ticket is the person who signs in.
 //
 // mailLocale is the Locale of the Storefront this sign-in happened on, or
 // empty when the caller has no page to name one from. Empty leaves the stored

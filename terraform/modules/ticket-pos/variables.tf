@@ -411,6 +411,29 @@ variable "ticket_questions_enabled" {
   default     = false
 }
 
+variable "ticket_assignment_enabled" {
+  description = "Whether a buyer may assign one of their own Tickets to an email address (#324, parent #322). A SEPARATE VARIABLE FROM ticket_questions_enabled ABOVE AND NEVER A SECOND USE OF IT: the two features are separable, and two flags are what let assignment be killed without taking Ticket Questions dark. STARTS FALSE, and the prerequisite is legal rather than technical — what this opens is the platform storing, and later mailing, an email address supplied by somebody with no authority to supply it, and disclosing it to the Organization as a separate controller. None of that is described by the published Privacy Policy. It flips only once a Policy Version that does has published; that clause is batched with the one ticket_questions_enabled waits on, so the re-acceptance of every Customer is paid for once. With it false the buyer's assign endpoint answers 404, no address is stored, no mail is sent and the buyer's own payload is byte-identical to a build without the feature."
+  type        = bool
+  default     = false
+  # THE MAIL PROMISES A DELETION THIS ALONE DOES NOT PERFORM. The Assignment mail
+  # tells a stranger, in their own language, "we delete your email address then" --
+  # meaning at Event start. That sentence is made true by the Holder Address Purge
+  # and by nothing else, and the purge deliberately does NOT read this flag (see
+  # holder_address_purge_enabled): gating it here would mean a deployment that shut
+  # assignment kept every address it had already collected, forever, precisely
+  # because it had stopped collecting.
+  #
+  # So the two switches have to be thrown together, and this is the only place that
+  # can insist on it. Opening assignment while the purge is paused would have the
+  # platform make a retention promise to somebody who never came here and then not
+  # keep it -- the one failure this feature cannot absorb, because the promise is
+  # most of what makes collecting the address defensible at all.
+  validation {
+    condition     = !var.ticket_assignment_enabled || var.holder_address_purge_enabled
+    error_message = "ticket_assignment_enabled requires holder_address_purge_enabled: the Assignment mail promises the address is deleted when the Event starts, and the Holder Address Purge is what keeps that promise."
+  }
+}
+
 # --- Reversal Reconciler ------------------------------------------------------
 
 variable "reversal_reconciler_enabled" {
@@ -591,5 +614,47 @@ variable "answer_reminder_attempt_deadline_seconds" {
     # stale here.
     condition     = var.answer_reminder_attempt_deadline_seconds >= 90 && var.answer_reminder_attempt_deadline_seconds <= 1800
     error_message = "answer_reminder_attempt_deadline_seconds must be between 90 and 1800: at least 90 so it outlives the backend's 60s run budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
+# --- Holder Address Purge -----------------------------------------------------
+#
+# One job, one switch (#331, parent #322, ADR 0046). Like the Abandoned Answer
+# Purge and unlike the Follow Digest there is nothing to split: the run has no
+# queue to fill and then drain, it is one statement against a predicate.
+#
+# It is the SECOND job here that deletes, and the only one that deletes personal
+# data belonging to somebody who never came to this platform. Read the three
+# variables below beside answer_purge_*: the shape is identical on purpose, and
+# every place the reasoning diverges is written down where it diverges.
+
+variable "holder_address_purge_enabled" {
+  description = "Whether the Holder Address Purge tick actually fires. False leaves the job, its identity and its run.invoker grant in place but paused, which is how it ships. It stays off until TICKET_ASSIGNMENT_ENABLED has been open long enough for Tickets to be carrying holder addresses (ADR 0045): before that this is a daily UPDATE matching no rows. Unlike the Answer Reminder sweep the backend does NOT refuse independently — the purge is deliberately not gated on the feature flag, because the switch that turns a deletion off must never be the switch that turns collection off — so this is the ONLY switch on this job. That cuts both ways. It is the first move if the purge is ever suspected of taking more than it should: pause, then read, because the addresses are gone. And it is a switch somebody must remember to throw ON once assignment opens, because an open assignment flag with this paused is the platform holding third-party contact details with no scheduled end."
+  type        = bool
+  default     = false
+}
+
+variable "holder_address_purge_schedule" {
+  description = "Unix cron for the holder address purge tick, read in America/Guayaquil. Daily at 03:40, twenty minutes after the Abandoned Answer Purge so the two deletions are separate lines in the log and do not contend for the same table. Deliberately NOT per-minute like the reversal drain: the promise is \"when the Event starts\", and enforcing that within a minute rather than within a day is not worth a job that fires 1,440 times a day, because a bug in such a job empties the column before the first alert is read. The timezone this cron is read in changes nothing about WHICH Events qualify — events.starts_at is a TIMESTAMPTZ with the Event's own zone already inside it. Changing this changes how promptly an unaccepted address is taken, never whether it is: a missed day is caught up by the next run at no cost, because nothing accumulates."
+  type        = string
+  default     = "40 3 * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.holder_address_purge_schedule))
+    error_message = "holder_address_purge_schedule must be five space-separated cron fields, e.g. \"40 3 * * *\"."
+  }
+}
+
+variable "holder_address_purge_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one holder address purge before abandoning it. Like the Abandoned Answer Purge and unlike the reversal drain and the Digest drain this run has no budget of its own to expire first — it is a single UPDATE against a predicate — so this is not the middle term of a three-term chain but simply a bound below api_request_timeout_seconds. A backend test reads this default and fails if it ever rises above that timeout, because a deadline above it means Scheduler waiting on a request the platform has already abandoned."
+  type        = number
+  default     = 120
+
+  validation {
+    # The floor is Cloud Scheduler's own practical minimum plus room for one
+    # statement across tickets, their Sale Lines, their Sales and the Events.
+    # The ceiling is Cloud Scheduler's own limit for an HTTP target.
+    condition     = var.holder_address_purge_attempt_deadline_seconds >= 60 && var.holder_address_purge_attempt_deadline_seconds <= 1800
+    error_message = "holder_address_purge_attempt_deadline_seconds must be between 60 and 1800: at least 60 so one UPDATE has room to finish, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
   }
 }

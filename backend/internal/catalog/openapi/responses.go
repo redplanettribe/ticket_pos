@@ -88,17 +88,18 @@ type EnvelopeTicketAnswersDetail struct {
 	RequestID string                    `json:"request_id"`
 }
 
-// EnvelopeOutstandingAnswers documents the Event's Outstanding Answers response
-// (#313): a page of the Tickets that still owe required Answers, each naming the
-// questions it owes, with the Event's total debt count beside the page.
+// EnvelopeHolderList documents the Event's Holder List response (#333; the
+// Outstanding Answers response of #313, widened to the roster): a page of
+// EVERY Ticket of the Event, each with its assignment and — where the Event
+// asks Ticket Questions — the questions it still owes.
 //
 // The payload is NESTED rather than a bare array, because a list of rows alone
-// could not carry the two counts that make it readable — how many Tickets are
-// waiting on the Organization, and how many things are unknown in all.
-type EnvelopeOutstandingAnswers struct {
-	Data      service.OutstandingAnswersPage `json:"data"`
-	Error     *platform.APIError             `json:"error"`
-	RequestID string                         `json:"request_id"`
+// could not carry the two counts that make it readable — how many Tickets the
+// current view holds, and how many things are unknown in all.
+type EnvelopeHolderList struct {
+	Data      service.HolderListPage `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
 }
 
 // EnvelopeAnswerLink documents both Answer Link responses — opening one and
@@ -115,6 +116,24 @@ type EnvelopeAnswerLink struct {
 	Data      service.AnswerLinkView `json:"data"`
 	Error     *platform.APIError     `json:"error"`
 	RequestID string                 `json:"request_id"`
+}
+
+// EnvelopeAssignmentLink documents all three Assignment Link responses —
+// accepting one, naming the Holder, and answering through it (#325, ADR 0046).
+//
+// ITS DATA IS service.AssignmentLinkView, WHICH IS A FOURTH SHAPE AND NOT ANY OF
+// THE OTHER THREE. It is what a Holder sees: the Event name, the Ticket Type
+// name, their OWN name for the form to prefill, and this Ticket's questions.
+// Never the buyer, the price, the Tax ID, the Sale Confirmation reference or the
+// Sale's other Tickets — being a Customer of this platform buys nobody a fact
+// about somebody else's purchase.
+//
+// Documenting it as any of the others would put every one of those into the
+// generated client's types and invite somebody to render them.
+type EnvelopeAssignmentLink struct {
+	Data      service.AssignmentLinkView `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
 }
 
 // EnvelopeBuyerTicketAnswers documents both of the buyer's own responses — the
@@ -163,4 +182,17 @@ type EnvelopePublicEventDetail struct {
 	Data      service.PublicEventDetail `json:"data"`
 	Error     *platform.APIError        `json:"error"`
 	RequestID string                    `json:"request_id"`
+}
+
+// EnvelopeHolderAddressPurge documents POST
+// /api/v1/internal/holder-addresses/purge success responses (#331).
+//
+// The payload is counts and one timestamp, and it names no address, Ticket,
+// buyer or Event — see catalog/handler.PurgeUnacceptedHolderAddresses for why a
+// response listing what had just been deleted would publish precisely the thing
+// the deletion exists to remove.
+type EnvelopeHolderAddressPurge struct {
+	Data      service.HolderAddressPurgeResult `json:"data"`
+	Error     *platform.APIError               `json:"error"`
+	RequestID string                           `json:"request_id"`
 }

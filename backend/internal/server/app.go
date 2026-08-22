@@ -285,6 +285,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// will not ask — or the reverse — is a deployment collecting or discarding
 	// personal data by accident.
 	salesService = salesService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
+	// And the SECOND flag, for the Holder columns on that same sheet (#330,
+	// ADR 0047). Sales is handed it for the export and for nothing else: no
+	// checkout, no door sale and no Sale Import consults it, because nothing
+	// about assignment may block or delay any of them.
+	salesService = salesService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a
@@ -300,6 +305,19 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// deliberately opened it (#309, ADR 0045). Unset, misspelt or absent leaves
 	// it closed.
 	catalogService = catalogService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
+	// Ticket Assignment, dark unless a deployment has deliberately opened it
+	// (#324, parent #322). A SEPARATE CONFIG FIELD read from a SEPARATE
+	// environment variable, and never cfg.TicketQuestionsEnabled reused: the two
+	// features are separable, and the operational property this second flag
+	// exists to buy is that assignment can be killed without taking Ticket
+	// Questions dark.
+	//
+	// The catalog service owns the Ticket and every write behind this flag.
+	// Sales is handed the same value above for ONE READ — whether the Sales
+	// Export's per-Ticket sheet carries its Holder columns (#330) — and for
+	// nothing else: nothing in checkout, the door or a Sale Import touches an
+	// assignment, and nothing about assignment may block or delay any of them.
+	catalogService = catalogService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
 	// The Answer Link's signing key and the origin its links point at (#312,
 	// ADR 0044).
 	//
@@ -310,6 +328,35 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// others do, without asking every deployment to configure a second secret it
 	// could forget and thereby ship a linkless feature.
 	catalogService = catalogService.WithAnswerLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
+	// The Assignment Link's signing key and the origin its links point at (#325,
+	// parent #322, ADR 0046).
+	//
+	// THE SAME DEPLOYMENT SECRET AGAIN, DERIVED UNDER ITS OWN PURPOSE LABEL, so
+	// that the fourth signed link cannot be opened by any of the other three and
+	// none of them can be accepted as this one. That is not housekeeping here: an
+	// Answer Link is copyable off the buyer's own sale page, so a build in which
+	// one verified as an Assignment Link would let a buyer accept on their
+	// friend's behalf and mint a Verified Customer nobody proved (ADR 0046).
+	catalogService = catalogService.WithAssignmentLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
+	// The one mail an assignment sends. Handed the same split sender everything
+	// else uses, through a one-method seam so nothing in catalog can reach the
+	// receipt, the passcode or the Digest — and so the Assignment mail is
+	// structurally on the transactional identity (ADR 0030), which matters
+	// because its recipient has consented to nothing and could not have.
+	catalogService = catalogService.WithAssignmentMail(emailSender)
+	// The other mail this flow sends: the one an accepted Holder gets when a
+	// Ticket stops being theirs (#327, ADR 0046).
+	//
+	// THE SAME SPLIT SENDER, THROUGH ITS OWN ONE-METHOD SEAM, so this message is
+	// structurally on the transactional identity (ADR 0030) — which matters
+	// because a Holder consented to nothing by accepting a ticket, and being told
+	// the ticket is gone must not be suppressible by a marketing preference.
+	//
+	// A separate seam from the Assignment mail's, because the two have opposite
+	// risk profiles: that one carries a credential capable of minting an identity
+	// and goes to a stranger, this one carries no link at all and goes to
+	// somebody who proved their address.
+	catalogService = catalogService.WithNoLongerHoldingMail(emailSender)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on
@@ -343,6 +390,21 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// is Terraform's: the Cloud Scheduler job is created paused.
 	salesService = salesService.WithAnswerReminders(catalogService)
 
+	// A Sale Reversal takes every Holder on the Sale with it, and they are told
+	// (#327, parent #322, ADR 0046). Tied on here for the same reason and at the
+	// same moment as the two above it, and pointing the same way: sales knows a
+	// Sale was reversed, and catalog owns Tickets, Holders and the message.
+	//
+	// IT COMPLETES ONE RULE THAT HAS TWO CAUSES. The other cause — the buyer
+	// reassigning an accepted Ticket — needs no wiring, because it happens inside
+	// catalog already. This is the half that has to cross a module boundary, and
+	// a build that forgot it would be talkative about a reassignment and silent
+	// about a reversal, which is exactly what #327 forbids.
+	//
+	// The far side reads TICKET_ASSIGNMENT_ENABLED, so a dark deployment reverses
+	// sales and mails nobody (ADR 0045).
+	salesService = salesService.WithDisplacedHolders(catalogService)
+
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
 	// the canonical key the Storefront's chips already carry (#218). Turning the
 	// one into the other is catalog's rule — including canonicalizing the key the
@@ -352,6 +414,18 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// does for Organization slugs above. Tied here rather than at construction
 	// because catalog is built after customers.
 	customersService = customersService.WithTags(catalogService)
+
+	// Accepting a Ticket Assignment mints or matches a Verified Customer (#325,
+	// ADR 0046), and a Customer record — `verified_at` above all — is the
+	// customers module's authority (ADR 0010).
+	//
+	// SO THE SEAM POINTS THAT WAY: catalog declares the interface and customers
+	// satisfies it, exactly as the Tag one above points the other. Catalog never
+	// imports customers/service. Tied here rather than at construction because
+	// catalog is built after customers, and because a catalog service nobody
+	// wired this into accepts nothing at all — which is the safe way to be
+	// unwired, and is what every build before this ticket was.
+	catalogService = catalogService.WithHolderCustomers(customersService)
 
 	// The opportunistic drain (ADR 0024): a Customer loading their Area makes the
 	// platform ask the Payment Provider again about their own stuck reversal.

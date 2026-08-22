@@ -96,8 +96,15 @@ type EventDetail struct {
 	// than render one whose every request would 404, and it keeps the answer in
 	// ONE place: a second environment variable on the frontend could disagree
 	// with the backend about whether the feature is on.
-	TicketQuestionsEnabled bool      `json:"ticket_questions_enabled"`
-	CreatedAt              time.Time `json:"created_at"`
+	TicketQuestionsEnabled bool `json:"ticket_questions_enabled"`
+	// TicketAssignmentEnabled is the platform's Ticket Assignment feature flag
+	// (ADR 0045), riding here for TicketQuestionsEnabled's reason: the staff
+	// app decides from this payload whether to offer the Holder List entry —
+	// which the API serves while EITHER flag is open (#333) — and a frontend
+	// environment variable would be a second copy of the answer, free to
+	// disagree with the one that matters.
+	TicketAssignmentEnabled bool      `json:"ticket_assignment_enabled"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 // ActorContext is the acting member for catalog operations.
@@ -223,6 +230,19 @@ type Service struct {
 	// OPEN when nobody decided it should be, and no arrangement of arguments
 	// makes "off" easier to reach by accident than the zero value does.
 	ticketQuestionsEnabled bool
+	// ticketAssignmentEnabled is the Ticket Assignment feature flag (#324,
+	// parent #322), and is SEPARATE from ticketQuestionsEnabled above.
+	//
+	// TWO FIELDS AND NOT ONE, because the two features are separable and the
+	// whole operational point of a second flag is that assignment can be killed
+	// without taking Ticket Questions dark. Anything in this service that reads
+	// one of them to decide the other has quietly merged them.
+	//
+	// FALSE IS THE ZERO VALUE, for exactly the reason its neighbour's is, and
+	// with more at stake: what this flag opens is the platform storing an email
+	// address supplied by somebody with no authority to supply it, before any
+	// published Policy Version describes that collection.
+	ticketAssignmentEnabled bool
 	// answerLinks signs and verifies Answer Links (#312, ADR 0044).
 	//
 	// ITS ZERO VALUE IS UNCONFIGURED, which mints nothing and opens nothing —
@@ -236,6 +256,55 @@ type Service struct {
 	// Storefront URL and never this API's: the holder must land on a page, and
 	// no browser addresses the Go API directly (ADR 0008).
 	answerLinkBaseURL string
+	// assignmentLinks signs and verifies Assignment Links (#325, ADR 0046).
+	//
+	// A SECOND SIGNER BESIDE answerLinks AND NEVER A REUSE OF IT. That is the
+	// security property the whole feature rests on: the Answer Link is copyable
+	// off the buyer's own sale page, so a flow that accepted one would let the
+	// buyer accept on their friend's behalf and the Verified Customer minted
+	// from it would be a fiction. Each derives its own key under its own purpose
+	// label, so a token of one kind cannot verify as the other however its
+	// payload is spelled.
+	//
+	// Its zero value is UNCONFIGURED, which mints nothing and opens nothing.
+	assignmentLinks catalog.AssignmentLinkSigner
+	// assignmentLinkBaseURL is the Storefront origin an Assignment Link points
+	// at. Kept separate from answerLinkBaseURL even though both are set from the
+	// same configured origin, so that the two links cannot be made to share a
+	// field and then a path.
+	assignmentLinkBaseURL string
+	// mailer delivers the Assignment mail — the ONLY carrier an Assignment Link
+	// ever has, since the token may never appear on a buyer surface or in an API
+	// response (ADR 0046).
+	//
+	// Nil is a service that assigns and mails nobody, which is what every test
+	// with no opinion about mail gets, and what #324 shipped.
+	mailer AssignmentMailer
+	// noLongerHoldingMailer delivers the one mail an accepted Holder gets when a
+	// Ticket stops being theirs (#327).
+	//
+	// A SECOND FIELD RATHER THAN A SECOND METHOD ON mailer, because the two
+	// messages have opposite risk profiles and the seams should say so: one
+	// carries a credential that mints an identity and goes to a stranger, and
+	// this one carries no link at all and goes to a Customer who proved their
+	// address. Nil leaves the service silent — a build that reassigns and reverses
+	// and tells nobody, which is what every ticket before this one was.
+	noLongerHoldingMailer NoLongerHoldingMailer
+	// holders writes the Customer a Holder's click mints or matches. Nil is a
+	// service that accepts nothing: the accept route reports the link
+	// unavailable rather than accepting a Ticket on behalf of nobody.
+	holders HolderCustomers
+	// assignmentMailLimits rations the Assignment mail (#332, parent #322): a
+	// hard per-Ticket cap and a per-buyer rate limit.
+	//
+	// ITS ZERO VALUE IS "THE DEFAULTS", not "send nothing" — catalog.
+	// MayMailAssignment reads the constants past any limit that is zero or
+	// negative. That is the opposite posture to the flags above and is
+	// deliberate: an unwired flag must fail closed because what it guards is a
+	// collection nobody decided to open, while an unwired LIMIT failing closed
+	// would silently disable a feature somebody did decide to open, which a flag
+	// already has a proper way to say.
+	assignmentMailLimits catalog.AssignmentMailLimits
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
@@ -276,6 +345,46 @@ func (s *Service) WithTicketQuestions(enabled bool) *Service {
 	return s
 }
 
+// WithTicketAssignment opens or closes Ticket Assignment (#324, parent #322).
+//
+// A SECOND WithX BESIDE WithTicketQuestions AND NEVER A SECOND ARGUMENT TO IT.
+// NewApp calls it with platform.Config.TicketAssignmentEnabled, which is read
+// from TICKET_ASSIGNMENT_ENABLED; the integration suite calls it to exercise
+// both sides, which is the only way "assignment can be closed while questions
+// stay open" can be a test rather than a claim.
+func (s *Service) WithTicketAssignment(enabled bool) *Service {
+	s.ticketAssignmentEnabled = enabled
+	return s
+}
+
+// WithAssignmentMailLimits lowers the Assignment mail rationing for a test
+// (#332, parent #322).
+//
+// THE NUMBERS ARE CONFIGURATION; THE BEHAVIOUR AT THEM IS WHAT IS UNDER TEST.
+// This is the OTP global ceiling's WithGlobalCeiling in another module and for
+// the same reason: proving the per-buyer window binds by actually sending
+// twenty mails would be a slow test that tells a reader nothing the same test at
+// two does not.
+//
+// A ZERO OR NEGATIVE VALUE KEEPS THE DEFAULT, so a caller cannot accidentally
+// mean "send nothing" — see catalog.MayMailAssignment.
+//
+// NO ENVIRONMENT VARIABLE READS THIS, and that is on purpose. These limits are
+// the price ADR 0046 charged for writing to strangers, not a dial an operator
+// turns under pressure; loosening them is a code change with a reviewer, which
+// is what the ADR means by "anyone loosening the cap is spending something this
+// ADR priced".
+func (s *Service) WithAssignmentMailLimits(limits catalog.AssignmentMailLimits) *Service {
+	s.assignmentMailLimits = limits
+	return s
+}
+
+// AssignmentMailLimits reports the rationing currently in force, so a test that
+// lowered it can put it back.
+func (s *Service) AssignmentMailLimits() catalog.AssignmentMailLimits {
+	return s.assignmentMailLimits
+}
+
 // WithAnswerLinks gives this service the key it signs Answer Links with and the
 // Storefront origin they point at (#312, ADR 0044).
 //
@@ -292,6 +401,69 @@ func (s *Service) WithTicketQuestions(enabled bool) *Service {
 func (s *Service) WithAnswerLinks(secret []byte, storefrontBaseURL string) *Service {
 	s.answerLinks = catalog.NewAnswerLinkSigner(secret)
 	s.answerLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")
+	return s
+}
+
+// WithAssignmentLinks gives this service the key it signs Assignment Links with
+// and the Storefront origin they point at (#325, ADR 0046).
+//
+// The secret is the DEPLOYMENT's link secret — the same value every other signed
+// link is derived from — and is turned into this purpose's own key here rather
+// than used directly. Four signed links now travel in one mail flow and none may
+// open what the others do; this is the fourth, and the only one that mints an
+// identity.
+//
+// A WithX rather than a constructor argument, beside WithAnswerLinks and for the
+// same reason: an unwired service is one that signs nothing, which is the safe
+// way to be unwired.
+func (s *Service) WithAssignmentLinks(secret []byte, storefrontBaseURL string) *Service {
+	s.assignmentLinks = catalog.NewAssignmentLinkSigner(secret)
+	s.assignmentLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")
+	return s
+}
+
+// WithAssignmentMail gives this service the sender that delivers the Assignment
+// mail (#325).
+//
+// A NARROW SEAM AND NOT platform.EmailSender ENTIRE, so that nothing in catalog
+// can reach the Sale Confirmation, the passcode or the Follow Digest. Nil leaves
+// the service silent, which is what #324 was and what every test with no opinion
+// about mail wants.
+func (s *Service) WithAssignmentMail(mailer AssignmentMailer) *Service {
+	s.mailer = mailer
+	return s
+}
+
+// WithHolderCustomers gives this service the seam that turns a click into a
+// Customer (#325, ADR 0046).
+//
+// Satisfied by the customers service, which owns `verified_at` and every other
+// statement this platform makes about who somebody is (ADR 0010). Catalog never
+// imports that package; see HolderCustomers.
+//
+// A WithX rather than a constructor argument because the wiring is late by
+// necessity — the customers service is built after this one — and because the
+// unwired state is safe: a service without it accepts nothing at all.
+// WithNoLongerHoldingMail gives this service the seam the No Longer Holding mail
+// travels through (#327, ADR 0046).
+//
+// A SEPARATE SEAM FROM THE ASSIGNMENT MAIL'S, satisfied in production by the same
+// split sender, so this message is structurally on the transactional identity
+// (ADR 0030) — which matters because a Holder consented to nothing by accepting a
+// ticket, and being told the ticket is gone must not be suppressible by a
+// marketing preference.
+//
+// Nil leaves the service silent. That is the safe way to be unwired here: a
+// Holder who is not told still stops holding the Ticket, and the Event still
+// leaves their Customer Area, so the state stays consistent and only the telling
+// is missing — visible in the log rather than in a failed request.
+func (s *Service) WithNoLongerHoldingMail(mailer NoLongerHoldingMailer) *Service {
+	s.noLongerHoldingMailer = mailer
+	return s
+}
+
+func (s *Service) WithHolderCustomers(holders HolderCustomers) *Service {
+	s.holders = holders
 	return s
 }
 
@@ -985,10 +1157,11 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		FeeBasisPoints:    s.fees.FeeBasisPoints,
 		FeeIVABasisPoints: s.fees.FeeIVABasisPoints,
 		// A row written before migration 048 reads as an ordinary ticketed Event.
-		RegistrationMode:       string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
-		RegistrationClickCount: e.RegistrationClickCount,
-		TicketQuestionsEnabled: s.ticketQuestionsEnabled,
-		CreatedAt:              e.CreatedAt,
+		RegistrationMode:        string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
+		RegistrationClickCount:  e.RegistrationClickCount,
+		TicketQuestionsEnabled:  s.ticketQuestionsEnabled,
+		TicketAssignmentEnabled: s.ticketAssignmentEnabled,
+		CreatedAt:               e.CreatedAt,
 	}
 	if e.RegistrationURL.Valid {
 		v := e.RegistrationURL.String

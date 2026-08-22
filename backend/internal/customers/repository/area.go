@@ -311,3 +311,101 @@ func (r *Repository) ListTicketSalesForCustomer(ctx context.Context, customerID,
 	}
 	return out, rows.Err()
 }
+
+// HeldTicketRow is one Ticket a Customer HOLDS rather than bought: an Event
+// somebody else paid for and assigned to them, which they accepted (#325,
+// parent #322, ADR 0046).
+//
+// A SEPARATE TYPE FROM TicketSaleRow, AND THE SEPARATION IS THE DISCLOSURE RULE.
+// A Holder is not the party of record: the Ticket Sale, the money, the Sale
+// Confirmation and the Reversal Window all stayed with the buyer, and CONTEXT.md
+// is explicit that a Holder sees the Event, the Ticket Type and their own
+// questions and never the buyer, the price, the Tax ID or the Sale's other
+// Tickets. TicketSaleRow carries the reference, the amount, the Tax ID snapshot
+// and every line of the sale — reusing it here would put all of them one `json:`
+// tag away from a screen they must never reach.
+//
+// So this carries the Event, the Organization and the Ticket Type, and stops.
+// There is no amount here, no confirmation_ref, no reversal state and no Undo:
+// nothing a Holder can do about a purchase they did not make.
+type HeldTicketRow struct {
+	// TicketID is the Ticket itself. It is the only identifier here, and it is
+	// the Holder's own handle on the thing they hold.
+	TicketID         string
+	AcceptedAt       time.Time
+	TicketTypeName   string
+	EventID          string
+	EventName        string
+	EventSlug        string
+	EventStartsAt    sql.NullTime
+	EventEndsAt      sql.NullTime
+	EventTimezone    sql.NullString
+	EventVenueName   sql.NullString
+	OrganizationID   string
+	OrganizationName string
+	OrganizationSlug string
+}
+
+// ListHeldTicketsForCustomer returns every Ticket this Customer has accepted.
+//
+// customerID is the sole scope and comes from the Customer Session, exactly as
+// on the sales read above: there is no email, Organization or Ticket parameter
+// through which one person's tickets could be aimed at another's.
+//
+// THE JOIN IS ON holder_customer_id AND NEVER ON AN ADDRESS. That column is
+// written only by the accept flow, from a click at the address (migration 080's
+// CHECK refuses one without an acceptance), so what this lists is what somebody
+// PROVED — never what a buyer typed about them. An address that was named and
+// never accepted appears on nobody's Area, which is right: it names a person who
+// has agreed to nothing, and it is purged when the Event starts.
+//
+// REVERSED SALES ARE EXCLUDED, and this is the one place a Holder's view differs
+// from the buyer's. The buyer keeps a reversed sale on their Area because it is
+// their financial record — they paid, and they were refunded, and both are facts
+// about them. A Holder has no financial record here: what they had was a ticket,
+// and a reversal means they no longer have it. CONTEXT.md: the Event leaves
+// their Customer Area when they stop holding it. Leaving it there would tell
+// somebody to turn up to an Event they cannot get into.
+//
+// A ticket the buyer REASSIGNED away needs no clause: reassignment clears
+// holder_customer_id with the address (repository.AssignTicketToHolder), so the
+// row simply stops matching.
+//
+// Ordered soonest Event first, then by acceptance, so the caller's split into
+// upcoming and past has a stable order to work from.
+func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID string) ([]HeldTicketRow, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT
+			tk.id, tk.accepted_at, tt.name,
+			e.id, e.name, e.slug, e.starts_at, e.ends_at, e.timezone, e.venue_name,
+			org.id, org.name, org.slug
+		FROM tickets tk
+		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
+		JOIN ticket_types tt ON tt.id = l.ticket_type_id
+		JOIN ticket_sales ts ON ts.id = l.ticket_sale_id
+		JOIN events e ON e.id = ts.event_id
+		JOIN organizations org ON org.id = ts.organization_id
+		WHERE tk.holder_customer_id = $1
+		  AND ts.status = 'active'
+		ORDER BY e.starts_at ASC NULLS LAST, tk.accepted_at DESC, tk.id ASC
+	`, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]HeldTicketRow, 0)
+	for rows.Next() {
+		var t HeldTicketRow
+		if err := rows.Scan(
+			&t.TicketID, &t.AcceptedAt, &t.TicketTypeName,
+			&t.EventID, &t.EventName, &t.EventSlug, &t.EventStartsAt, &t.EventEndsAt,
+			&t.EventTimezone, &t.EventVenueName,
+			&t.OrganizationID, &t.OrganizationName, &t.OrganizationSlug,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}

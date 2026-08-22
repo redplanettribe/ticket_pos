@@ -204,6 +204,28 @@ func (s *Service) answerLinkTicket(ctx context.Context, token string) (*reposito
 		return nil, catalog.ErrAnswerLinkInvalid()
 	}
 
+	// THE ANSWER LINK STOPS OPENING ONCE A HOLDER HAS ACCEPTED (#325, ADR 0046).
+	//
+	// This is the one thing accepting takes away, and it is what makes accepting
+	// mean anything. Both doors stand open while a Ticket is merely `assigned`,
+	// so a mistyped address bricks nothing and an ignored mail degrades to
+	// exactly ADR 0044's behaviour. The moment somebody PROVES the address, this
+	// door is retired in their favour: a link still sitting in a group chat, or
+	// forwarded on to six people, cannot overwrite the Holder's own answer about
+	// their own body as a joke.
+	//
+	// IT IS ANSWER_LINK_INVALID AND NOT A NEW CODE. Whoever holds this link is
+	// entitled to learn that it no longer works and nothing else — that somebody
+	// else has claimed this Ticket is a fact about a person, and this page has
+	// never disclosed one.
+	//
+	// THE BUYER AND EVENT STAFF KEEP THEIR ROUTES. ADR 0044's three-party rule
+	// holds: this closes the unauthenticated door, not the two accountable ones,
+	// so a wrong Answer stays fixable.
+	if ticket.AcceptedAt.Valid {
+		return nil, catalog.ErrAnswerLinkInvalid()
+	}
+
 	switch catalog.AnswerWindow(ticket.SaleStatus, nullTimeOrNil(ticket.EventStartsAt), s.now()) {
 	case catalog.AnswerRefusedSaleReversed:
 		// NOT ErrTicketSaleReversed, which is what Event Staff hear. Staff are

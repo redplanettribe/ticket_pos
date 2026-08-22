@@ -79,6 +79,64 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.assignmentLinkAnswerBody": {
+                "properties": {
+                    "checked": {
+                        "description": "Checked answers checkbox.",
+                        "type": "boolean"
+                    },
+                    "date": {
+                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
+                        "type": "string"
+                    },
+                    "option_ids": {
+                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "text": {
+                        "description": "Text answers short_text and long_text.",
+                        "type": "string"
+                    },
+                    "token": {
+                        "description": "Token is the signed Assignment Link token, and it is the ONLY authority\nthis write has.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.assignmentLinkBody": {
+                "properties": {
+                    "token": {
+                        "description": "Token is the signed Assignment Link token, exactly as it arrived in the\naddress. The Storefront reads it out of its own URL and relays it here;\nnothing else about the caller is asked for, or would be believed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.assignmentLinkNameBody": {
+                "properties": {
+                    "first_name": {
+                        "description": "FirstName and LastName are stored separately (ADR 0005) and written to the\nCustomer as their current asserted name. Required and bounded HERE, in the\nhandler, as the standard VALIDATION_FAILED envelope (#336): the token\nnames the Ticket, so unlike the buyer's Holder email write there is no id\nfor an early 400 to leak (see the INVALID_HOLDER_EMAIL exception in the\napi-errors skill). The bound is catalog.MaxHolderNameLength, so the\ndomain still owns the number.",
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "token": {
+                        "description": "Token is the signed Assignment Link token, exactly as it arrived in the\naddress. The Storefront reads it out of its own URL and relays it here;\nnothing else about the caller is asked for, or would be believed.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.avatarUploadURLBody": {
                 "properties": {
                     "content_type": {
@@ -176,6 +234,15 @@ const docTemplate = `{
                     },
                     "text": {
                         "description": "Text answers short_text and long_text.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.buyerAssignmentBody": {
+                "properties": {
+                    "holder_email": {
+                        "description": "HolderEmail is the address as the buyer typed it. Normalised and shape\nchecked by catalog.ParseHolderEmail in the service, and NOT here — the\naddress is a domain value with one definition, and a second check in the\nhandler is a second place for it to disagree.",
                         "type": "string"
                     }
                 },
@@ -1073,6 +1140,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeAssignmentLink": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AssignmentLinkView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeBeginCheckout": {
                 "properties": {
                     "data": {
@@ -1459,6 +1540,34 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeHolderAddressPurge": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HolderAddressPurgeResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeHolderList": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HolderListPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeLogout": {
                 "properties": {
                     "data": {
@@ -1663,20 +1772,6 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.SaleReversal"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "openapi.EnvelopeOutstandingAnswers": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.OutstandingAnswersPage"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2248,27 +2343,27 @@ const docTemplate = `{
             "service.AnswerReminderSweepResult": {
                 "properties": {
                     "due": {
-                        "description": "Due is how many Ticket Sales this run found waiting, bounded by the batch.\nIt is what the run had to work with, and DueTotal below is what there was.",
+                        "description": "Due is how many MAILS this run found to send, after grouping and bounded by\nthe batch. It is what the run had to work with, and DueTotal below is what\nthere was.",
                         "type": "integer"
                     },
                     "due_total": {
-                        "description": "DueTotal is how many Ticket Sales are due a reminder across the platform,\nignoring the batch — the standing backlog, in the sense the purge's\nanswers_held is. Two curls a day apart say whether the sweep is keeping up.",
+                        "description": "DueTotal is how many reminders are due across the platform, ignoring the\nbatch — the standing backlog, in the sense the purge's answers_held is. Two\ncurls a day apart say whether the sweep is keeping up.",
                         "type": "integer"
                     },
                     "failed": {
-                        "description": "Failed is reminders the provider refused. They are NOT recorded in the\nledger, so the buyer is due again on the next tick and has lost nothing.\nThis is the number that says a provider is unwell.",
+                        "description": "Failed is reminders the provider refused. They are NOT recorded in the\nledger, so the reader is due again on the next tick and has lost nothing.\nThis is the number that says a provider is unwell.",
                         "type": "integer"
                     },
                     "sent": {
-                        "description": "Sent is reminders the provider accepted and the ledger recorded. On a\nplatform where the feature ships dark and the job ships paused, zero is the\nonly answer.",
+                        "description": "Sent is reminders the provider accepted and the ledger recorded, to buyers\nand Holders alike. On a platform where the feature ships dark and the job\nships paused, zero is the only answer.\n\nIT DOES NOT SAY WHICH KIND, and adding a breakdown was considered and\nrefused: on a platform with one Organization, \"two of today's reminders\nwent to Holders\" is close enough to naming somebody, and an operator\ndiagnosing this job needs to know that mail moved rather than who read it.",
                         "type": "integer"
                     },
                     "skipped": {
-                        "description": "Skipped is candidates this run deliberately did not mail: a Confirmation\nLink that could not be signed, or an address the Sale does not carry.\nNOTHING WAS SENT and nothing was recorded, so they are due again on the\nnext tick — which is right, because the fault is the deployment's rather\nthan the buyer's.\n\nA number that stays high is a misconfiguration, not a backlog: the only way\nto fail to sign a Confirmation Link is to have no link secret.",
+                        "description": "Skipped is candidates this run deliberately did not mail: a link that could\nnot be signed, or an address the row does not carry. NOTHING WAS SENT and\nnothing was recorded, so they are due again on the next tick — which is\nright, because the fault is the deployment's rather than the reader's.\n\nA number that stays high is a misconfiguration, not a backlog: the only way\nto fail to sign a Confirmation Link or an Assignment Link is to have no\nlink secret.",
                         "type": "integer"
                     },
                     "unrecorded": {
-                        "description": "Unrecorded is sends the provider accepted whose ledger row could not be\nwritten. It is its own number rather than folded into Failed because it\nmeans the opposite thing: the buyer HAS the mail, and the platform has\nforgotten it sent it, so they may receive one more than the cap intended.\n\nIt should always be zero. A non-zero value is the one outcome of this job\nthat is worth waking somebody for, because the rationing is only as true as\nthis table.",
+                        "description": "Unrecorded is sends the provider accepted whose ledger rows could not be\nwritten. It is its own number rather than folded into Failed because it\nmeans the opposite thing: the reader HAS the mail, and the platform has\nforgotten it sent it, so they may receive one more than the cap intended.\n\nIt should always be zero. A non-zero value is the one outcome of this job\nthat is worth waking somebody for, because the rationing is only as true as\nthat table.",
                         "type": "integer"
                     }
                 },
@@ -2306,6 +2401,33 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "service.AssignmentLinkView": {
+                "properties": {
+                    "event_name": {
+                        "description": "EventName and TicketTypeName are the two public facts the page shows, as\non the Answer Link's page and for the same reason: both are already\nreadable by anybody on the Event's Storefront page.",
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "description": "HolderFirstName and HolderLastName are the name the platform currently\nholds for this Customer, for the form to start from. Both are empty for\nsomebody it has never named.\n\nTHIS IS THE PREFILL, AND IT EXISTS ONLY ON THIS SIDE OF THE CLICK. There is\nno route anywhere that reports it before the accept: a page reachable\nwithout the click that showed a known Customer's name would be an oracle\nfor whether an address is registered, which ADR 0035 is explicit about\navoiding. The click is what buys it, and the click is proof that the person\nasking is the person asked about.\n\nSEPARATE HALVES, per ADR 0005, and written to the Customer as their current\nasserted name. There is no Tax ID here and there is no field for one: a Tax\nID is a fact about the sale's BUYER and is never asked of an attendee.",
+                        "type": "string"
+                    },
+                    "holder_last_name": {
+                        "type": "string"
+                    },
+                    "questions": {
+                        "description": "Questions is this Ticket Type's Ticket Questions with whatever this Ticket\nhas already said — the Holder answering for themselves, which is the whole\nreason the accept step is worth having.\n\nEMPTY WHILE TICKET_QUESTIONS_ENABLED IS CLOSED, rather than the route\nrefusing. The two flags are separate on purpose (ADR 0046), and a Ticket\nType that asks nothing is an ordinary Ticket Type: accepting is worth doing\nfor the guest list alone.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "service.BeginCheckoutResult": {
                 "properties": {
                     "amount_cents": {
@@ -2337,8 +2459,11 @@ const docTemplate = `{
             },
             "service.BuyerTicketAnswersView": {
                 "properties": {
+                    "accepted_at": {
+                        "type": "string"
+                    },
                     "answer_link": {
-                        "description": "AnswerLink is the per-Ticket link this page exists to hand out, and is\nEMPTY once the Ticket can no longer be answered.\n\nEmpty rather than present-but-dead, because the copy button is a promise:\na buyer who copies a link into a group chat has finished the task as far as\nthey know, and will not find out for weeks that what they sent opened\nnothing. Better to have no button than a button that forwards a dead end.\nThe same reasoning applies to a link the deployment could not sign at all,\nwhich is a misconfiguration rather than anything about this Sale, and which\nmust not take the rest of the page down with it.",
+                        "description": "AnswerLink is the per-Ticket link this page exists to hand out, and is\nEMPTY once the Ticket can no longer be answered.\n\nEmpty rather than present-but-dead, because the copy button is a promise:\na buyer who copies a link into a group chat has finished the task as far as\nthey know, and will not find out for weeks that what they sent opened\nnothing. Better to have no button than a button that forwards a dead end.\nThe same reasoning applies to a link the deployment could not sign at all,\nwhich is a misconfiguration rather than anything about this Sale, and which\nmust not take the rest of the page down with it.\n\nAND EMPTY ONCE A HOLDER HAS ACCEPTED THIS TICKET (#325, ADR 0046). The\nAnswer Link stops opening at that moment — retired in favour of the person\nwho proved the address, so that a copy still sitting in a group chat cannot\noverwrite what they said about themselves — and a page that kept offering\nit would be offering the buyer a dead end. It is NOT replaced by the\nAssignment Link: that token is delivered only to the address and must never\nappear in a response to the buyer, which is the property the whole feature\nrests on.",
                         "type": "string"
                     },
                     "answerable": {
@@ -2347,6 +2472,25 @@ const docTemplate = `{
                     },
                     "answerable_refusal": {
                         "description": "AnswerableRefusal names WHY not, or is empty while it is answerable, so the\npage can say what happened rather than leaving somebody pressing a form\nthat will not take.",
+                        "type": "string"
+                    },
+                    "assignable": {
+                        "description": "Assignable is whether this Ticket may be assigned or reassigned right now,\nand AssignableRefusal names why not — a token and never a sentence, exactly\nas AnswerableRefusal is, because the Storefront owns the words in the\nreader's language.\n\nA SEPARATE PAIR FROM Answerable ABOVE and not a reuse of it, because the\ntwo windows genuinely differ: a door sale's Answers are writable and its\nTickets are not assignable. Collapsing them would make one of those two\nwrong on every ` + "`" + `in_person` + "`" + ` sale.",
+                        "type": "boolean"
+                    },
+                    "assignable_refusal": {
+                        "type": "string"
+                    },
+                    "assigned_at": {
+                        "description": "AssignedAt is when this address was named, and AcceptedAt when the Holder\nclicked. Both nil when they have not happened; AcceptedAt is always nil in\n#324.",
+                        "type": "string"
+                    },
+                    "assignment_state": {
+                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored. Absent while the flag is closed.\n\n` + "`" + `accepted` + "`" + ` IS UNREACHABLE IN #324: no mail is sent, so there is no\nAssignment Link to click. #325 makes it reachable.",
+                        "type": "string"
+                    },
+                    "holder_email": {
+                        "description": "HolderEmail is the address this Ticket was assigned to, shown back to the\nbuyer who typed it. Empty while unassigned.\n\nSHOWN TO THE BUYER AND TO NOBODY ELSE ON THIS SURFACE. It is on the payload\nbecause the buyer typed it and telling their four Tickets apart is the\nwhole point of the feature; it is on no public or Answer Link payload,\nwhere a third party's address would be a disclosure.",
                         "type": "string"
                     },
                     "ordinal": {
@@ -2484,6 +2628,14 @@ const docTemplate = `{
             },
             "service.CustomerAreaView": {
                 "properties": {
+                    "holding": {
+                        "description": "Holding is the Events somebody ELSE bought a ticket for and assigned to\nthis Customer, which they accepted (#325, parent #322, ADR 0046).\n\nA THIRD LIST RATHER THAN ROWS MIXED INTO THE FIRST TWO, and the separation\nis the disclosure rule made structural. These are not this person's\npurchases: the Ticket Sale, the money, the Sale Confirmation and the\nReversal Window all stayed with the buyer. A held Ticket rendered as a\nTicketSaleView would need an amount, a confirmation reference and a\nreversal offer, and a Holder may see none of them — so it is a different\nshape carrying different facts, and no surface can accidentally draw an\nUndo button on somebody else's purchase.\n\nEmpty for almost everybody, and empty for a Confirmation Link session by\nconstruction: that credential opens ONE Ticket Sale, and a Ticket held on\nsomebody else's sale is not it.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.HeldTicketView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "past": {
                         "items": {
                             "$ref": "#/components/schemas/service.TicketSaleView"
@@ -2726,6 +2878,10 @@ const docTemplate = `{
                     "status": {
                         "type": "string"
                     },
+                    "ticket_assignment_enabled": {
+                        "description": "TicketAssignmentEnabled is the platform's Ticket Assignment feature flag\n(ADR 0045), riding here for TicketQuestionsEnabled's reason: the staff\napp decides from this payload whether to offer the Holder List entry —\nwhich the API serves while EITHER flag is open (#333) — and a frontend\nenvironment variable would be a second copy of the answer, free to\ndisagree with the one that matters.",
+                        "type": "boolean"
+                    },
                     "ticket_questions_enabled": {
                         "description": "TicketQuestionsEnabled is the platform's Ticket Question feature flag\n(ADR 0045), not a property of this Event — it rides here for the reason\nFeeBasisPoints above does: the Ticket Type editor is composed from this\npayload, and the flag decides whether that editor offers a Ticket Question\nsurface at all. Surfacing it lets the staff app hide the section rather\nthan render one whose every request would 404, and it keeps the answer in\nONE place: a second environment variable on the frontend could disagree\nwith the backend about whether the feature is on.",
                         "type": "boolean"
@@ -2873,6 +3029,137 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.HeldTicketView": {
+                "properties": {
+                    "accepted_at": {
+                        "description": "AcceptedAt is when they accepted, RFC3339 in UTC.",
+                        "type": "string"
+                    },
+                    "event": {
+                        "$ref": "#/components/schemas/service.EventView"
+                    },
+                    "organization": {
+                        "$ref": "#/components/schemas/internal_customers_service.OrganizationView"
+                    },
+                    "ticket_id": {
+                        "description": "TicketID is this person's handle on the thing they hold. It is not a\ncredential: every route that acts on a Ticket is reached either by a signed\ntoken or by the buyer's own session, and neither takes an id from here.",
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "description": "TicketTypeName is what kind of ticket it is — public, and a row on the\nEvent's own page with its price beside it. What is NOT here is the price\nthis Ticket was actually sold at, which a Promotion may have made different\nand which is the buyer's business either way.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HolderAddressPurgeResult": {
+                "properties": {
+                    "addresses_held": {
+                        "description": "AddressesHeld is how many unaccepted holder addresses are sitting on\nTickets across the platform once this run finished — the standing backlog,\nin the Reconciler's sense.\n\nIT IS WHAT MAKES A RUN THAT DELETED NOTHING LEGIBLE. Zero purged and a\nrising held figure is a healthy job on a platform whose Events have not\nstarted yet; zero purged and zero held is a platform where nobody is\nassigning anything. Neither is the same as a scheduler that is paused, and\nthe log line below is where that distinction is actually recorded.",
+                        "type": "integer"
+                    },
+                    "addresses_purged": {
+                        "description": "AddressesPurged is how many holder addresses this run took. Zero is the\nordinary answer, and while TICKET_ASSIGNMENT_ENABLED is closed it is the\nonly answer.",
+                        "type": "integer"
+                    },
+                    "events_purged": {
+                        "description": "EventsPurged is how many Events those addresses came off, which is the\nfigure that means something in human terms: forty addresses off one Event\nis a festival that has just happened, and forty off forty Events is a\nmonth of ordinary attrition.",
+                        "type": "integer"
+                    },
+                    "purged_at": {
+                        "description": "PurgedAt is the instant this run read the clock at (RFC3339, UTC): every\nEvent that had started by it lost the addresses nobody had accepted.\n\nEchoed back because the moment is the whole correctness argument, exactly\nas the Abandoned Answer Purge echoes its cutoff. An operator staring at an\nunexpected count should be able to see, without a deploy or a database\nsession, which instant the job actually compared Event starts against.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HolderListPage": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.HolderTicketView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "outstanding_count": {
+                        "description": "OutstandingCount is how many Outstanding Answers the Event carries in ALL\n— debts, not Tickets, so a Ticket owing three counts three. It is the\nwhole Event and never the page, because \"how much don't I know yet\" is a\nquestion about the Event. It is unaffected by the owingOnly filter, for\nthe same reason.\n\nA POINTER, ABSENT WHILE TICKET_QUESTIONS_ENABLED IS CLOSED. This list is\nreadable on assignment alone (#333), and a build in that state must not\nspeak of debts a dark feature cannot define (ADR 0045).",
+                        "type": "integer"
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.OutstandingPagination"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HolderTicketView": {
+                "properties": {
+                    "assignment_state": {
+                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored.\n\nIT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the\nwire at all: a name arrives only with acceptance, so without the state an\n` + "`" + `assigned` + "`" + ` Ticket whose Holder never clicked would be indistinguishable\nfrom one nobody was ever named for — and those are opposite facts to an\nOrganizer deciding whether to chase.\n\nTHREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the\nretention purge has taken (migration 081) reads ` + "`" + `assigned` + "`" + ` here, with\nNeverAccepted set beside it — see fillHolderListEntry.",
+                        "type": "string"
+                    },
+                    "channel": {
+                        "description": "Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row\nrather than filtering it. A door sale and a Sale Import start out owing\nevery question because nobody ever put the questions to those buyers —\nthere is no checkout form on either. They stand here beside the online\nones, and the channel is what stops that reading as lost data.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_first_name": {
+                        "description": "The buyer: the party of record for the Sale, and the person to chase for\nany Ticket nobody has accepted. They are no longer the only one — an\naccepted Ticket names its Holder below — but they remain here on every row,\nbecause a Holder is the named person a Ticket was handed to and never its\nowner, and the Sale stays whole with the buyer either way.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "holder_email": {
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "description": "HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was\nhanded to, and they are filled ONLY once that person has ACCEPTED.\n\nTHE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see\nfillHolderListEntry, which is the one place to change if it is ever\nrevisited. The address is disclosed deliberately and at a stated cost (ADR\n0047): an Organizer needs a way to reach the people attending its Event,\nand a name it cannot write to leaves it routing through buyers by hand,\nwhich is the problem assignment was built to end.",
+                        "type": "string"
+                    },
+                    "holder_last_name": {
+                        "type": "string"
+                    },
+                    "never_accepted": {
+                        "description": "NeverAccepted marks a Ticket whose assignment the retention purge closed:\nsomebody was named, nobody ever accepted, and the address is gone by\ndefinition (#334, migration 081).\n\nA PRESENTATION-LEVEL INDICATOR DERIVED AT READ TIME from\nholder_address_purged_at — deliberately NOT a fourth value in\ncatalog.AssignmentState, which #331 rightly rejected. It exists because\nafter the Event starts every unaccepted assignment otherwise reads\n` + "`" + `unassigned` + "`" + `, and the morning-after sheet could not distinguish \"nobody\nwas named\" from \"named and never claimed\". It discloses nothing personal.",
+                        "type": "boolean"
+                    },
+                    "ordinal": {
+                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is,\n1..quantity. Internal and not a seat number, but the only thing telling\ntwo Tickets of one line apart — which is what lets staff say \"the second\nof Ana's four\".",
+                        "type": "integer"
+                    },
+                    "outstanding": {
+                        "description": "Outstanding names the required questions this Ticket has not answered, in\nthe order they are asked. Empty on a Ticket that owes nothing — which\nsince #333 is an ordinary row of this list, not an absent one.\n\nA POINTER, ABSENT WHILE TICKET_QUESTIONS_ENABLED IS CLOSED, for\nOutstandingCount's reason — and a pointer to a slice rather than an\n` + "`" + `omitempty` + "`" + ` slice so that \"owes nothing\" still reads as ` + "`" + `[]` + "`" + ` on the wire:\na typed reader that has to check for null before iterating is a reader\nthat will one day forget.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_id": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and ConfirmationRef are how this row is ACTED ON. The staff\nAnswers dialog is keyed on a Ticket Sale and names itself after the\nbuyer's reference, so a row carrying neither would be a complaint nobody\ncould act on. This is the jump from the list to answering the Ticket.",
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3235,25 +3522,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "service.OutstandingAnswersPage": {
-                "properties": {
-                    "data": {
-                        "items": {
-                            "$ref": "#/components/schemas/service.TicketOwingAnswersView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "outstanding_count": {
-                        "description": "OutstandingCount is how many Outstanding Answers the Event carries in ALL\n— debts, not Tickets, so a Ticket owing three counts three. It is the\nwhole Event and never the page, because \"how much don't I know yet\" is a\nquestion about the Event.\n\nIt is a SECOND number beside Pagination.Total on purpose: the two answer\ndifferent questions — \"nine Tickets are waiting on me\" and \"twenty-two\nthings are unknown\" — and a surface with only one of them either\nunderstates the work or overstates the number of people to write to.",
-                        "type": "integer"
-                    },
-                    "pagination": {
-                        "$ref": "#/components/schemas/service.OutstandingPagination"
-                    }
-                },
-                "type": "object"
-            },
             "service.OutstandingPagination": {
                 "properties": {
                     "page": {
@@ -3263,7 +3531,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "total": {
-                        "description": "Total is how many TICKETS owe something, across the whole Event. A page\npast the last still reports it truthfully, so a surface can say how many\nthere are rather than appearing to have emptied.",
+                        "description": "Total is how many Tickets the current view holds across the whole Event —\nthe roster, or the Tickets that owe when the filter is on. A page past\nthe last still reports it truthfully, so a surface can say how many there\nare rather than appearing to have emptied.",
                         "type": "integer"
                     },
                     "total_pages": {
@@ -4388,56 +4656,6 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "ticket_sale_id": {
-                        "type": "string"
-                    },
-                    "ticket_type_id": {
-                        "type": "string"
-                    },
-                    "ticket_type_name": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "service.TicketOwingAnswersView": {
-                "properties": {
-                    "channel": {
-                        "description": "Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row\nrather than filtering it. A door sale and a Sale Import start out owing\nevery question because nobody ever put the questions to those buyers —\nthere is no checkout form on either. They stand here beside the online\nones, and the channel is what stops that reading as lost data.",
-                        "type": "string"
-                    },
-                    "confirmation_ref": {
-                        "type": "string"
-                    },
-                    "customer_email": {
-                        "type": "string"
-                    },
-                    "customer_first_name": {
-                        "description": "The buyer, who is the ONLY person there is to chase: the platform holds no\naddress for a Ticket's holder and does not ask for one, so a question added\nafter a sale reaches its holder only if the buyer forwards it.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
-                        "type": "string"
-                    },
-                    "customer_last_name": {
-                        "type": "string"
-                    },
-                    "ordinal": {
-                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is,\n1..quantity. Internal and not a seat number, but the only thing telling\ntwo Tickets of one line apart — which is what lets staff say \"the second\nof Ana's four\".",
-                        "type": "integer"
-                    },
-                    "outstanding": {
-                        "description": "Outstanding names the required questions this Ticket has not answered, in\nthe order they are asked. Never empty: a Ticket with nothing outstanding\nis not on this list at all.",
-                        "items": {
-                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "sold_at": {
-                        "type": "string"
-                    },
-                    "ticket_id": {
-                        "type": "string"
-                    },
-                    "ticket_sale_id": {
-                        "description": "TicketSaleID and ConfirmationRef are how this row is ACTED ON. The staff\nAnswers dialog is keyed on a Ticket Sale and names itself after the\nbuyer's reference, so a row carrying neither would be a complaint nobody\ncould act on. This is the jump from the list to answering the Ticket.",
                         "type": "string"
                     },
                     "ticket_type_id": {
@@ -6752,6 +6970,132 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment": {
+            "put": {
+                "description": "Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes ` + "`" + `accepted` + "`" + `; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on ` + "`" + `online` + "`" + ` and ` + "`" + `import` + "`" + ` Ticket Sales only — an ` + "`" + `in_person` + "`" + ` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.",
+                "parameters": [
+                    {
+                        "description": "Ticket Sale id",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket id",
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.buyerAssignmentBody",
+                                        "summary": "body",
+                                        "description": "The email address to assign this ticket to"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The email address to assign this ticket to",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeBuyerTicketAnswers"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Assign one of your own tickets to an email address",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
         "/api/v1/customer/unsubscribe": {
             "post": {
                 "description": "Turns the Follow Digest off for the Customer named by a signed unsubscribe token, which is carried in the footer of every Digest. Requires no sign-in and accepts no credential: a Digest is read months after anybody last signed in, and an opt-out gated behind a passcode would not be an opt-out. Unsubscribing is a switch and not a purge — every Follow stands, stays visible in the Customer Area, and the Customer can turn the Digest back on from there. This is deliberately a POST with no GET counterpart, so that a mail security scanner prefetching the link in a message cannot unsubscribe anybody; a GET is answered 405. Idempotent: the same link appears in every Digest a person ever received, and pressing it twice means the same thing once. A malformed, forged or spent token is UNSUBSCRIBE_LINK_INVALID. Touches no transactional mail: One-time Passcodes and Sale Confirmations arrive either way.",
@@ -6805,7 +7149,7 @@ const docTemplate = `{
         },
         "/api/v1/internal/answer-reminders/sweep": {
             "post": {
-                "description": "Sweeps the active Ticket Sales whose Tickets still owe required Ticket Question Answers and emails each buyer one reminder pointing at their sale's page, where they can answer what they know and copy each Ticket's own Answer Link for whoever will use it (ADR 0044). Addressed to the BUYER and never to a holder: the platform stores no holder address and asks for none. Rationed per Ticket Sale — at most one mail every 7 days and at most two ever — silent once the Event has started, and never sent for a reversed Sale. Swept rather than triggered by an edit, so an Organization authoring four questions in ten minutes cannot mail the same people four times. Transactional: it is not gated by Marketing Consent, exactly as a Sale Confirmation is not, and it is written in the recipient's Mail Locale (the Sale Locale first, then the Customer's, then English). Sends nothing at all while TICKET_QUESTIONS_ENABLED is off (ADR 0045), and the Cloud Scheduler job that drives it ships paused. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. The response reports how many Sales were due, how many mails went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names no buyer, no address and no sale.",
+                "description": "Sweeps the Tickets of active Ticket Sales that still owe required Ticket Question Answers and emails whoever can actually answer them (ADR 0044, ADR 0046). A Ticket that is ` + "`" + `accepted` + "`" + ` produces a reminder to its HOLDER, carrying their own Assignment Link and naming no buyer, no price and no Sale Confirmation reference; a Ticket that is ` + "`" + `unassigned` + "`" + ` or ` + "`" + `assigned` + "`" + ` produces one to the BUYER, pointing at their sale's page where they answer what they know and copy each Ticket's own Answer Link for whoever will use it. A Sale with a mix produces both — one mail to the buyer covering only the Tickets still theirs to chase, and one to each accepted Holder about their own — never one mail listing everything to everybody. Rationed per TICKET: at most one mail every 7 days and at most two ever, so a four-ticket sale can chase two Holders without mailing either twice. Silent once the Event has started, and never sent for a reversed Sale. Swept rather than triggered by an edit, so an Organization authoring four questions in ten minutes cannot mail the same people four times. Transactional: it is not gated by Marketing Consent, exactly as a Sale Confirmation is not — which matters most for a Holder, who accepted a ticket and opted into nothing. Written in the recipient's Mail Locale: the Sale Locale first for the buyer, whose own purchase it is about, and the recipient's own remembered locale first for a Holder, who is not party to the sale. Sends nothing at all while TICKET_QUESTIONS_ENABLED is off (ADR 0045); with TICKET_ASSIGNMENT_ENABLED off every Ticket is addressed to its buyer, exactly as before ADR 0046. The Cloud Scheduler job that drives it ships paused. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale, not a Ticket — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. The response reports how many mails were due, how many went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names nobody and does not say which recipients were Holders.",
                 "responses": {
                     "200": {
                         "content": {
@@ -6922,6 +7266,37 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Enqueue this week's Follow Digests",
+                "tags": [
+                    "internal"
+                ]
+            }
+        },
+        "/api/v1/internal/holder-addresses/purge": {
+            "post": {
+                "description": "Deletes the holder email address from every Ticket still in ` + "`" + `assigned` + "`" + ` — an address was given and nobody has accepted it — whose Event has started (ADR 0046). Read as an instant: ` + "`" + `events.starts_at` + "`" + ` is fixed in the Event's own timezone, so the comparison already carries it. The purge takes the ADDRESS ONLY: the Ticket, its Ticket Question Answers, its Ticket Sale and the fact that the Ticket was assigned all survive, the last of them as a purge timestamp on the Ticket, because the platform is entitled to remember that it sold a ticket and that somebody was named for it and is not entitled to keep the name. An ` + "`" + `accepted` + "`" + ` Ticket loses nothing at any age: its Holder proved the address from their own inbox and is an ordinary Customer under ordinary Customer retention. An Event that has never said when it starts is never purged, matching the reading the assignment window gives a missing start. A reversed Ticket Sale is purged like any other. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The moment cannot be named by the caller; it is taken from the clock, and the instant actually used is echoed back. Not gated on the Ticket Assignment feature flag, deliberately — the switch that turns a deletion off must never be the switch that turns collection off. Safe to call by hand at any time and idempotent: a second run purges nothing and reports zeros. The response reports how many addresses went, how many Events they came off, the instant used, and how many unaccepted addresses are still held across the platform, so two runs a day apart say whether anybody is assigning at all. It names no address, no Ticket, no buyer and no Event, because the address is the data this job exists to remove.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHolderAddressPurge"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Purge unaccepted holder addresses at Event start",
                 "tags": [
                     "internal"
                 ]
@@ -8362,6 +8737,270 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Answer a ticket question through an answer link",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/assignment-link": {
+            "post": {
+                "description": "Accepts the Ticket Assignment the signed Assignment Link names: the Ticket moves to ` + "`" + `accepted` + "`" + `, and a Customer is created or matched on the normalised email address the buyer gave and marked Verified — the click being Proof of Email Ownership (ADR 0035, ADR 0046). Requires no sign-in, no passcode and no password, and mints no session. **Accepting twice is idempotent**, so a second click lands on the same page and keeps the first acceptance's instant. **It grants no Marketing Consent and no consent of any kind.** The response discloses only the Event name, the Ticket Type name, the Holder's own current name for the form to prefill, and this Ticket's Ticket Questions — never the buyer's name or email, the price, the Tax ID, the Sale Confirmation reference, or the Sale's other Tickets. **The name is prefilled only here, after the click**: no route reports it before, which would make this an oracle for whether an address is registered. Refused with 401 ASSIGNMENT_LINK_INVALID when the token was tampered with, truncated, signed by another deployment or for another purpose, names a Ticket that no longer exists, names one whose Ticket Sale has been reversed, or names an assignment the Ticket no longer carries because it was reassigned; those causes are deliberately indistinguishable, because telling them apart would disclose what the buyer did. Refused with 401 ASSIGNMENT_LINK_EXPIRED once the Event has started, which is told apart only because an Event's start is already published. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off. The questions list is empty while the separate Ticket Question flag is off.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.assignmentLinkBody",
+                                        "summary": "body",
+                                        "description": "The signed assignment link token"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The signed assignment link token",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Accept a ticket assignment",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/assignment-link/name": {
+            "put": {
+                "description": "Writes the first and last name of the Holder who accepted the Ticket the signed Assignment Link names, as that Customer's current asserted name — stored separately (ADR 0005), and overwriting whatever the record held, since the person editing is the person the record is about. **A Holder is never asked for a Tax ID**: it is a fact about the sale's buyer, never about an attendee, and this body has nowhere to put one. It accepts the assignment first if it has not been accepted already, so the name and the click are one act. No sign-in, no session minted, and no consent granted. Refused with 400 VALIDATION_FAILED carrying ` + "`" + `details.fields` + "`" + ` when either half of the name is blank or over 100 characters, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.assignmentLinkNameBody",
+                                        "summary": "body",
+                                        "description": "The signed token and the holder's name"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The signed token and the holder's name",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Give the holder's name through an assignment link",
+                "tags": [
+                    "public"
+                ]
+            }
+        },
+        "/api/v1/public/assignment-link/questions/{questionId}": {
+            "put": {
+                "description": "Writes the Answer to one Ticket Question on the Ticket a signed Assignment Link names, given by the Holder themselves. It accepts the assignment first if it has not been accepted already. Once a Ticket is accepted its Answer Link stops opening, so an answer given here cannot be overwritten by somebody still holding a forwarded link — which is what accepting buys. The buyer and Event Staff keep their own routes to correct an Answer (ADR 0044). Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, and 404 while the separate Ticket Question flag is off.",
+                "parameters": [
+                    {
+                        "description": "Ticket question ID",
+                        "in": "path",
+                        "name": "questionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.assignmentLinkAnswerBody",
+                                        "summary": "body",
+                                        "description": "The signed token, and the answer in the shape its question's kind takes"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The signed token, and the answer in the shape its question's kind takes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentLink"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Answer a ticket question through an assignment link",
                 "tags": [
                     "public"
                 ]
@@ -9945,7 +10584,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/outstanding-answers": {
             "get": {
-                "description": "A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of ` + "`" + `in_person` + "`" + ` and ` + "`" + `import` + "`" + ` sales appear beside the ` + "`" + `online` + "`" + ` ones and start out owing everything, because those buyers were never asked — each row carries its ` + "`" + `channel` + "`" + ` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because \"twelve people never told us\" is what a reader after the fact came to find out. ` + "`" + `outstanding_count` + "`" + ` is the Event's total number of debts, while ` + "`" + `pagination.total` + "`" + ` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.",
+                "description": "A page of the Event's Holder List: EVERY Ticket of every live Ticket Sale, oldest sale first — the Organization's answer to \"who is coming\". Available while EITHER the Ticket Assignment or the Ticket Question feature flag is open, and 404 only when both are dark. Each row carries the Ticket's ` + "`" + `assignment_state` + "`" + ` — ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + ` — and, once a Holder has ACCEPTED, that Holder's own name and email address (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as ` + "`" + `assigned` + "`" + ` and never named. A Ticket whose unaccepted address the retention purge took reads ` + "`" + `assigned` + "`" + ` with ` + "`" + `never_accepted` + "`" + ` beside it, derived at read time from the purge marker — somebody was named and never claimed the Ticket, which after the Event has started is a different fact from nobody having been named; no address travels with it, because the address is gone by definition. All assignment fields are ABSENT while the Ticket Assignment flag is off. Where the Ticket Question feature is open, each row also names the required questions it has not answered, in ` + "`" + `outstanding` + "`" + ` — an empty array is a Ticket that owes nothing, and stays on the list, because the roster is the point and the questions are a column on it. ` + "`" + `outstanding=true` + "`" + ` filters the list to the Tickets that still owe — Outstanding Answers is a filter of this list, not its definition. ` + "`" + `outstanding_count` + "`" + ` is the Event's total number of debts across the whole roster, unaffected by the filter, while ` + "`" + `pagination.total` + "`" + ` counts the Tickets of the current view. Both ` + "`" + `outstanding` + "`" + ` and ` + "`" + `outstanding_count` + "`" + ` are absent while the Ticket Question flag is off. Tickets of ` + "`" + `in_person` + "`" + ` and ` + "`" + `import` + "`" + ` sales appear beside the ` + "`" + `online` + "`" + ` ones and start out owing everything, because those buyers were never asked — each row carries its ` + "`" + `channel` + "`" + ` so that reads as history rather than as loss. Started Events still report the whole roster and its debts, because \"who came and who never told us\" is what a reader after the fact came to find out.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -9971,6 +10610,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "description": "Only the Tickets that still owe a required Answer",
+                        "in": "query",
+                        "name": "outstanding",
+                        "schema": {
+                            "type": "boolean"
+                        }
                     }
                 ],
                 "responses": {
@@ -9978,7 +10625,7 @@ const docTemplate = `{
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeOutstandingAnswers"
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHolderList"
                                 }
                             }
                         },
@@ -10020,7 +10667,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "summary": "List an event's outstanding answers",
+                "summary": "List an event's holder list",
                 "tags": [
                     "staff"
                 ]

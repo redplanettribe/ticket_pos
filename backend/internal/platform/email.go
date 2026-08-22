@@ -164,15 +164,24 @@ type SaleReversalRefused struct {
 
 // AnswerReminder is the mail telling a buyer that Tickets on their Ticket Sale
 // still owe Answers, and pointing them back at their sale to give them or to
-// pass the per-Ticket links on (#317, ADR 0044).
+// pass the per-Ticket links on (#317, ADR 0044; #328, ADR 0046).
 //
-// IT IS ADDRESSED TO THE BUYER BECAUSE THERE IS NOBODY ELSE TO ADDRESS. The
-// platform holds no address for a holder and asks for none, which is the
-// decision the whole feature is built around: collecting three friends'
-// addresses so the platform could write to them is the third-party collection
-// problem ADR 0044 exists to avoid. So a Ticket Question added after a sale
-// reaches its holder only if the buyer forwards it, and this is the message that
-// asks them to.
+// IT IS ADDRESSED TO THE BUYER FOR THE TICKETS STILL THEIRS TO CHASE, which is a
+// narrower claim than the one this type shipped with. ADR 0044 addressed it to
+// the buyer "because there is nobody else to address"; ADR 0046 gave a Ticket a
+// Holder who accepts by mail, and #328 sends that Holder their own reminder —
+// see HolderAnswerReminder below. What is left for this message is every Ticket
+// of the Sale that is `unassigned` or `assigned`: nobody else can answer for
+// them, because an address typed and never accepted belongs to somebody who has
+// agreed to nothing. So a Ticket Question added after a sale still reaches an
+// unaccepted Ticket's holder only if the buyer forwards the Answer Link, and
+// this is the message that asks them to.
+//
+// A SALE WITH A MIX PRODUCES BOTH MAILS AND NEITHER LISTS THE OTHER'S TICKETS.
+// One message to the buyer covering the Tickets still theirs, one to each
+// accepted Holder about their own — never one mail listing everything to
+// everybody, which would tell each Holder how many tickets the buyer bought and
+// tell the buyer nothing they can act on.
 //
 // IT IS TRANSACTIONAL, and this type's place on EmailSender's transactional half
 // is what makes that structural rather than remembered. It is about tickets
@@ -180,9 +189,17 @@ type SaleReversalRefused struct {
 // same sentence, so nothing anywhere reads Marketing Consent before sending it
 // and it is not even reachable from the marketing sending identity (ADR 0030,
 // ADR 0034). What bounds it instead is catalog.MayRemind: at most one per Ticket
-// Sale per week, at most two ever, and silence once the Event has started. Those
-// are the only brakes this message has, because a transactional mail carries no
-// unsubscribe footer.
+// Ticket per week, at most two ever, and silence once the Event has started.
+// Those are the only brakes this message has, because a transactional mail
+// carries no unsubscribe footer.
+//
+// THE RATIONING IS PER TICKET AND THE MAIL IS PER SALE, which is not a
+// contradiction and is worth reading twice. The sweep gathers every
+// buyer-addressed Ticket of one Sale into ONE of these and then spends one
+// ledger row per Ticket it covered, so an ordinary four-Ticket sale still
+// produces the two messages it always did. What per-Ticket rationing buys is the
+// Holders: a per-Sale allowance would let the first Holder mailed spend the
+// whole Sale's and leave the other three unwritten-to.
 //
 // IT IS SWEPT RATHER THAN TRIGGERED. Nothing composes one of these when a
 // question is authored — an Organization drafting four questions in ten minutes
@@ -226,6 +243,233 @@ type AnswerReminder struct {
 	// their record remembers, and it governs every mail about that sale however
 	// long afterwards it is sent. This one is sent longest afterwards of any —
 	// weeks, by a job nobody is watching, from no page at all.
+	Locale Locale
+}
+
+// HolderAnswerReminderTicket is one owed Ticket as a Holder's Answer Reminder
+// lists it: what the reader recognises it by, and the link they answer through.
+//
+// EventName and TicketTypeName are already public — rows on a Storefront page
+// anybody can read — and are the whole of what the mail says about the
+// purchase. EventName travels PER TICKET because the envelope is per Holder
+// per sweep (#335) and nothing guarantees every Ticket one person accepted
+// belongs to one Event.
+//
+// AnswerURL is the Assignment Link: the same address their Assignment mail
+// carried, minted fresh, where they give their name and answer their own
+// Ticket Questions (#326).
+//
+// IT IS THE WHOLE MESSAGE, like the Answer Reminder's Confirmation Link and
+// the Assignment mail's AcceptURL. A reminder with no link is an instruction
+// its reader cannot follow, so the sweep drops a Ticket whose link could not
+// be signed rather than listing it linkless.
+//
+// IT IS A CREDENTIAL THAT MINTS AN IDENTITY, and everything ADR 0046 says
+// about TicketAssignment.AcceptURL applies here word for word: it must never
+// appear on a buyer surface or in any API response to the buyer, because the
+// Answer Link is copyable off the buyer's own sale page and a token the buyer
+// can see proves nothing about who clicked it. Anything that widens where
+// this type's values travel widens where that credential travels.
+//
+// EACH LINK OPENS EXACTLY ONE TICKET, which is why a mail about two Tickets
+// carries two of these rather than one URL for both: there is no single
+// address that would open both, and inventing one would be inventing a
+// surface that discloses a Sale to somebody entitled to see one Ticket.
+type HolderAnswerReminderTicket struct {
+	EventName      string
+	TicketTypeName string
+	AnswerURL      string
+}
+
+// HolderAnswerReminder is the mail telling a Holder that the Ticket THEY
+// accepted still owes an Answer, and carrying the link they answer through
+// (#328, parent #322, ADR 0046).
+//
+// IT IS THE MAIL ADR 0044 SAID COULD NOT EXIST. That ADR addressed the reminder
+// to the buyer "because there is nobody else to address", which was true while
+// the platform held no address for a holder. ADR 0046 gave a Ticket a Holder who
+// proves their address by clicking, so there is now somebody else, and they are
+// the person who knows the answer — chasing the buyer instead nags the one
+// person the whole feature has just established does not know their friend's
+// t-shirt size.
+//
+// IT IS A SEPARATE TYPE FROM AnswerReminder AND THAT IS THE DISCLOSURE BOUNDARY,
+// not a filing preference. A Holder is told the Event, the Ticket Type and their
+// own link, and NEVER the buyer's name, the buyer's address, the price, the Tax
+// ID, the Sale Confirmation reference or the Sale's other Tickets — ADR 0044's
+// rule, carried over unchanged by ADR 0046 and applied to an inbox. Sharing one
+// struct with the buyer's reminder would leave a Reference and a CustomerName
+// field sitting in scope at the send site, one line away from a message they may
+// never appear in. A field that does not exist cannot be printed by mistake.
+// This is the same reason AssignmentLinkView is a separate type from the buyer's
+// view of the same Ticket.
+//
+// IT IS TRANSACTIONAL, and its place on EmailSender's transactional half is what
+// makes that structural rather than remembered. It matters more here than for
+// any other message on that half: a Holder accepted a ticket and opted into
+// NOTHING — accepting grants no consent of any kind (ADR 0046) — so there is no
+// Marketing Consent to read and, being about a ticket they hold, none is
+// required. Nothing anywhere reads a consent state before sending it and it is
+// not reachable from the marketing sending identity at all (ADR 0030, ADR 0034).
+// What bounds it instead is catalog.MayRemind, per TICKET: at most one a week,
+// at most two ever, silence once the Event has started.
+//
+// ONE PER HOLDER PER SWEEP SINCE #335. A person who accepted two Tickets of
+// one sale used to get two of these, one per Assignment Link; the ruling on
+// #335 folded them into one message listing each owed Ticket with its own
+// link, matching the shape the buyer's reminder always had. The per-Ticket
+// caps did not move: each listed Ticket burns its own allowance, only the
+// envelope is shared.
+//
+// IT IS SWEPT RATHER THAN TRIGGERED, like its buyer-addressed sibling. Nothing
+// composes one when a question is authored — an Organization drafting four
+// questions in ten minutes would otherwise mail every Holder four times — so the
+// only caller is the scheduled job in the sales module.
+type HolderAnswerReminder struct {
+	// To is the address that ACCEPTED this Ticket: `tickets.holder_email`,
+	// normalised, and the address the AnswerURL below was signed against.
+	//
+	// It is not a third party's address in the sense the Assignment mail's is.
+	// Its owner clicked a link from their own inbox, which is Proof of Email
+	// Ownership (ADR 0035), so they are a Verified Customer of this platform and
+	// this is a message about their own ticket. That is also why the Holder
+	// Address Purge never reaches it: the purge takes addresses nobody accepted.
+	To string
+	// Tickets are the owed Tickets this ONE mail lists, each with its own
+	// Assignment Link — at least one, usually exactly one.
+	//
+	// A LIST SINCE #335, and the ruling it records: ONE mail per Holder per
+	// sweep. The buyer's reminder already fans a Sale's Tickets into one
+	// message, so per-Ticket envelopes to a Holder were an inconsistency as
+	// well as a volume problem, and mailing one address twice in one sweep is
+	// the shape spam filters punish. Only the ENVELOPE is shared: each listed
+	// Ticket still burns its own reminder allowance, and each keeps its own
+	// link, because an Assignment Link opens exactly one Ticket by design and
+	// there is still no single URL that opens two.
+	Tickets []HolderAnswerReminderTicket
+	// Locale is the language this is written in, ALREADY RESOLVED by the caller
+	// (ADR 0033).
+	//
+	// THE CHAIN IS READ RECIPIENT-FIRST, as the Assignment mail's is and unlike
+	// every other message about a sale. This reader is not party to the sale:
+	// they did not buy anything, were not on the page that recorded a Sale
+	// Locale, and may not share the buyer's language at all — a Spanish-speaking
+	// Holder whose friend paid on the English site is exactly the case the
+	// feature exists to serve. So their own remembered Mail Locale outranks the
+	// sale's, and the sale's is kept as the better-than-nothing fallback. The
+	// BUYER'S reminder keeps the ordinary order; see #325 and
+	// service.assignmentMailLocale for the reasoning this borrows.
+	Locale Locale
+}
+
+// TicketAssignment is the mail telling somebody that a friend bought them a
+// ticket, and carrying the Assignment Link whose click accepts it (#325, parent
+// #322, ADR 0046).
+//
+// IT IS THE ONE MESSAGE THIS PLATFORM SENDS TO SOMEBODY WHO NEVER CAME HERE, at
+// an address supplied by a person with no authority to supply it. That is the
+// price of the feature and ADR 0046 is where it is paid; everything odd about
+// the shape below is that price being paid in fields.
+//
+// IT NAMES NO BUYER. There is no CustomerName here and there must never be one:
+// the reader is owed the fact that somebody bought them a ticket, not that
+// person's identity, and a mail that named them would disclose a fact about the
+// purchase to whoever the mail was forwarded to. For the same reason there is no
+// price, no Tax ID and no Sale Confirmation reference — the Answer Link's
+// disclosure rule (ADR 0044), carried over unchanged and applied to an inbox.
+//
+// IT IS TRANSACTIONAL, and its place on EmailSender's transactional half is what
+// makes that structural rather than remembered. Nothing reads Marketing Consent
+// before sending it and it is not reachable from the marketing sending identity
+// (ADR 0030, ADR 0034). What bounds it instead is that only a buyer naming a NEW
+// address sends one at all: re-submitting the address a Ticket already carries
+// writes nothing and mails nobody.
+type TicketAssignment struct {
+	// To is the address the buyer named, normalised by NormalizeEmail before it
+	// was stored (migration 080). It belongs to a third party who has agreed to
+	// nothing, which is why #322's purge takes it when the Event starts.
+	To string
+	// EventName and TicketTypeName are what the reader has to recognise this by,
+	// and both are already public: they are rows on a Storefront page anybody can
+	// read. They are the whole of what this mail says about the purchase.
+	EventName      string
+	TicketTypeName string
+	// AcceptURL is the Assignment Link: the Storefront address whose click
+	// accepts, carrying a token distinct from the Answer Link and delivered ONLY
+	// here.
+	//
+	// IT IS THE WHOLE MESSAGE, like the Answer Reminder's link and unlike the
+	// receipt's: a message telling somebody they have a ticket and giving them no
+	// way to claim it would be an instruction its reader cannot follow. The
+	// caller refuses to compose one rather than sending it linkless.
+	//
+	// THIS FIELD IS WHY THIS TYPE EXISTS AT ALL. The link must never appear on a
+	// buyer surface or in any API response to the buyer — the Answer Link is
+	// copyable off the buyer's own sale page, so a design that showed this one
+	// there too would mean the click proves nothing and the Verified Customer
+	// minted from it is a fiction (ADR 0046). Mail is the only carrier.
+	AcceptURL string
+	// Locale is the language this is written in, ALREADY RESOLVED by the caller
+	// (ADR 0033).
+	//
+	// IT IS THE ONE MAIL WHOSE READER IS NOT PARTY TO THE SALE, so the usual
+	// chain is read in the other order: the recipient's own remembered Mail
+	// Locale outranks the language the BUYER was reading when they paid. See
+	// service.assignmentMailLocale.
+	Locale Locale
+}
+
+// NoLongerHolding is the mail telling an accepted Holder that a Ticket they held
+// is no longer theirs (#327, parent #322, ADR 0046).
+//
+// ONE MESSAGE FOR TWO CAUSES, AND THE SHAPE IS WHERE THAT RULE IS ENFORCED. A
+// Holder stops holding a Ticket for exactly two reasons — the buyer reassigned
+// it, or the Ticket Sale was reversed — and from where the Holder sits the
+// outcome is identical: they had a ticket and now they do not. So there is one
+// type, with NO field naming the cause and no room to add one. A platform
+// talkative about a reassignment and silent about a reversal would be teaching
+// its readers to infer the cause from the silence.
+//
+// IT NAMES NO BUYER AND GIVES NO CAUSE. There is no CustomerName here, no
+// `reason`, no `reversed_at`, no Sale Confirmation reference and no price. Who
+// bought the ticket and what they decided to do with it are facts about somebody
+// else's purchase, and ADR 0044's disclosure rule — carried over unchanged by
+// ADR 0046 — binds this message exactly as it binds the Assignment mail. Mail
+// gets forwarded; "your friend cancelled" is not this platform's to say.
+//
+// IT CARRIES NO LINK, and that absence is deliberate rather than unfinished.
+// There is nothing left for the reader to do: the Ticket is not theirs, no page
+// would show it, and an Assignment Link for it has already stopped opening. A
+// message with a button on it would be inviting somebody to press their way back
+// to something that is gone.
+//
+// IT IS OWED ONLY TO SOMEBODY WHO ACCEPTED. An address that was typed and never
+// accepted is never sent this, because the platform never told that person they
+// had anything — so telling them now that they have lost it would be the
+// platform's first and only word to a stranger, about a ticket they never knew
+// existed. The caller enforces that; this type simply never gets built for them.
+//
+// TRANSACTIONAL, on EmailSender's transactional half with the receipts, so no
+// consent state is read before sending it and it is not reachable from the
+// marketing sending identity at all (ADR 0030, ADR 0034). A Holder consented to
+// nothing by accepting a ticket, and being told the ticket is gone is not
+// marketing.
+type NoLongerHolding struct {
+	// To is the Holder's own address — proven by their click, which is what makes
+	// this the one mail in this flow whose recipient is certainly a real person
+	// who chose to be here.
+	To string
+	// EventName is the whole of what this message says about the ticket, and it
+	// is already public: the Event has a Storefront page anybody can read. There
+	// is deliberately no Ticket Type here either — "which kind of ticket you no
+	// longer have" is a distinction with nothing behind it for a reader who has
+	// none.
+	EventName string
+	// Locale is the language this is written in, ALREADY RESOLVED by the caller
+	// (ADR 0033), and resolved RECIPIENT-FIRST for the reason the Assignment
+	// mail's is: this reader is not party to the sale. Unlike that mail's reader,
+	// though, this one is certainly a Customer — they accepted — so the
+	// remembered Mail Locale is usually there to be found.
 	Locale Locale
 }
 
@@ -661,6 +905,46 @@ type EmailSender interface {
 	// anywhere near the code that sends it. What bounds it is catalog.MayRemind,
 	// which is the only thing that does.
 	SendAnswerReminder(ctx context.Context, reminder AnswerReminder) error
+	// SendHolderAnswerReminder delivers the Answer Reminder addressed to the
+	// Holder of an accepted Ticket (#328, ADR 0046).
+	//
+	// A SECOND METHOD RATHER THAN A FLAG ON THE FIRST, because the two messages
+	// disclose different things and the type system is where that is enforced.
+	// One carries the buyer's name and their Sale Confirmation reference; the
+	// other carries a credential that mints an identity and must name nobody. A
+	// single method taking either would put both sets of fields in scope at every
+	// send site.
+	//
+	// TRANSACTIONAL, beside the other two, and here the placement is at its most
+	// load-bearing: this reader accepted a ticket and consented to nothing, so
+	// there is no consent state to read and none may be read.
+	SendHolderAnswerReminder(ctx context.Context, reminder HolderAnswerReminder) error
+	// SendTicketAssignment delivers the Assignment mail carrying an Assignment
+	// Link (#325, ADR 0046).
+	//
+	// TRANSACTIONAL, beside the Answer Reminder, and the placement is load
+	// bearing twice over. It means no consent state is anywhere near the code
+	// that sends it — which is right, because the recipient has consented to
+	// nothing and could not have, having never been here — and it means the
+	// message cannot be reached from the marketing sending identity at all.
+	//
+	// It is also the only method on this interface that carries a credential
+	// capable of MINTING AN IDENTITY. Anything that widens where TicketAssignment
+	// values travel is widening where that credential travels.
+	SendTicketAssignment(ctx context.Context, assignment TicketAssignment) error
+	// SendNoLongerHolding delivers the one mail an accepted Holder gets when a
+	// Ticket stops being theirs (#327, ADR 0046).
+	//
+	// TRANSACTIONAL, beside the Assignment mail whose reader it is written to
+	// second. The recipient granted no consent by accepting a ticket, so there is
+	// none to consult and none is consulted; and being told that a ticket is gone
+	// must not be suppressible by a marketing preference.
+	//
+	// ONE METHOD FOR BOTH CAUSES, which is this interface's share of the rule.
+	// Two methods — one for a reassignment, one for a reversal — would be two
+	// places for the copy to drift apart, and the whole point is that the reader
+	// cannot tell which happened.
+	SendNoLongerHolding(ctx context.Context, notice NoLongerHolding) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
@@ -723,6 +1007,35 @@ func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 // which purchase, and in which language.
 func (s *LoggingEmailSender) SendAnswerReminder(_ context.Context, r AnswerReminder) error {
 	s.Logger.Info("answer reminder sent", "email", r.To, "reference", r.Reference, "locale", string(r.Locale))
+	return nil
+}
+
+// SendHolderAnswerReminder logs the Holder's Answer Reminder for local
+// development. The address, the Event and the language are logged and the link
+// is not — unlike the Assignment mail's, which is logged because locally there
+// is no mailbox and the click is the whole point of that message. This one's
+// reader has already accepted; what a local developer needs to see here is that
+// a HOLDER rather than a buyer was chased, which is the change #328 made.
+func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
+	s.Logger.Info("holder answer reminder sent", "email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale))
+	return nil
+}
+
+// SendTicketAssignment logs the Assignment mail for local development. The
+// address and the link are logged, because locally there is no mailbox and the
+// link is the whole point of the message — the same reason the OTP code is
+// logged. Nothing about the buyer is logged, because nothing about the buyer is
+// in the message.
+func (s *LoggingEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
+	s.Logger.Info("ticket assignment sent", "email", a.To, "event", a.EventName, "accept_url", a.AcceptURL, "locale", string(a.Locale))
+	return nil
+}
+
+// SendNoLongerHolding logs the No Longer Holding notice for local development.
+// The address and the Event are logged and there is nothing else in the message
+// to log: it carries no link, no cause and nothing about the buyer.
+func (s *LoggingEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
+	s.Logger.Info("no longer holding notice sent", "email", n.To, "event", n.EventName, "locale", string(n.Locale))
 	return nil
 }
 
@@ -805,6 +1118,21 @@ func (NoopEmailSender) SendAnswerReminder(_ context.Context, _ AnswerReminder) e
 	return nil
 }
 
+// SendHolderAnswerReminder discards the Holder's Answer Reminder.
+func (NoopEmailSender) SendHolderAnswerReminder(_ context.Context, _ HolderAnswerReminder) error {
+	return nil
+}
+
+// SendTicketAssignment discards the Assignment mail.
+func (NoopEmailSender) SendTicketAssignment(_ context.Context, _ TicketAssignment) error {
+	return nil
+}
+
+// SendNoLongerHolding discards the No Longer Holding notice.
+func (NoopEmailSender) SendNoLongerHolding(_ context.Context, _ NoLongerHolding) error {
+	return nil
+}
+
 // SendPayoutRequestSubmitted discards the operator's submission notice.
 func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutRequestSubmitted) error {
 	return nil
@@ -869,6 +1197,34 @@ type CaptureEmailSender struct {
 	// mailed a second time inside the week" cannot be told from any message's
 	// contents, only from there being none.
 	AnswerReminders []AnswerReminder
+	// The Answer Reminders delivered to HOLDERS (#328). A separate list rather
+	// than a flag on the one above, because the types are separate — and because
+	// the assertion that matters most in this feature is which of the two lists a
+	// message landed in. "The buyer was not chased about a Ticket somebody else
+	// accepted" is a fact about the OTHER list being shorter, and a test that
+	// filtered one list by a field could not tell it from a message that named
+	// the wrong recipient.
+	HolderAnswerReminders []HolderAnswerReminder
+	// The Assignment mails delivered (#325). Kept whole rather than as rendered
+	// strings, for the reason the Answer Reminders above are: a test calls
+	// Subject() and Text() itself, which is the only way the Mail Locale and the
+	// copy's promises are visible at all.
+	//
+	// It is also the ONLY way an integration test can see an Assignment Link. The
+	// token is never on a buyer surface and never in an API response — that is
+	// the security property of the whole feature — so the captured mail is the
+	// one place a test can get one, exactly as a Holder's inbox is the one place
+	// a person can.
+	TicketAssignments []TicketAssignment
+	// The No Longer Holding notices delivered (#327). Kept whole, so a test can
+	// render Subject() and Text() itself and read what the Holder read — which is
+	// the only way "it gives no cause and names no buyer" can be asserted at all.
+	//
+	// Its LENGTH carries as much of this ticket as its contents do: "an assigned
+	// Holder who never accepted is mailed in NEITHER case" and "the Holder is
+	// told exactly once" are both facts about how many of these exist, and
+	// neither is visible in any message's words.
+	NoLongerHoldings []NoLongerHolding
 	// The five Payout Request notices (#179, #188).
 	SubmittedPayoutRequests    []PayoutRequestSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
@@ -981,6 +1337,39 @@ func (s *CaptureEmailSender) SendAnswerReminder(_ context.Context, r AnswerRemin
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.AnswerReminders = append(s.AnswerReminders, r)
+	return nil
+}
+
+// SendHolderAnswerReminder records a delivered Holder Answer Reminder.
+func (s *CaptureEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.HolderAnswerReminders = append(s.HolderAnswerReminders, r)
+	return nil
+}
+
+// SendTicketAssignment records a delivered Assignment mail.
+func (s *CaptureEmailSender) SendTicketAssignment(_ context.Context, a TicketAssignment) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TicketAssignments = append(s.TicketAssignments, a)
+	return nil
+}
+
+// SendNoLongerHolding records a delivered No Longer Holding notice.
+func (s *CaptureEmailSender) SendNoLongerHolding(_ context.Context, n NoLongerHolding) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.NoLongerHoldings = append(s.NoLongerHoldings, n)
 	return nil
 }
 
@@ -1101,6 +1490,52 @@ func (s *CaptureEmailSender) AnswerRemindersSent() []AnswerReminder {
 	return out
 }
 
+// HolderAnswerRemindersSent returns the Answer Reminders delivered to Holders so
+// far, in the order the sweep sent them.
+//
+// Tests assert on its LENGTH as much as on its contents, and on the length of
+// AnswerRemindersSent beside it: a mixed Sale producing "one mail to the buyer
+// and one to each Holder" is a statement about two counts, and "the buyer was
+// not also chased about the accepted Ticket" cannot be told from any message's
+// contents at all.
+func (s *CaptureEmailSender) HolderAnswerRemindersSent() []HolderAnswerReminder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]HolderAnswerReminder, len(s.HolderAnswerReminders))
+	copy(out, s.HolderAnswerReminders)
+	return out
+}
+
+// TicketAssignmentsSent returns the Assignment mails delivered so far, in the
+// order they were sent.
+//
+// Tests assert on the LENGTH as much as on the contents. "Re-submitting the same
+// address mailed nobody" and "assigning does not mail the buyer" cannot be told
+// from any message's contents, only from there being none — and the second of
+// those is the acceptance criterion the whole feature rests on.
+func (s *CaptureEmailSender) TicketAssignmentsSent() []TicketAssignment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]TicketAssignment, len(s.TicketAssignments))
+	copy(out, s.TicketAssignments)
+	return out
+}
+
+// NoLongerHoldingsSent returns the No Longer Holding notices delivered so far,
+// in the order they were sent.
+//
+// Tests assert on the LENGTH first and the contents second, because the sharpest
+// rules in #327 are rules about counting: exactly one notice per displaced
+// Holder however the displacement happened, none at all to somebody who was
+// merely assigned, and none to the buyer, who keeps their reversed sale.
+func (s *CaptureEmailSender) NoLongerHoldingsSent() []NoLongerHolding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]NoLongerHolding, len(s.NoLongerHoldings))
+	copy(out, s.NoLongerHoldings)
+	return out
+}
+
 // PayoutRequestsSubmitted returns a copy of the captured operator submission
 // notices. Tests assert on its LENGTH as much as on its contents: one notice per
 // allowlisted operator, and none at all when a repeated submission is handed the
@@ -1200,6 +1635,9 @@ func (s *CaptureEmailSender) Reset() {
 	s.RefusedReversals = nil
 	s.WithdrawalConfirmations = nil
 	s.AnswerReminders = nil
+	s.HolderAnswerReminders = nil
+	s.TicketAssignments = nil
+	s.NoLongerHoldings = nil
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil

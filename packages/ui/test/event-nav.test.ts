@@ -7,8 +7,8 @@ import { eventNavItems } from "../src/lib/event-nav.ts";
 // Keys rather than labels throughout, the same way staff-nav.test.ts reads: the
 // panel's words come from the staff catalog now (ADR 0041), and a copy edit is
 // not a change to this module's behaviour.
-const litAt = (activePath: string, fullAccess = true, outstandingAnswers = false) =>
-  eventNavItems({ eventId: "evt_1", fullAccess, outstandingAnswers })
+const litAt = (activePath: string, fullAccess = true, holderList = false) =>
+  eventNavItems({ eventId: "evt_1", fullAccess, holderList })
     .filter((item) => isNavItemActive(activePath, item.href, { exact: item.exact }))
     .map((item) => item.key);
 
@@ -63,51 +63,53 @@ test("entries read in a fixed order", () => {
   );
 });
 
-// THE DARK DEFAULT. Ticket Questions ship behind a flag that is off (ADR 0045),
-// and a nav entry is exactly the kind of thing that would admit the feature is
-// there before the Privacy Policy describes it. So the entry is absent unless a
-// caller says otherwise — including for a caller that has not thought about it,
-// which is what the default argument is for. Every test above is a witness to
-// this, since none of them passes the flag.
-test("Outstanding Answers is absent until it is asked for", () => {
+// THE DARK DEFAULT. Ticket Assignment and Ticket Questions both ship behind
+// flags that are off (ADR 0045), and a nav entry is exactly the kind of thing
+// that would admit a feature is there before the Privacy Policy describes it.
+// So the entry is absent unless a caller says otherwise — including for a
+// caller that has not thought about it, which is what the default argument is
+// for. Every test above is a witness to this, since none of them passes the
+// flag.
+test("the Holder List is absent until it is asked for", () => {
   assert.ok(
     !eventNavItems({ eventId: "evt_1", fullAccess: true })
       .map((item) => item.key)
-      .includes("outstandingAnswers"),
+      .includes("holderList"),
   );
   assert.ok(
-    !eventNavItems({ eventId: "evt_1", fullAccess: true, outstandingAnswers: false })
+    !eventNavItems({ eventId: "evt_1", fullAccess: true, holderList: false })
       .map((item) => item.key)
-      .includes("outstandingAnswers"),
+      .includes("holderList"),
   );
 });
 
 // It takes a flag of its OWN rather than riding fullAccess, because its route is
 // gated to Org Admins alone — narrower than fullAccess, which also admits an
-// Event Owner — and because the feature can be dark for everybody. The caller
+// Event Owner — and because both features can be dark for everybody. The caller
 // establishes both facts; this module only places the entry.
-test("Outstanding Answers is offered when asked for, beside Sales", () => {
+test("the Holder List is offered when asked for, beside Sales", () => {
   assert.deepEqual(
-    eventNavItems({ eventId: "evt_1", fullAccess: true, outstandingAnswers: true }).map(
+    eventNavItems({ eventId: "evt_1", fullAccess: true, holderList: true }).map(
       (item) => item.key,
     ),
-    ["details", "ticketTypes", "affiliateLinks", "sales", "outstandingAnswers", "trends"],
+    ["details", "ticketTypes", "affiliateLinks", "sales", "holderList", "trends"],
   );
 });
 
-test("Outstanding Answers points at the Event's own tab", () => {
+// The href keeps the route's historical name (#333): the screen became the
+// Holder List, and its address is where it has always lived — a rename of the
+// path would break every bookmark for a word.
+test("the Holder List points at the Event's own tab", () => {
   const entry = eventNavItems({
     eventId: "evt_1",
     fullAccess: true,
-    outstandingAnswers: true,
-  }).find((item) => item.key === "outstandingAnswers");
+    holderList: true,
+  }).find((item) => item.key === "holderList");
   assert.equal(entry?.href, "/events/evt_1/outstanding-answers");
 });
 
-test("the Outstanding Answers tab lights on its own page alone", () => {
-  assert.deepEqual(litAt("/events/evt_1/outstanding-answers", true, true), [
-    "outstandingAnswers",
-  ]);
+test("the Holder List tab lights on its own page alone", () => {
+  assert.deepEqual(litAt("/events/evt_1/outstanding-answers", true, true), ["holderList"]);
 });
 
 test("Tags are managed from Details, so they have no entry of their own", () => {

@@ -42,6 +42,18 @@ type buyerTicket struct {
 	Answerable        bool   `json:"answerable"`
 	AnswerableRefusal string `json:"answerable_refusal"`
 	OutstandingCount  int    `json:"outstanding_count"`
+	// The Ticket Assignment fields (#324), decoded here so that the buyer's list
+	// is read by ONE struct across both files. They are absent from the payload
+	// entirely while TICKET_ASSIGNMENT_ENABLED is closed, which is what makes
+	// their zero values meaningful — see ticket_assignment_test.go, where the
+	// flag test asserts their absence over the RAW bytes rather than through
+	// this decode.
+	AssignmentState   string  `json:"assignment_state"`
+	HolderEmail       string  `json:"holder_email"`
+	AssignedAt        *string `json:"assigned_at"`
+	AcceptedAt        *string `json:"accepted_at"`
+	Assignable        bool    `json:"assignable"`
+	AssignableRefusal string  `json:"assignable_refusal"`
 	Questions         []struct {
 		Question ticketQuestion `json:"question"`
 		Answer   *struct {
@@ -778,7 +790,7 @@ func TestBuyerOutstandingCountsAgreeWithTheOrganizationsChaseList(t *testing.T) 
 		t.Fatalf("the sibling owes %d after the retirement, want only the dinner question",
 			retired[1].OutstandingCount)
 	}
-	if !owesNothing(listOutstanding(t, env, f.staffSession, f.eventID), f.anaTicketIDs[0]) {
+	if !owesNothing(t, listOutstanding(t, env, f.staffSession, f.eventID), f.anaTicketIDs[0]) {
 		t.Fatal("the Organization's chase list still names a Ticket the buyer's page says owes nothing")
 	}
 	// The retired question is still LISTED and still readable — retiring takes

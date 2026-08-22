@@ -92,6 +92,15 @@ func domainHTTPStatus(code string) int {
 	// entirely for whoever is reading the logs.
 	case "OTP_RATE_LIMITED", "OTP_ATTEMPTS_EXCEEDED", "OTP_GLOBAL_CEILING_REACHED":
 		return http.StatusTooManyRequests
+	// A buyer sending Assignment mails faster than the per-buyer window allows
+	// (#332, parent #322). It shares the status with the passcode limits and
+	// never the code, on the same rule the ceiling above is held to: the caller
+	// hears "come back later" either way, and whoever reads the logs can still
+	// tell which control fired. It is temporary by construction — the window
+	// rolls — which is exactly what distinguishes it from the per-Ticket cap,
+	// a 409 further down.
+	case "ASSIGNMENT_RATE_LIMITED":
+		return http.StatusTooManyRequests
 	case "OTP_INVALID", "OTP_EXPIRED":
 		return http.StatusUnauthorized
 	case "SESSION_NOT_FOUND", "SESSION_EXPIRED":
@@ -166,6 +175,34 @@ func domainHTTPStatus(code string) int {
 	// a build without the feature would. See catalog.ErrTicketQuestionsUnavailable.
 	case "TICKET_QUESTIONS_UNAVAILABLE":
 		return http.StatusNotFound
+	// Ticket Assignment asked for while ITS OWN flag is off (#324, parent #322).
+	// A separate case from TICKET_QUESTIONS_UNAVAILABLE above and not a second
+	// label on it, because TICKET_ASSIGNMENT_ENABLED is a separate flag: killing
+	// assignment must not take Ticket Questions dark, and one shared code here
+	// would be the first place that separation quietly stopped being true. Same
+	// 404 and for the same reason — while the flag is off there is nothing here.
+	case "TICKET_ASSIGNMENT_UNAVAILABLE":
+		return http.StatusNotFound
+	// The Ticket Assignment window refusals (#324). 409 beside the Answer
+	// window's two: the request was well formed and the buyer was entitled to
+	// make it, and what stands in the way is a fact about the sale — it was
+	// recorded at the door and has no buyer surface, it was reversed, or the
+	// doors have opened. None becomes the answer by being retried with the same
+	// body.
+	case "ASSIGNMENT_CHANNEL_UNSUPPORTED", "ASSIGNMENT_SALE_REVERSED", "ASSIGNMENT_EVENT_STARTED":
+		return http.StatusConflict
+	// One Ticket's lifetime allowance of Assignment mails is spent (#332). 409
+	// beside the window refusals above and pointedly NOT 429: this never becomes
+	// the answer by waiting, and a "too many requests" would send the buyer back
+	// in an hour to hear the same thing forever. What stands in the way is a
+	// permanent fact about the Ticket, which is what 409 says here.
+	case "ASSIGNMENT_MAIL_CAP_REACHED":
+		return http.StatusConflict
+	// A Holder address that is not an address (#324). 400 and not 409, on the
+	// same line INVALID_ANSWER sits on: the body itself is wrong and restating
+	// it correctly is exactly what fixes it.
+	case "INVALID_HOLDER_EMAIL":
+		return http.StatusBadRequest
 	// The Ticket Question authoring refusals (#309). All 409 for the reason their
 	// Promotion neighbours are: the request was well formed and the Org Admin was
 	// entitled to make it, and what stands in the way is a fact about the question
@@ -216,6 +253,21 @@ func domainHTTPStatus(code string) int {
 	// a deadline instead of implying a forgery.
 	case "ANSWER_LINK_INVALID", "ANSWER_LINK_EXPIRED":
 		return http.StatusUnauthorized
+	// An Assignment Link that does not open (#325, ADR 0046). 401 beside the
+	// Answer Link's pair and for the same reason: the token IS the credential.
+	//
+	// ASSIGNMENT_LINK_INVALID covers more ground than its twin — it also answers
+	// a Ticket that has been REASSIGNED away from this address — and that breadth
+	// is the disclosure rule holding in the error state. "Your friend gave your
+	// ticket to somebody else" is a fact about the buyer's decisions, and this
+	// page never names the buyer or describes what they did.
+	case "ASSIGNMENT_LINK_INVALID", "ASSIGNMENT_LINK_EXPIRED":
+		return http.StatusUnauthorized
+	// No link secret configured, as above: the deployment's fault, not the
+	// Holder's — and this reader has no buyer to ask for a new link, because they
+	// are not told who the buyer is.
+	case "ASSIGNMENT_LINK_UNAVAILABLE":
+		return http.StatusInternalServerError
 	// No link secret configured is a deployment fault and not the holder's, so it
 	// is a 500 beside CONFIRMATION_LINK_UNAVAILABLE. Telling somebody their link
 	// is broken when it is the server that is broken sends them back to the buyer

@@ -14,17 +14,20 @@ async function sessionToken() {
   return cookieStore.get(SESSION_COOKIE_NAME)?.value;
 }
 
-// The Event's Outstanding Answers: which Tickets still owe required Answers, and
-// which questions they owe (#313).
+// The Event's Holder List (#333; the Outstanding Answers read of #313, widened
+// to the roster): every Ticket of the Event, who is coming on each, and — where
+// the Event asks questions — what each still owes. The path keeps its
+// historical name.
 //
-// The paging parameters are FORWARDED AND NOT PARSED. The API floors, clamps and
-// defaults them itself, and a second reading of them here could only ever
-// disagree with the first — the BFF's job on this route is to attach the session
-// and get out of the way.
+// The paging parameters — and the `outstanding` filter — are FORWARDED AND NOT
+// PARSED. The API floors, clamps and defaults them itself, and a second reading
+// of them here could only ever disagree with the first — the BFF's job on this
+// route is to attach the session and get out of the way.
 //
-// Nothing here knows about the feature flag either. The API answers 404 to this
-// while TICKET_QUESTIONS_ENABLED is off (ADR 0045), and one answer to whether the
-// feature is on is the whole point of the staff app never reading an env var.
+// Nothing here knows about the feature flags either. The API answers 404 to
+// this while both TICKET_ASSIGNMENT_ENABLED and TICKET_QUESTIONS_ENABLED are
+// off (ADR 0045), and one answer to whether a feature is on is the whole point
+// of the staff app never reading an env var.
 export async function GET(request: Request, context: RouteContext) {
   const token = await sessionToken();
   if (!token) {

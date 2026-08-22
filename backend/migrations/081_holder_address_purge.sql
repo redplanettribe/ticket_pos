@@ -1,0 +1,64 @@
+-- The Holder Address Purge: an address a buyer typed that its owner never
+-- accepted is taken when the Event starts, and what is left is the record
+-- without the liability (#331, parent #322, ADR 0046).
+--
+-- WHY THIS MIGRATION EXISTS AT ALL, since the purge is a DELETE and a DELETE
+-- normally needs no schema. Migration 080 made an address and the moment it was
+-- named travel together — `tickets_assignment_pair_ck` — so taking the address
+-- necessarily takes `assigned_at` with it, and a Ticket that has been purged
+-- becomes indistinguishable from a Ticket nobody ever named anybody for. That is
+-- the one thing #322 says must not happen: "the Ticket, its Answers and the FACT
+-- THAT IT WAS ASSIGNED all survive". The fact needs somewhere to live once the
+-- address is gone, and this column is it.
+--
+-- THE ALTERNATIVE WAS A FOURTH STATE, and it was rejected. Keeping `assigned_at`
+-- and relaxing the pair CHECK would derive a `purged` state onto the wire,
+-- through catalog.AssignmentState and out to the buyer's page, the
+-- Organization's guest list and the export — four values where three were
+-- specified, on a feature whose states are its whole vocabulary (ADR 0046). A
+-- purged Ticket is `unassigned` to everybody who looks at it, which is the
+-- truth: nobody holds it. What happened to it is a fact for the platform's own
+-- records, not a state of the assignment.
+ALTER TABLE tickets ADD COLUMN holder_address_purged_at TIMESTAMPTZ;
+
+-- NOTE WHAT THIS COLUMN DOES NOT SAY, because a reader will assume it says more
+-- than it does. It records that this Ticket once carried an address that reached
+-- the purge unaccepted, and WHEN the purge took it. It does not say what the
+-- address was, who typed it, or how many addresses this Ticket wore before that
+-- one — migration 080 keeps no history and this keeps none either. A column that
+-- remembered the address would be the retention promise written backwards.
+--
+-- IT IS NOT A STATE, and nothing derives one from it. catalog.AssignmentState
+-- reads holder_email, assigned_at and accepted_at, exactly as it did before this
+-- migration, and a purged Ticket reads `unassigned` through it.
+--
+-- AN ACCEPTED TICKET NEVER GETS ONE. Acceptance makes the Holder an ordinary
+-- Customer under ordinary Customer retention, and this purge is written to leave
+-- such a Ticket entirely alone; a non-NULL value here on a row with an
+-- accepted_at would mean the purge had taken something it may not take.
+--
+-- WRITTEN ONCE IN PRACTICE, though nothing here enforces it. An address can only
+-- be purged after its Event has started, and catalog.AssignmentWindow refuses
+-- every assignment from that moment on (AssignmentRefusedEventStarted), so there
+-- is no route by which a purged Ticket acquires a second address to purge. A
+-- CHECK saying so would be a constraint on a sequence of events rather than on a
+-- row, which is not a thing this database can state.
+
+-- The set the purge sweeps: Tickets carrying an address nobody has accepted.
+--
+-- PARTIAL, AND VERY SMALL. Most Tickets are `unassigned` forever and carry no
+-- address at all; of those that do, the ones that matter here are the ones still
+-- waiting. A full index on `tickets` would be an index of an entire platform's
+-- ticket rows to find the handful the daily tick is due to touch.
+--
+-- IT IS KEYED ON ticket_sale_line_id AND NOT ON holder_email, deliberately, and
+-- this is migration 080's rule kept rather than quietly reversed. 080 refused an
+-- index on the address because it would be a fast way to ask "which Tickets is
+-- this person named on", which nothing on this platform is entitled to ask of an
+-- address that has proved nothing. This index answers a different question —
+-- "which Tickets are still waiting" — and hands the join its next hop up towards
+-- the Ticket Sale and the Event, which is the direction the purge actually
+-- travels. The address is in the predicate and never in the key.
+CREATE INDEX tickets_unaccepted_assignment_idx
+    ON tickets (ticket_sale_line_id)
+    WHERE holder_email IS NOT NULL AND accepted_at IS NULL;

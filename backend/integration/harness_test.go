@@ -188,6 +188,19 @@ func setupTest(t *testing.T) *testEnv {
 	// deployment can be in.
 	sharedApp.CatalogService.WithTicketQuestions(false)
 	sharedApp.SalesService.WithTicketQuestions(false)
+	// Ticket Assignment starts DARK too, which is how it ships (#324, ADR 0045)
+	// — and it is reset on its OWN line rather than folded into the two above,
+	// because TICKET_ASSIGNMENT_ENABLED is a separate deployment flag. A test
+	// that opened questions must not silently get assignment as well, or the
+	// suite could never tell the two apart.
+	//
+	// BOTH SERVICES, like the pair above and unlike #324, which had only one to
+	// reset. Sales reads TICKET_ASSIGNMENT_ENABLED for exactly one thing — the
+	// Holder columns on the Sales Export's per-Ticket sheet (#330, ADR 0047) —
+	// and nothing in checkout, the door or a Sale Import knows about an
+	// assignment at all.
+	sharedApp.CatalogService.WithTicketAssignment(false)
+	sharedApp.SalesService.WithTicketAssignment(false)
 	// The Follow Digest pipeline has its own clock because it reasons in WEEKS:
 	// which week a Customer is owed a Digest for, and when a failed one comes due
 	// again (#220, ADR 0030). Its tests move time further than any other.
