@@ -75,6 +75,28 @@ export type BuyerTicket = {
    * a debt that already, deliberately, has two.
    */
   outstanding_count: number;
+  /**
+   * THE TICKET ASSIGNMENT (#324), and every one of these six is OPTIONAL for one
+   * reason: the API omits the lot while TICKET_ASSIGNMENT_ENABLED is closed, so
+   * the payload a dark deployment sends is byte-identical to the one a build
+   * without the feature sends. `assignment_state === undefined` is therefore how
+   * this app reads the flag, and it is the only place it reads it — see
+   * lib/ticket-assignment.ts, which owns every rule about these fields.
+   *
+   * They are declared HERE, on the row they arrive on, and interpreted THERE.
+   * One payload has one type; two features read it.
+   */
+  assignment_state?: string;
+  /** The address this Ticket was assigned to, shown back to the buyer who typed
+   * it and to nobody else on any surface. Absent while unassigned. */
+  holder_email?: string;
+  assigned_at?: string;
+  accepted_at?: string;
+  /** Whether an address may be given or changed right now, and the token saying
+   * why not — a separate window from `answerable` above, because a door sale's
+   * Answers are writable while its Tickets are not assignable. */
+  assignable?: boolean;
+  assignable_refusal?: string;
   questions: QuestionAnswer[];
 };
 
@@ -120,6 +142,12 @@ export function hasAnswerLink(ticket: BuyerTicket): boolean {
  * must look exactly as they did before this feature — an empty "Ticket
  * questions" heading on every purchase anybody ever made would be the feature
  * announcing itself to the people it has nothing to say to.
+ *
+ * IT SPEAKS FOR TICKET QUESTIONS ONLY, and deliberately says nothing about
+ * Ticket Assignment (#324), which is behind its own flag and can be the sole
+ * reason to draw the section. The caller asks both — see `saleOffersAssignment`
+ * in lib/ticket-assignment.ts — because a sale whose Ticket Types ask nothing
+ * and whose Tickets can be assigned still has something to show.
  */
 export function hasAnythingToShow(tickets: BuyerTicket[]): boolean {
   return tickets.some((ticket) => ticket.questions.length > 0);

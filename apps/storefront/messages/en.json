@@ -369,6 +369,27 @@
       "networkFailed": "That didn't save. Check your connection and try again.",
       "nothingToSave": "There's nothing to save yet — fill this in first.",
       "retiredQuestion": "The organizer has stopped asking this. The answer is kept as it was."
+    },
+    "assignment": {
+      "title": "Who these tickets are for",
+      "tally": "{assigned} of {total} tickets have an address.",
+      "stateUnassigned": "No address yet",
+      "stateAssigned": "This ticket is for {email}",
+      "stateAccepted": "{email} has picked this ticket up",
+      "emailLabel": "Email address for this ticket",
+      "emailPlaceholder": "name@example.com",
+      "notice": "We'll email this address about the ticket, and the organizer will see it beside this ticket's answers. Only give an address whose owner is happy for you to.",
+      "changeClearsAnswers": "Changing the address clears this ticket's answers. An answer belongs to the person who gave it, so the next person is asked again.",
+      "assign": "Save this address",
+      "reassign": "Change this address",
+      "saved": "Saved",
+      "unchanged": "That's already this ticket's address.",
+      "saveFailed": "That address didn't save. Try again.",
+      "networkFailed": "That address didn't save. Check your connection and try again.",
+      "closedChannel": "This purchase was made at the door, so there's no address to give here. The organizer can help.",
+      "closedReversed": "This purchase was undone, so these tickets aren't going to anyone.",
+      "closedStarted": "The event has started, so addresses are closed. What was given is kept as it was.",
+      "closedUnknown": "Addresses can't be given for this ticket."
     }
   },
   "myInfo": {
@@ -498,7 +519,13 @@
       "ANSWER_LINK_EXPIRED": "The event has started, so answers are closed.",
       "ANSWER_LINK_UNAVAILABLE": "Something is wrong on our side. Please try again later.",
       "INVALID_ANSWER": "That answer doesn't fit this question.",
-      "ANSWER_OPTION_NOT_OFFERED": "That option isn't one this question offers any more."
+      "ANSWER_OPTION_NOT_OFFERED": "That option isn't one this question offers any more.",
+      "TICKET_NOT_FOUND": "We couldn't find that ticket.",
+      "TICKET_ASSIGNMENT_UNAVAILABLE": "We couldn't find that ticket.",
+      "INVALID_HOLDER_EMAIL": "That doesn't look like an email address. Check it and try again.",
+      "ASSIGNMENT_CHANNEL_UNSUPPORTED": "This purchase was made at the door, so an address can't be given here. The organizer can help.",
+      "ASSIGNMENT_SALE_REVERSED": "This purchase was undone, so these tickets aren't going to anyone.",
+      "ASSIGNMENT_EVENT_STARTED": "The event has started, so addresses are closed. What was given is kept as it was."
     },
     "field": {
       "REQUIRED": "is required",

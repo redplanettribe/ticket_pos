@@ -369,6 +369,27 @@
       "networkFailed": "No se guardó. Revise su conexión e inténtelo de nuevo.",
       "nothingToSave": "Todavía no hay nada que guardar: complete este campo primero.",
       "retiredQuestion": "El organizador ya no pregunta esto. La respuesta se conserva tal como estaba."
+    },
+    "assignment": {
+      "title": "Para quién son estas entradas",
+      "tally": "{assigned} de {total} entradas tienen una dirección.",
+      "stateUnassigned": "Todavía sin dirección",
+      "stateAssigned": "Esta entrada es para {email}",
+      "stateAccepted": "{email} ya recogió esta entrada",
+      "emailLabel": "Correo electrónico para esta entrada",
+      "emailPlaceholder": "nombre@ejemplo.com",
+      "notice": "Le escribiremos a esta dirección sobre la entrada, y el organizador la verá junto a las respuestas de esta entrada. Dé solo una dirección cuyo titular esté de acuerdo.",
+      "changeClearsAnswers": "Cambiar la dirección borra las respuestas de esta entrada. Una respuesta es de quien la dio, así que a la siguiente persona se le vuelve a preguntar.",
+      "assign": "Guardar esta dirección",
+      "reassign": "Cambiar esta dirección",
+      "saved": "Guardado",
+      "unchanged": "Esa ya es la dirección de esta entrada.",
+      "saveFailed": "La dirección no se guardó. Inténtelo de nuevo.",
+      "networkFailed": "La dirección no se guardó. Revise su conexión e inténtelo de nuevo.",
+      "closedChannel": "Esta compra se hizo en la puerta, así que aquí no hay ninguna dirección que dar. El organizador puede ayudarle.",
+      "closedReversed": "Esta compra fue anulada, así que estas entradas no son para nadie.",
+      "closedStarted": "El evento ya empezó, así que las direcciones están cerradas. Lo que se dio se conserva tal como estaba.",
+      "closedUnknown": "No se pueden dar direcciones para esta entrada."
     }
   },
   "myInfo": {
@@ -498,7 +519,13 @@
       "ANSWER_LINK_EXPIRED": "El evento ya empezó, así que las respuestas están cerradas.",
       "ANSWER_LINK_UNAVAILABLE": "Algo falla de nuestro lado. Inténtelo de nuevo más tarde.",
       "INVALID_ANSWER": "Esa respuesta no encaja con esta pregunta.",
-      "ANSWER_OPTION_NOT_OFFERED": "Esa opción ya no es una de las que ofrece esta pregunta."
+      "ANSWER_OPTION_NOT_OFFERED": "Esa opción ya no es una de las que ofrece esta pregunta.",
+      "TICKET_NOT_FOUND": "No encontramos esa entrada.",
+      "TICKET_ASSIGNMENT_UNAVAILABLE": "No encontramos esa entrada.",
+      "INVALID_HOLDER_EMAIL": "Eso no parece un correo electrónico. Revíselo e inténtelo de nuevo.",
+      "ASSIGNMENT_CHANNEL_UNSUPPORTED": "Esta compra se hizo en la puerta, así que aquí no se puede dar una dirección. El organizador puede ayudarle.",
+      "ASSIGNMENT_SALE_REVERSED": "Esta compra fue anulada, así que estas entradas no son para nadie.",
+      "ASSIGNMENT_EVENT_STARTED": "El evento ya empezó, así que las direcciones están cerradas. Lo que se dio se conserva tal como estaba."
     },
     "field": {
       "REQUIRED": "Campo obligatorio",

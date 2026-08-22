@@ -4,6 +4,7 @@ import { Button } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
+import { TicketAssignmentRow } from "@/components/ticket-assignment-row";
 import { TicketQuestionRow } from "@/components/ticket-question-row";
 import { visibleQuestionsOf, type AnswerBody } from "@/lib/answer-link";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -13,6 +14,12 @@ import {
   saleOutstandingCount,
   type BuyerTicket,
 } from "@/lib/buyer-answers";
+import {
+  assignmentOffered,
+  assignmentTally,
+  saleOffersAssignment,
+  type AssignmentBody,
+} from "@/lib/ticket-assignment";
 
 /**
  * The buyer's Tickets on one of their own Ticket Sales, with a COPY-LINK control
@@ -50,6 +57,25 @@ import {
  * built to be forwarded and a receipt is built not to be, so a per-Ticket link
  * in that mail would make forwarding a t-shirt question and forwarding a receipt
  * the same gesture.
+ *
+ * IT NOW CARRIES A SECOND FEATURE ON THE SAME FETCH: the TICKET ASSIGNMENT
+ * (#324, parent #322), which is what finally lets the buyer tell their four
+ * Tickets apart — the Answer Links never could, since they disclose nothing by
+ * design. It rides here because it rides on the same payload and belongs to the
+ * same act: a buyer looking at "who is this one for" and "what has this one been
+ * asked" is doing one job, and two sections would make them do it twice.
+ *
+ * THE TWO FEATURES HAVE SEPARATE FLAGS AND ARE READ SEPARATELY. Either half is
+ * reason enough to draw the section and neither is reason to draw the other, so
+ * a deployment with TICKET_ASSIGNMENT_ENABLED closed renders precisely what it
+ * rendered before #324 — the API omits every assignment field, and the absence
+ * is the only place this app learns the flag's state.
+ *
+ * A KNOWN COUPLING, and not one this ticket may fix: the GET behind this
+ * component is still gated on TICKET_QUESTIONS_ENABLED, so a deployment with
+ * assignment open and questions closed answers 404 here and shows nothing at
+ * all. Seeing assignment state today therefore needs BOTH flags open. That gate
+ * is the API's and belongs to whoever unpicks it.
  */
 type BuyerTicketAnswersProps = {
   ticketSaleId: string;
@@ -83,23 +109,48 @@ export function BuyerTicketAnswers({ ticketSaleId }: BuyerTicketAnswersProps) {
     };
   }, [ticketSaleId]);
 
-  if (tickets === null || !hasAnythingToShow(tickets)) {
+  // TWO FEATURES, TWO FLAGS, ONE SECTION. Either half is reason enough to draw
+  // it, and neither is reason to draw the other: a deployment with Ticket
+  // Questions and no assignment looks exactly as it did before #324, and a sale
+  // whose Ticket Types ask nothing still shows who its Tickets are for.
+  const questions = tickets !== null && hasAnythingToShow(tickets);
+  const assignment = tickets !== null && saleOffersAssignment(tickets);
+  if (tickets === null || (!questions && !assignment)) {
     return null;
   }
 
   const outstanding = saleOutstandingCount(tickets);
+  const tally = assignmentTally(tickets);
 
   return (
     <section className="mt-6 space-y-6 border-t pt-6">
       <div className="space-y-1">
-        <h3 className="font-medium">{t("answers.title")}</h3>
+        {/* The heading follows what the section is FOR. Once addresses can be
+            given, "questions about these tickets" is no longer the half of it a
+            buyer came here for — telling four identical Tickets apart is. */}
+        <h3 className="font-medium">
+          {assignment ? t("assignment.title") : t("answers.title")}
+        </h3>
         {/* The count is stated HERE and never in the Sale Confirmation. This
             page reads it live at the moment somebody looks, which is the only
             moment it is true; a number baked into an inbox is wrong as soon as
             one question is answered. */}
-        <p className="text-muted-foreground text-sm">
-          {outstanding > 0 ? t("answers.outstanding", { count: outstanding }) : t("answers.allDone")}
-        </p>
+        {questions ?
+          <p className="text-muted-foreground text-sm">
+            {outstanding > 0 ?
+              t("answers.outstanding", { count: outstanding })
+            : t("answers.allDone")}
+          </p>
+        : null}
+        {/* PARTIAL ASSIGNMENT COUNTS AND NEVER WARNS. A sale of four with two
+            addresses is finished as far as the buyer is concerned, and a page
+            that nagged about the other two would be nagging about people who do
+            not exist. */}
+        {assignment && tally.total > 0 ?
+          <p className="text-muted-foreground text-sm">
+            {t("assignment.tally", { assigned: tally.assigned, total: tally.total })}
+          </p>
+        : null}
       </div>
 
       {tickets.map((ticket, index) => (
@@ -131,11 +182,13 @@ function TicketBlock({ ticketSaleId, ticket, position, total, onSaved }: TicketB
   const t = useTranslations("customerArea");
   const errorCopy = useMessages().errors;
   const questions = visibleQuestionsOf(ticket.questions);
+  const assignable = assignmentOffered(ticket);
 
-  if (questions.length === 0) {
+  if (questions.length === 0 && !assignable) {
     // A Ticket whose Ticket Type asks nothing, on a sale where another Ticket
-    // Type does. Drawn as nothing rather than as an empty block: it has no
-    // questions, so it needs no link and there is nothing to pass on.
+    // Type does, in a deployment where assignment is dark. Drawn as nothing
+    // rather than as an empty block: it has no questions, so it needs no link
+    // and there is nothing to pass on.
     return null;
   }
 
@@ -170,6 +223,42 @@ function TicketBlock({ ticketSaleId, ticket, position, total, onSaved }: TicketB
     }
   }
 
+  /**
+   * Naming the address for this Ticket (#324).
+   *
+   * A SEPARATE REQUEST FROM THE ANSWER SAVE and not a batched one, for the
+   * reason each question carries its own button: the API's unit is one fact
+   * about one Ticket, and a form that sent an address and three Answers together
+   * would have to decide what to show when the address took and one Answer did
+   * not. It shares the redraw — the whole sale comes back from both — so a
+   * reassignment that cleared this Ticket's Answers is on the page the moment it
+   * happens.
+   */
+  async function assign(body: AssignmentBody): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `/api/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
+          `/tickets/${encodeURIComponent(ticket.ticket_id)}/assignment`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const envelope = (await response.json()) as {
+        data: BuyerTicket[] | null;
+        error: { code: string; message: string; details?: unknown } | null;
+      };
+      if (!response.ok || envelope.error || !envelope.data) {
+        return apiErrorMessage(errorCopy, envelope.error) ?? t("assignment.saveFailed");
+      }
+      onSaved(envelope.data);
+      return null;
+    } catch {
+      return t("assignment.networkFailed");
+    }
+  }
+
   return (
     <div className="space-y-4 rounded-md border p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -178,18 +267,32 @@ function TicketBlock({ ticketSaleId, ticket, position, total, onSaved }: TicketB
           {/* The Ticket Type's name as the Organization wrote it. */}
           <p className="text-muted-foreground text-sm">{ticket.ticket_type_name}</p>
         </div>
-        {hasAnswerLink(ticket) ?
+        {questions.length > 0 && hasAnswerLink(ticket) ?
           <CopyAnswerLink link={ticket.answer_link} />
         : null}
       </div>
 
-      {hasAnswerLink(ticket) ?
+      {/* The link is about the QUESTIONS, so a Ticket that is asked nothing is
+          offered no link and told nothing about one — there would be nothing
+          behind it. */}
+      {questions.length === 0 ?
+        null
+      : hasAnswerLink(ticket) ?
         <p className="text-muted-foreground text-sm">{t("answers.copyHint")}</p>
       : // No link to give. Either the Event has started or the purchase was
         // undone, and in both cases nothing anybody forwards would open. Said
         // plainly, because a missing button with no explanation reads as a fault.
         <p className="text-muted-foreground text-sm">{t("answers.linkClosed")}</p>
       }
+
+      {/* ABOVE THE QUESTIONS, because it is what tells this Ticket from the
+          other three. NOT remounted when the sale redraws: the field holds what
+          the buyer typed, the address sent is the normalised form of exactly
+          that, and a remount here would take the "saved" confirmation off the
+          screen at the moment it was earned. */}
+      {assignable ?
+        <TicketAssignmentRow ticket={ticket} save={assign} />
+      : null}
 
       <div className="space-y-6">
         {questions.map((pair) => (
