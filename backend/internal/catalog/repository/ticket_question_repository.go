@@ -106,14 +106,11 @@ func (r *Repository) ListTicketQuestionsByTicketTypeID(ctx context.Context, tick
 
 	questions := make([]TicketQuestion, 0)
 	for rows.Next() {
-		var q TicketQuestion
-		if err := rows.Scan(
-			&q.ID, &q.TicketTypeID, &q.Label, &q.Kind, &q.Required, &q.Timing,
-			&q.SortOrder, &q.RetiredAt, &q.CreatedAt, &q.UpdatedAt,
-		); err != nil {
+		q, err := scanTicketQuestion(rows)
+		if err != nil {
 			return nil, err
 		}
-		questions = append(questions, q)
+		questions = append(questions, *q)
 	}
 	return questions, rows.Err()
 }
@@ -137,14 +134,11 @@ func (r *Repository) ListTicketQuestionOptionsByTicketTypeID(ctx context.Context
 
 	options := make([]TicketQuestionOption, 0)
 	for rows.Next() {
-		var o TicketQuestionOption
-		if err := rows.Scan(
-			&o.ID, &o.TicketQuestionID, &o.Label, &o.SortOrder,
-			&o.RetiredAt, &o.CreatedAt, &o.UpdatedAt,
-		); err != nil {
+		option, err := scanTicketQuestionOption(rows)
+		if err != nil {
 			return nil, err
 		}
-		options = append(options, o)
+		options = append(options, *option)
 	}
 	return options, rows.Err()
 }
@@ -164,14 +158,11 @@ func (r *Repository) ListTicketQuestionOptions(ctx context.Context, questionID s
 
 	options := make([]TicketQuestionOption, 0)
 	for rows.Next() {
-		var o TicketQuestionOption
-		if err := rows.Scan(
-			&o.ID, &o.TicketQuestionID, &o.Label, &o.SortOrder,
-			&o.RetiredAt, &o.CreatedAt, &o.UpdatedAt,
-		); err != nil {
+		option, err := scanTicketQuestionOption(rows)
+		if err != nil {
 			return nil, err
 		}
-		options = append(options, o)
+		options = append(options, *option)
 	}
 	return options, rows.Err()
 }

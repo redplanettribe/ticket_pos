@@ -130,21 +130,50 @@ func NormalizeTicketQuestionOptionLabel(raw string) (string, bool) {
 	return normalizeCoinedLabel(raw, MaxTicketQuestionOptionLabelLength)
 }
 
-// normalizeCoinedLabel holds the one rule both labels follow, so the two can
-// never drift into normalizing differently.
+// CoinedLabelProblem names WHY a coined label was refused.
+//
+// It exists so the HTTP layer can tell "you typed nothing" from "you typed too
+// much" without re-deriving the rule to find out: the domain collapses both into
+// a refusal, but a field error has to say which. One rule, two readings of it.
+type CoinedLabelProblem int
+
+const (
+	// CoinedLabelOK: the label is usable, in its trimmed form.
+	CoinedLabelOK CoinedLabelProblem = iota
+	// CoinedLabelMissing: nothing but whitespace.
+	CoinedLabelMissing
+	// CoinedLabelTooLong: over the cap, counted in characters.
+	CoinedLabelTooLong
+)
+
+// ClassifyCoinedLabel holds the one rule every coined label follows — a Ticket
+// Question's and an Option's alike — and reports both the trimmed label and what
+// was wrong with it.
 //
 // The cap counts CHARACTERS, not bytes: an Organization writing Spanish must not
 // be handed a shorter field than one writing English because its accents cost
 // two bytes each.
-func normalizeCoinedLabel(raw string, maxLength int) (string, bool) {
+//
+// THIS IS THE ONLY PLACE THE RULE LIVES. The handler validates a submitted label
+// against it to produce field errors, and normalizeCoinedLabel wraps it for the
+// domain — a rule enforced in two places is a rule that will eventually be
+// enforced differently in each.
+func ClassifyCoinedLabel(raw string, maxLength int) (string, CoinedLabelProblem) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", false
+		return "", CoinedLabelMissing
 	}
 	if utf8.RuneCountInString(trimmed) > maxLength {
-		return "", false
+		return "", CoinedLabelTooLong
 	}
-	return trimmed, true
+	return trimmed, CoinedLabelOK
+}
+
+// normalizeCoinedLabel is the domain's reading of ClassifyCoinedLabel: usable or
+// not, without the reason.
+func normalizeCoinedLabel(raw string, maxLength int) (string, bool) {
+	trimmed, problem := ClassifyCoinedLabel(raw, maxLength)
+	return trimmed, problem == CoinedLabelOK
 }
 
 // TicketQuestionKindFrozen reports whether a kind change must be refused.

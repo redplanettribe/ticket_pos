@@ -37,6 +37,10 @@ func optionsPath(eventID, ticketTypeID, questionID string) string {
 	return questionPath(eventID, ticketTypeID, questionID) + "/options"
 }
 
+func optionPath(eventID, ticketTypeID, questionID, optionID string) string {
+	return optionsPath(eventID, ticketTypeID, questionID) + "/" + optionID
+}
+
 // enableTicketQuestions opens the authoring surface for one test.
 //
 // The flag is a property of the running service rather than of the request, so
@@ -131,6 +135,18 @@ func TestTicketQuestionsAreInvisibleWhileTheFlagIsOff(t *testing.T) {
 			return env.post(t, optionsPath(eventID, ticketTypeID, "11111111-1111-4111-8111-111111111111"), map[string]any{
 				"label": "S",
 			}, authHeader(sessionID))
+		}},
+		{"rename option", func() (*http.Response, envelope) {
+			return env.patch(t, optionPath(eventID, ticketTypeID,
+				"11111111-1111-4111-8111-111111111111",
+				"22222222-2222-4222-8222-222222222222"), map[string]any{
+				"label": "M",
+			}, authHeader(sessionID))
+		}},
+		{"retire option", func() (*http.Response, envelope) {
+			return env.deleteJSON(t, optionPath(eventID, ticketTypeID,
+				"11111111-1111-4111-8111-111111111111",
+				"22222222-2222-4222-8222-222222222222"), nil, authHeader(sessionID))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

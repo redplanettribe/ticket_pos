@@ -298,13 +298,13 @@
     "promotionSave": "Guardar promoción",
     "questions": "Preguntas",
     "questionsTitle": "Preguntas de {name}",
-    "questionsDescription": "Lo que quieres saber de quien tendrá una de estas entradas. Se pregunta al comprar, y quien acabe con la entrada puede responder después.",
-    "questionsWarningTitle": "Estás eligiendo qué datos pedir",
-    "questionsWarningBody": "Lo que preguntes aquí, lo recoges tú — y eres tú quien decidió preguntarlo. Las restricciones alimentarias y las necesidades de accesibilidad son datos de salud de una persona real, a veces de alguien distinto de quien compra. Pide solo lo que vayas a usar de verdad.",
+    "questionsDescription": "Lo que usted quiere saber de quien tendrá una de estas entradas. Se pregunta al comprar, y quien acabe con la entrada puede responder después.",
+    "questionsWarningTitle": "Está eligiendo qué datos pedir",
+    "questionsWarningBody": "Lo que pregunte aquí, lo recoge usted — y es usted quien decidió preguntarlo. Las restricciones alimentarias y las necesidades de accesibilidad son datos de salud de una persona real, a veces de alguien distinto de quien compra. Pida solo lo que vaya a usar de verdad.",
     "questionsEmpty": "Todavía no hay preguntas.",
     "questionsLoadFailed": "No se pudieron cargar las preguntas.",
     "questionLabel": "Pregunta",
-    "questionLabelRequired": "Escribe la pregunta que quieres hacer.",
+    "questionLabelRequired": "Escriba la pregunta que quiere hacer.",
     "questionKind": "Tipo de respuesta",
     "questionKindShortText": "Texto corto",
     "questionKindLongText": "Texto largo",
@@ -329,7 +329,7 @@
     "questionOptionRetired": "Retirada",
     "questionOptionsRequired": "Una pregunta de opciones necesita al menos una opción.",
     "questionOptionTooLong": "Una opción puede tener como máximo {max} caracteres.",
-    "questionOptionCapReached": "Puedes tener como máximo {max} opciones. Retira una para hacer sitio."
+    "questionOptionCapReached": "Puede tener como máximo {max} opciones. Retire una para hacer sitio."
   },
   "tags": {
     "title": "Etiquetas",
@@ -1119,12 +1119,13 @@
       "INVALID_LOGO_IMAGE_KEY": "Esa subida no se completó. Vuelva a elegir la imagen.",
       "TICKET_QUESTION_NOT_FOUND": "Esa pregunta ya no existe.",
       "TICKET_QUESTION_OPTION_NOT_FOUND": "Esa opción ya no existe.",
-      "TICKET_QUESTION_KIND_FROZEN": "Alguien ya respondió esta pregunta, así que su tipo de respuesta no puede cambiar. Retírala y agrega una nueva.",
+      "TICKET_QUESTION_KIND_FROZEN": "Alguien ya respondió esta pregunta, así que su tipo de respuesta no puede cambiar. Retírela y agregue una nueva.",
       "TICKET_QUESTION_RETIRED": "Esa pregunta fue retirada y ya no se puede editar.",
+      "TICKET_QUESTION_OPTION_RETIRED": "Esa opción fue retirada y ya no se puede editar.",
       "TICKET_QUESTION_KIND_TAKES_NO_OPTIONS": "Solo las preguntas de opción única y opción múltiple tienen opciones.",
       "TICKET_QUESTION_OPTIONS_REQUIRED": "Una pregunta de opciones necesita al menos una opción. Retira la pregunta completa en su lugar.",
       "TOO_MANY_TICKET_QUESTION_OPTIONS": "Esa pregunta ya tiene todas las opciones que puede tener. Retira una para hacer sitio.",
-      "INVALID_TICKET_QUESTION_LABEL": "Escribe la pregunta y respeta el límite de caracteres."
+      "INVALID_TICKET_QUESTION_LABEL": "Escriba la pregunta y respete el límite de caracteres."
     },
     "field": {
       "REQUIRED": "es obligatorio",

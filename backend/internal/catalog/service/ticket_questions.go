@@ -68,13 +68,6 @@ type UpdateTicketQuestionInput struct {
 	Timing   catalog.TicketQuestionTiming
 }
 
-// TicketQuestionsEnabled reports whether the Ticket Question authoring surface
-// is open (ADR 0045). It is read by the Event payload so the staff app can hide
-// the surface rather than offer one that refuses.
-func (s *Service) TicketQuestionsEnabled() bool {
-	return s.ticketQuestionsEnabled
-}
-
 // ticketTypeForQuestions resolves the Ticket Type every Ticket Question
 // operation hangs off, and is the single place the feature flag is read.
 //
@@ -400,7 +393,7 @@ func (s *Service) RenameTicketQuestionOption(
 		return nil, catalog.ErrTicketQuestionOptionNotFound()
 	}
 	if existing.RetiredAt.Valid {
-		return nil, catalog.ErrTicketQuestionRetired()
+		return nil, catalog.ErrTicketQuestionOptionRetired()
 	}
 
 	optionLabel, ok := catalog.NormalizeTicketQuestionOptionLabel(label)
@@ -438,7 +431,7 @@ func (s *Service) RetireTicketQuestionOption(
 		return nil, catalog.ErrTicketQuestionOptionNotFound()
 	}
 	if existing.RetiredAt.Valid {
-		return nil, catalog.ErrTicketQuestionRetired()
+		return nil, catalog.ErrTicketQuestionOptionRetired()
 	}
 
 	liveOptions, err := s.repo.CountLiveTicketQuestionOptions(ctx, questionID)

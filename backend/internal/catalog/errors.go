@@ -297,12 +297,28 @@ func ErrTicketQuestionKindFrozen() apperror.DomainError {
 }
 
 // ErrTicketQuestionRetired is returned when an edit reaches a retired Ticket
-// Question or a retired Option. A retired thing is kept so that what has already
-// been answered still reads; it is not an authoring surface.
+// Question. A retired thing is kept so that what has already been answered still
+// reads; it is not an authoring surface.
 func ErrTicketQuestionRetired() apperror.DomainError {
 	return apperror.New(
 		"TICKET_QUESTION_RETIRED",
 		"This question has been retired and can no longer be edited.",
+		nil,
+	)
+}
+
+// ErrTicketQuestionOptionRetired is the same refusal about an Option rather than
+// the question it belongs to.
+//
+// It is a separate error and not a shared one, because the two are told apart by
+// the only thing this message does: naming the thing the author just tried to
+// edit. A retired Option inside a live question is an ordinary state — the
+// author sees it listed, greyed — and answering "this question has been retired"
+// would send them looking for a question that is not retired at all.
+func ErrTicketQuestionOptionRetired() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_OPTION_RETIRED",
+		"This option has been retired and can no longer be edited.",
 		nil,
 	)
 }

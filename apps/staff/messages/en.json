@@ -1121,6 +1121,7 @@
       "TICKET_QUESTION_OPTION_NOT_FOUND": "That option no longer exists.",
       "TICKET_QUESTION_KIND_FROZEN": "Someone has already answered this question, so its answer type can no longer change. Retire it and add a new question instead.",
       "TICKET_QUESTION_RETIRED": "That question has been retired and can no longer be edited.",
+      "TICKET_QUESTION_OPTION_RETIRED": "That option has been retired and can no longer be edited.",
       "TICKET_QUESTION_KIND_TAKES_NO_OPTIONS": "Only single choice and multiple choice questions have options.",
       "TICKET_QUESTION_OPTIONS_REQUIRED": "A choice question needs at least one option. Retire the whole question instead.",
       "TOO_MANY_TICKET_QUESTION_OPTIONS": "That question already has as many options as it can hold. Retire one to make room.",

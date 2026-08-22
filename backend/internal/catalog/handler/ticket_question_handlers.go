@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/service"
@@ -135,25 +134,22 @@ func validateTicketQuestion(body ticketQuestionBody, withOptions bool) ([]platfo
 	return fields, kind, timing
 }
 
-// validateCoinedLabel is the shape check both a Ticket Question's label and an
-// Option's label answer to: present once trimmed, and within its own cap.
-//
-// The cap counts CHARACTERS, matching catalog.NormalizeTicketQuestionLabel, so
-// an Organization writing Spanish is not handed a shorter field than one writing
-// English.
+// validateCoinedLabel turns the domain's one label rule into this layer's field
+// errors. The rule itself is catalog.ClassifyCoinedLabel's and is not restated
+// here; all this does is give each refusal its HTTP name.
 func validateCoinedLabel(field, raw string, maxLength int) []platform.FieldError {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
+	switch _, problem := catalog.ClassifyCoinedLabel(raw, maxLength); problem {
+	case catalog.CoinedLabelMissing:
 		return []platform.FieldError{{Field: field, Code: platform.CodeRequired, Message: "is required"}}
-	}
-	if utf8.RuneCountInString(trimmed) > maxLength {
+	case catalog.CoinedLabelTooLong:
 		return []platform.FieldError{{
 			Field:   field,
 			Code:    platform.CodeTooLong,
 			Message: fmt.Sprintf("must be at most %d characters", maxLength),
 		}}
+	default:
+		return nil
 	}
-	return nil
 }
 
 // ListTicketQuestions returns a Ticket Type's Ticket Questions.
