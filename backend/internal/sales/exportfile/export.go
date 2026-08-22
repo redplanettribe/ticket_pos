@@ -788,10 +788,20 @@ func setStr(f *excelize.File, sheet string, cols layout, key string, row int, va
 
 // cellRef resolves a column key and a 1-based row to a cell reference, so
 // nothing in this file names a column letter — and nothing resolves a column by
-// the heading a reader sees, which an organizer's Ticket Type name could
-// duplicate.
+// the heading a reader sees, which an organizer's Ticket Type name or a Ticket
+// Question's wording could duplicate.
+//
+// A key with no column is refused by name rather than resolved to column zero.
+// It is unreachable — every layout is built from the same slice the values are
+// written from — so this exists to make the day somebody splits those two apart
+// a failed download with a name in it, rather than a workbook quietly missing a
+// value.
 func cellRef(cols layout, key string, row int) (string, error) {
-	return excelize.CoordinatesToCellName(cols.index[key], row)
+	column, ok := cols.index[key]
+	if !ok {
+		return "", fmt.Errorf("exportfile: no column for %q", key)
+	}
+	return excelize.CoordinatesToCellName(column, row)
 }
 
 func ptr[T any](v T) *T { return &v }

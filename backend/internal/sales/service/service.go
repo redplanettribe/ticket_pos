@@ -262,6 +262,10 @@ type Service struct {
 	// exportRowCap is how many Ticket Sales one Sales Export may carry. Set by
 	// New to defaultExportRowCap; see WithExportRowCap.
 	exportRowCap int
+	// ticketQuestionsEnabled is the platform's Ticket Question feature flag
+	// (#309, ADR 0045), and false is how the feature ships. See
+	// WithTicketQuestions.
+	ticketQuestionsEnabled bool
 }
 
 // New returns a sales service. The customers service is required: every Ticket
@@ -291,6 +295,25 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithTicketQuestions opens the Sales Export's per-Ticket sheet, from the same
+// TICKET_QUESTIONS_ENABLED the catalog service is handed (#309, #314, ADR 0045).
+//
+// It is a SECOND read of one flag rather than a second flag: the value comes
+// from platform.Config in both cases, so the two modules cannot disagree about
+// whether the feature is on. This module needs its own copy because the export
+// is a sales artifact and catalog's service is not a dependency of it — the
+// dependency runs the other way.
+//
+// Off — which is how it ships — the workbook is exactly the two-sheet one it has
+// always been, whatever rows an Event has in ticket_questions. That is what
+// makes the flag a real off switch rather than a hidden surface: an Answer given
+// before the Privacy Policy describes the collection must not leave the building
+// in a file either.
+func (s *Service) WithTicketQuestions(enabled bool) *Service {
+	s.ticketQuestionsEnabled = enabled
 	return s
 }
 
@@ -916,7 +939,14 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		},
 	}
 
-	data, err := exportfile.Build(exported, types, exportfile.Answers{}, loc, info)
+	// The per-Ticket sheet, built from the very rows the data sheet was built
+	// from — which is the whole of how it respects the Sales list's filters.
+	answers, err := s.exportAnswers(ctx, actor.OrganizationID, eventID, rows)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	data, err := exportfile.Build(exported, types, answers, loc, info)
 	if err != nil {
 		return nil, nil, err
 	}
