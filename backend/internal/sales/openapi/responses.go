@@ -36,6 +36,14 @@ type EnvelopeReversalDrain struct {
 	RequestID string                      `json:"request_id"`
 }
 
+// EnvelopeAnswerPurge documents POST /internal/checkout-answers/purge success
+// responses.
+type EnvelopeAnswerPurge struct {
+	Data      service.AnswerPurgeResult `json:"data"`
+	Error     *platform.APIError        `json:"error"`
+	RequestID string                    `json:"request_id"`
+}
+
 // EnvelopeSalesSummary documents GET /staff/events/{id}/sales/summary success responses.
 type EnvelopeSalesSummary struct {
 	Data      service.SalesSummary `json:"data"`

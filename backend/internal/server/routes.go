@@ -70,6 +70,18 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// week to every following Customer on the platform.
 	mux.HandleFunc("POST /api/v1/internal/follow-digests/enqueue", app.DigestHandler.EnqueueFollowDigests)
 	mux.HandleFunc("POST /api/v1/internal/follow-digests/drain", app.DigestHandler.DrainFollowDigests)
+
+	// The Abandoned Answer Purge (#316, ADR 0044): the Answers a buyer typed into
+	// a checkout that never became a sale, deleted 30 days on. Served by the SALES
+	// handler because the rows are held on a Payment, which is the sales module's
+	// (migration 074) — the catalog owns what a Ticket Question IS, and sales owns
+	// what a checkout collected.
+	//
+	// It obeys this namespace's rule in the way that matters most here: the
+	// caller cannot name the window. A cutoff parameter would make this route a
+	// way to delete every Answer on the platform on demand, which is the same
+	// shape of mistake as letting a caller name a Digest week.
+	mux.HandleFunc("POST /api/v1/internal/checkout-answers/purge", app.SalesHandler.PurgeAbandonedAnswers)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.

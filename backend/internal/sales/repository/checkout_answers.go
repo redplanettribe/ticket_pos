@@ -376,3 +376,95 @@ func heldAnswerColumns(value catalog.AnswerValue) struct {
 	}
 	return params
 }
+
+// PurgeAbandonedCheckoutAnswers deletes the Answers held on Payments that never
+// reached 'approved' and were begun at or before `cutoff` (#316, ADR 0044). It
+// reports how many Answers went and how many Payments they came off.
+//
+// THE PREDICATE IS `status IS DISTINCT FROM 'approved'` AND NOTHING ELSE, and
+// the reason it is not `status = 'expired'` is the whole ticket. Two facts about
+// this codebase make the status useless as a "this is over" signal, and each one
+// breaks a different half of the naive query:
+//
+//   - 'expired' IS NOT TERMINAL. It is opportunistic bookkeeping written by
+//     whichever begin-checkout happens to pass the same Event
+//     (ExpireStalePayments), and ApprovePaymentAndCommitSale accepts an expired
+//     Payment exactly like a pending one — a provider that confirms late still
+//     commits the sale, flipping expired → approved. Purging on 'expired' would
+//     delete the Answers of a sale that then commits, silently: the copy at
+//     commit finds nothing, the buyer keeps their Tickets, and the Organization
+//     is simply told nobody answered.
+//
+//   - 'pending' IS OFTEN FOREVER. Nothing sweeps Payments on its own schedule,
+//     so an Event with no further traffic keeps its abandoned Payments 'pending'
+//     for good. A purge that waited for 'expired' would never touch them, and
+//     the quietest Events — the ones with one abandoned checkout and nobody
+//     looking — would be exactly the ones that kept the health data.
+//
+// So the status is read only to EXCLUDE the approved, and it is AGE that decides
+// the rest. `IS DISTINCT FROM` rather than `<>` so a status that ever became
+// nullable would purge rather than silently exempt: this is a deletion, and the
+// safe direction for it to be wrong is loudly, not by quietly retaining.
+//
+// AGE IS THE PAYMENT'S, NOT THE ANSWER'S. `payment_ticket_answers.created_at`
+// moves when a buyer goes back and re-submits the checkout form (HoldCheckoutAnswers
+// upserts), so keying on it would restart the clock for a buyer who edited their
+// answer and then abandoned — the retention window would be about typing rather
+// than about the attempt to buy. The rule is "30 days after the Payment".
+//
+// The chosen Options go with their Answers by the ON DELETE CASCADE on
+// `payment_ticket_answer_options` (migration 074). That cascade is why this is
+// one statement and not two, and it is worth knowing that deleting the Answers
+// without it would leave the option labels — the words somebody picked — behind.
+//
+// IT DELETES ONLY FROM `payment_ticket_answers`. The Payment and its
+// `payment_lines` are untouched and are kept forever: the platform is entitled
+// to remember an attempt to transact, and what it may not keep is the reply to a
+// question about a Ticket that will never exist.
+//
+// IDEMPOTENT BY CONSTRUCTION, because it is a DELETE of rows matched by a
+// predicate rather than a state machine: a second run finds the rows gone and
+// reports zeros, and two runs racing each other delete disjoint sets. It takes
+// no lock and claims nothing — there is no queue here and no per-row bookkeeping
+// to leave behind, which is what distinguishes it from the Reversal Reconciler's
+// drain.
+func (r *Repository) PurgeAbandonedCheckoutAnswers(ctx context.Context, cutoff time.Time) (answers, payments int64, err error) {
+	// One statement, in two CTEs. `doomed` names the rows and the Payments they
+	// belong to BEFORE the delete, which is the only moment the Payment can still
+	// be counted — a DELETE ... RETURNING gives back the answer rows, and by then
+	// there is nothing left to join to the line that says whose they were.
+	err = r.db.Pool.QueryRowContext(ctx, `
+		WITH doomed AS (
+			SELECT a.id, l.payment_id
+			FROM payment_ticket_answers a
+			JOIN payment_lines l ON l.id = a.payment_line_id
+			JOIN payments p ON p.id = l.payment_id
+			WHERE p.status IS DISTINCT FROM 'approved'
+			  AND p.created_at <= $1
+		),
+		purged AS (
+			DELETE FROM payment_ticket_answers
+			WHERE id IN (SELECT id FROM doomed)
+			RETURNING id
+		)
+		SELECT (SELECT COUNT(*) FROM purged), (SELECT COUNT(DISTINCT payment_id) FROM doomed)
+	`, cutoff).Scan(&answers, &payments)
+	if err != nil {
+		return 0, 0, err
+	}
+	return answers, payments, nil
+}
+
+// CountHeldCheckoutAnswers is how many Answers are riding Payments right now,
+// across the platform.
+//
+// Reported by every purge run for the reason the Reversal Reconciler reports its
+// in-flight backlog: a run that says "0 purged" is indistinguishable from a run
+// against a table that was never written to, and an operator watching a feature
+// that ships dark (ADR 0045) needs to tell "nothing was due" from "nothing is
+// there". Two curls a day apart say whether the checkout is capturing at all.
+func (r *Repository) CountHeldCheckoutAnswers(ctx context.Context) (int64, error) {
+	var n int64
+	err := r.db.Pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM payment_ticket_answers`).Scan(&n)
+	return n, err
+}
