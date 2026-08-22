@@ -1,0 +1,87 @@
+-- The Ticket: one unit of admission within a Ticket Sale, where a Ticket Sale
+-- Line saying three becomes three rows (#308, ADR 0043).
+--
+-- WHY A ROW AT ALL, WHEN THE QUANTITY ALREADY SAYS THREE. Because a fact about
+-- one ticket has nowhere else to live. A Ticket Question asks the person who
+-- will hold a ticket something — a t-shirt size, a dietary requirement — and a
+-- buyer of four tickets must be able to give four different answers. The
+-- alternative considered and rejected was an array on the Ticket Sale Line
+-- indexed 1..N, which incurs every consequence of having an entity while
+-- refusing to name it: `answers[2]` with nothing in the model to say what
+-- ticket 2 is, and no place to hang the next per-ticket fact.
+--
+-- MINTED FOR EVERY TICKET SOLD, ON EVERY SALES CHANNEL, whether or not any
+-- Ticket Question is ever attached to its Ticket Type. Minting only where
+-- questions exist would make an entity an artifact of a feature: "how many
+-- Tickets does this sale have" would answer 0 for almost every sale, every seam
+-- downstream would grow an `if this type has questions`, and the day check-in
+-- arrives the migration happens anyway against more data.
+--
+-- WHAT THIS TABLE DELIBERATELY IS NOT. It is not the source of Tickets Sold.
+-- That figure keeps summing `ticket_sale_lines.quantity` in the same queries it
+-- always has, beside the fee and Net Proceeds arithmetic those SELECTs also
+-- carry, and because a Capacity Hold is quantity-shaped and has no Tickets at
+-- all — a pending Payment holds stock before any Ticket exists. Quantity stays
+-- the truth; Tickets are a projection of it, and that the two agree is asserted
+-- in tests (integration/tickets_test.go) rather than enforced by a constraint.
+--
+-- Nor is it a scannable ticket. There is no QR code, no holder, no check-in
+-- state and no transfer. A reader meeting the name will expect all four and
+-- find an identity — which is the price of using the word the domain already
+-- uses for the thing being counted.
+CREATE TABLE tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- The Ticket Sale Line this Ticket is one unit of, and the ONLY parent link
+    -- here. Everything else a caller wants of a Ticket — its Ticket Type, its
+    -- Ticket Sale, its Event, its Organization, whether it stands — is two joins
+    -- away through this column, and a copy of any of them on this row would be a
+    -- second place for the same fact to be written and a first place for it to
+    -- be wrong.
+    --
+    -- ON DELETE CASCADE follows `ticket_sale_lines`, which cascades from
+    -- `ticket_sales`, which cascades from `events`. A Ticket cannot outlive the
+    -- line that sold it; there is nothing left for it to be a unit of. Note that
+    -- this is not how a Sale Reversal works — see the absent status column below.
+    ticket_sale_line_id UUID NOT NULL REFERENCES ticket_sale_lines (id) ON DELETE CASCADE,
+    -- Which of the line's units this is, 1..quantity.
+    --
+    -- It exists because "in order" has to mean something. Answers given at
+    -- checkout are held on the Payment keyed by (payment line, index) and written
+    -- onto the minted Tickets in order when the sale commits, and without a
+    -- recorded ordinal that order is whatever the rows happen to come back in.
+    -- It is also what makes the UNIQUE below possible, and that constraint is the
+    -- real reason to keep it: minting twice is the failure mode this table has,
+    -- and the constraint turns it from silent double-counting into an error.
+    --
+    -- It is an internal ordinal and not a seat, a number to print, or anything a
+    -- holder is ever shown. Two Tickets on one line differ in nothing else.
+    ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+    -- When this Ticket came into being, which is when its Ticket Sale was
+    -- recorded — the two happen in one transaction, deliberately. Backfilled
+    -- Tickets take their line's `created_at` rather than the migration's clock,
+    -- so that the column means the same thing on every row and a sale imported
+    -- last March does not have Tickets dated the day this shipped.
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- One Ticket per unit of quantity, and never two. This is the closest the
+    -- schema can come to the invariant: it cannot check the count against
+    -- `quantity` (that would need a subquery no CHECK may contain), but it can
+    -- refuse the same unit twice, which makes a re-run backfill or a retried
+    -- commit an error instead of a duplicate.
+    UNIQUE (ticket_sale_line_id, ordinal)
+);
+
+-- NO STATUS COLUMN, AND THAT IS THE DECISION THIS TABLE MOST WANTS RECORDED.
+-- Whether a Ticket stands is read from its Ticket Sale's `status`. A Sale
+-- Reversal is always whole-Sale — no part of a Ticket Sale can be reversed on
+-- its own — so a per-Ticket status could never legitimately differ from the
+-- Sale's, and a second copy of a fact that can never differ can only ever drift.
+-- A reversed Ticket Sale keeps its Tickets, exactly as it keeps its Sale
+-- Confirmation reference and its visibility to both parties; they are read as
+-- void through the sale, and nothing deletes them.
+--
+-- NO FURTHER INDEX. Every read of this table starts from a Ticket Sale or one
+-- of its lines and asks for that line's Tickets, which the UNIQUE above already
+-- indexes on its leading column. Nothing selects on the ordinal alone, and there
+-- is no per-Event or per-Ticket-Type read that does not already go through
+-- `ticket_sale_lines`, whose own indexes on `ticket_sale_id` and
+-- `ticket_type_id` are what such a query would use.
