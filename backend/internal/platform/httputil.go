@@ -92,6 +92,15 @@ func domainHTTPStatus(code string) int {
 	// entirely for whoever is reading the logs.
 	case "OTP_RATE_LIMITED", "OTP_ATTEMPTS_EXCEEDED", "OTP_GLOBAL_CEILING_REACHED":
 		return http.StatusTooManyRequests
+	// A buyer sending Assignment mails faster than the per-buyer window allows
+	// (#332, parent #322). It shares the status with the passcode limits and
+	// never the code, on the same rule the ceiling above is held to: the caller
+	// hears "come back later" either way, and whoever reads the logs can still
+	// tell which control fired. It is temporary by construction — the window
+	// rolls — which is exactly what distinguishes it from the per-Ticket cap,
+	// a 409 further down.
+	case "ASSIGNMENT_RATE_LIMITED":
+		return http.StatusTooManyRequests
 	case "OTP_INVALID", "OTP_EXPIRED":
 		return http.StatusUnauthorized
 	case "SESSION_NOT_FOUND", "SESSION_EXPIRED":
@@ -181,6 +190,13 @@ func domainHTTPStatus(code string) int {
 	// doors have opened. None becomes the answer by being retried with the same
 	// body.
 	case "ASSIGNMENT_CHANNEL_UNSUPPORTED", "ASSIGNMENT_SALE_REVERSED", "ASSIGNMENT_EVENT_STARTED":
+		return http.StatusConflict
+	// One Ticket's lifetime allowance of Assignment mails is spent (#332). 409
+	// beside the window refusals above and pointedly NOT 429: this never becomes
+	// the answer by waiting, and a "too many requests" would send the buyer back
+	// in an hour to hear the same thing forever. What stands in the way is a
+	// permanent fact about the Ticket, which is what 409 says here.
+	case "ASSIGNMENT_MAIL_CAP_REACHED":
 		return http.StatusConflict
 	// A Holder address that is not an address (#324). 400 and not 409, on the
 	// same line INVALID_ANSWER sits on: the body itself is wrong and restating

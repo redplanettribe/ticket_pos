@@ -441,17 +441,17 @@ func (s *Service) mailTicketAssignment(
 	ticket *repository.AssignmentLinkTicket,
 	holderEmail string,
 	assignedAt time.Time,
-) {
+) bool {
 	if s.mailer == nil {
 		// No sender wired: local tooling and every test that has no opinion about
 		// mail. Silent by design — the same posture the media cleanup takes.
-		return
+		return false
 	}
 
 	token, ok := s.assignmentLinks.Sign(ticket.ID, assignedAt, holderEmail)
 	if !ok {
 		s.logAssignmentMailFailure("assignment link unavailable: no link secret configured", nil)
-		return
+		return false
 	}
 
 	mail := platform.TicketAssignment{
@@ -463,7 +463,11 @@ func (s *Service) mailTicketAssignment(
 	}
 	if err := s.mailer.SendTicketAssignment(ctx, mail); err != nil {
 		s.logAssignmentMailFailure("assignment mail delivery failed", err)
+		return false
 	}
+	// TRUE MEANS A PROVIDER ACCEPTED IT, which is the only claim the #332 ledger
+	// row beside the caller is entitled to make.
+	return true
 }
 
 // logAssignmentMailFailure records a mail that did not go out — WITHOUT the

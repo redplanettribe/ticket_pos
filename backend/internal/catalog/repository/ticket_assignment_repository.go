@@ -150,3 +150,67 @@ func (r *Repository) AssignTicketToHolder(
 	}
 	return result, nil
 }
+
+// The Assignment mail ledger: the three statements the rationing needs (#332,
+// parent #322, ADR 0046).
+//
+// TWO COUNTS AND ONE INSERT, AND NOTHING ELSE. Nothing reads this table to build
+// a screen, nothing exports it and no Customer ever sees it — it exists to say
+// no. See migration 082 for why it is a ledger of sends rather than a pair of
+// counters on `tickets`, and for why it holds no address.
+
+// CountAssignmentMailsForTicket is how many Assignment mails this Ticket has
+// EVER sent, across every Holder it has ever been pointed at.
+//
+// NO WINDOW AND NO CUTOFF, deliberately: the per-Ticket allowance is a lifetime
+// one. A Ticket that has spent it does not get it back by being left alone for a
+// month, because the hole this closes is a slow drip just as much as a burst.
+func (r *Repository) CountAssignmentMailsForTicket(ctx context.Context, ticketID string) (int, error) {
+	var count int
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM ticket_assignment_mails WHERE ticket_id = $1
+	`, ticketID).Scan(&count)
+	return count, err
+}
+
+// CountAssignmentMailsForBuyer is how many this buyer has sent across ALL of
+// their Tickets since the given moment.
+//
+// THE CUTOFF IS THE CALLER'S BECAUSE THE CLOCK IS THE SERVICE'S. Every other
+// swept read in this module takes its instant the same way, and the service
+// derives the cutoff from its own clock rather than accepting one from a
+// request — a caller who could name the window's start could name one a second
+// ago and lift the limit entirely.
+func (r *Repository) CountAssignmentMailsForBuyer(ctx context.Context, buyerCustomerID string, since time.Time) (int, error) {
+	var count int
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM ticket_assignment_mails
+		WHERE buyer_customer_id = $1 AND sent_at >= $2
+	`, buyerCustomerID, since).Scan(&count)
+	return count, err
+}
+
+// RecordAssignmentMailSent writes the row that spends one unit of both
+// allowances at once.
+//
+// THE CALLER MUST HAVE SENT ALREADY, on the rule migration 079 set for the
+// Answer Reminder ledger and for the same reason with more force: a row written
+// before the send would ration a buyer out of a mail nobody received, and here
+// that is permanent — the per-Ticket allowance never refills. The reverse
+// failure, a send whose row was lost, costs one extra mail later.
+//
+// IT IS NOT IN THE ASSIGNMENT'S TRANSACTION. That transaction commits before the
+// mail is composed, because a mail cannot be rolled back; a ledger row inside it
+// would be a claim about an inbox made before anybody wrote to it.
+func (r *Repository) RecordAssignmentMailSent(
+	ctx context.Context,
+	ticketID, buyerCustomerID string,
+	sentAt time.Time,
+) error {
+	_, err := r.db.Pool.ExecContext(ctx, `
+		INSERT INTO ticket_assignment_mails (ticket_id, buyer_customer_id, sent_at)
+		VALUES ($1, $2, $3)
+	`, ticketID, buyerCustomerID, sentAt)
+	return err
+}

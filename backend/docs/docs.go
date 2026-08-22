@@ -1540,6 +1540,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeHolderAddressPurge": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HolderAddressPurgeResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeLogout": {
                 "properties": {
                     "data": {
@@ -3033,6 +3047,27 @@ const docTemplate = `{
                     },
                     "ticket_type_name": {
                         "description": "TicketTypeName is what kind of ticket it is — public, and a row on the\nEvent's own page with its price beside it. What is NOT here is the price\nthis Ticket was actually sold at, which a Promotion may have made different\nand which is the buyer's business either way.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HolderAddressPurgeResult": {
+                "properties": {
+                    "addresses_held": {
+                        "description": "AddressesHeld is how many unaccepted holder addresses are sitting on\nTickets across the platform once this run finished — the standing backlog,\nin the Reconciler's sense.\n\nIT IS WHAT MAKES A RUN THAT DELETED NOTHING LEGIBLE. Zero purged and a\nrising held figure is a healthy job on a platform whose Events have not\nstarted yet; zero purged and zero held is a platform where nobody is\nassigning anything. Neither is the same as a scheduler that is paused, and\nthe log line below is where that distinction is actually recorded.",
+                        "type": "integer"
+                    },
+                    "addresses_purged": {
+                        "description": "AddressesPurged is how many holder addresses this run took. Zero is the\nordinary answer, and while TICKET_ASSIGNMENT_ENABLED is closed it is the\nonly answer.",
+                        "type": "integer"
+                    },
+                    "events_purged": {
+                        "description": "EventsPurged is how many Events those addresses came off, which is the\nfigure that means something in human terms: forty addresses off one Event\nis a festival that has just happened, and forty off forty Events is a\nmonth of ordinary attrition.",
+                        "type": "integer"
+                    },
+                    "purged_at": {
+                        "description": "PurgedAt is the instant this run read the clock at (RFC3339, UTC): every\nEvent that had started by it lost the addresses nobody had accepted.\n\nEchoed back because the moment is the whole correctness argument, exactly\nas the Abandoned Answer Purge echoes its cutoff. An operator staring at an\nunexpected count should be able to see, without a deploy or a database\nsession, which instant the job actually compared Event starts against.",
                         "type": "string"
                     }
                 },
@@ -6915,7 +6950,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment": {
             "put": {
-                "description": "Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **No mail is sent by this endpoint**; the Assignment mail and the Holder's accept flow are a later ticket, so a Ticket assigned here reaches the ` + "`" + `assigned` + "`" + ` state and stops. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on ` + "`" + `online` + "`" + ` and ` + "`" + `import` + "`" + ` Ticket Sales only — an ` + "`" + `in_person` + "`" + ` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.",
+                "description": "Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **A change of address mails the new address an Assignment Link**, which is how a Ticket becomes ` + "`" + `accepted` + "`" + `; re-sending the address already there mails nobody. **Sending is rationed**: one Ticket may send at most a small fixed number of Assignment mails in its whole life (a first send plus a resend allowance for a mistyped address), and one buyer may send only so many inside a rolling window across all their Tickets. A Ticket out of allowance is refused with 409 ASSIGNMENT_MAIL_CAP_REACHED and a buyer over their window with 429 ASSIGNMENT_RATE_LIMITED. Both refuse the ASSIGNMENT outright and send no mail — the address is not written and no timestamp moves, because a write without a send would kill every Assignment Link already outstanding for that Ticket and replace it with nothing. The buyer's fallback is the Ticket's Answer Link, which keeps working. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on ` + "`" + `online` + "`" + ` and ` + "`" + `import` + "`" + ` Ticket Sales only — an ` + "`" + `in_person` + "`" + ` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.",
                 "parameters": [
                     {
                         "description": "Ticket Sale id",
@@ -7006,6 +7041,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Conflict"
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Too Many Requests"
                     },
                     "500": {
                         "content": {
@@ -7199,6 +7244,37 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Enqueue this week's Follow Digests",
+                "tags": [
+                    "internal"
+                ]
+            }
+        },
+        "/api/v1/internal/holder-addresses/purge": {
+            "post": {
+                "description": "Deletes the holder email address from every Ticket still in ` + "`" + `assigned` + "`" + ` — an address was given and nobody has accepted it — whose Event has started (ADR 0046). Read as an instant: ` + "`" + `events.starts_at` + "`" + ` is fixed in the Event's own timezone, so the comparison already carries it. The purge takes the ADDRESS ONLY: the Ticket, its Ticket Question Answers, its Ticket Sale and the fact that the Ticket was assigned all survive, the last of them as a purge timestamp on the Ticket, because the platform is entitled to remember that it sold a ticket and that somebody was named for it and is not entitled to keep the name. An ` + "`" + `accepted` + "`" + ` Ticket loses nothing at any age: its Holder proved the address from their own inbox and is an ordinary Customer under ordinary Customer retention. An Event that has never said when it starts is never purged, matching the reading the assignment window gives a missing start. A reversed Ticket Sale is purged like any other. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The moment cannot be named by the caller; it is taken from the clock, and the instant actually used is echoed back. Not gated on the Ticket Assignment feature flag, deliberately — the switch that turns a deletion off must never be the switch that turns collection off. Safe to call by hand at any time and idempotent: a second run purges nothing and reports zeros. The response reports how many addresses went, how many Events they came off, the instant used, and how many unaccepted addresses are still held across the platform, so two runs a day apart say whether anybody is assigning at all. It names no address, no Ticket, no buyer and no Event, because the address is the data this job exists to remove.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHolderAddressPurge"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Purge unaccepted holder addresses at Event start",
                 "tags": [
                     "internal"
                 ]

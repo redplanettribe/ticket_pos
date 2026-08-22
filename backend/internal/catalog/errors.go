@@ -564,6 +564,50 @@ func ErrAssignmentEventStarted() apperror.DomainError {
 	)
 }
 
+// ErrAssignmentMailCapReached is returned when one Ticket has sent every
+// Assignment mail it will ever send (#332, parent #322, ADR 0046).
+//
+// THE CHANGE IS REFUSED OUTRIGHT AND NOT MERELY THE MAIL. That is the whole of
+// what this error means, and it is stated here because the alternative is a
+// tempting bug: writing the new address and skipping the send would move
+// `assigned_at`, which every outstanding Assignment Link is signed over, so the
+// Holder who already had a link would lose it and the new address would never
+// get one. A Ticket with a live link and no way to reach anybody is strictly
+// worse than a refusal the buyer can read.
+//
+// THE MESSAGE POINTS SOMEWHERE. A refusal a buyer cannot act on is a dead end,
+// and this one has an exit: the Answer Link still works for every Ticket nobody
+// has accepted, which is exactly the degradation path ADR 0046 kept it alive
+// for. The Storefront says so in the reader's own language, keyed on the code.
+func ErrAssignmentMailCapReached() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_MAIL_CAP_REACHED",
+		"This ticket has been sent to as many addresses as it can be. Share its answer link instead.",
+		nil,
+	)
+}
+
+// ErrAssignmentRateLimited is returned when a buyer has sent every Assignment
+// mail their window allows (#332, parent #322, ADR 0046).
+//
+// TOLD APART FROM THE CAP ABOVE AND NEVER FOLDED INTO IT, on the discipline the
+// OTP service already keeps between its per-key limit and its global ceiling:
+// both are refusals, and an operator reading the logs — or a buyer reading the
+// page — must be able to tell "come back later" from "this Ticket is finished".
+// They also carry different statuses for that reason.
+//
+// NO RETRY-AFTER AND NO COUNT IN THE DETAILS. Either would tell a script exactly
+// how long to sleep and exactly how much allowance it has left, which is a
+// tuning aid for the only caller this limit exists to inconvenience. The honest
+// buyer needs "later", and "later" is what they get.
+func ErrAssignmentRateLimited() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_RATE_LIMITED",
+		"You have sent a lot of ticket invitations recently. Please try again later.",
+		nil,
+	)
+}
+
 // ErrAssignmentLinkInvalid is returned when an Assignment Link does not open
 // (#325, parent #322, ADR 0046).
 //
