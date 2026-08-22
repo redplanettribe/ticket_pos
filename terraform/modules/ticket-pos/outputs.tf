@@ -216,6 +216,16 @@ output "answer_purge_service_account_email" {
   value       = google_service_account.answer_purge.email
 }
 
+output "answer_reminder_job_name" {
+  description = "Name of the Cloud Scheduler job driving the Answer Reminder sweep. It ships PAUSED (answer_reminder_enabled defaults false); `gcloud scheduler jobs resume` is not the way to start it, because a console resume and the Terraform state then disagree."
+  value       = google_cloud_scheduler_job.answer_reminder.name
+}
+
+output "answer_reminder_service_account_email" {
+  description = "Service account Cloud Scheduler presents when driving the Answer Reminder sweep. It holds run.invoker on the API and nothing else — the only account in this project whose calls put mail in a stranger's inbox, which is why it is distinguishable in the audit log from the purge's."
+  value       = google_service_account.answer_reminder.email
+}
+
 # The DNS work Terraform cannot do. Printed rather than applied because the zone
 # is not ours to write to from here (ADR 0009); a human adds these at Namecheap
 # and then presses Verify in Resend. The exact DKIM selector and value are

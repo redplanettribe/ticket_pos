@@ -105,6 +105,16 @@ module "ticket_pos" {
   answer_purge_schedule                 = var.answer_purge_schedule
   answer_purge_attempt_deadline_seconds = var.answer_purge_attempt_deadline_seconds
 
+  # The Answer Reminder sweep (#317, ADR 0044). Threaded through the root on the
+  # purge's terms and for a sharper reason: this is the one scheduled job whose
+  # runs end up in somebody's inbox. It ships false, it stays false until there
+  # are buyers who owe Answers AND somebody is watching the first run, and
+  # turning it on — like turning it off during an incident — is a reviewable diff
+  # in this file rather than a console click the next apply undoes.
+  answer_reminder_enabled                  = var.answer_reminder_enabled
+  answer_reminder_schedule                 = var.answer_reminder_schedule
+  answer_reminder_attempt_deadline_seconds = var.answer_reminder_attempt_deadline_seconds
+
   # Ticket Question authoring (#309, ADR 0045). Threaded through the root for a
   # different reason than the two above: this one is not an incident lever but a
   # gate somebody must deliberately open, and declaring it here is what makes
