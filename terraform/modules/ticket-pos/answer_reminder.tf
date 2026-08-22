@@ -33,9 +33,13 @@
 # ran", and revoking one must never silently revoke the other. For this account
 # the log is the only record of a run that sent nothing, which is the ordinary
 # case and the one worth being able to distinguish from a job that is not firing.
+# The account_id is "answer-remind" and not "answer-reminder" because GCP caps a
+# service account id at 30 characters and the full word overruns it by two. The
+# Scheduler job below keeps the unabbreviated name -- its own limit is far
+# higher -- so the pair reads as one thing everywhere except this line.
 resource "google_service_account" "answer_reminder" {
   project      = var.project_id
-  account_id   = "${var.environment}-ticket-pos-answer-reminder"
+  account_id   = "${var.environment}-ticket-pos-answer-remind"
   display_name = "Ticket POS ${var.environment} Answer Reminder sweep"
   description  = "Identity Cloud Scheduler presents when driving the ${var.environment} Answer Reminder sweep (ADR 0044)"
 }
