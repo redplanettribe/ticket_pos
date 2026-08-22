@@ -149,7 +149,7 @@
   "answerLink": {
     "metaTitle": "Este enlace ya no se abre · {brand}",
     "title": "Este enlace ya no se abre",
-    "description": "Los enlaces de entradas como este han sido reemplazados.",
+    "description": "Los enlaces como este han sido reemplazados.",
     "retiredTitle": "Espere el correo",
     "retiredDescription": "La persona que compró la entrada ahora puede enviársela a su dirección de correo. Cuando lo haga, recibirá un mensaje con un enlace propio: ábralo para aceptar la entrada y responder las preguntas del organizador. Aquí no hay nada que deba hacer."
   },

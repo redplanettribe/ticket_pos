@@ -12,7 +12,7 @@ import (
 //
 // EVERYTHING HERE IS REACHED BY A SIGNED TOKEN AND BY NOTHING ELSE. There is no
 // Organization parameter and no Customer parameter on the read below, for the
-// same reason GetAnswerLinkTicket has none: the authorization IS the signature,
+// same reason the retired Answer Link's lookup had none: the authorization IS the signature,
 // checked in catalog.AssignmentLinkSigner.Parse before any of this runs, and it
 // names exactly one Ticket. A scope parameter would have to come from somewhere,
 // and the only place it could come from is this row.
@@ -22,7 +22,7 @@ import (
 // assignment's own state.
 //
 // A SEPARATE TYPE FROM AnswerableTicket, AND THE SEPARATION IS THE SECURITY
-// PROPERTY, exactly as it is for AnswerLinkTicket. AnswerableTicket carries the
+// PROPERTY, exactly as it was for the retired Answer Link. AnswerableTicket carries the
 // Ticket Sale's id, its Sale Confirmation reference and the Ticket's ordinal —
 // every one a fact about the purchase, and the ordinal says how many Tickets the
 // Sale has. A column that was never selected cannot be leaked by somebody adding
@@ -73,7 +73,7 @@ type AssignmentLinkTicket struct {
 // GetAssignmentLinkTicket loads one Ticket by id for the accept flow, UNSCOPED.
 //
 // It returns the Ticket whether or not it may still be accepted, exactly as
-// GetAnswerLinkTicket does: the window and the freshness of the token are
+// the retired Answer Link's lookup did: the window and the freshness of the token are
 // decisions taken in one place in the service, from the columns above. Deciding
 // them in the WHERE clause would make "reversed", "reassigned" and "no such
 // Ticket" the same row count — which is the right ANSWER to give a caller and

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMessages, useTranslations } from "next-intl";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { TicketQuestionRow } from "@/components/ticket-question-row";
 import { visibleQuestionsOf, type AnswerBody } from "@/lib/ticket-questions";
@@ -65,6 +65,11 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
   // The INITIAL disclosure decides where the panel starts; after that it is the
   // reader's, and only the last owed Answer saving moves it (below).
   const [open, setOpen] = useState(disclosure === "open");
+  // A refetch that brings a NEW debt (a required question added after the
+  // sale) reopens the panel: something owed is never hidden.
+  useEffect(() => {
+    if (disclosure === "open") setOpen(true);
+  }, [disclosure]);
 
   const questions = visibleQuestionsOf(ticket.questions);
   const closed = closedWindowKey(ticket);

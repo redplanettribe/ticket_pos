@@ -6,7 +6,7 @@ import (
 )
 
 // The three pure rules a Ticket Assignment rests on (#324, parent #322), tested
-// here rather than through HTTP for the reason answer_link_test.go and
+// here rather than through HTTP for the reason assignment_link_signer_test.go and
 // ticket_answer_test.go are: each is a total function over a small closed set of
 // inputs, and enumerating that set is cheaper and sharper here than staging one
 // Ticket Sale per case at the integration seam. Everything a BUYER can observe

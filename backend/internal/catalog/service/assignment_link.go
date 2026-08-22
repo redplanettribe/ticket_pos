@@ -68,7 +68,7 @@ const assignmentLinkPath = "/accept"
 //
 // WHAT IS ABSENT, AND WHY EACH ONE STAYS ABSENT: the buyer's name and email, the
 // price, the Tax ID, the Sale Confirmation reference, the Ticket Sale's id, the
-// ordinal, and every other Ticket of the Sale. The reasons are AnswerLinkView's
+// ordinal, and every other Ticket of the Sale. The reasons are the retired Answer Link's (ADR 0044),
 // and are not repeated here; what IS worth stating is that they hold even though
 // this reader is a Verified Customer. Being a Customer of this platform buys
 // nobody a fact about somebody else's purchase.
@@ -230,7 +230,7 @@ func (s *Service) NameByAssignmentLink(
 // friends' t-shirt sizes or forwarded four indistinguishable links; here the
 // person wearing the shirt says the size, and — because they have accepted —
 // nobody still holding a forwarded Answer Link can overwrite it (see
-// answerLinkTicket, which stops opening an accepted Ticket).
+// the retired Answer Link did, which stopped opening an accepted Ticket).
 //
 // It reuses answerTicketQuestion, which is where catalog.ParseAnswer, the
 // retired-question rule and the Option resolution live. Four surfaces now answer

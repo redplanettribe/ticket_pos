@@ -149,7 +149,7 @@
   "answerLink": {
     "metaTitle": "This link no longer opens · {brand}",
     "title": "This link no longer opens",
-    "description": "Ticket links like this one have been replaced.",
+    "description": "Links like this one have been replaced.",
     "retiredTitle": "Wait for the email",
     "retiredDescription": "The person who bought the ticket can now send it to your email address. When they do, you'll get a message with a link of your own — open that to accept the ticket and answer the organizer's questions. Nothing you need to do here."
   },

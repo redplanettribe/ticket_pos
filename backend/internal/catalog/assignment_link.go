@@ -53,7 +53,7 @@ const (
 
 // AssignmentLinkSigner mints and verifies Assignment Links.
 //
-// A value and not a service, like AnswerLinkSigner: signing is a pure function
+// A value and not a service (as the retired Answer Link signer was): signing is a pure function
 // of the secret, the Ticket and the moment the address was named, which is what
 // lets the whole format be tested with no database, no clock and no wiring.
 type AssignmentLinkSigner struct {

@@ -425,7 +425,10 @@ func TestReassignmentAndReversalDropTheTicketFromTheHoldersList(t *testing.T) {
 		t.Fatalf("Diego holds %+v, want the reassigned Ticket with its Answer cleared", held)
 	}
 
-	// The Sale is reversed: gone from Diego, and not found from him.
+	// The Sale is reversed: gone from Diego, and not found from him. Reversed by
+	// SQL because the customer Reversal Window needs a real payment provider
+	// round-trip and the Operator route a Platform Operator session, neither of
+	// which this test is about.
 	if _, err := env.db.Exec(`UPDATE ticket_sales SET status = 'reversed' WHERE id = $1`, f.anaSaleID); err != nil {
 		t.Fatalf("reverse the Sale: %v", err)
 	}
