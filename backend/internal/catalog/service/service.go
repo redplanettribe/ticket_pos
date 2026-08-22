@@ -277,6 +277,17 @@ type Service struct {
 	// service that accepts nothing: the accept route reports the link
 	// unavailable rather than accepting a Ticket on behalf of nobody.
 	holders HolderCustomers
+	// assignmentMailLimits rations the Assignment mail (#332, parent #322): a
+	// hard per-Ticket cap and a per-buyer rate limit.
+	//
+	// ITS ZERO VALUE IS "THE DEFAULTS", not "send nothing" — catalog.
+	// MayMailAssignment reads the constants past any limit that is zero or
+	// negative. That is the opposite posture to the flags above and is
+	// deliberate: an unwired flag must fail closed because what it guards is a
+	// collection nobody decided to open, while an unwired LIMIT failing closed
+	// would silently disable a feature somebody did decide to open, which a flag
+	// already has a proper way to say.
+	assignmentMailLimits catalog.AssignmentMailLimits
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
@@ -327,6 +338,34 @@ func (s *Service) WithTicketQuestions(enabled bool) *Service {
 func (s *Service) WithTicketAssignment(enabled bool) *Service {
 	s.ticketAssignmentEnabled = enabled
 	return s
+}
+
+// WithAssignmentMailLimits lowers the Assignment mail rationing for a test
+// (#332, parent #322).
+//
+// THE NUMBERS ARE CONFIGURATION; THE BEHAVIOUR AT THEM IS WHAT IS UNDER TEST.
+// This is the OTP global ceiling's WithGlobalCeiling in another module and for
+// the same reason: proving the per-buyer window binds by actually sending
+// twenty mails would be a slow test that tells a reader nothing the same test at
+// two does not.
+//
+// A ZERO OR NEGATIVE VALUE KEEPS THE DEFAULT, so a caller cannot accidentally
+// mean "send nothing" — see catalog.MayMailAssignment.
+//
+// NO ENVIRONMENT VARIABLE READS THIS, and that is on purpose. These limits are
+// the price ADR 0046 charged for writing to strangers, not a dial an operator
+// turns under pressure; loosening them is a code change with a reviewer, which
+// is what the ADR means by "anyone loosening the cap is spending something this
+// ADR priced".
+func (s *Service) WithAssignmentMailLimits(limits catalog.AssignmentMailLimits) *Service {
+	s.assignmentMailLimits = limits
+	return s
+}
+
+// AssignmentMailLimits reports the rationing currently in force, so a test that
+// lowered it can put it back.
+func (s *Service) AssignmentMailLimits() catalog.AssignmentMailLimits {
+	return s.assignmentMailLimits
 }
 
 // WithAnswerLinks gives this service the key it signs Answer Links with and the

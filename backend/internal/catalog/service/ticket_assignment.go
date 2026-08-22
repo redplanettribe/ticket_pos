@@ -98,6 +98,13 @@ func (s *Service) AssignOwnTicket(
 		return nil, err
 	}
 
+	// THE RATIONING, BEFORE THE WRITE AND NEVER AFTER IT (#332). See
+	// assignmentMailAllowed for why a refusal here refuses the ASSIGNMENT and
+	// not merely the mail.
+	if err := s.assignmentMailAllowed(ctx, customerID, ticket, email); err != nil {
+		return nil, err
+	}
+
 	// A BUYER MAY ASSIGN A TICKET TO THEIR OWN ADDRESS, and nothing here checks
 	// otherwise. A parent buying for three children holds one themselves; a
 	// rule that refused the buyer's own address would refuse the commonest shape
@@ -126,8 +133,16 @@ func (s *Service) AssignOwnTicket(
 	// be rolled back, so the only honest order is to record the fact and then
 	// tell somebody about it; the reverse would risk a stranger holding a link to
 	// an assignment that never happened.
+	//
+	// AND THE LEDGER ROW IS WRITTEN AFTER THE MAIL WENT, never before and never
+	// instead (#332). Both allowances are spent by SENDS, so a mail the provider
+	// refused costs the buyer nothing: the alternative would ration somebody out
+	// of a message that never reached an inbox, permanently, since the
+	// per-Ticket allowance never refills.
 	if assignment.Changed {
-		s.mailAssignedTicket(ctx, ticket.ID, email, assignment.AssignedAt)
+		if s.mailAssignedTicket(ctx, ticket.ID, email, assignment.AssignedAt) {
+			s.recordAssignmentMailSent(ctx, ticket.ID, customerID)
+		}
 	}
 
 	// THE WHOLE SALE COMES BACK rather than the one Ticket that changed, exactly
@@ -242,14 +257,102 @@ func assignmentRefusalToken(refusal catalog.AssignmentRefusal) string {
 // A FAILURE HERE IS SWALLOWED, deliberately, and the assignment stands. The
 // buyer's record of who they gave which ticket to is worth keeping even when the
 // mail did not go out, and they can send a fresh one by correcting the address.
-func (s *Service) mailAssignedTicket(ctx context.Context, ticketID, holderEmail string, assignedAt time.Time) {
+//
+// IT REPORTS WHETHER A MAIL ACTUALLY WENT (#332), which is what the ledger row
+// beside the call site is a claim about. A mail that was never composed — no
+// sender wired, no link secret, an unreadable Ticket — or one the provider
+// refused must not spend anybody's allowance, because both allowances ration the
+// writing to strangers and nothing was written to anybody.
+func (s *Service) mailAssignedTicket(ctx context.Context, ticketID, holderEmail string, assignedAt time.Time) bool {
 	if s.mailer == nil {
-		return
+		return false
 	}
 	ticket, err := s.repo.GetAssignmentLinkTicket(ctx, ticketID)
 	if err != nil || ticket == nil {
 		s.logAssignmentMailFailure("assignment mail not composed: ticket unreadable", err)
-		return
+		return false
 	}
-	s.mailTicketAssignment(ctx, ticket, holderEmail, assignedAt)
+	return s.mailTicketAssignment(ctx, ticket, holderEmail, assignedAt)
+}
+
+// assignmentMailAllowed is the whole of #332's refusal, and it stands BEFORE the
+// write rather than beside the send.
+//
+// WHY IT REFUSES THE ASSIGNMENT AND NOT MERELY THE MAIL, which is the decision
+// this ticket most wants recorded. The cheaper-looking design is to write the
+// new address and skip the send when an allowance is spent. It is a trap.
+// `assigned_at` is what every Assignment Link is signed over, so moving it kills
+// every outstanding link for this Ticket — and a write with no send would leave
+// the Holder who already had one holding a dead link, the new address holding
+// nothing, and the buyer's page cheerfully showing an address that was never
+// told. Refusing outright leaves the previous Holder's live link alive and the
+// buyer with something to read. A refusal is recoverable; a silently unreachable
+// Ticket is not.
+//
+// AN UNCHANGED ADDRESS IS NOT RATIONED. Submitting the address a Ticket already
+// carries mails nobody and writes nothing (repository.AssignTicketResult.
+// Changed), so it may not be refused either: a buyer pressing save twice on a
+// Ticket whose allowance is spent would otherwise be told their own current
+// state is forbidden. Only a change of ADDRESS is a would-be mail.
+//
+// THE COUNT IS READ, NOT LOCKED. Two saves racing on one Ticket can each see
+// room and both send, one over the cap. That is accepted for the same reason the
+// OTP limits accept it: the control is protecting a sending reputation against
+// volume, and an off-by-one under a race is not the shape of the attack. The
+// cost of the alternative — holding a lock across a network send — is not worth
+// paying here.
+func (s *Service) assignmentMailAllowed(
+	ctx context.Context,
+	customerID string,
+	ticket *repository.AnswerableTicket,
+	holderEmail string,
+) error {
+	if ticket.HolderEmail.Valid && ticket.HolderEmail.String == holderEmail {
+		return nil
+	}
+
+	sentForTicket, err := s.repo.CountAssignmentMailsForTicket(ctx, ticket.ID)
+	if err != nil {
+		return err
+	}
+	// The window's start is derived from THIS SERVICE'S clock and is never a
+	// caller's: a caller who could name it could name a moment a second ago and
+	// lift the limit on demand.
+	sentByBuyer, err := s.repo.CountAssignmentMailsForBuyer(
+		ctx, customerID, s.now().Add(-catalog.AssignmentMailWindow),
+	)
+	if err != nil {
+		return err
+	}
+
+	switch catalog.MayMailAssignment(catalog.AssignmentMailInputs{
+		SentForTicket:       sentForTicket,
+		SentByBuyerInWindow: sentByBuyer,
+		Limits:              s.assignmentMailLimits,
+	}) {
+	case catalog.AssignmentMailRefusedTicketCap:
+		return catalog.ErrAssignmentMailCapReached()
+	case catalog.AssignmentMailRefusedBuyerRate:
+		return catalog.ErrAssignmentRateLimited()
+	default:
+		return nil
+	}
+}
+
+// recordAssignmentMailSent spends one unit of both allowances at once.
+//
+// A FAILURE IS SWALLOWED AND LOGGED, on the same reasoning the mail's own
+// failure is: the mail has already gone and the assignment already stands, so
+// there is nothing left to roll back. The cost of a lost row is one extra mail
+// this Ticket may later send, which is the direction worth failing in — the
+// other one rations a buyer out of a message somebody did receive.
+//
+// THE ADDRESS IS NOT PASSED AND NOT STORED. The ledger says a mail went out for
+// this Ticket at this moment; where it went is the Ticket's own column, which
+// the Holder Address Purge takes at Event start (migration 081). A copy here
+// would be that promise written backwards.
+func (s *Service) recordAssignmentMailSent(ctx context.Context, ticketID, buyerCustomerID string) {
+	if err := s.repo.RecordAssignmentMailSent(ctx, ticketID, buyerCustomerID, s.now()); err != nil {
+		s.logAssignmentMailFailure("assignment mail ledger not written: the cap under-counts by one", err)
+	}
 }

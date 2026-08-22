@@ -561,7 +561,9 @@
       "INVALID_HOLDER_EMAIL": "That doesn't look like an email address. Check it and try again.",
       "ASSIGNMENT_CHANNEL_UNSUPPORTED": "This purchase was made at the door, so an address can't be given here. The organizer can help.",
       "ASSIGNMENT_SALE_REVERSED": "This purchase was undone, so these tickets aren't going to anyone.",
-      "ASSIGNMENT_EVENT_STARTED": "The event has started, so addresses are closed. What was given is kept as it was."
+      "ASSIGNMENT_EVENT_STARTED": "The event has started, so addresses are closed. What was given is kept as it was.",
+      "ASSIGNMENT_MAIL_CAP_REACHED": "This ticket has already been sent to as many addresses as it can be. Share its answer link instead.",
+      "ASSIGNMENT_RATE_LIMITED": "You've sent a lot of ticket invitations recently. Please try again later."
     },
     "field": {
       "REQUIRED": "is required",
