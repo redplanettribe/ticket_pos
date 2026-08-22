@@ -383,7 +383,9 @@ func TestSalesExportCarriesHolderColumnsWithoutAnyTicketQuestion(t *testing.T) {
 	}})
 
 	// Ana names a friend on one of her two Tickets, so the sheet has one
-	// `assigned` and one `unassigned` to tell apart.
+	// `assigned` and one `unassigned` to tell apart. The Sale id is read from
+	// the database because the Sale Import response carries a batch, not the
+	// id of the Ticket Sale it minted, and the assign route is keyed on it.
 	var saleID string
 	if err := env.db.QueryRow(
 		`SELECT id FROM ticket_sales WHERE event_id = $1`, eventID,

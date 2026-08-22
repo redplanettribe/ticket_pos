@@ -697,7 +697,7 @@ func guestRow(t *testing.T, page outstandingAnswers, ticketID string) guestEntry
 //
 // AND THE BUYER STAYS ON EVERY ROW. A Holder is the named person a Ticket was
 // handed to and never its owner: the Sale, the money and the Reversal Window are
-// still the buyer's, and a guest list that replaced them would be describing a
+// still the buyer's, and a Holder List that replaced them would be describing a
 // transfer that never happened.
 func TestTheGuestListNamesAcceptedHoldersAndNobodyElse(t *testing.T) {
 	env := setupTest(t)
@@ -831,7 +831,7 @@ func TestAPurgedTicketReadsAssignedNeverAcceptedOnTheHolderList(t *testing.T) {
 // Acceptance closes the ANSWER LINK — a stranger still holding a forwarded URL
 // must not overwrite the Holder's own reply (ADR 0046) — and it closes nothing
 // else. An Organization that could not fix the size of a Holder who has stopped
-// replying would find the guest list turning every unreachable person into a
+// replying would find the Holder List turning every unreachable person into a
 // dead end, which is the opposite of what this surface is for.
 func TestStaffStillAnswerForAnAcceptedHolder(t *testing.T) {
 	env := setupTest(t)
@@ -861,7 +861,7 @@ func TestStaffStillAnswerForAnAcceptedHolder(t *testing.T) {
 //
 // The two flags are separate on purpose: killing assignment must not take Ticket
 // Questions down with it, so the Outstanding Answers list has to keep working
-// with the guest list absent — not empty, ABSENT. Asserted on the RAW BODY,
+// with the Holder List absent — not empty, ABSENT. Asserted on the RAW BODY,
 // because a decoded struct reports an empty string for a field sent as `""` and
 // for one never sent at all, and those are the two cases this distinguishes
 // (ADR 0045).
@@ -893,7 +893,7 @@ func TestTheGuestListIsAbsentWhileTheAssignmentFlagIsClosed(t *testing.T) {
 //
 // This test is the INVERSION TestTheGuestListOnlyReachesTicketsThatOweAnAnswer
 // predicted (#333, ruling of 2026-08-22): that test recorded, without blessing
-// it, that a Ticket dropped off the guest list the moment its Answers were all
+// it, that a Ticket dropped off the Holder List the moment its Answers were all
 // in — Carla answered her one question and left the list with her name. The
 // ruling made the list the roster: answering discharges the DEBT and touches
 // nothing else, because who is coming and what they still owe are different

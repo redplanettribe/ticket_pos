@@ -556,7 +556,6 @@
       "ASSIGNMENT_LINK_EXPIRED": "El evento ya empezó, así que no queda nada por aceptar.",
       "ASSIGNMENT_LINK_UNAVAILABLE": "No pudimos hacerlo en este momento. Inténtelo de nuevo un poco más tarde.",
       "TICKET_ASSIGNMENT_UNAVAILABLE": "No encontramos esa entrada.",
-      "INVALID_HOLDER_NAME": "Indique un nombre y un apellido.",
       "TICKET_NOT_FOUND": "No encontramos esa entrada.",
       "INVALID_HOLDER_EMAIL": "Eso no parece un correo electrónico. Revíselo e inténtelo de nuevo.",
       "ASSIGNMENT_CHANNEL_UNSUPPORTED": "Esta compra se hizo en la puerta, así que aquí no se puede dar una dirección. El organizador puede ayudarle.",

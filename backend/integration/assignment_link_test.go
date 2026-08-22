@@ -475,7 +475,7 @@ func TestAKnownCustomersNameIsPrefilledOnlyAfterTheClick(t *testing.T) {
 	}
 
 	// HALF A NAME IS NOT A NAME. Both halves are stored separately (ADR 0005) and
-	// both are required, because half a name is half a person on a guest list.
+	// both are required, because half a name is half a person on a Holder List.
 	// Refused by the HANDLER as the standard validation envelope (#336): the
 	// token names the Ticket, so there is no id here for a 400 to leak.
 	resp, body, _ = answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{

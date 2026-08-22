@@ -38,7 +38,7 @@ test("an unknown code falls through to the honest floor", () => {
 test("a name is two non-blank halves", () => {
   // Mirrors catalog.ParseHolderName, which is the one that decides. Both halves
   // are stored separately (ADR 0005) and both are required, because half a name
-  // is half a person on the Organization's guest list.
+  // is half a person on the Organization's Holder List.
   assert.equal(holderNameIsGiven("Carla", "Ruiz"), true);
   assert.equal(holderNameIsGiven("  ", "Ruiz"), false);
   assert.equal(holderNameIsGiven("Carla", ""), false);

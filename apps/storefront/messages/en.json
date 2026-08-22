@@ -556,7 +556,6 @@
       "ASSIGNMENT_LINK_EXPIRED": "The event has started, so there's nothing left to accept.",
       "ASSIGNMENT_LINK_UNAVAILABLE": "We couldn't do that just now. Please try again in a little while.",
       "TICKET_ASSIGNMENT_UNAVAILABLE": "We couldn't find that ticket.",
-      "INVALID_HOLDER_NAME": "Please give both a first name and a last name.",
       "TICKET_NOT_FOUND": "We couldn't find that ticket.",
       "INVALID_HOLDER_EMAIL": "That doesn't look like an email address. Check it and try again.",
       "ASSIGNMENT_CHANNEL_UNSUPPORTED": "This purchase was made at the door, so an address can't be given here. The organizer can help.",
