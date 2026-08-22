@@ -255,6 +255,31 @@ func (s *Service) buyerTicketAnswersViews(
 	return views, nil
 }
 
+// TicketSaleHasOutstandingAnswers reports whether any Ticket of one Ticket Sale
+// still owes a required Ticket Question an Answer.
+//
+// IT EXISTS FOR THE SALE CONFIRMATION and for nothing else (#315): it decides
+// whether the receipt carries its one extra sentence. The sales module asks it
+// through a seam of its own, because a Ticket Sale's receipt is that module's
+// and what counts as a debt is this one's.
+//
+// THE FLAG IS READ HERE, so that a dark deployment answers false and the receipt
+// renders exactly as it always did (ADR 0045). That is the same reason every
+// other route into this feature reads it first, and it matters more here than
+// anywhere: this is the only surface of the whole feature that reaches somebody
+// who never visited a page, and a sentence about Ticket Questions in an inbox
+// before the Privacy Policy describes them is the failure ADR 0045 is about.
+//
+// A FAILURE IS NOT AN ERROR TO THE CALLER'S EYE — see the sales module's seam,
+// which turns any error into "no sentence". A receipt is worth immeasurably more
+// than a line on it, and the safe direction is silence.
+func (s *Service) TicketSaleHasOutstandingAnswers(ctx context.Context, ticketSaleID string) (bool, error) {
+	if !s.ticketQuestionsEnabled {
+		return false, nil
+	}
+	return s.repo.TicketSaleHasOutstandingAnswers(ctx, ticketSaleID)
+}
+
 // outstandingAnswerCount counts one Ticket's Outstanding Answers through
 // catalog.IsOutstandingAnswer.
 //

@@ -897,8 +897,14 @@ func (s *Service) sendSaleConfirmation(ctx context.Context, organizationID, even
 		// and the transaction that wrote the pending has to have committed before
 		// anything outside it can observe one anyway.
 		ConsentConfirmationLink: s.consentConfirmationLink(ctx, sale.CustomerID),
-		TaxID:                   sale.CustomerTaxID,
-		Locale:                  s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
+		// Read from state after the commit, like the consent line above and for
+		// the same reason: the Tickets this asks about are minted by the very
+		// transaction that had to commit before anything outside it could count
+		// what they owe. A buyer who answered every question at checkout owes
+		// nothing by the time this runs, and gets the receipt they always got.
+		HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, sale.ID),
+		TaxID:                 sale.CustomerTaxID,
+		Locale:                s.mailLocale(ctx, sale.ID, sale.Locale, sale.CustomerEmail),
 	})
 }
 

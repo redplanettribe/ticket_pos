@@ -101,6 +101,43 @@ const outstandingAnswerScope = `
 	AND s.event_id = $1 AND s.organization_id = $2
 `
 
+// TicketSaleHasOutstandingAnswers reports whether ANY Ticket of one Ticket Sale
+// still owes a required Ticket Question an Answer (#315).
+//
+// THE SAME DERIVATION, SCOPED TO ONE SALE INSTEAD OF ONE EVENT. It reuses
+// outstandingAnswerFrom and outstandingAnswerWhere untouched and adds a scope of
+// its own, which is exactly what the note to #317 at the foot of this file asks
+// every new caller to do. Restating the four clauses here would make the
+// sentence on a buyer's receipt and the row on the Organization's chase list
+// into two different opinions about the same debt — and they would disagree
+// first on the retired-question case, which is the one nobody thinks about.
+//
+// IT NAMES NO ORGANIZATION AND NO EVENT, unlike every other query in this file,
+// and that is not a missing clause. Its caller is the Sale Confirmation, which
+// runs after a sale has committed and has no actor at all — nobody is asking, so
+// there is nobody to scope to. The Ticket Sale id comes from the row that was
+// just written rather than from any request, and what it decides is whether one
+// sentence appears in an email already addressed to that sale's buyer. There is
+// no disclosure here to get wrong: the answer never leaves this process except
+// as the presence or absence of a line in a receipt.
+//
+// EXISTS AND NOT A COUNT, because a count would be a number nobody uses. The
+// receipt says "some of these still need answers" and deliberately names no
+// figure — the debt is derived live and a number baked into an inbox is wrong
+// the moment the buyer answers one — so the query stops at the first row.
+func (r *Repository) TicketSaleHasOutstandingAnswers(ctx context.Context, ticketSaleID string) (bool, error) {
+	var exists bool
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+	`+outstandingAnswerFrom+`
+			WHERE `+outstandingAnswerWhere+`
+			AND s.id = $1
+		)
+	`, ticketSaleID).Scan(&exists)
+	return exists, err
+}
+
 // TicketOwingAnswers is one Ticket that still owes at least one required Ticket
 // Question an Answer, with everything needed to chase it and to open it.
 //

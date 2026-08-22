@@ -312,6 +312,22 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	catalogService = catalogService.WithAnswerLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
 	catalogHandler := cataloghandler.New(catalogService)
 
+	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on
+	// HERE rather than passed to either constructor.
+	//
+	// IT IS THE ONE PLACE THE TWO MODULES POINT AT EACH OTHER, and the knot is
+	// tied after both exist because it has to be: sales is built first, since the
+	// public Event page asks it about a Customer's holdings, so catalog's service
+	// does not exist yet at the moment sales is constructed. A constructor
+	// argument would therefore mean reordering the two, which would break the
+	// dependency that already runs the other way.
+	//
+	// The seam is one yes-or-no question wide. Sales learns nothing about what a
+	// Ticket Question is or when one is owed, and catalog reads its own feature
+	// flag on the far side — so a dark deployment answers false and every receipt
+	// renders exactly as it did before this feature existed (ADR 0045).
+	salesService = salesService.WithOutstandingAnswers(catalogService)
+
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
 	// the canonical key the Storefront's chips already carry (#218). Turning the
 	// one into the other is catalog's rule — including canonicalizing the key the
