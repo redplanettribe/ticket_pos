@@ -100,6 +100,11 @@ output "reversal_reconciler_job_name" {
   value       = module.ticket_pos.reversal_reconciler_job_name
 }
 
+output "answer_purge_job_name" {
+  description = "Cloud Scheduler job driving the Abandoned Answer Purge. `gcloud scheduler jobs pause <name> --location us-east1` stops it immediately; follow it with the matching Terraform change so the next apply does not resume it. Reach for this before investigating anything about the purge — it is the one job whose runs cannot be undone."
+  value       = module.ticket_pos.answer_purge_job_name
+}
+
 output "follow_digest_job_names" {
   description = "The two Cloud Scheduler jobs driving the Follow Digest. `gcloud scheduler jobs pause <name> --location us-east1` stops either immediately; follow it with the matching Terraform change so the next apply does not resume it. Pausing the enqueue stops next week's send; pausing the drain holds this week's Digests in the queue."
   value = {

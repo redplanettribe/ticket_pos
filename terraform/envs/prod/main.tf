@@ -94,6 +94,17 @@ module "ticket_pos" {
   follow_digest_drain_schedule                   = var.follow_digest_drain_schedule
   follow_digest_drain_attempt_deadline_seconds   = var.follow_digest_drain_attempt_deadline_seconds
 
+  # The Abandoned Answer Purge (#316, ADR 0044), threaded through the root on the
+  # same terms — but read the enabled flag as BOTH levers at once. It is the
+  # incident stop, as the two above are, and it is also a gate somebody must
+  # deliberately open: it ships false and stays false until there are Answers to
+  # purge, which cannot be true before ticket_questions_enabled below has been
+  # open for a while. Turning it on is a reviewable diff in this file, and so is
+  # turning it off at 3am.
+  answer_purge_enabled                  = var.answer_purge_enabled
+  answer_purge_schedule                 = var.answer_purge_schedule
+  answer_purge_attempt_deadline_seconds = var.answer_purge_attempt_deadline_seconds
+
   # Ticket Question authoring (#309, ADR 0045). Threaded through the root for a
   # different reason than the two above: this one is not an incident lever but a
   # gate somebody must deliberately open, and declaring it here is what makes

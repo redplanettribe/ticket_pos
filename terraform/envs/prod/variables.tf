@@ -217,6 +217,24 @@ variable "follow_digest_drain_attempt_deadline_seconds" {
   default     = 90
 }
 
+variable "answer_purge_enabled" {
+  description = "Whether the production Abandoned Answer Purge tick fires (#316, ADR 0044). STARTS FALSE and stays false until ticket_questions_enabled below has been open long enough for Payments to be holding Answers — before that it is a daily DELETE against an empty table. This is the only scheduled job in production that deletes anything: it is also the flag to set false first, and apply second, if the purge is ever suspected of taking more than the 30-day window allows."
+  type        = bool
+  default     = false
+}
+
+variable "answer_purge_schedule" {
+  description = "Unix cron for the production purge tick. Daily in the small hours; the module variable of the same name says why it is not per-minute."
+  type        = string
+  default     = "20 3 * * *"
+}
+
+variable "answer_purge_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production purge. It must stay below api_request_timeout_seconds; the module variable of the same name says why."
+  type        = number
+  default     = 120
+}
+
 variable "ticket_questions_enabled" {
   description = "Whether an Organization may define Ticket Questions in the staff app (#309). STARTS FALSE. The prerequisite is a published Policy Version describing this collection (ADR 0045) — flipping it before that puts the platform in the position of deliberately collecting, through a mechanism it built, data its own policy says it does not collect. Read the ADR before changing this."
   type        = bool

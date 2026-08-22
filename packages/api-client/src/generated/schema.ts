@@ -1911,6 +1911,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/checkout-answers/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge the Answers on abandoned Payments
+         * @description Deletes the Ticket Question Answers held on Payments that never reached `approved` and were begun more than 30 days ago (ADR 0044). The Payment row and its lines are untouched and kept forever — this is a purge of Answers, not of Payments — and the chosen Options of a choice Answer go with it. An approved Payment's Answers are never purged at any age. The predicate is non-approval plus age, and never the `expired` status alone: expiry in this platform is lazy, opportunistic bookkeeping and an expired Payment can still flip to approved when the Payment Provider confirms late, so purging on it would delete the Answers of a sale that then commits. The 30-day window is what makes non-approval safe to act on. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The window cannot be named by the caller; it is taken from the clock, and the cutoff actually used is echoed back. Safe to call by hand at any time and idempotent — a second run deletes nothing and reports zeros. The response reports how many Answers went, how many Payments they came off, the cutoff used, and how many Answers are still riding Payments across the platform, so two runs a day apart say whether the checkout is capturing at all. It names no Payment, no buyer and no Answer, because an Answer is the data this feature exists to protect.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAnswerPurge"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/follow-digests/drain": {
         parameters: {
             query?: never;
@@ -8918,6 +8966,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeAnswerPurge": {
+            data?: components["schemas"]["service.AnswerPurgeResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeBeginCheckout": {
             data?: components["schemas"]["service.BeginCheckoutResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -9386,6 +9439,37 @@ export interface components {
              *     be chosen afresh.
              */
             retired?: boolean;
+        };
+        "service.AnswerPurgeResult": {
+            /**
+             * @description AnswersHeld is how many Answers are riding Payments across the platform once
+             *     this run finished — the standing backlog, in the Reconciler's sense. It is
+             *     what makes two runs a day apart legible: rising means the checkout is
+             *     capturing, flat at zero means the flag is closed and there is nothing here
+             *     to purge.
+             */
+            answers_held?: number;
+            /**
+             * @description AnswersPurged is how many held Answers this run deleted. Zero is the
+             *     ordinary answer, and on a platform where the feature ships dark it is the
+             *     only answer.
+             */
+            answers_purged?: number;
+            /**
+             * @description Cutoff is the moment the window closed for this run (RFC3339, UTC): every
+             *     Payment begun at or before it that is not approved lost its Answers. It is
+             *     echoed back because the window is the whole correctness argument — an
+             *     operator staring at an unexpected count should be able to see, without a
+             *     deploy or a database session, which 30 days the job actually used.
+             */
+            cutoff?: string;
+            /**
+             * @description PaymentsPurged is how many Payments those Answers came off, which is the
+             *     figure that means something in human terms: forty answers off one abandoned
+             *     cart of twenty tickets is one buyer changing their mind, and forty off forty
+             *     Payments is a month of ordinary attrition.
+             */
+            payments_purged?: number;
         };
         /**
          * @description Answer is null when this Ticket has not answered this question — which,

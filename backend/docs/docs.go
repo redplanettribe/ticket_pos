@@ -1016,6 +1016,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeAnswerPurge": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AnswerPurgeResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeBeginCheckout": {
                 "properties": {
                     "data": {
@@ -2145,6 +2159,27 @@ const docTemplate = `{
                     "retired": {
                         "description": "Retired is true for an Option kept only so that what chose it still reads.\nAn Answer against one persists and stays readable; what it may not do is\nbe chosen afresh.",
                         "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnswerPurgeResult": {
+                "properties": {
+                    "answers_held": {
+                        "description": "AnswersHeld is how many Answers are riding Payments across the platform once\nthis run finished — the standing backlog, in the Reconciler's sense. It is\nwhat makes two runs a day apart legible: rising means the checkout is\ncapturing, flat at zero means the flag is closed and there is nothing here\nto purge.",
+                        "type": "integer"
+                    },
+                    "answers_purged": {
+                        "description": "AnswersPurged is how many held Answers this run deleted. Zero is the\nordinary answer, and on a platform where the feature ships dark it is the\nonly answer.",
+                        "type": "integer"
+                    },
+                    "cutoff": {
+                        "description": "Cutoff is the moment the window closed for this run (RFC3339, UTC): every\nPayment begun at or before it that is not approved lost its Answers. It is\nechoed back because the window is the whole correctness argument — an\noperator staring at an unexpected count should be able to see, without a\ndeploy or a database session, which 30 days the job actually used.",
+                        "type": "string"
+                    },
+                    "payments_purged": {
+                        "description": "PaymentsPurged is how many Payments those Answers came off, which is the\nfigure that means something in human terms: forty answers off one abandoned\ncart of twenty tickets is one buyer changing their mind, and forty off forty\nPayments is a month of ordinary attrition.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -6443,6 +6478,37 @@ const docTemplate = `{
                 "summary": "Unsubscribe from the Follow Digest",
                 "tags": [
                     "customer"
+                ]
+            }
+        },
+        "/api/v1/internal/checkout-answers/purge": {
+            "post": {
+                "description": "Deletes the Ticket Question Answers held on Payments that never reached ` + "`" + `approved` + "`" + ` and were begun more than 30 days ago (ADR 0044). The Payment row and its lines are untouched and kept forever — this is a purge of Answers, not of Payments — and the chosen Options of a choice Answer go with it. An approved Payment's Answers are never purged at any age. The predicate is non-approval plus age, and never the ` + "`" + `expired` + "`" + ` status alone: expiry in this platform is lazy, opportunistic bookkeeping and an expired Payment can still flip to approved when the Payment Provider confirms late, so purging on it would delete the Answers of a sale that then commits. The 30-day window is what makes non-approval safe to act on. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The window cannot be named by the caller; it is taken from the clock, and the cutoff actually used is echoed back. Safe to call by hand at any time and idempotent — a second run deletes nothing and reports zeros. The response reports how many Answers went, how many Payments they came off, the cutoff used, and how many Answers are still riding Payments across the platform, so two runs a day apart say whether the checkout is capturing at all. It names no Payment, no buyer and no Answer, because an Answer is the data this feature exists to protect.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAnswerPurge"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Purge the Answers on abandoned Payments",
+                "tags": [
+                    "internal"
                 ]
             }
         },
