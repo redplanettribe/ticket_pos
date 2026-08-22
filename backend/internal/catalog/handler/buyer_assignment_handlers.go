@@ -13,7 +13,7 @@ import (
 
 // The buyer's one route into a Ticket Assignment (#324, parent #322).
 //
-// IT SITS BESIDE AnswerOwnTicketQuestion AND SHARES ITS SCOPING EXACTLY: the
+// IT SITS BESIDE ListBuyerTicketAnswers AND SHARES ITS SCOPING EXACTLY: the
 // credential is the Customer Session, the path names only which of the caller's
 // OWN sales and which Ticket of it, and nothing in the body is believed about
 // who is asking. See buyer_answer_handlers.go, which states that arrangement at

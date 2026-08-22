@@ -2,47 +2,45 @@ import { NextResponse } from "next/server";
 
 import { callBackend } from "@/lib/api";
 import { apiErrorResponse, notSignedInResponse } from "@/lib/bff";
-import type { BuyerTicket } from "@/lib/buyer-answers";
+import type { HeldTicket } from "@/lib/buyer-answers";
 import { customerSessionToken } from "@/lib/customer-session";
 
 // Reads the session cookie and writes through it; never cached.
 export const dynamic = "force-dynamic";
 
 /**
- * The buyer answering one Ticket Question on one Ticket of their own Ticket Sale
- * (#315, ADR 0044).
+ * The Holder answering one Ticket Question on one Ticket they hold (#343,
+ * #344, ADR 0049).
  *
  * PUT because the far side is: it is the whole Answer every time, there is
  * exactly one per (Ticket, question), and a correction is the same request with
  * a different body.
  *
- * THE BODY IS RELAYED UNVALIDATED, deliberately, exactly as the Answer Link's
- * hop relays its own. Every rule about what an Answer may be needs the Ticket
- * Question's KIND, which this handler does not have and must not guess — a hop
- * that decided a number question could not take "3.50" would be a second parser
- * disagreeing with the real one.
+ * THE BODY IS RELAYED UNVALIDATED, deliberately. Every rule about what an Answer
+ * may be needs the Ticket Question's KIND, which this handler does not have and
+ * must not guess — a hop that decided a number question could not take "3.50"
+ * would be a second parser disagreeing with the real one.
  *
- * NO TOKEN TRAVELS HERE, which is the difference from the Answer Link's hop and
- * the whole of this route's posture. That one carries a signed token in the body
- * because it has no session; this one has the Customer Session cookie and the
- * body therefore carries no credential at all. Nothing in it is believed about
- * who is asking.
+ * NO TOKEN TRAVELS HERE. The Customer Session cookie is the whole credential,
+ * and the body carries nothing that is believed about who is asking. The two
+ * ids in the path are relayed and nothing else is: the API resolves the Ticket
+ * among those the session HOLDS, so one the caller does not hold — a Ticket of
+ * their own Sale that they gave away included — is not found there rather than
+ * refused, and the two are indistinguishable on purpose.
  *
- * The three ids in the path are relayed and nothing else is. The API scopes the
- * sale to the Customer on the session and the Ticket to that sale, so a Ticket
- * belonging to somebody else is not found there rather than refused — and the
- * two are indistinguishable on purpose.
+ * ONE TICKET COMES BACK, not a list: each held Ticket's panel stands alone, and
+ * the page patches the row in by id.
  */
 export async function PUT(
   request: Request,
-  { params }: { params: Promise<{ ticketSaleId: string; ticketId: string; questionId: string }> },
+  { params }: { params: Promise<{ ticketId: string; questionId: string }> },
 ) {
   const token = await customerSessionToken();
   if (!token) {
     return notSignedInResponse();
   }
 
-  const { ticketSaleId, ticketId, questionId } = await params;
+  const { ticketId, questionId } = await params;
 
   let body: Record<string, unknown>;
   try {
@@ -61,9 +59,8 @@ export async function PUT(
   }
 
   try {
-    const backend = await callBackend<BuyerTicket[]>(
-      `/api/v1/customer/ticket-sales/${encodeURIComponent(ticketSaleId)}` +
-        `/tickets/${encodeURIComponent(ticketId)}` +
+    const backend = await callBackend<HeldTicket>(
+      `/api/v1/customer/held-tickets/${encodeURIComponent(ticketId)}` +
         `/answers/${encodeURIComponent(questionId)}`,
       { method: "PUT", body: JSON.stringify(body), sessionToken: token },
     );

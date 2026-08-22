@@ -302,29 +302,25 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// forwarded email is not authority to undo somebody's purchase.
 	mux.Handle("POST /api/v1/customer/ticket-sales/{ticketSaleId}/reverse",
 		signedIn(http.HandlerFunc(app.SalesHandler.ReverseTicketSale)))
-	// The buyer's own Tickets, with their Ticket Questions and the per-Ticket
-	// Answer Links to pass on (#315, ADR 0044). Served by the CATALOG handler
-	// under this namespace, exactly as the undo above is served by the sales one
-	// and for the same reason: a Ticket, its questions and its Answers belong to
-	// the catalog, while who is asking belongs here.
+	// The buyer's own Tickets and their assignment state (#315, ADR 0044;
+	// narrowed by #344, ADR 0049). Served by the CATALOG handler under this
+	// namespace, exactly as the undo above is served by the sales one and for
+	// the same reason: a Ticket and whose it is belong to the catalog, while
+	// who is asking belongs here.
+	//
+	// A READ ONLY, SINCE ADR 0049. The sale-scoped answer write that sat beside
+	// it is gone: an Answer is given only by a Ticket's Holder, through the
+	// held-ticket routes below, or by Event Staff. This list carries no Answer,
+	// no outstanding count and no Answer Link for any row — of a Ticket the
+	// buyer does not hold they see its position, its Ticket Type and its
+	// assignment state, and nothing else.
 	//
 	// BEHIND THE SAME GATE AS THE READ ABOVE AND NOT BEHIND ONE MORE. A
-	// Confirmation Link session may use both of these, unlike the undo beside
-	// them, and the difference is what each one costs to get wrong. Undoing a
-	// purchase moves money and cannot be taken back, so it demands Proof of Email
-	// Ownership; answering a Ticket Question sets somebody's t-shirt size, is
-	// correctable by the buyer, the holder and Event Staff alike, and is the one
-	// thing the person holding a forwarded receipt most likely opened it to do.
-	// ADR 0044 already accepts an unauthenticated stranger writing these Answers
-	// through an Answer Link; demanding a passcode from the buyer holding their
-	// own receipt would be a stricter rule for the owner than for the public.
-	//
-	// The session narrows to its one Sale inside the service, so a link session
+	// Confirmation Link session may use it, unlike the undo beside it: the
+	// session narrows to its one Sale inside the service, so a link session
 	// asking about any other Ticket Sale is answered as if it did not exist.
 	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tickets",
 		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
-	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}",
-		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerOwnTicketQuestion)))
 	// The Tickets the Customer HOLDS, and the one write on them (#343, ADR
 	// 0049): the buyer's Self-held Ticket and every Ticket they accepted by
 	// Assignment Link, through one route, keyed on the holder customer id of

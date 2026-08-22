@@ -50,7 +50,7 @@ import (
 //
 // customerID and sessionTicketSaleID come from the Customer Session the
 // middleware validated, and NEITHER comes from the request — the same rule
-// AnswerOwnTicketQuestion beside it is held to. A Confirmation Link session may
+// ListBuyerTicketAnswers beside it is held to. A Confirmation Link session may
 // assign, and may only reach the one Sale it names.
 func (s *Service) AssignOwnTicket(
 	ctx context.Context,
@@ -166,7 +166,7 @@ func (s *Service) AssignOwnTicket(
 	if err != nil {
 		return nil, err
 	}
-	return s.buyerTicketAnswersViews(ctx, customerID, fresh)
+	return s.buyerTicketAnswersViews(customerID, fresh), nil
 }
 
 // assignmentWindowOpen turns the domain's reading of the assignment window into
@@ -392,4 +392,18 @@ func (s *Service) recordAssignmentMailSent(ctx context.Context, ticketID, buyerC
 	if err := s.repo.RecordAssignmentMailSent(ctx, ticketID, buyerCustomerID, s.now()); err != nil {
 		s.logAssignmentMailFailure("assignment mail ledger not written: the cap under-counts by one", err)
 	}
+}
+
+// findBuyerTicket picks one Ticket out of the buyer's own Sale.
+//
+// A linear scan over the Sale's own Tickets rather than a second scoped query.
+// The rows are already loaded and already proven to be this Customer's, and a
+// second query would be a second place for the customer_id clause to go missing.
+func findBuyerTicket(tickets []repository.AnswerableTicket, ticketID string) *repository.AnswerableTicket {
+	for i := range tickets {
+		if tickets[i].ID == ticketID {
+			return &tickets[i]
+		}
+	}
+	return nil
 }

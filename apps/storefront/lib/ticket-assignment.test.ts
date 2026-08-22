@@ -35,11 +35,6 @@ function ticket(overrides: Partial<BuyerTicket> = {}): BuyerTicket {
     ticket_id: "t1",
     ordinal: 1,
     ticket_type_name: "General",
-    answer_link: "https://example.test/answer?token=x",
-    answerable: true,
-    answerable_refusal: "",
-    outstanding_count: 0,
-    questions: [],
     // The shape a deployment with TICKET_ASSIGNMENT_ENABLED open sends.
     assignment_state: "unassigned",
     assignable: true,

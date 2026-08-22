@@ -599,8 +599,8 @@ func TestAcceptingGrantsNoConsent(t *testing.T) {
 // retired in their favour: a link still sitting in a group chat cannot overwrite
 // what the Holder said about their own body.
 //
-// The buyer and Event Staff keep their routes throughout — ADR 0044's
-// three-party rule — so a wrong Answer stays fixable.
+// Event Staff keep their route throughout, so a wrong Answer stays fixable; the
+// buyer has none onto a Ticket they do not hold (ADR 0049).
 func TestAcceptingClosesTheAnswerLinkAndTheHolderAnswersForThemselves(t *testing.T) {
 	env := setupTest(t)
 	f := newAssignmentFixture(t, env)
@@ -653,25 +653,25 @@ func TestAcceptingClosesTheAnswerLinkAndTheHolderAnswersForThemselves(t *testing
 		answerLinkQuestionPath+f.sizeQuestion.ID, map[string]any{"token": forwarded, "text": "XXL"})
 	assertAPIError(t, resp, body, http.StatusUnauthorized, "ANSWER_LINK_INVALID")
 
-	// AND THE BUYER IS NO LONGER HANDED THAT DEAD LINK. A copy button that
-	// forwards a link opening nothing is worse than no button: the buyer pastes
-	// it into a group chat and believes the job done. What they are NOT given
-	// instead is the Assignment Link — that token reaches the address and nobody
-	// else, which is the property the whole feature rests on.
+	// AND THE BUYER SEES THE TICKET AS ACCEPTED, AND NOTHING OF WHAT IT SAID.
+	// The sale-scoped list names the Holder's address and state (ADR 0046) and
+	// carries no Answer Link, no question and no Answer for a Ticket the buyer
+	// does not hold (ADR 0049) — listBuyerTickets asserts the bytes. What the
+	// buyer is NOT given either is the Assignment Link: that token reaches the
+	// address and nobody else, which is the property the whole feature rests on.
 	afterAccept := findBuyerRow(t, listBuyerTickets(t, env, f.ana, f.anaSaleID), ticketID)
-	if afterAccept.AnswerLink != "" {
-		t.Errorf("the buyer is still offered an Answer Link (%q) for a Ticket whose Holder accepted; it opens nothing",
-			afterAccept.AnswerLink)
+	if afterAccept.AssignmentState != "accepted" || afterAccept.HolderEmail != "carla@example.com" {
+		t.Errorf("the buyer's row reads state=%q holder=%q after acceptance, want accepted by carla@example.com",
+			afterAccept.AssignmentState, afterAccept.HolderEmail)
 	}
 
-	// THE BUYER KEEPS THEIR ROUTE. ADR 0044's three-party rule holds: an Answer
-	// stays fixable by the buyer and by Event Staff even after a Holder accepts.
-	fixResp, fixBody := env.put(t, buyerAnswerPath(f.anaSaleID, ticketID, f.sizeQuestion.ID),
-		map[string]any{"text": "M"}, authHeader(f.ana))
-	if fixResp.StatusCode != http.StatusOK {
-		t.Fatalf("the buyer lost their own route once a Holder accepted: status=%d error=%+v",
-			fixResp.StatusCode, fixBody.Error)
-	}
+	// THE BUYER HAS NO ROUTE ONTO THIS TICKET'S ANSWERS. ADR 0049 retires ADR
+	// 0044's three-party rule: only the Holder and Event Staff answer, and to
+	// the buyer the Holder's Ticket is not found, exactly as a stranger's is.
+	fixResp, fixBody := answerHeldTicket(t, env, f.ana, ticketID, f.sizeQuestion.ID, map[string]any{"text": "M"})
+	assertAPIError(t, fixResp, fixBody, http.StatusNotFound, "TICKET_NOT_FOUND")
+	// And Event Staff remain the backstop.
+	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "M"})
 }
 
 // THE LINK STOPS OPENING WHEN THE TICKET IS REASSIGNED, and the reader is never
@@ -926,13 +926,13 @@ func TestTheAcceptFlowIsInvisibleWhileTheFlagIsOff(t *testing.T) {
 		assertAPIError(t, resp, body, http.StatusNotFound, "TICKET_ASSIGNMENT_UNAVAILABLE")
 	}
 
-	// And Ticket Questions are untouched: the buyer still answers, and the Answer
-	// Link still opens. Two flags, one mail flow, and they stay independent.
-	answerResp, answerBody := env.put(t, buyerAnswerPath(f.anaSaleID, f.anaTicketIDs[0], f.sizeQuestion.ID),
-		map[string]any{"text": "L"}, authHeader(ana))
-	if answerResp.StatusCode != http.StatusOK {
-		t.Fatalf("closing assignment took Ticket Questions down with it: status=%d error=%+v",
-			answerResp.StatusCode, answerBody.Error)
+	// And Ticket Questions are untouched: Event Staff still answer, and the
+	// Answer Link still opens. Two flags, one mail flow, and they stay
+	// independent.
+	putAnswer(t, env, f.staffSession, f.eventID, f.anaTicketIDs[0], f.sizeQuestion.ID, map[string]any{"text": "L"})
+	if resp, body, _ := openAnswerLink(t, env, answerLinkToken(t, f.anaTicketIDs[0])); resp.StatusCode != http.StatusOK {
+		t.Fatalf("closing assignment took the Answer Link down with it: status=%d error=%+v",
+			resp.StatusCode, body.Error)
 	}
 }
 
@@ -1170,16 +1170,13 @@ func TestTheHolderOverwritesWhatTheBuyerGuessedAndResolvesTheOutstandingAnswer(t
 	f := newAssignmentFixture(t, env)
 	ticketID := f.anaTicketIDs[0]
 
-	// The buyer guesses at the size — the required question, so before she does
-	// the Ticket owes an Outstanding Answer.
+	// Event Staff guess at the size on the buyer's behalf — the required
+	// question, so before they do the Ticket owes an Outstanding Answer. (The
+	// buyer themself has no route onto a Ticket they do not hold, ADR 0049.)
 	if owed := labelsOwedBy(listOutstanding(t, env, f.staffSession, f.eventID), ticketID); len(owed) != 1 {
 		t.Fatalf("owed=%v, want the one required question outstanding before anybody answers", owed)
 	}
-	guessResp, guessBody := env.put(t, buyerAnswerPath(f.anaSaleID, ticketID, f.sizeQuestion.ID),
-		map[string]any{"text": "XXL"}, authHeader(f.ana))
-	if guessResp.StatusCode != http.StatusOK {
-		t.Fatalf("the buyer's guess status=%d error=%+v", guessResp.StatusCode, guessBody.Error)
-	}
+	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "XXL"})
 
 	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
 	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))

@@ -9,18 +9,19 @@ import { customerSessionToken } from "@/lib/customer-session";
 export const dynamic = "force-dynamic";
 
 /**
- * The buyer's own Tickets for one of their Ticket Sales, with their Ticket
- * Questions and the per-Ticket Answer Links to pass on (#315, ADR 0044).
+ * The buyer's own Tickets for one of their Ticket Sales, each with its
+ * assignment state (#315, ADR 0044; narrowed by #344, ADR 0049).
  *
  * The browser asks here, this handler forwards under the Customer Session token
  * held in this app's httpOnly cookie, and hands back what the API said — no
  * browser may address the Go API directly (ADR 0008).
  *
- * THE TOKEN IS THE ENTIRE AUTHORIZATION, and it matters more on this hop than on
- * any other in this folder. What comes back is not a view of a purchase; it is a
- * list of ANSWER LINKS — unauthenticated credentials that answer for a Ticket
- * until its Event starts. A missing cookie is therefore refused here rather than
- * by asking the API about a request it could only refuse.
+ * WHAT COMES BACK IS WHOSE EACH TICKET IS, AND NOTHING ELSE. Since ADR 0049
+ * this list carries no question, no Answer, no outstanding count and no Answer
+ * Link for any row: the buyer answers the one Ticket they hold through
+ * /api/customer/held-tickets, and a Ticket they do not hold is its Holder's to
+ * answer. The sale-scoped answer write that used to sit beside this route is
+ * gone with it.
  *
  * The id in the path is relayed and nothing else is. It names WHICH of the
  * caller's own sales, and the API scopes it to the Customer on the session — and
