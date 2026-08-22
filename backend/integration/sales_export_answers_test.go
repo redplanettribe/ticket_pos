@@ -179,18 +179,30 @@ func TestSalesExportAnswersSheetAppearsOnlyWhenSomethingIsAsked(t *testing.T) {
 	env := setupTest(t)
 	sessionID, eventID, ticketTypeID, _ := exportAnswersFixture(t, env, "asked-nothing")
 
-	// Nothing asked: two sheets, as before.
+	// Nothing asked: two sheets, as before, and an Info sheet that promises no
+	// third one. A cover page describing a sheet the file does not have would
+	// send its reader looking for something that was never there.
 	want := []string{salesExportInfoSheet, salesExportSheet}
-	if got := sheetNames(t, downloadOK(t, env, sessionID, eventID, "")); !equalStrings(got, want) {
+	unasked := downloadOK(t, env, sessionID, eventID, "")
+	if got := sheetNames(t, unasked); !equalStrings(got, want) {
 		t.Fatalf("sheets = %v, want %v when the Event asks nothing", got, want)
 	}
+	openSalesExportInfo(t, unasked).silentAbout(t, salesExportAnswersSheet)
 
 	createTicketQuestion(t, env, sessionID, eventID, ticketTypeID, map[string]any{
 		"label": "T-shirt size", "kind": "short_text",
 	})
-	if got := sheetNames(t, downloadOK(t, env, sessionID, eventID, "")); len(got) != 3 {
+	asked := downloadOK(t, env, sessionID, eventID, "")
+	if got := sheetNames(t, asked); len(got) != 3 {
 		t.Fatalf("sheets = %v, want a third once the Event has a Ticket Question", got)
 	}
+	// And now the Info sheet announces it. A reader who did not download the
+	// file has no other way to learn the workbook is plural, and what a blank
+	// cell on the new sheet MEANS is the one thing about it that cannot be read
+	// off it.
+	info := openSalesExportInfo(t, asked)
+	info.says(t, salesExportAnswersSheet, "one row per ticket")
+	info.says(t, "blank")
 
 	// And the flag is a real off switch, not just a hidden authoring surface:
 	// with it closed the file is the two-sheet one again, questions and all. An
