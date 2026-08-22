@@ -415,6 +415,23 @@ variable "ticket_assignment_enabled" {
   description = "Whether a buyer may assign one of their own Tickets to an email address (#324, parent #322). A SEPARATE VARIABLE FROM ticket_questions_enabled ABOVE AND NEVER A SECOND USE OF IT: the two features are separable, and two flags are what let assignment be killed without taking Ticket Questions dark. STARTS FALSE, and the prerequisite is legal rather than technical — what this opens is the platform storing, and later mailing, an email address supplied by somebody with no authority to supply it, and disclosing it to the Organization as a separate controller. None of that is described by the published Privacy Policy. It flips only once a Policy Version that does has published; that clause is batched with the one ticket_questions_enabled waits on, so the re-acceptance of every Customer is paid for once. With it false the buyer's assign endpoint answers 404, no address is stored, no mail is sent and the buyer's own payload is byte-identical to a build without the feature."
   type        = bool
   default     = false
+  # THE MAIL PROMISES A DELETION THIS ALONE DOES NOT PERFORM. The Assignment mail
+  # tells a stranger, in their own language, "we delete your email address then" --
+  # meaning at Event start. That sentence is made true by the Holder Address Purge
+  # and by nothing else, and the purge deliberately does NOT read this flag (see
+  # holder_address_purge_enabled): gating it here would mean a deployment that shut
+  # assignment kept every address it had already collected, forever, precisely
+  # because it had stopped collecting.
+  #
+  # So the two switches have to be thrown together, and this is the only place that
+  # can insist on it. Opening assignment while the purge is paused would have the
+  # platform make a retention promise to somebody who never came here and then not
+  # keep it -- the one failure this feature cannot absorb, because the promise is
+  # most of what makes collecting the address defensible at all.
+  validation {
+    condition     = !var.ticket_assignment_enabled || var.holder_address_purge_enabled
+    error_message = "ticket_assignment_enabled requires holder_address_purge_enabled: the Assignment mail promises the address is deleted when the Event starts, and the Holder Address Purge is what keeps that promise."
+  }
 }
 
 # --- Reversal Reconciler ------------------------------------------------------
