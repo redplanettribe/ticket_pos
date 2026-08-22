@@ -277,10 +277,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// (#285, ADR 0041). Same seam, same reason: the language belongs to a person,
 	// and who a person is, is identity's rule.
 	salesService = salesService.WithStaffLocales(identityService)
-	// The Sales Export's per-Ticket sheet, dark unless a deployment has
-	// deliberately opened the Ticket Question feature (#314, ADR 0045). It reads
-	// the SAME config field catalog's service is handed below, so the two modules
-	// cannot disagree about whether the feature is on.
+	// The Sales Export's per-Ticket sheet and the checkout's answer section, dark
+	// unless a deployment has deliberately opened the Ticket Question feature
+	// (#314, #311, ADR 0045). It reads the SAME config field catalog's service is
+	// handed below, so the two modules cannot disagree about whether the feature
+	// is on: a deployment where an Organization can author a question the checkout
+	// will not ask — or the reverse — is a deployment collecting or discarding
+	// personal data by accident.
 	salesService = salesService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
 	salesHandler := saleshandler.New(salesService)
 

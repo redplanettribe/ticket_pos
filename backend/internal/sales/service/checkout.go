@@ -74,6 +74,60 @@ type CheckoutLineInput struct {
 	Quantity     int
 }
 
+// CheckoutAnswerInput is one Answer the buyer gave on the checkout's answer
+// section: which Ticket Type, which of that Ticket Type's tickets, which
+// question, and the reply (#311).
+//
+// It is this module's own input shape rather than catalog.SubmittedCheckoutAnswer
+// passed through from the handler, for CheckoutLineInput's reason: the handler
+// speaks to the service in the service's vocabulary, and the domain rule's shape
+// is a detail of how the service satisfies the request. `submittedAnswer` below
+// is the one place the two are joined.
+//
+// EVERY REPLY SLOT IS A POINTER AND ABSENCE IS MEANINGFUL. `false` sent to a
+// checkbox is an answer — somebody read the question and said no — while a nil
+// Checked is the absence of one; a bool alone could not tell those apart. Number
+// is a string so the digits reach a NUMERIC column exactly as they were typed.
+type CheckoutAnswerInput struct {
+	TicketTypeID string
+	// TicketIndex is one-based, 1..quantity, counted across the cart's whole
+	// holding of that Ticket Type — and it becomes the minted Ticket's ordinal.
+	TicketIndex      int
+	TicketQuestionID string
+	Text             *string
+	Number           *string
+	Date             *string
+	Checked          *bool
+	OptionIDs        []string
+}
+
+// submittedAnswers translates the checkout's input shape into the domain's.
+//
+// A translation and nothing more: it drops nothing, checks nothing and cannot
+// fail. Every judgement about these answers is made once, in
+// catalog.HoldableCheckoutAnswers, against a cart only that call knows.
+func submittedAnswers(in []CheckoutAnswerInput) []catalog.SubmittedCheckoutAnswer {
+	if len(in) == 0 {
+		return nil
+	}
+	submitted := make([]catalog.SubmittedCheckoutAnswer, 0, len(in))
+	for _, answer := range in {
+		submitted = append(submitted, catalog.SubmittedCheckoutAnswer{
+			TicketTypeID:     answer.TicketTypeID,
+			TicketIndex:      answer.TicketIndex,
+			TicketQuestionID: answer.TicketQuestionID,
+			Answer: catalog.SubmittedAnswer{
+				Text:      answer.Text,
+				Number:    answer.Number,
+				Date:      answer.Date,
+				Checked:   answer.Checked,
+				OptionIDs: answer.OptionIDs,
+			},
+		})
+	}
+	return submitted
+}
+
 // BeginCheckoutInput is a guest's request to start paying for tickets: the
 // Event named by public slugs, the requested lines, and who is buying.
 type BeginCheckoutInput struct {
@@ -144,6 +198,26 @@ type BeginCheckoutInput struct {
 	// nothing about who holds it), and on the box office and import channels,
 	// which never build one of these.
 	SessionCustomerID string
+	// Answers are what the buyer typed into the checkout's answer section: one
+	// entry per (Ticket Type, ticket index, Ticket Question) they filled in
+	// (#311, ADR 0044).
+	//
+	// SKIPPABLE IN EVERY SENSE. Empty is the ordinary case and says nothing is
+	// wrong: the Tickets are minted with their questions outstanding, and the
+	// holder answers by Answer Link afterwards. A required question left blank is
+	// an Outstanding Answer and never a refusal.
+	//
+	// UNTRUSTED IN EVERY FIELD, and read only against what the server itself
+	// knows the cart to be. An entry naming a Ticket Type not in the cart, a
+	// question that Ticket Type does not ask, an index past its quantity, or a
+	// reply of the wrong shape is DROPPED — see catalog.HoldableCheckoutAnswers,
+	// which is why nothing here returns an error.
+	//
+	// IGNORED ENTIRELY WHILE THE FEATURE FLAG IS CLOSED. Nothing can be captured
+	// before a Policy Version describes the collection (ADR 0045), and a body
+	// carrying answers to a deployment that asks none is simply a body this
+	// deployment has no questions for.
+	Answers []CheckoutAnswerInput
 	// ConsentEvidence is the technical proof of that act: the client IP as
 	// platform.ClientIP derived it, the user agent, and the page it happened on.
 	//
@@ -410,7 +484,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	}
 
 	clientTransactionID := uuid.NewString()
-	if _, err := s.repo.CreatePayment(ctx, repository.CreatePaymentInput{
+	paymentID, err := s.repo.CreatePayment(ctx, repository.CreatePaymentInput{
 		AffiliateLinkID:     affiliateLinkID,
 		Locale:              saleLocale,
 		EventID:             event.ID,
@@ -426,9 +500,17 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		Consent:         in.Consent,
 		ConsentEvidence: in.ConsentEvidence,
 		Now:             now,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
+
+	// The answer section, captured onto the Payment the moment it exists and
+	// BEFORE the free settlement below, which commits its Ticket Sale inside this
+	// same request: a free checkout must carry its answers through by exactly the
+	// path a paid one does, and the only way it can is if they are already held
+	// when the commit runs.
+	s.holdCheckoutAnswers(ctx, paymentID, requested, in.Answers, now)
 
 	if free {
 		return s.settleFreeCheckout(ctx, event, clientTransactionID, now)
@@ -640,6 +722,70 @@ func (s *Service) resolveAffiliateLink(ctx context.Context, eventID string, code
 		}
 	}
 	return ""
+}
+
+// holdCheckoutAnswers puts the buyer's answers onto the Payment they just
+// created, keyed by (payment line, index) so they can land on the minted Tickets
+// in order when the sale commits (#311, ADR 0044).
+//
+// IT RETURNS NOTHING, AND THAT IS THE WHOLE DESIGN OF IT. Every failure this
+// function can meet — the flag being closed, a question read that errors, an
+// INSERT that fails — resolves to the same outcome: the checkout proceeds and
+// the Tickets carry Outstanding Answers. There is no error to return because
+// there is no caller that could honourably do anything with one. ADR 0044 is
+// unconditional: "nothing about them can refuse or delay a checkout", and a
+// signature that cannot express a refusal is a stronger guarantee than a
+// discipline about ignoring one.
+//
+// What is lost when this fails is a convenience, not the data: the buyer who
+// knew four t-shirt sizes has to give them again through the Answer Link, which
+// is the route the other three of four buyers take anyway. What would be lost by
+// failing loudly is a sale.
+//
+// `requested` is the cart AGGREGATED per Ticket Type — the same map the capacity
+// check and the Payment Lines were built from — because a Payment Line is one
+// per Ticket Type, and the index counts against that line. A cart naming one
+// Ticket Type on three lines is one line of the summed quantity, so the second
+// ticket of that Ticket Type is index 2 whichever cart row the buyer added it
+// from.
+func (s *Service) holdCheckoutAnswers(
+	ctx context.Context,
+	paymentID string,
+	requested map[string]int,
+	submitted []CheckoutAnswerInput,
+	now time.Time,
+) {
+	// The flag is read here rather than at the handler, so that EVERY route into
+	// a checkout passes the same gate. Closed, this function is the only thing
+	// this ticket adds to the request path and it does nothing at all — which is
+	// what "byte-identical to today" means (ADR 0045).
+	if !s.ticketQuestionsEnabled || len(submitted) == 0 {
+		return
+	}
+
+	ticketTypeIDs := make([]string, 0, len(requested))
+	for id := range requested {
+		ticketTypeIDs = append(ticketTypeIDs, id)
+	}
+	asked, err := s.repo.ListCheckoutQuestions(ctx, ticketTypeIDs)
+	if err != nil {
+		s.logger.Warn("ticket questions: could not read the cart's questions; the checkout proceeds with its Answers outstanding",
+			"payment_id", paymentID, "error", err)
+		return
+	}
+
+	// The rule lives in the domain package and is reused, never restated: which
+	// answers are keepable is the same question catalog.ParseAnswer settles for
+	// Event Staff and for the Answer Link, differing here only in that a refusal
+	// is a drop.
+	held := catalog.HoldableCheckoutAnswers(asked, requested, submittedAnswers(submitted))
+	if len(held) == 0 {
+		return
+	}
+	if err := s.repo.HoldCheckoutAnswers(ctx, paymentID, held, now); err != nil {
+		s.logger.Warn("ticket questions: could not hold the buyer's Answers on the Payment; the checkout proceeds with them outstanding",
+			"payment_id", paymentID, "error", err)
+	}
 }
 
 // settleFreeCheckout finishes a checkout that has nothing to collect: it

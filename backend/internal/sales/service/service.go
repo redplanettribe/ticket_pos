@@ -254,18 +254,22 @@ type Service struct {
 	// processing personal data it cannot evidence, which is the one failure this
 	// whole feature exists to prevent.
 	consent ConsentCapturer
-	logger  platform.Logger
-	now     func() time.Time
+	// ticketQuestionsEnabled decides whether the checkout collects Answers at
+	// all (ADR 0045). It is the SAME environment variable the catalog service
+	// reads for the authoring surface, and one variable rather than two on
+	// purpose: a deployment where an Organization can author questions the
+	// checkout will not ask, or the reverse, is a deployment collecting or
+	// discarding personal data by accident. Off is how the feature ships, and
+	// off means a checkout identical to the one before this ticket.
+	ticketQuestionsEnabled bool
+	logger                 platform.Logger
+	now                    func() time.Time
 	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
 	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
 	drainBatch int
 	// exportRowCap is how many Ticket Sales one Sales Export may carry. Set by
 	// New to defaultExportRowCap; see WithExportRowCap.
 	exportRowCap int
-	// ticketQuestionsEnabled is the platform's Ticket Question feature flag
-	// (#309, ADR 0045), and false is how the feature ships. See
-	// WithTicketQuestions.
-	ticketQuestionsEnabled bool
 }
 
 // New returns a sales service. The customers service is required: every Ticket

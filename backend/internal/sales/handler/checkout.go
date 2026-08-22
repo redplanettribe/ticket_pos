@@ -25,6 +25,17 @@ import (
 // a malformed request rather than a big basket.
 const maxCheckoutLines = 50
 
+// maxCheckoutAnswers bounds how many Answers one checkout body is read for.
+//
+// It is a bound on WORK and not a rule about answering, which is why it
+// truncates instead of refusing (affiliateCodes has the same shape for the same
+// reason). The largest honest body is every ticket in a cart times every
+// question its Ticket Type asks; 500 is far past any real cart and still small
+// enough that a hand-crafted request cannot turn one checkout into thousands of
+// INSERTs. A buyer who somehow exceeds it loses the tail of their answers and
+// keeps their tickets, which is the trade this whole feature makes.
+const maxCheckoutAnswers = 500
+
 // maxAffiliateCodes bounds how many remembered clicks a checkout is read for.
 // The Storefront's cookie keeps three per Event (ADR 0022); five leaves room to
 // widen that without an API change, and stops a hand-crafted request turning a
@@ -47,6 +58,40 @@ func affiliateCodes(raw []string) []string {
 		}
 	}
 	return codes
+}
+
+// checkoutAnswers turns the body's answer section into the service's vocabulary,
+// trimming ids and reading no further than maxCheckoutAnswers.
+//
+// IT VALIDATES NOTHING AND REFUSES NOTHING. Whether an id names a real question,
+// whether the index names a ticket in this cart, and whether the reply fits the
+// question's kind are all things only the service can know — it is the party
+// that resolved the cart — and all of them are DROPS rather than errors when the
+// answer is no (catalog.HoldableCheckoutAnswers). A second copy of those rules
+// here would be a second place for them to be enforced differently, and the more
+// dangerous half of that is that this one sits where a field error is easy to
+// return.
+func checkoutAnswers(body []checkoutAnswerBody) []service.CheckoutAnswerInput {
+	if len(body) == 0 {
+		return nil
+	}
+	if len(body) > maxCheckoutAnswers {
+		body = body[:maxCheckoutAnswers]
+	}
+	answers := make([]service.CheckoutAnswerInput, 0, len(body))
+	for _, entry := range body {
+		answers = append(answers, service.CheckoutAnswerInput{
+			TicketTypeID:     strings.TrimSpace(entry.TicketTypeID),
+			TicketIndex:      entry.TicketIndex,
+			TicketQuestionID: strings.TrimSpace(entry.TicketQuestionID),
+			Text:             entry.Text,
+			Number:           entry.Number,
+			Date:             entry.Date,
+			Checked:          entry.Checked,
+			OptionIDs:        entry.OptionIDs,
+		})
+	}
+	return answers
 }
 
 type checkoutLineBody struct {
@@ -121,6 +166,50 @@ type beginCheckoutBody struct {
 	PolicyAcceptance  *bool `json:"policy_acceptance"`
 	MarketingConsent  *bool `json:"marketing_consent"`
 	NetworkingConsent *bool `json:"networking_consent"`
+	// Answers are what the buyer filled in on the checkout's answer section
+	// (#311, ADR 0044).
+	//
+	// THE ONLY FIELD ON THIS BODY THAT CANNOT PRODUCE A FIELD ERROR, and the
+	// asymmetry with everything above it is the point. A malformed email is a
+	// form the buyer must fix; a malformed answer is a t-shirt size, and refusing
+	// a purchase over one is the thing ADR 0044 exists to forbid. Anything
+	// unusable here is DROPPED — quietly, by the service — and the Ticket carries
+	// an Outstanding Answer instead.
+	//
+	// OPTIONAL AND USUALLY ABSENT. A cart whose Ticket Types ask nothing sends no
+	// such key, and neither does a buyer who skipped the whole section, which is
+	// explicitly a supported way to check out.
+	Answers []checkoutAnswerBody `json:"answers"`
+}
+
+// checkoutAnswerBody is one Answer as the checkout form states it: which Ticket
+// Type, which of that Ticket Type's tickets, which question, and the reply.
+//
+// FIVE OPTIONAL REPLY SLOTS AND EXACTLY ONE IS FILLED, decided by the question's
+// KIND and not by the caller (catalog.SubmittedAnswer). They are pointers, and
+// the nil is load-bearing on two of them in particular: `checked: false` is
+// somebody who read the box and left it unticked, which is an answer, while an
+// absent `checked` is somebody who was never asked; and an empty `option_ids`
+// array is somebody clearing their choices, while an absent one says nothing
+// about choices at all.
+//
+// `number` is a STRING and not a JSON number, deliberately. It lands in a
+// NUMERIC column, and round-tripping it through a float64 is how `0.1` becomes
+// `0.100000001` and how `3.50` loses the trailing zero a price or a measurement
+// meant.
+type checkoutAnswerBody struct {
+	TicketTypeID string `json:"ticket_type_id"`
+	// TicketIndex is which of that Ticket Type's tickets this Answer is about,
+	// ONE-BASED: 1..quantity, counted across the whole cart's holding of that
+	// Ticket Type. It becomes the minted Ticket's `ordinal` when the sale
+	// commits, which is what makes "in order" mean anything (ADR 0043).
+	TicketIndex      int      `json:"ticket_index"`
+	TicketQuestionID string   `json:"ticket_question_id"`
+	Text             *string  `json:"text"`
+	Number           *string  `json:"number"`
+	Date             *string  `json:"date"`
+	Checked          *bool    `json:"checked"`
+	OptionIDs        []string `json:"option_ids"`
 }
 
 type confirmCheckoutBody struct {
@@ -314,6 +403,10 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 		// what keeps the checkout and the sign-in doors agreeing about what "es-EC"
 		// means.
 		Locale: body.Locale,
+		// Relayed as typed, and — alone on this body — incapable of producing a
+		// field error. The service reads them against the cart it resolved and
+		// drops what does not fit; see checkoutAnswers.
+		Answers: checkoutAnswers(body.Answers),
 		// Relayed exactly as they arrived, nils and all: what a missing box means
 		// is the consent module's rule, and the service refuses a checkout whose
 		// required box is not a present true. Nothing here rewrites an absent
