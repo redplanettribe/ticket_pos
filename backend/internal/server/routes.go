@@ -624,6 +624,24 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// never deleted": an Answer points at nothing, so removing one restores the
 	// state the Ticket was in before anybody answered.
 	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
+	// The Outstanding Answers list (#313): which of this Event's Tickets still
+	// owe required Answers, and which questions they owe.
+	//
+	// HUNG OFF THE EVENT and not off a Ticket Sale, because that is the question
+	// being asked. The per-sale route above is how staff reach ONE Ticket when
+	// somebody rings up about their order; this is the Organization looking at
+	// the whole Event before it orders the shirts, and the two cannot be the
+	// same address because they are aggregated over different things.
+	//
+	// A READ WITH NO STATE BEHIND IT. There is no outstanding_answers table:
+	// the debt is derived on every request from what the Ticket Type asks and
+	// what the Ticket has said, which is exactly why this list empties by itself
+	// as Answers arrive from any of the three routes and why a Sale Reversal
+	// drops a whole sale out of it without anything having to sweep.
+	//
+	// Same `orgAdmin` gate and the same 404-while-dark as every route above, for
+	// the same reasons.
+	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListOutstandingAnswers)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

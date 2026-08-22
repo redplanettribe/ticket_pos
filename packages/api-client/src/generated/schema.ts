@@ -4634,6 +4634,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/outstanding-answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an event's outstanding answers
+         * @description A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because "twelve people never told us" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Page number (default 1) */
+                    page?: number;
+                    /** @description Rows per page (default 50, max 100) */
+                    page_size?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeOutstandingAnswers"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/publish": {
         parameters: {
             query?: never;
@@ -8797,6 +8871,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeOutstandingAnswers": {
+            data?: components["schemas"]["service.OutstandingAnswersPage"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopePayoutProfile": {
             data?: components["schemas"]["service.PayoutProfile"];
             error?: components["schemas"]["platform.APIError"];
@@ -9689,6 +9768,47 @@ export interface components {
              */
             withdrawable_balance_cents?: number;
         };
+        "service.OutstandingAnswersPage": {
+            data?: components["schemas"]["service.TicketOwingAnswersView"][];
+            /**
+             * @description OutstandingCount is how many Outstanding Answers the Event carries in ALL
+             *     — debts, not Tickets, so a Ticket owing three counts three. It is the
+             *     whole Event and never the page, because "how much don't I know yet" is a
+             *     question about the Event.
+             *
+             *     It is a SECOND number beside Pagination.Total on purpose: the two answer
+             *     different questions — "nine Tickets are waiting on me" and "twenty-two
+             *     things are unknown" — and a surface with only one of them either
+             *     understates the work or overstates the number of people to write to.
+             */
+            outstanding_count?: number;
+            pagination?: components["schemas"]["service.OutstandingPagination"];
+        };
+        "service.OutstandingPagination": {
+            page?: number;
+            page_size?: number;
+            /**
+             * @description Total is how many TICKETS owe something, across the whole Event. A page
+             *     past the last still reports it truthfully, so a surface can say how many
+             *     there are rather than appearing to have emptied.
+             */
+            total?: number;
+            total_pages?: number;
+        };
+        "service.OutstandingQuestionView": {
+            /**
+             * @description Kind is the shape the Answer will take when it arrives, so the list can
+             *     show what is being asked for without a second read of the question.
+             */
+            kind?: string;
+            /**
+             * @description Label is the Organization's own words, read AS COINED in every Locale (ADR
+             *     0027). Only the chrome around it follows the reader's Staff Locale.
+             */
+            label?: string;
+            question_id?: string;
+            sort_order?: number;
+        };
         "service.PageInfo": {
             page?: number;
             page_size?: number;
@@ -10473,6 +10593,49 @@ export interface components {
              */
             questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
             ticket_id?: string;
+            ticket_sale_id?: string;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
+        "service.TicketOwingAnswersView": {
+            /**
+             * @description Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row
+             *     rather than filtering it. A door sale and a Sale Import start out owing
+             *     every question because nobody ever put the questions to those buyers —
+             *     there is no checkout form on either. They stand here beside the online
+             *     ones, and the channel is what stops that reading as lost data.
+             */
+            channel?: string;
+            confirmation_ref?: string;
+            customer_email?: string;
+            /**
+             * @description CustomerName and CustomerEmail are the buyer, who is the only person there
+             *     is to chase: the platform holds no address for a Ticket's holder and does
+             *     not ask for one, so a question added after a sale reaches its holder only
+             *     if the buyer forwards it.
+             */
+            customer_name?: string;
+            /**
+             * @description Ordinal is which of its Ticket Sale Line's units this Ticket is,
+             *     1..quantity. Internal and not a seat number, but the only thing telling
+             *     two Tickets of one line apart — which is what lets staff say "the second
+             *     of Ana's four".
+             */
+            ordinal?: number;
+            /**
+             * @description Outstanding names the required questions this Ticket has not answered, in
+             *     the order they are asked. Never empty: a Ticket with nothing outstanding
+             *     is not on this list at all.
+             */
+            outstanding?: components["schemas"]["service.OutstandingQuestionView"][];
+            sold_at?: string;
+            ticket_id?: string;
+            /**
+             * @description TicketSaleID and ConfirmationRef are how this row is ACTED ON. The staff
+             *     Answers dialog is keyed on a Ticket Sale and names itself after the
+             *     buyer's reference, so a row carrying neither would be a complaint nobody
+             *     could act on. This is the jump from the list to answering the Ticket.
+             */
             ticket_sale_id?: string;
             ticket_type_id?: string;
             ticket_type_name?: string;

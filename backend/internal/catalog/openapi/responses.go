@@ -88,6 +88,19 @@ type EnvelopeTicketAnswersDetail struct {
 	RequestID string                    `json:"request_id"`
 }
 
+// EnvelopeOutstandingAnswers documents the Event's Outstanding Answers response
+// (#313): a page of the Tickets that still owe required Answers, each naming the
+// questions it owes, with the Event's total debt count beside the page.
+//
+// The payload is NESTED rather than a bare array, because a list of rows alone
+// could not carry the two counts that make it readable — how many Tickets are
+// waiting on the Organization, and how many things are unknown in all.
+type EnvelopeOutstandingAnswers struct {
+	Data      service.OutstandingAnswersPage `json:"data"`
+	Error     *platform.APIError             `json:"error"`
+	RequestID string                         `json:"request_id"`
+}
+
 // EnvelopeTagList documents tag list success responses (search and event tags).
 type EnvelopeTagList struct {
 	Data      []service.TagView  `json:"data"`

@@ -1493,6 +1493,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeOutstandingAnswers": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.OutstandingAnswersPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopePayoutProfile": {
                 "properties": {
                     "data": {
@@ -2930,6 +2944,62 @@
                 },
                 "type": "object"
             },
+            "service.OutstandingAnswersPage": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketOwingAnswersView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "outstanding_count": {
+                        "description": "OutstandingCount is how many Outstanding Answers the Event carries in ALL\n— debts, not Tickets, so a Ticket owing three counts three. It is the\nwhole Event and never the page, because \"how much don't I know yet\" is a\nquestion about the Event.\n\nIt is a SECOND number beside Pagination.Total on purpose: the two answer\ndifferent questions — \"nine Tickets are waiting on me\" and \"twenty-two\nthings are unknown\" — and a surface with only one of them either\nunderstates the work or overstates the number of people to write to.",
+                        "type": "integer"
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.OutstandingPagination"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OutstandingPagination": {
+                "properties": {
+                    "page": {
+                        "type": "integer"
+                    },
+                    "page_size": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "description": "Total is how many TICKETS owe something, across the whole Event. A page\npast the last still reports it truthfully, so a surface can say how many\nthere are rather than appearing to have emptied.",
+                        "type": "integer"
+                    },
+                    "total_pages": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.OutstandingQuestionView": {
+                "properties": {
+                    "kind": {
+                        "description": "Kind is the shape the Answer will take when it arrives, so the list can\nshow what is being asked for without a second read of the question.",
+                        "type": "string"
+                    },
+                    "label": {
+                        "description": "Label is the Organization's own words, read AS COINED in every Locale (ADR\n0027). Only the chrome around it follows the reader's Staff Locale.",
+                        "type": "string"
+                    },
+                    "question_id": {
+                        "type": "string"
+                    },
+                    "sort_order": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "service.PageInfo": {
                 "properties": {
                     "page": {
@@ -3980,6 +4050,53 @@
                         "type": "string"
                     },
                     "ticket_sale_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.TicketOwingAnswersView": {
+                "properties": {
+                    "channel": {
+                        "description": "Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row\nrather than filtering it. A door sale and a Sale Import start out owing\nevery question because nobody ever put the questions to those buyers —\nthere is no checkout form on either. They stand here beside the online\nones, and the channel is what stops that reading as lost data.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_name": {
+                        "description": "CustomerName and CustomerEmail are the buyer, who is the only person there\nis to chase: the platform holds no address for a Ticket's holder and does\nnot ask for one, so a question added after a sale reaches its holder only\nif the buyer forwards it.",
+                        "type": "string"
+                    },
+                    "ordinal": {
+                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is,\n1..quantity. Internal and not a seat number, but the only thing telling\ntwo Tickets of one line apart — which is what lets staff say \"the second\nof Ana's four\".",
+                        "type": "integer"
+                    },
+                    "outstanding": {
+                        "description": "Outstanding names the required questions this Ticket has not answered, in\nthe order they are asked. Never empty: a Ticket with nothing outstanding\nis not on this list at all.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_id": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and ConfirmationRef are how this row is ACTED ON. The staff\nAnswers dialog is keyed on a Ticket Sale and names itself after the\nbuyer's reference, so a row carrying neither would be a complaint nobody\ncould act on. This is the jump from the list to answering the Ticket.",
                         "type": "string"
                     },
                     "ticket_type_id": {
@@ -9043,6 +9160,89 @@
                     }
                 ],
                 "summary": "Set event discoverability",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/outstanding-answers": {
+            "get": {
+                "description": "A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because \"twelve people never told us\" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Page number (default 1)",
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Rows per page (default 50, max 100)",
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeOutstandingAnswers"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List an event's outstanding answers",
                 "tags": [
                     "staff"
                 ]
