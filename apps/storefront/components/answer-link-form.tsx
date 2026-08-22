@@ -1,30 +1,11 @@
 "use client";
 
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Button,
-  FormField,
-  Input,
-  Label,
-  Textarea,
-} from "@ticket-pos/ui";
+import { Alert, AlertDescription, AlertTitle } from "@ticket-pos/ui";
 import { useMessages, useTranslations } from "next-intl";
 import { useState } from "react";
 
-import {
-  answerBodyFor,
-  chosenOptionIds,
-  initialChecked,
-  initialFieldValue,
-  isReadOnly,
-  selectableOptions,
-  toggleOption,
-  visibleQuestions,
-  type AnswerLinkView,
-  type QuestionAnswer,
-} from "@/lib/answer-link";
+import { TicketQuestionRow } from "@/components/ticket-question-row";
+import { visibleQuestions, type AnswerLinkView } from "@/lib/answer-link";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 /**
@@ -61,6 +42,7 @@ type AnswerLinkFormProps = {
 
 export function AnswerLinkForm({ token, view }: AnswerLinkFormProps) {
   const t = useTranslations("answerLink");
+  const errorCopy = useMessages().errors;
   const [questions, setQuestions] = useState(() => visibleQuestions(view));
 
   if (questions.length === 0) {
@@ -79,185 +61,50 @@ export function AnswerLinkForm({ token, view }: AnswerLinkFormProps) {
     <div className="space-y-8">
       <p className="text-muted-foreground text-sm">{t("intro")}</p>
       {questions.map((pair) => (
-        <QuestionRow
+        <TicketQuestionRow
           key={pair.question.id}
-          token={token}
           pair={pair}
-          // A save answers with the WHOLE Ticket, so the whole list is replaced
-          // from one payload rather than patched question by question. That is
-          // what keeps this page honest after a save: if Event Staff corrected
-          // another question a moment ago, the reader sees it.
-          onSaved={(next) => setQuestions(visibleQuestions(next))}
+          copy={{
+            requiredMark: t("requiredMark"),
+            save: t("save"),
+            saved: t("saved"),
+            nothingToSave: t("nothingToSave"),
+            retiredQuestion: t("retiredQuestion"),
+          }}
+          // The REQUEST is this surface's, because its credential is: a signed
+          // token in the body and no session anywhere. The shared row knows how
+          // to turn a form into a body and nothing about how it is addressed.
+          save={async (body) => {
+            try {
+              const response = await fetch(`/api/answer-link/questions/${pair.question.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                // The token travels in the BODY, not the address, on the browser
+                // leg too: a credential in a URL ends up in a Referer header on
+                // the way to wherever the reader goes next.
+                body: JSON.stringify({ token, ...body }),
+              });
+              const envelope = (await response.json()) as {
+                data: AnswerLinkView | null;
+                error: { code: string; message: string; details?: unknown } | null;
+              };
+              if (!response.ok || envelope.error || !envelope.data) {
+                return apiErrorMessage(errorCopy, envelope.error) ?? t("saveFailed");
+              }
+              // A save answers with the WHOLE Ticket, so the whole list is
+              // replaced from one payload rather than patched question by
+              // question. That is what keeps this page honest after a save: if
+              // Event Staff corrected another question a moment ago, the reader
+              // sees it.
+              setQuestions(visibleQuestions(envelope.data));
+              return null;
+            } catch {
+              return t("networkFailed");
+            }
+          }}
         />
       ))}
     </div>
   );
 }
 
-type QuestionRowProps = {
-  token: string;
-  pair: QuestionAnswer;
-  onSaved: (view: AnswerLinkView) => void;
-};
-
-function QuestionRow({ token, pair, onSaved }: QuestionRowProps) {
-  const t = useTranslations("answerLink");
-  const errorCopy = useMessages().errors;
-  const { question } = pair;
-
-  const [value, setValue] = useState(() => initialFieldValue(pair));
-  const [checked, setChecked] = useState(() => initialChecked(pair));
-  const [optionIds, setOptionIds] = useState(() => chosenOptionIds(pair));
-  const [state, setState] = useState<"idle" | "busy" | "saved">("idle");
-  const [failure, setFailure] = useState<string | null>(null);
-
-  const readOnly = isReadOnly(pair);
-  const fieldId = `question-${question.id}`;
-
-  async function save() {
-    const body = answerBodyFor(question, value, checked, optionIds);
-    if (body === null) {
-      // Nothing to send. An empty field is not an Answer of "", and this page
-      // has no way to take one back — see lib/answer-link.ts.
-      setFailure(t("nothingToSave"));
-      return;
-    }
-
-    setState("busy");
-    setFailure(null);
-    try {
-      const response = await fetch(`/api/answer-link/questions/${question.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        // The token travels in the BODY, not the address, on the browser leg
-        // too: a credential in a URL ends up in a Referer header on the way to
-        // wherever the reader goes next.
-        body: JSON.stringify({ token, ...body }),
-      });
-      const envelope = (await response.json()) as {
-        data: AnswerLinkView | null;
-        error: { code: string; message: string; details?: unknown } | null;
-      };
-      if (!response.ok || envelope.error || !envelope.data) {
-        setState("idle");
-        setFailure(apiErrorMessage(errorCopy, envelope.error) ?? t("saveFailed"));
-        return;
-      }
-      setState("saved");
-      onSaved(envelope.data);
-    } catch {
-      setState("idle");
-      setFailure(t("networkFailed"));
-    }
-  }
-
-  const label = question.required ? `${question.label} ${t("requiredMark")}` : question.label;
-
-  return (
-    <div className="space-y-3 border-b pb-6 last:border-b-0 last:pb-0">
-      {question.kind === "checkbox" ? (
-        <div className="flex items-start gap-3">
-          <input
-            id={fieldId}
-            type="checkbox"
-            className="mt-1 size-4"
-            checked={checked}
-            disabled={readOnly || state === "busy"}
-            onChange={(event) => {
-              setChecked(event.target.checked);
-              setState("idle");
-            }}
-          />
-          {/* The question's own words, as coined. */}
-          <Label htmlFor={fieldId}>{label}</Label>
-        </div>
-      ) : question.kind === "single_choice" || question.kind === "multi_choice" ? (
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">{label}</legend>
-          {selectableOptions(pair).map((option) => (
-            <div key={option.id} className="flex items-start gap-3">
-              <input
-                id={`${fieldId}-${option.id}`}
-                // The control matches the kind, so the browser enforces "one" on
-                // a single_choice before the API has to.
-                type={question.kind === "single_choice" ? "radio" : "checkbox"}
-                name={fieldId}
-                className="mt-1 size-4"
-                checked={optionIds.includes(option.id)}
-                disabled={readOnly || state === "busy"}
-                onChange={() => {
-                  setOptionIds((current) => toggleOption(question, current, option.id));
-                  setState("idle");
-                }}
-              />
-              <Label htmlFor={`${fieldId}-${option.id}`}>
-                {/* The Option's CURRENT words. What this Answer read when it
-                    chose is kept on the Answer and is a fact for a support
-                    conversation, not something to show the person now. */}
-                {option.label}
-              </Label>
-            </div>
-          ))}
-        </fieldset>
-      ) : (
-        <FormField id={fieldId} label={label}>
-          {question.kind === "long_text" ? (
-            <Textarea
-              value={value}
-              disabled={readOnly || state === "busy"}
-              onChange={(event) => {
-                setValue(event.target.value);
-                setState("idle");
-              }}
-            />
-          ) : (
-            <Input
-              // The kind picks the keyboard a phone opens with, which is most of
-              // what these three differ by on the device this page is read on.
-              type={
-                question.kind === "number" ? "text"
-                : question.kind === "date" ? "date"
-                : "text"
-              }
-              // `text` and not `number` for a number question, deliberately: a
-              // number input returns "" for anything it dislikes, so a stray
-              // character would silently blank what somebody typed. The digits
-              // go to the API as typed and the API decides — inputMode still
-              // opens the numeric keyboard.
-              inputMode={question.kind === "number" ? "decimal" : undefined}
-              value={value}
-              disabled={readOnly || state === "busy"}
-              onChange={(event) => {
-                setValue(event.target.value);
-                setState("idle");
-              }}
-            />
-          )}
-        </FormField>
-      )}
-
-      {readOnly ? (
-        // A retired question, kept on the page only because this Ticket answered
-        // it. Shown rather than dropped — a reply that vanished would look like
-        // it had been thrown away — and not editable, because the Organization
-        // has stopped asking.
-        <p className="text-muted-foreground text-sm">{t("retiredQuestion")}</p>
-      ) : (
-        <div className="flex items-center gap-3">
-          <Button size="sm" onClick={save} disabled={state === "busy"}>
-            {t("save")}
-          </Button>
-          {state === "saved" ? (
-            <span className="text-muted-foreground text-sm">{t("saved")}</span>
-          ) : null}
-        </div>
-      )}
-
-      {failure ? (
-        <p role="alert" className="text-destructive text-sm">
-          {failure}
-        </p>
-      ) : null}
-    </div>
-  );
-}

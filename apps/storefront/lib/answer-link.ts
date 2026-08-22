@@ -271,7 +271,20 @@ export function toggleOption(
  * would hide from the holder something recorded about them.
  */
 export function visibleQuestions(view: AnswerLinkView): QuestionAnswer[] {
-  return view.questions.filter((pair) => !pair.question.retired || pair.answer !== null);
+  return visibleQuestionsOf(view.questions);
+}
+
+/**
+ * The same rule, over a bare list of questions.
+ *
+ * It exists because the buyer's own surface (#315) draws these questions too,
+ * from a payload that is a LIST OF TICKETS rather than one Ticket — see
+ * lib/buyer-answers.ts. The rule about retired questions must be identical on
+ * both, or a reply the holder can see would vanish from the buyer's copy of the
+ * same Ticket, and this is the one line that decides it.
+ */
+export function visibleQuestionsOf(questions: QuestionAnswer[]): QuestionAnswer[] {
+  return questions.filter((pair) => !pair.question.retired || pair.answer !== null);
 }
 
 /** Whether a question is drawn read-only: retired ones, kept only to be read. */
