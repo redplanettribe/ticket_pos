@@ -579,7 +579,29 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			// exactly: a Payment that fails or expires must produce no Tickets and
 			// no Answers on any Ticket, and the only thing making that true is
 			// that all three writes roll back together.
+			//
+			// THE IMPLICATION RUNS ONE WAY ONLY, and the SAVEPOINT is what keeps it
+			// one-way. A failed sale must take its Answers down with it; a failed
+			// Answer must NOT take the sale down with it. ADR 0044 says nothing
+			// about an Answer may refuse or delay a checkout, and the worst
+			// reachable reading of the alternative is the worst outcome this
+			// system has: an approved Payment with no Ticket Sale — money taken,
+			// nothing sold, because a t-shirt size would not insert.
+			//
+			// Rolling back to the savepoint costs the Answers and keeps the sale.
+			// That is the right way round to fail: the buyer can give them again
+			// from their sale's page, and the holder can give them through an
+			// Answer Link, whereas nobody can un-take a payment. The Tickets are
+			// left carrying Outstanding Answers, which is a state the whole
+			// feature is already built to chase.
+			if _, err := tx.ExecContext(ctx, `SAVEPOINT ticket_answers`); err != nil {
+				return nil, err
+			}
 			if err := writeTicketAnswers(ctx, tx, ticketIDs, line.Answers, in.Now); err != nil {
+				if _, rbErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT ticket_answers`); rbErr != nil {
+					return nil, rbErr
+				}
+			} else if _, err := tx.ExecContext(ctx, `RELEASE SAVEPOINT ticket_answers`); err != nil {
 				return nil, err
 			}
 		}

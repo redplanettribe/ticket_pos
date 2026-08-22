@@ -197,7 +197,7 @@ function TicketBlock({ ticketSaleId, ticket, position, total, onSaved }: TicketB
             key={pair.question.id}
             pair={pair}
             copy={{
-              requiredMark: t("answers.requiredMark"),
+              requiredMark: (question: string) => t("answers.requiredMark", { question }),
               save: t("answers.save"),
               saved: t("answers.saved"),
               nothingToSave: t("answers.nothingToSave"),

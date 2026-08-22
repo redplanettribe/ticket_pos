@@ -936,6 +936,7 @@ export function TicketSelection({
                   ticketHeading: (ticketType, index, total) =>
                     t("answers.ticketHeading", { ticketType, index, total }),
                   optional: t("answers.optional"),
+                  optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
                   noAnswer: t("answers.noAnswer"),
                 }}
               />

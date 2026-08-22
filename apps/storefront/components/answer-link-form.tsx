@@ -65,7 +65,7 @@ export function AnswerLinkForm({ token, view }: AnswerLinkFormProps) {
           key={pair.question.id}
           pair={pair}
           copy={{
-            requiredMark: t("requiredMark"),
+            requiredMark: (question: string) => t("requiredMark", { question }),
             save: t("save"),
             saved: t("saved"),
             nothingToSave: t("nothingToSave"),

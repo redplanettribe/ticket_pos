@@ -150,22 +150,22 @@
     "metaTitle": "Answer a few questions · {brand}",
     "title": "Answer a few questions",
     "description": "Whoever bought this ticket sent you this link so you can answer for yourself.",
-    "intro": "The organiser asked these about whoever is coming. Answer what you like — nothing here is required to attend, and you can come back to this link and change an answer until the event starts.",
-    "requiredMark": "(the organiser is waiting on this one)",
+    "intro": "The organizer asked these about whoever is coming. Answer what you like — nothing here is required to attend, and you can come back to this link and change an answer until the event starts.",
+    "requiredMark": "{question} (the organizer is waiting on this one)",
     "save": "Save",
     "saved": "Saved",
     "saveFailed": "That didn't save. Try again.",
     "networkFailed": "That didn't save. Check your connection and try again.",
     "nothingToSave": "There's nothing to save yet — fill this in first.",
-    "retiredQuestion": "The organiser has stopped asking this. Your answer is kept as it was.",
+    "retiredQuestion": "The organizer has stopped asking this. Your answer is kept as it was.",
     "nothingAskedTitle": "Nothing to answer",
-    "nothingAskedDescription": "The organiser isn't asking anything about this ticket. There's nothing for you to do here.",
+    "nothingAskedDescription": "The organizer isn't asking anything about this ticket. There's nothing for you to do here.",
     "incompleteTitle": "This link is incomplete",
     "incompleteDescription": "Part of it was probably cut off in the message. Ask whoever sent it to send the whole link again.",
     "invalidTitle": "This link doesn't work",
     "invalidDescription": "It may have been cut off in the message, or it may no longer be good. Ask whoever sent it for a fresh one.",
     "expiredTitle": "The event has started",
-    "expiredDescription": "Answers close when the doors open, so there's nothing left to change. Speak to the organiser at the event if something needs fixing.",
+    "expiredDescription": "Answers close when the doors open, so there's nothing left to change. Speak to the organizer at the event if something needs fixing.",
     "unavailableTitle": "We can't open this right now",
     "unavailableDescription": "Something is wrong on our side, and it isn't your link. Please try again later."
   },
@@ -225,6 +225,7 @@
       "hint": "Optional — skip anything you don't know.",
       "ticketHeading": "{ticketType} · ticket {index} of {total}",
       "optional": "Optional",
+      "optionalLabel": "{question} · Optional",
       "noAnswer": "No answer"
     },
     "consent": {
@@ -355,19 +356,19 @@
     "answers": {
       "title": "Questions about these tickets",
       "outstanding": "{count, plural, one {# question still needs an answer.} other {# questions still need answers.}}",
-      "allDone": "Everything the organiser asked has been answered.",
+      "allDone": "Everything the organizer asked has been answered.",
       "ticketHeading": "Ticket {position} of {total}",
       "copyHint": "Answer what you know. For the rest, copy this ticket's link and send it to whoever will be using it — it opens these questions and shows them nothing about your purchase.",
       "copyLink": "Copy this ticket's link",
       "copied": "Copied",
       "linkClosed": "There's no link to share for this one any more. Answers close when the doors open, and a reversed purchase closes them too.",
-      "requiredMark": "(the organiser is waiting on this one)",
+      "requiredMark": "{question} (the organizer is waiting on this one)",
       "save": "Save",
       "saved": "Saved",
       "saveFailed": "That didn't save. Try again.",
       "networkFailed": "That didn't save. Check your connection and try again.",
       "nothingToSave": "There's nothing to save yet — fill this in first.",
-      "retiredQuestion": "The organiser has stopped asking this. The answer is kept as it was."
+      "retiredQuestion": "The organizer has stopped asking this. The answer is kept as it was."
     }
   },
   "myInfo": {

@@ -54,7 +54,7 @@ import {
  */
 export type TicketQuestionRowCopy = {
   /** Appended to a required question's label — a mark, not a sentence. */
-  requiredMark: string;
+  requiredMark: (question: string) => string;
   save: string;
   saved: string;
   /** Shown when the field holds nothing there is any point sending. */
@@ -115,7 +115,7 @@ export function TicketQuestionRow({ pair, copy, save }: TicketQuestionRowProps) 
     setState("saved");
   }
 
-  const label = question.required ? `${question.label} ${copy.requiredMark}` : question.label;
+  const label = question.required ? copy.requiredMark(question.label) : question.label;
 
   return (
     <div className="space-y-3 border-b pb-6 last:border-b-0 last:pb-0">

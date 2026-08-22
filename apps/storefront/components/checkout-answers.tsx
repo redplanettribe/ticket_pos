@@ -57,6 +57,7 @@ export function CheckoutAnswers({
     ticketHeading: (ticketTypeName: string, index: number, total: number) => string;
     /** The chip on a question whose answer the Organization is hoping for. */
     optional: string;
+    optionalLabel: (question: string) => string;
     /** The empty entry of a single_choice select. */
     noAnswer: string;
   };
@@ -126,7 +127,7 @@ function AnswerFieldRow({
   fieldKey: string;
   values: AnswerValues;
   onChange: (key: string, value: AnswerValue) => void;
-  labels: { optional: string; noAnswer: string };
+  labels: { optional: string; optionalLabel: (question: string) => string; noAnswer: string };
 }) {
   const value = values[fieldKey] ?? {};
   const id = `answer-${fieldKey}`;
@@ -248,7 +249,7 @@ function AnswerFieldRow({
   return (
     <FormField
       id={id}
-      label={question.required ? question.label : `${question.label} · ${labels.optional}`}
+      label={question.required ? question.label : labels.optionalLabel(question.label)}
     >
       {control}
     </FormField>
