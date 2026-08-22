@@ -696,6 +696,101 @@ func (a TicketAssignment) Text() string {
 	return text
 }
 
+// The No Longer Holding mail (#327, parent #322, ADR 0046): the message telling
+// somebody who accepted a ticket that it is not theirs any more.
+//
+// ONE MESSAGE FOR TWO CAUSES, AND THE COPY IS WHERE THAT IS SPENT. A Holder
+// stops holding a Ticket because the buyer reassigned it or because the Ticket
+// Sale was reversed. From where the reader sits those are the same fact — they
+// had a ticket and now they do not — so there is one set of words, and it must
+// be true of both. Every sentence below was written by asking whether it stays
+// true if the other cause had happened instead. That is the whole discipline of
+// this copy, and it is why nothing here says "cancelled", "reversed", "refunded",
+// "given to somebody else" or "changed hands".
+//
+// IT GIVES NO CAUSE, and that is a disclosure decision rather than a stylistic
+// one. Both causes are facts about the BUYER'S decisions — they asked for their
+// money back, or they gave the ticket to another friend — and this reader is
+// never told who the buyer is, let alone what they chose. ADR 0044's disclosure
+// rule, carried over unchanged by ADR 0046 and binding here exactly as it binds
+// the Assignment mail: Event only, never the buyer, the price, the Tax ID, the
+// Sale Confirmation reference or the Sale's other Tickets. The Storefront's own
+// dead-link copy is written to the same rule — "Tickets can change hands, and a
+// link stops working when that happens" — so a Holder who presses their old link
+// after reading this meets one explanation rather than two.
+//
+// IT NAMES NOBODY. Not the buyer, and not the reader either: the platform may
+// know this Holder's name, but a greeting buys nothing in a message this short
+// and putting a name beside a lost ticket reads worse than beginning with the
+// fact. The Assignment mail's opening set the same precedent for the same
+// reason.
+//
+// IT CARRIES NO LINK AND NO BUTTON. There is nothing to press: the Ticket is not
+// theirs, the Event has left their Customer Area, and their Assignment Link
+// stopped opening at the same moment. A message with an action on it would be an
+// instruction whose only outcome is a refusal.
+//
+// IT SAYS WHAT DID NOT HAPPEN, WHICH IS THE KINDEST TRUE THING AVAILABLE. The
+// reader keeps their account, stays Verified, and keeps the name and the Answers
+// they gave — nothing about them was deleted, and somebody who has just been
+// told they lost something is entitled to know the rest of it is still there.
+// That sentence is enforced by code: nothing in this flow deletes a Customer.
+//
+// The Spanish is usted throughout, and takes "entrada" for the ticket, matching
+// the Assignment mail and the receipt so one word means one thing across the
+// flow.
+var (
+	noLongerHoldingSubjectCopy = translated(
+		"You no longer have a ticket for %s",
+		"Ya no tiene una entrada para %s",
+	)
+	// The fact, declared whole in both languages and stated twice — once as the
+	// subject and once as the first line — because a subject line is often all
+	// that is read, and a body that opened on anything else would bury it.
+	//
+	// "is no longer yours" and NOT "has been cancelled" or "was given to someone
+	// else": the passive here is not evasion, it is the disclosure rule. Either
+	// alternative would name a cause, and each is false in the other case.
+	noLongerHoldingOpeningCopy = translated(
+		"You are no longer holding a ticket for %s.\n\nWe are telling you because you accepted that ticket, and it is no longer yours. It has been removed from your account.",
+		"Ya no tiene una entrada para %s.\n\nLe avisamos porque usted aceptó esa entrada y ya no es suya. La hemos quitado de su cuenta.",
+	)
+	// What is left, and what the reader should do — in that order, because the
+	// reassurance is worth more than the instruction and a person who has just
+	// lost a ticket should not have to read to the end to find out whether they
+	// also lost their account.
+	//
+	// The last sentence points at the organizer, who is the only party this
+	// reader can be sent to: they do not know who bought the ticket, so "ask
+	// whoever sent it to you" is advice they cannot follow.
+	noLongerHoldingClosingCopy = translated(
+		"There is nothing you need to do. Your account stays as it is, along with your name and anything you told us about your ticket.\n\nIf you were planning to go, you can still get a ticket from the event's page.",
+		"No tiene que hacer nada. Su cuenta sigue igual, junto con su nombre y lo que nos haya dicho sobre su entrada.\n\nSi pensaba asistir, todavía puede conseguir una entrada en la página del evento.",
+	)
+)
+
+// Subject is the No Longer Holding mail's subject line: the fact, and what it is
+// about.
+//
+// IT LEADS WITH THE LOSS AND NAMES THE EVENT, because a subject that hedged
+// would be opened late by exactly the person who most needs to read it early —
+// somebody who would otherwise travel to an Event they cannot get into.
+func (n NoLongerHolding) Subject() string {
+	return fmt.Sprintf(noLongerHoldingSubjectCopy.in(n.Locale), n.EventName)
+}
+
+// Text is the No Longer Holding mail's plain-text body: the fact, that nothing
+// is required of them, and that everything else about them is untouched.
+//
+// NOTHING HERE IS CONDITIONAL, and there is no branch on why the Ticket was
+// lost, because there is no field to branch on — see platform.NoLongerHolding.
+// Anyone adding one is undoing the decision this message exists to make.
+func (n NoLongerHolding) Text() string {
+	text := fmt.Sprintf(noLongerHoldingOpeningCopy.in(n.Locale), n.EventName)
+	text += "\n\n" + noLongerHoldingClosingCopy.in(n.Locale)
+	return text
+}
+
 // The Sale Voided notice (#246, ADR 0033) — the mail that says a purchase is
 // gone.
 //

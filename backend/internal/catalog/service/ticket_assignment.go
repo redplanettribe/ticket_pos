@@ -115,19 +115,24 @@ func (s *Service) AssignOwnTicket(
 	// route needs: without it, a doubled click is a doubled mail to somebody who
 	// never asked for the first.
 	//
-	// A REASSIGNMENT MAILS THE NEW ADDRESS AND NOT THE OLD ONE. The mail telling
-	// a Holder they have stopped holding a Ticket is a separate message, owed
-	// only to somebody who ACCEPTED — an address that was typed and ignored was
-	// never told it had anything, and telling it now that it has lost something
-	// would be the platform's first and last word to that person. It is not in
-	// this ticket.
+	// A REASSIGNMENT MAILS BOTH ENDS, AND THEY ARE TWO SEPARATE MESSAGES (#327).
+	// The new address gets the Assignment mail; a Holder who had ACCEPTED and has
+	// just been displaced gets the No Longer Holding mail. Neither names the
+	// other, and neither names the buyer.
+	//
+	// ONLY SOMEBODY WHO ACCEPTED IS TOLD THEY LOST IT. An address that was typed
+	// and ignored was never told it had anything, so telling it now that it has
+	// lost something would be the platform's first and only word to that person.
+	// The write reports the displaced address ONLY when the row it replaced was
+	// accepted — see repository.AssignTicketResult.DisplacedHolderEmail — so an
+	// `assigned` address is unreachable from here rather than filtered out here.
 	//
 	// THE SEND HAPPENS AFTER THE WRITE COMMITTED, never inside it. A mail cannot
 	// be rolled back, so the only honest order is to record the fact and then
 	// tell somebody about it; the reverse would risk a stranger holding a link to
 	// an assignment that never happened.
 	if assignment.Changed {
-		s.mailAssignedTicket(ctx, ticket.ID, email, assignment.AssignedAt)
+		s.mailAssignedTicket(ctx, ticket.ID, email, assignment.AssignedAt, assignment.DisplacedHolderEmail)
 	}
 
 	// THE WHOLE SALE COMES BACK rather than the one Ticket that changed, exactly
@@ -224,7 +229,9 @@ func assignmentRefusalToken(refusal catalog.AssignmentRefusal) string {
 }
 
 // mailAssignedTicket re-reads the one Ticket through the accept flow's own read
-// and sends the Assignment mail.
+// and sends the mail (or mails) this assignment owes: the Assignment mail to the
+// new address always, and the No Longer Holding mail to a Holder this
+// reassignment displaced (#327).
 //
 // A SECOND READ RATHER THAN THE ROW ALREADY IN HAND, and it buys two things. The
 // buyer's row (repository.AnswerableTicket) carries the Sale's id and its
@@ -242,8 +249,13 @@ func assignmentRefusalToken(refusal catalog.AssignmentRefusal) string {
 // A FAILURE HERE IS SWALLOWED, deliberately, and the assignment stands. The
 // buyer's record of who they gave which ticket to is worth keeping even when the
 // mail did not go out, and they can send a fresh one by correcting the address.
-func (s *Service) mailAssignedTicket(ctx context.Context, ticketID, holderEmail string, assignedAt time.Time) {
-	if s.mailer == nil {
+func (s *Service) mailAssignedTicket(
+	ctx context.Context,
+	ticketID, holderEmail string,
+	assignedAt time.Time,
+	displacedHolderEmail string,
+) {
+	if s.mailer == nil && s.noLongerHoldingMailer == nil {
 		return
 	}
 	ticket, err := s.repo.GetAssignmentLinkTicket(ctx, ticketID)
@@ -252,4 +264,14 @@ func (s *Service) mailAssignedTicket(ctx context.Context, ticketID, holderEmail 
 		return
 	}
 	s.mailTicketAssignment(ctx, ticket, holderEmail, assignedAt)
+	// THE DISPLACED HOLDER IS TOLD SECOND, and told nothing about who took the
+	// Ticket from them (#327). The read above is shared between the two messages
+	// on purpose: the Event name the new Holder is invited to and the one the old
+	// Holder is told they have lost come from one struct, which never selected the
+	// buyer, the price or the reference at all.
+	//
+	// ORDER BUYS NOTHING HERE and neither send depends on the other: both are best
+	// effort, and a failure of either leaves the assignment standing. It reads
+	// naturally as the order the two facts happened in.
+	s.tellHolderDisplacedByReassignment(ctx, ticket, displacedHolderEmail)
 }

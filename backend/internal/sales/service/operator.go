@@ -551,6 +551,16 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 		Locale: s.mailLocale(ctx, reversed.ID, reversed.Locale, reversed.CustomerEmail),
 	})
 
+	// AND EVERY HOLDER ON IT IS TOLD, which is a different message to different
+	// people (#327). The buyer above is told their purchase was reversed and by
+	// what; a Holder is told only that they are no longer holding a ticket, with
+	// no cause and no buyer named — they are not party to this sale and never
+	// learn that an operator touched it.
+	//
+	// The buyer keeps the reversed sale on their own Area, as they always have.
+	// Only the Holder's view loses the Event.
+	s.tellDisplacedHolders(ctx, []string{reversed.ID})
+
 	return &OperatorReversalResult{
 		TicketSaleID:    row.ID,
 		ConfirmationRef: reversed.ConfirmationRef,

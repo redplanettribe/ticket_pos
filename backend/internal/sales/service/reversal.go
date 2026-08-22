@@ -1029,6 +1029,16 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 		Locale: s.mailLocale(ctx, reversed.ID, reversed.Locale, reversed.CustomerEmail),
 	})
 
+	// AND EVERY HOLDER ON IT IS TOLD (#327). Exactly once per reversal, for the
+	// reason the notice above is: the primitive returns an empty set for a sale
+	// somebody else already reversed, so a drain finishing a request whose sale
+	// was already voided tells nobody a second time.
+	//
+	// The buyer keeps this sale on their Area — a reversed Ticket Sale is never
+	// deleted and stays visible to them and to the Organization. Only the
+	// Holder's view loses the Event.
+	s.tellDisplacedHolders(ctx, []string{reversed.ID})
+
 	return &SaleReversalResult{
 		TicketSaleID:    sale.ID,
 		ConfirmationRef: reversed.ConfirmationRef,

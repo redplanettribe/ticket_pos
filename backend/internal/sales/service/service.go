@@ -291,6 +291,15 @@ type Service struct {
 	// which sweeps nothing and mails nobody — the failure mode of an unwired mail
 	// job has to be silence.
 	answerReminders AnswerReminderSource
+	// displacedHolders tells the people who were holding a reversed Sale's
+	// Tickets that they are not holding them any more (#327, parent #322).
+	//
+	// Nil is a deployment that reverses sales and tells no Holder, which is what
+	// every build before this ticket was and what every test with no opinion about
+	// assignment gets. It is the safe direction to fail in: the Ticket Sale is
+	// reversed either way, and the far side reads the assignment feature flag, so
+	// a dark deployment mails nobody however many sales are reversed (ADR 0045).
+	displacedHolders DisplacedHolderNotifier
 	// ticketQuestionsEnabled decides whether the checkout collects Answers at
 	// all (ADR 0045). It is the SAME environment variable the catalog service
 	// reads for the authoring surface, and one variable rather than two on
@@ -393,6 +402,94 @@ func (s *Service) WithOutstandingAnswers(reporter OutstandingAnswerReporter) *Se
 func (s *Service) WithAnswerReminders(source AnswerReminderSource) *Service {
 	s.answerReminders = source
 	return s
+}
+
+// DisplacedHolderNotifier is what sales owes the people a Sale Reversal takes a
+// ticket away from (#327, parent #322, ADR 0046).
+//
+// A SALE REVERSAL IS WHOLE-SALE, AND SO IS THE CONSEQUENCE. Every Ticket on a
+// reversed Sale ceases to exist, which means every Holder who ACCEPTED one of
+// them has stopped holding it — and CONTEXT.md is explicit that "a Sale Reversal
+// takes every Holder on the Sale with it; they are told when it happens". This
+// seam is the telling. Nothing behind it reverses, voids or splits anything: a
+// Sale Reversal remains whole-Sale and this is a notification about one that has
+// already committed.
+//
+// THE SEAM POINTS AT CATALOG, like the two above it, and divides the work on the
+// same line. Sales knows a Sale was reversed and which one; catalog owns
+// Tickets, Holders and the message — including, crucially, the rule that only an
+// ACCEPTED Holder is ever told, and the copy that gives no cause and names no
+// buyer. Sales learns none of that, which is fitting: this module knows exactly
+// why the Sale was reversed, and the message is forbidden to say.
+//
+// IT IS DELIBERATELY THE SAME CALL FOR ALL THREE REVERSAL ROUTES — the Customer's
+// own undo, a Sale Import undo, and an Operator Reversal. A Holder cannot tell
+// which happened and must not be able to: from where they sit the outcome is
+// identical, and it is identical to a reassignment too, which is why the far side
+// composes one message for both causes.
+//
+// OPTIONAL. A deployment that never wires it reverses sales exactly as it always
+// did and tells no Holder — the correct behaviour while assignment is dark, and
+// the safe behaviour if somebody forgets.
+type DisplacedHolderNotifier interface {
+	// TellHoldersOfReversedSales mails every accepted Holder on these Ticket
+	// Sales. It reads the Ticket Assignment feature flag on its own side, so a
+	// dark deployment mails nobody.
+	//
+	// Called ONLY after the reversal has committed, and only with the Sales the
+	// reversal primitive reports it actually reversed — never with a Sale
+	// somebody else had already voided, which is what keeps each Holder told
+	// exactly once.
+	TellHoldersOfReversedSales(ctx context.Context, ticketSaleIDs []string) error
+}
+
+// WithDisplacedHolders gives this service the seam that tells a reversed Sale's
+// Holders they are no longer holding a ticket (#327).
+//
+// Tied on after construction like the two Answer seams beside it, and for the
+// same reason: catalog's service is built after this one, because the public
+// Event page asks sales about a Customer's holdings.
+func (s *Service) WithDisplacedHolders(notifier DisplacedHolderNotifier) *Service {
+	s.displacedHolders = notifier
+	return s
+}
+
+// tellDisplacedHolders tells everybody who was holding a Ticket on these
+// just-reversed Ticket Sales that they are not holding it any more.
+//
+// ONE HELPER FOR ALL THREE REVERSAL ROUTES, and that is the point of it existing
+// at all rather than being three inline calls. #327's whole rule is that a
+// Holder cannot tell one cause from another; three call sites would be three
+// places for one of them to be forgotten, and a forgotten one is a Holder who
+// turns up to an Event they cannot get into.
+//
+// IT IS CALLED AFTER THE REVERSAL HAS COMMITTED, never inside the transaction. A
+// mail cannot be rolled back, so the only honest order is to record the fact and
+// then tell somebody about it.
+//
+// IT IS BEST EFFORT AND SWALLOWS EVERYTHING, exactly as the Sale Voided notice
+// beside it does. The money has moved and the tickets are gone whether or not
+// anybody was told, and re-running a reversal to retry a mail would be far worse
+// than a missing one. A failure is logged where an operator can count it.
+//
+// IT IS NOT GATED BY notifyBuyers, THE SALE IMPORT UNDO'S TOGGLE, and that is a
+// deliberate reading of #327 rather than an oversight. That switch exists so an
+// Organization can undo an import without writing to buyers who may not know
+// this platform exists. A Holder is not in that position: they came here, proved
+// their address, accepted a ticket, and are expecting to attend. The rule is
+// unconditional — "whenever an accepted Holder stops holding a Ticket, they are
+// told once" — and a toggle over one cause and not the other is exactly the
+// talkative-here-silent-there behaviour the ticket forbids.
+func (s *Service) tellDisplacedHolders(ctx context.Context, ticketSaleIDs []string) {
+	if s.displacedHolders == nil || len(ticketSaleIDs) == 0 {
+		return
+	}
+	if err := s.displacedHolders.TellHoldersOfReversedSales(ctx, ticketSaleIDs); err != nil {
+		s.logger.Error("could not tell every Holder that a reversed Ticket Sale's tickets are no longer theirs; the reversal stands and some Holder was not told",
+			"ticket_sale_count", len(ticketSaleIDs),
+			"error", err,
+		)
+	}
 }
 
 // WithLogger swaps the structured logger.
@@ -1350,6 +1447,22 @@ func (s *Service) UndoImport(ctx context.Context, actor ActorContext, eventID, b
 			})
 		}
 	}
+
+	// EVERY HOLDER ON EVERY UNDONE SALE IS TOLD, AND notifyBuyers DOES NOT GATE
+	// IT (#327). That toggle is about the BUYERS of an imported batch, who may
+	// never have heard of this platform; a Holder accepted a ticket here, proved
+	// their address and is expecting to attend. #327's rule is unconditional —
+	// told once, whichever cause took the ticket away — and honouring it for a
+	// reassignment but not for an undone import is precisely the talkative-in-one-
+	// case-silent-in-the-other behaviour it forbids. See tellDisplacedHolders.
+	//
+	// ONE CALL FOR THE WHOLE BATCH rather than one per sale, so a thousand-row
+	// undo is one query on the far side.
+	reversedIDs := make([]string, 0, len(reversed.Sales))
+	for _, rs := range reversed.Sales {
+		reversedIDs = append(reversedIDs, rs.ID)
+	}
+	s.tellDisplacedHolders(ctx, reversedIDs)
 
 	return &UndoResult{
 		BatchID:   reversed.ID,
