@@ -1,6 +1,7 @@
 # The Cloud Scheduler tick that drives the Answer Reminder sweep (#317,
-# ADR 0044): one mail to each buyer whose Ticket Sale still owes Answers, and
-# whose rationing allows it.
+# ADR 0044; #328, ADR 0046): one mail to each person who can answer what a Ticket
+# still owes and whose rationing allows it — the Holder of an `accepted` Ticket,
+# the buyer for every other Ticket on the Sale.
 #
 # The shape is answer_purge.tf's, and the argument for a scheduler rather than an
 # in-process ticker is the one ADR 0024 records — min_instances = 0 and
@@ -9,21 +10,30 @@
 # WHAT MAKES THIS DIFFERENT FROM EVERY OTHER JOB IN THIS MODULE is what a run
 # produces. The reversal drain asks a provider a question; the purge deletes
 # rows; the Digest jobs send mail to people who asked to be written to. This one
-# sends mail to people who did not — buyers, about tickets they bought, which is
-# transactional and legitimate and is still an unrequested message in a stranger's
-# inbox. Everything below follows from that: the cadence is daily rather than
+# sends mail to people who did not — buyers, about tickets they bought, and since
+# #328 Holders, about tickets they accepted. Both are transactional and
+# legitimate and both are still unrequested messages in somebody's inbox.
+# Everything below follows from that: the cadence is daily rather than
 # per-minute, the endpoint cannot be told WHO to write to or WHEN it is, and the
 # job ships paused.
 #
+# IT REACHES MORE INBOXES THAN IT USED TO, and ADR 0046 says so in as many words:
+# a four-ticket sale that used to produce at most one mail can now produce one to
+# the buyer and up to four to Holders, each rationed separately. No ONE person is
+# written to more than twice, which is the promise the rationing makes, but the
+# total volume this job can emit rose — and that is visible in the sending
+# domain's reputation before it is visible anywhere else. It is one more reason
+# the job ships paused rather than merely a tidy default.
+#
 # THE RATIONING IS NOT HERE, and must never be moved here. At most one mail per
-# Ticket Sale per 7 days, at most two ever, silence once the Event has started:
-# all of it lives in catalog.MayRemind and in the SQL beside it, where it holds
-# however the endpoint is called. A schedule is not a rate limit — a cron that
-# fired hourly would mail nobody twice, because the ledger and not the cadence is
-# what decides.
+# TICKET per 7 days, at most two ever, silence once the Event has started: all of
+# it lives in catalog.MayRemind and in the SQL beside it, where it holds however
+# the endpoint is called. A schedule is not a rate limit — a cron that fired
+# hourly would mail nobody twice, because the ledger and not the cadence is what
+# decides.
 #
 # A missed run costs nothing and needs no catch-up: the sweep works from state
-# rather than from events, so a day's outage means the same buyers are due
+# rather than from events, so a day's outage means the same people are due
 # tomorrow. There is no queue here and nothing to fall behind on.
 
 # --- Identity -----------------------------------------------------------------
@@ -68,21 +78,25 @@ resource "google_cloud_scheduler_job" "answer_reminder" {
   # Ecuador, and here the timezone is part of the product rather than an
   # operator's convenience. This job puts messages in buyers' inboxes, so the
   # hour it fires is the hour they arrive; the purge's 03:20 would mean chasing
-  # somebody about a t-shirt size in the middle of the night.
+  # somebody about a t-shirt size in the middle of the night. Since #328 some of
+  # those inboxes belong to Holders rather than buyers, which changes nothing
+  # about the hour and everything about how many people notice it.
   time_zone = "America/Guayaquil"
 
-  description = "Drives the Answer Reminder sweep: mails the buyers of active Ticket Sales that still owe Answers, rationed per Sale and silent once the Event has started (ADR 0044)"
+  description = "Drives the Answer Reminder sweep: mails the Holder of every accepted Ticket that still owes Answers and the buyer for every other Ticket on their Sale, rationed per Ticket and silent once the Event has started (ADR 0044, ADR 0046)"
 
   # Paused, not absent, when disabled — and this job SHIPS PAUSED, like every
   # scheduled job in this module before it.
   #
   # It ships paused for TWO reasons, and the second outlives the first. The
   # house rollout is to curl an endpoint by hand before a cron drives it. Beyond
-  # that: the Ticket Sales this sweep would write to only exist once
+  # that: the Tickets this sweep would write about only owe anything once
   # TICKET_QUESTIONS_ENABLED is open, which waits on a Policy Version describing
   # the collection (ADR 0045) — and even then, the first time this platform
-  # writes to buyers who did not ask to be written to should be a decision
-  # somebody makes while watching, not a side effect of an apply.
+  # writes to people who did not ask to be written to should be a decision
+  # somebody makes while watching, not a side effect of an apply. #328 did not
+  # unpause it and made the second reason larger: a run can now reach Holders,
+  # who never bought anything from this platform at all.
   #
   # The backend refuses independently: catalog's side of the sweep reads the same
   # feature flag and returns no candidates while it is off. Two switches, and
@@ -93,7 +107,7 @@ resource "google_cloud_scheduler_job" "answer_reminder" {
     # NO RETRIES, and for this job that is a stronger rule than for the ones
     # beside it. A retry of a run that failed midway would re-send to nobody it
     # had already mailed — the ledger is written before the response — but a
-    # retry of a run whose ledger writes were failing would mail the same buyers
+    # retry of a run whose ledger writes were failing would mail the same people
     # again, which is the one failure this feature must not have. The next tick
     # is a day away and works from the same state; there is nothing a retry
     # recovers that waiting does not.
@@ -105,7 +119,8 @@ resource "google_cloud_scheduler_job" "answer_reminder" {
 
     # The pinned contract. Internal-scoped: reachable by neither a Customer
     # Session nor a staff token. Note what is NOT in this URI and may never be
-    # added — an Event, an Organization, a Ticket Sale, and above all a moment.
+    # added — an Event, an Organization, a Ticket Sale, a Ticket, and above all a
+    # moment.
     # The window that keeps this mail to one a week is arithmetic on the
     # backend's own clock, precisely so that possession of this account's token
     # is not possession of a mail-everybody-now button; see

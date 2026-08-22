@@ -193,6 +193,33 @@ func (s *ResendEmailSender) SendAnswerReminder(ctx context.Context, r AnswerRemi
 	return nil
 }
 
+// SendHolderAnswerReminder delivers the Answer Reminder addressed to the Holder
+// of an accepted Ticket (#328, ADR 0046).
+//
+// The error is returned rather than swallowed, and the sweep that calls this
+// depends on it for the reason the buyer's does: a reminder is recorded in the
+// ledger only once the provider has accepted it, because the ledger is what
+// rations the next one. Reporting a failed send as a success would ration a
+// Holder out of a reminder they never received, permanently — the cap counts for
+// the life of the Ticket.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally by embedding this sender rather than
+// listing its methods (ADR 0030). That is not a filing preference here: this
+// reader accepted a ticket and consented to nothing, so the message must not be
+// reachable from the identity that carries marketing at all.
+//
+// NEITHER THE LINK NOR THE EVENT IS LOGGED ON FAILURE, only the address and the
+// error, exactly as for the Assignment mail below. The link is a credential that
+// mints an identity, and a log aggregator is a wider audience than an inbox.
+func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r HolderAnswerReminder) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send holder answer reminder failed", "email", r.To, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendTicketAssignment delivers the Assignment mail carrying an Assignment Link
 // (#325, ADR 0046).
 //
