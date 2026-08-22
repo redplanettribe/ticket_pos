@@ -401,7 +401,28 @@
       "retiredQuestion": "The organizer has stopped asking this. The answer is kept as it was."
     },
     "holdingHeading": "Tickets someone gave you",
-    "holdingDescription": "Someone bought these and gave them to you. The event is theirs to change: if they hand a ticket to someone else, it leaves this list."
+    "holdingDescription": "Someone bought these and gave them to you. The event is theirs to change: if they hand a ticket to someone else, it leaves this list.",
+    "assignment": {
+      "title": "Who these tickets are for",
+      "tally": "{assigned} of {total} tickets have an address.",
+      "stateUnassigned": "No address yet",
+      "stateAssigned": "This ticket is for {email}",
+      "stateAccepted": "{email} has picked this ticket up",
+      "emailLabel": "Email address for this ticket",
+      "emailPlaceholder": "name@example.com",
+      "notice": "We'll email this address about the ticket, and the organizer will see it beside this ticket's answers. Only give an address whose owner is happy for you to.",
+      "changeClearsAnswers": "Changing the address clears this ticket's answers. An answer belongs to the person who gave it, so the next person is asked again.",
+      "assign": "Save this address",
+      "reassign": "Change this address",
+      "saved": "Saved",
+      "unchanged": "That's already this ticket's address.",
+      "saveFailed": "That address didn't save. Try again.",
+      "networkFailed": "That address didn't save. Check your connection and try again.",
+      "closedChannel": "This purchase was made at the door, so there's no address to give here. The organizer can help.",
+      "closedReversed": "This purchase was undone, so these tickets aren't going to anyone.",
+      "closedStarted": "The event has started, so addresses are closed. What was given is kept as it was.",
+      "closedUnknown": "Addresses can't be given for this ticket."
+    }
   },
   "myInfo": {
     "heading": "My info",
@@ -534,8 +555,13 @@
       "ASSIGNMENT_LINK_INVALID": "This link no longer works. Tickets can change hands, and a link stops working when that happens.",
       "ASSIGNMENT_LINK_EXPIRED": "The event has started, so there's nothing left to accept.",
       "ASSIGNMENT_LINK_UNAVAILABLE": "We couldn't do that just now. Please try again in a little while.",
-      "TICKET_ASSIGNMENT_UNAVAILABLE": "This link no longer works.",
-      "INVALID_HOLDER_NAME": "Please give both a first name and a last name."
+      "TICKET_ASSIGNMENT_UNAVAILABLE": "We couldn't find that ticket.",
+      "INVALID_HOLDER_NAME": "Please give both a first name and a last name.",
+      "TICKET_NOT_FOUND": "We couldn't find that ticket.",
+      "INVALID_HOLDER_EMAIL": "That doesn't look like an email address. Check it and try again.",
+      "ASSIGNMENT_CHANNEL_UNSUPPORTED": "This purchase was made at the door, so an address can't be given here. The organizer can help.",
+      "ASSIGNMENT_SALE_REVERSED": "This purchase was undone, so these tickets aren't going to anyone.",
+      "ASSIGNMENT_EVENT_STARTED": "The event has started, so addresses are closed. What was given is kept as it was."
     },
     "field": {
       "REQUIRED": "is required",
