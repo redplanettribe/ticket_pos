@@ -162,147 +162,46 @@ type SaleReversalRefused struct {
 	Locale Locale
 }
 
-// AnswerReminder is the mail telling a buyer that Tickets on their Ticket Sale
-// still owe Answers, and pointing them back at their sale to give them or to
-// pass the per-Ticket links on (#317, ADR 0044; #328, ADR 0046).
-//
-// IT IS ADDRESSED TO THE BUYER FOR THE TICKETS STILL THEIRS TO CHASE, which is a
-// narrower claim than the one this type shipped with. ADR 0044 addressed it to
-// the buyer "because there is nobody else to address"; ADR 0046 gave a Ticket a
-// Holder who accepts by mail, and #328 sends that Holder their own reminder —
-// see HolderAnswerReminder below. What is left for this message is every Ticket
-// of the Sale that is `unassigned` or `assigned`: nobody else can answer for
-// them, because an address typed and never accepted belongs to somebody who has
-// agreed to nothing. So a Ticket Question added after a sale still reaches an
-// unaccepted Ticket's holder only if the buyer forwards the Answer Link, and
-// this is the message that asks them to.
-//
-// A SALE WITH A MIX PRODUCES BOTH MAILS AND NEITHER LISTS THE OTHER'S TICKETS.
-// One message to the buyer covering the Tickets still theirs, one to each
-// accepted Holder about their own — never one mail listing everything to
-// everybody, which would tell each Holder how many tickets the buyer bought and
-// tell the buyer nothing they can act on.
-//
-// IT IS TRANSACTIONAL, and this type's place on EmailSender's transactional half
-// is what makes that structural rather than remembered. It is about tickets
-// somebody bought, on the same footing as the Sale Confirmation that carries the
-// same sentence, so nothing anywhere reads Marketing Consent before sending it
-// and it is not even reachable from the marketing sending identity (ADR 0030,
-// ADR 0034). What bounds it instead is catalog.MayRemind: at most one per Ticket
-// Ticket per week, at most two ever, and silence once the Event has started.
-// Those are the only brakes this message has, because a transactional mail
-// carries no unsubscribe footer.
-//
-// THE RATIONING IS PER TICKET AND THE MAIL IS PER SALE, which is not a
-// contradiction and is worth reading twice. The sweep gathers every
-// buyer-addressed Ticket of one Sale into ONE of these and then spends one
-// ledger row per Ticket it covered, so an ordinary four-Ticket sale still
-// produces the two messages it always did. What per-Ticket rationing buys is the
-// Holders: a per-Sale allowance would let the first Holder mailed spend the
-// whole Sale's and leave the other three unwritten-to.
-//
-// IT IS SWEPT RATHER THAN TRIGGERED. Nothing composes one of these when a
-// question is authored — an Organization drafting four questions in ten minutes
-// would otherwise mail the same people four times — so the only caller is the
-// scheduled job in the sales module.
-type AnswerReminder struct {
-	// To is the buyer's address, as the Ticket Sale recorded it. Never a
-	// holder's: there is no such column and there must never be one.
-	To           string
-	CustomerName string
-	EventName    string
-	// Reference is the Sale Confirmation reference, printed so a buyer holding
-	// two sales for one Event can tell which of them this is about. It is their
-	// own reference for their own purchase, in a mail already addressed to them —
-	// unlike the Answer Link page, which must never show it, because that page is
-	// built to be forwarded into a group chat and this mail is not.
-	Reference string
-	// ConfirmationLink opens this one Ticket Sale on the Storefront without
-	// signing in — the page where the buyer answers what they know and copies out
-	// each Ticket's own Answer Link for whoever will be using it (#315).
-	//
-	// IT IS THE WHOLE MESSAGE. Unlike the Sale Confirmation, which is worth
-	// sending without its link because it carries the reference and the total, a
-	// reminder with no link is an instruction its reader cannot follow. The job
-	// refuses to send one rather than composing it — see the sales module's
-	// SweepAnswerReminders, where a Sale whose link could not be signed is skipped
-	// and counted.
-	//
-	// WHAT IS DELIBERATELY ABSENT IS ANY ANSWER LINK. This mail introduces no URL
-	// of its own beyond this one, for the reason the receipt's sentence does not
-	// either: an Answer Link is meant to be forwarded and this mail is not.
-	// Distribution happens on the page, where the buyer copies one link at a time
-	// and decides who gets which.
-	ConfirmationLink string
-	// Locale is the language this reminder is written in, ALREADY RESOLVED by the
-	// caller through platform.ResolveMailLocale (ADR 0033): the Sale Locale, then
-	// the Customer's Mail Locale, then English.
-	//
-	// It is resolved from the SALE first for the reason every mail about a sale
-	// is: the language the buyer chose at the moment they bought outranks what
-	// their record remembers, and it governs every mail about that sale however
-	// long afterwards it is sent. This one is sent longest afterwards of any —
-	// weeks, by a job nobody is watching, from no page at all.
-	Locale Locale
-}
-
-// HolderAnswerReminderTicket is one owed Ticket as a Holder's Answer Reminder
-// lists it: what the reader recognises it by, and the link they answer through.
+// HolderAnswerReminderTicket is one owed Ticket as an Answer Reminder lists
+// it: what the reader recognises it by, and nothing else.
 //
 // EventName and TicketTypeName are already public — rows on a Storefront page
 // anybody can read — and are the whole of what the mail says about the
 // purchase. EventName travels PER TICKET because the envelope is per Holder
-// per sweep (#335) and nothing guarantees every Ticket one person accepted
+// per sweep (#335) and nothing guarantees every Ticket one person holds
 // belongs to one Event.
 //
-// AnswerURL is the Assignment Link: the same address their Assignment mail
-// carried, minted fresh, where they give their name and answer their own
-// Ticket Questions (#326).
-//
-// IT IS THE WHOLE MESSAGE, like the Answer Reminder's Confirmation Link and
-// the Assignment mail's AcceptURL. A reminder with no link is an instruction
-// its reader cannot follow, so the sweep drops a Ticket whose link could not
-// be signed rather than listing it linkless.
-//
-// IT IS A CREDENTIAL THAT MINTS AN IDENTITY, and everything ADR 0046 says
-// about TicketAssignment.AcceptURL applies here word for word: it must never
-// appear on a buyer surface or in any API response to the buyer, because the
-// Answer Link is copyable off the buyer's own sale page and a token the buyer
-// can see proves nothing about who clicked it. Anything that widens where
-// this type's values travel widens where that credential travels.
-//
-// EACH LINK OPENS EXACTLY ONE TICKET, which is why a mail about two Tickets
-// carries two of these rather than one URL for both: there is no single
-// address that would open both, and inventing one would be inventing a
-// surface that discloses a Sale to somebody entitled to see one Ticket.
+// IT CARRIES NO LINK, since ADR 0049. The Assignment Link this entry used to
+// hold is a credential that mints an identity, and a reminder no longer needs
+// one: the reader answers from their own Customer Area, whose one address the
+// message carries once (HolderAnswerReminder.CustomerAreaURL) behind a sign-in
+// to the very address the mail is sent to.
 type HolderAnswerReminderTicket struct {
 	EventName      string
 	TicketTypeName string
-	AnswerURL      string
 }
 
-// HolderAnswerReminder is the mail telling a Holder that the Ticket THEY
-// accepted still owes an Answer, and carrying the link they answer through
-// (#328, parent #322, ADR 0046).
+// HolderAnswerReminder is the mail telling the Holder of a Ticket that it still
+// owes an Answer, and pointing them at the Customer Area where they give it
+// (#328, parent #322, ADR 0046; #347, parent #342, ADR 0049).
 //
-// IT IS THE MAIL ADR 0044 SAID COULD NOT EXIST. That ADR addressed the reminder
-// to the buyer "because there is nobody else to address", which was true while
-// the platform held no address for a holder. ADR 0046 gave a Ticket a Holder who
-// proves their address by clicking, so there is now somebody else, and they are
-// the person who knows the answer — chasing the buyer instead nags the one
-// person the whole feature has just established does not know their friend's
-// t-shirt size.
+// IT IS THE ONLY ANSWER REMINDER. ADR 0044 addressed the reminder to the buyer
+// "because there is nobody else to address"; ADR 0046 gave a Ticket a Holder
+// who proves their address by clicking; ADR 0049 ruled that only the Holder
+// answers, so only the Holder is chased. The buyer receives one of these about
+// their own Self-held Ticket (ADR 0048) and about nothing else: a Ticket they
+// have not handed on has nobody to answer for it and is not chased at all.
+// The separate buyer-addressed reminder, with its Sale Confirmation reference
+// and Confirmation Link, is gone.
 //
-// IT IS A SEPARATE TYPE FROM AnswerReminder AND THAT IS THE DISCLOSURE BOUNDARY,
-// not a filing preference. A Holder is told the Event, the Ticket Type and their
-// own link, and NEVER the buyer's name, the buyer's address, the price, the Tax
-// ID, the Sale Confirmation reference or the Sale's other Tickets — ADR 0044's
-// rule, carried over unchanged by ADR 0046 and applied to an inbox. Sharing one
-// struct with the buyer's reminder would leave a Reference and a CustomerName
-// field sitting in scope at the send site, one line away from a message they may
-// never appear in. A field that does not exist cannot be printed by mistake.
-// This is the same reason AssignmentLinkView is a separate type from the buyer's
-// view of the same Ticket.
+// IT NAMES NOTHING ABOUT THE PURCHASE, and the type is the enforcement. A
+// Holder is told the Event, the Ticket Type and where to sign in, and NEVER a
+// buyer's name, the price, the Tax ID, the Sale Confirmation reference or the
+// Sale's other Tickets — ADR 0044's disclosure rule, carried over unchanged by
+// ADR 0046 and applied to an inbox. There is no field for any of it, so a
+// template cannot print it by mistake. That the buyer reads the same message
+// about their own Ticket costs them nothing: their receipt already told them
+// everything this one withholds.
 //
 // IT IS TRANSACTIONAL, and its place on EmailSender's transactional half is what
 // makes that structural rather than remembered. It matters more here than for
@@ -314,39 +213,33 @@ type HolderAnswerReminderTicket struct {
 // What bounds it instead is catalog.MayRemind, per TICKET: at most one a week,
 // at most two ever, silence once the Event has started.
 //
-// ONE PER HOLDER PER SWEEP SINCE #335. A person who accepted two Tickets of
-// one sale used to get two of these, one per Assignment Link; the ruling on
-// #335 folded them into one message listing each owed Ticket with its own
-// link, matching the shape the buyer's reminder always had. The per-Ticket
-// caps did not move: each listed Ticket burns its own allowance, only the
-// envelope is shared.
+// ONE PER HOLDER PER SWEEP SINCE #335. A person holding two owed Tickets gets
+// one message listing both; the per-Ticket caps did not move — each listed
+// Ticket burns its own allowance, only the envelope is shared.
 //
-// IT IS SWEPT RATHER THAN TRIGGERED, like its buyer-addressed sibling. Nothing
-// composes one when a question is authored — an Organization drafting four
-// questions in ten minutes would otherwise mail every Holder four times — so the
-// only caller is the scheduled job in the sales module.
+// IT IS SWEPT RATHER THAN TRIGGERED. Nothing composes one when a question is
+// authored — an Organization drafting four questions in ten minutes would
+// otherwise mail every Holder four times — so the only caller is the scheduled
+// job in the sales module.
 type HolderAnswerReminder struct {
-	// To is the address that ACCEPTED this Ticket: `tickets.holder_email`,
-	// normalised, and the address the AnswerURL below was signed against.
-	//
-	// It is not a third party's address in the sense the Assignment mail's is.
-	// Its owner clicked a link from their own inbox, which is Proof of Email
-	// Ownership (ADR 0035), so they are a Verified Customer of this platform and
-	// this is a message about their own ticket. That is also why the Holder
-	// Address Purge never reaches it: the purge takes addresses nobody accepted.
+	// To is the address that holds the Ticket: `tickets.holder_email`,
+	// normalised — the address that accepted it, or the buyer's own for a
+	// Self-held Ticket. It is the address the Customer Area sign-in below will
+	// ask for.
 	To string
-	// Tickets are the owed Tickets this ONE mail lists, each with its own
-	// Assignment Link — at least one, usually exactly one.
-	//
-	// A LIST SINCE #335, and the ruling it records: ONE mail per Holder per
-	// sweep. The buyer's reminder already fans a Sale's Tickets into one
-	// message, so per-Ticket envelopes to a Holder were an inconsistency as
-	// well as a volume problem, and mailing one address twice in one sweep is
-	// the shape spam filters punish. Only the ENVELOPE is shared: each listed
-	// Ticket still burns its own reminder allowance, and each keeps its own
-	// link, because an Assignment Link opens exactly one Ticket by design and
-	// there is still no single URL that opens two.
+	// Tickets are the owed Tickets this ONE mail lists — at least one, usually
+	// exactly one.
 	Tickets []HolderAnswerReminderTicket
+	// CustomerAreaURL is the Storefront's Customer Area, where the reader signs
+	// in with the address this mail reached and answers from the held-ticket
+	// panel (ADR 0049). ONE address for the whole message, however many Tickets
+	// it lists: the panel shows every Ticket the reader holds.
+	//
+	// IT IS THE WHOLE MESSAGE. A reminder with nowhere to go is an instruction
+	// its reader cannot follow, so the sweep refuses to compose one without it
+	// rather than rendering a shorter mail. It is NOT a credential: nothing in
+	// it signs anything, and a forwarded copy opens nothing.
+	CustomerAreaURL string
 	// Locale is the language this is written in, ALREADY RESOLVED by the caller
 	// (ADR 0033).
 	//
@@ -356,9 +249,9 @@ type HolderAnswerReminder struct {
 	// Locale, and may not share the buyer's language at all — a Spanish-speaking
 	// Holder whose friend paid on the English site is exactly the case the
 	// feature exists to serve. So their own remembered Mail Locale outranks the
-	// sale's, and the sale's is kept as the better-than-nothing fallback. The
-	// BUYER'S reminder keeps the ordinary order; see #325 and
-	// service.assignmentMailLocale for the reasoning this borrows.
+	// sale's, and the sale's is kept as the better-than-nothing fallback. For
+	// the buyer's own Self-held Ticket the two agree in every ordinary case;
+	// see #325 and service.assignmentMailLocale for the reasoning this borrows.
 	Locale Locale
 }
 
@@ -895,29 +788,16 @@ type EmailSender interface {
 	// who has just asked to stop receiving marketing, and is the one message that
 	// must arrive anyway.
 	SendConsentWithdrawalConfirmation(ctx context.Context, confirmation ConsentWithdrawalConfirmation) error
-	// SendAnswerReminder delivers an Answer Reminder to the buyer of a Ticket
-	// Sale whose Tickets still owe Answers (#317, ADR 0044).
+	// SendHolderAnswerReminder delivers the Answer Reminder to the Holder of a
+	// Ticket that still owes an Answer (#328, ADR 0046; ADR 0049).
 	//
 	// It is on the TRANSACTIONAL half of this interface, beside the receipt whose
 	// one extra sentence it repeats at length, and that placement is the decision
 	// rather than a filing choice: it means the message is not reachable from the
 	// marketing sending identity at all (ADR 0030), and that no consent state is
-	// anywhere near the code that sends it. What bounds it is catalog.MayRemind,
-	// which is the only thing that does.
-	SendAnswerReminder(ctx context.Context, reminder AnswerReminder) error
-	// SendHolderAnswerReminder delivers the Answer Reminder addressed to the
-	// Holder of an accepted Ticket (#328, ADR 0046).
-	//
-	// A SECOND METHOD RATHER THAN A FLAG ON THE FIRST, because the two messages
-	// disclose different things and the type system is where that is enforced.
-	// One carries the buyer's name and their Sale Confirmation reference; the
-	// other carries a credential that mints an identity and must name nobody. A
-	// single method taking either would put both sets of fields in scope at every
-	// send site.
-	//
-	// TRANSACTIONAL, beside the other two, and here the placement is at its most
-	// load-bearing: this reader accepted a ticket and consented to nothing, so
-	// there is no consent state to read and none may be read.
+	// anywhere near the code that sends it — this reader accepted a ticket and
+	// consented to nothing. What bounds it is catalog.MayRemind, which is the
+	// only thing that does.
 	SendHolderAnswerReminder(ctx context.Context, reminder HolderAnswerReminder) error
 	// SendTicketAssignment delivers the Assignment mail carrying an Assignment
 	// Link (#325, ADR 0046).
@@ -1001,21 +881,10 @@ func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 	return nil
 }
 
-// SendAnswerReminder logs the Answer Reminder for local development. The
-// address, the sale's reference and the language are logged and the body is
-// not: what a local developer needs to see is that a buyer was chased, about
-// which purchase, and in which language.
-func (s *LoggingEmailSender) SendAnswerReminder(_ context.Context, r AnswerReminder) error {
-	s.Logger.Info("answer reminder sent", "email", r.To, "reference", r.Reference, "locale", string(r.Locale))
-	return nil
-}
-
-// SendHolderAnswerReminder logs the Holder's Answer Reminder for local
-// development. The address, the Event and the language are logged and the link
-// is not — unlike the Assignment mail's, which is logged because locally there
-// is no mailbox and the click is the whole point of that message. This one's
-// reader has already accepted; what a local developer needs to see here is that
-// a HOLDER rather than a buyer was chased, which is the change #328 made.
+// SendHolderAnswerReminder logs the Answer Reminder for local development. The
+// address, how many Tickets and the language are logged and the body is not:
+// what a local developer needs to see is that a Holder was chased, about how
+// much, and in which language.
 func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
 	s.Logger.Info("holder answer reminder sent", "email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale))
 	return nil
@@ -1113,11 +982,6 @@ func (NoopEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, _ Co
 	return nil
 }
 
-// SendAnswerReminder discards the Answer Reminder.
-func (NoopEmailSender) SendAnswerReminder(_ context.Context, _ AnswerReminder) error {
-	return nil
-}
-
 // SendHolderAnswerReminder discards the Holder's Answer Reminder.
 func (NoopEmailSender) SendHolderAnswerReminder(_ context.Context, _ HolderAnswerReminder) error {
 	return nil
@@ -1188,22 +1052,15 @@ type CaptureEmailSender struct {
 	// an act which moved nothing sends nothing cannot be told from a message's
 	// contents, only from there being none.
 	WithdrawalConfirmations []ConsentWithdrawalConfirmation
-	// The Answer Reminders delivered (#317). Kept whole rather than as rendered
-	// strings, so a test can call Subject() and Text() itself — which is the only
-	// way the Mail Locale is visible at all — and can assert on WHO was written
-	// to, which is what every rationing test is really about.
+	// The Answer Reminders delivered (#317, #328, ADR 0049). Kept whole rather
+	// than as rendered strings, so a test can call Subject() and Text() itself —
+	// which is the only way the Mail Locale is visible at all — and can assert
+	// on WHO was written to, which is what every rationing test is really about.
 	//
-	// Tests assert on the LENGTH as much as on the contents: "this buyer was not
-	// mailed a second time inside the week" cannot be told from any message's
+	// Tests assert on the LENGTH as much as on the contents: "this Holder was
+	// not mailed a second time inside the week", and "the buyer was not chased
+	// about a Ticket they do not hold", cannot be told from any message's
 	// contents, only from there being none.
-	AnswerReminders []AnswerReminder
-	// The Answer Reminders delivered to HOLDERS (#328). A separate list rather
-	// than a flag on the one above, because the types are separate — and because
-	// the assertion that matters most in this feature is which of the two lists a
-	// message landed in. "The buyer was not chased about a Ticket somebody else
-	// accepted" is a fact about the OTHER list being shorter, and a test that
-	// filtered one list by a field could not tell it from a message that named
-	// the wrong recipient.
 	HolderAnswerReminders []HolderAnswerReminder
 	// The Assignment mails delivered (#325). Kept whole rather than as rendered
 	// strings, for the reason the Answer Reminders above are: a test calls
@@ -1329,18 +1186,7 @@ func (s *CaptureEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 	return nil
 }
 
-// SendAnswerReminder records a delivered Answer Reminder.
-func (s *CaptureEmailSender) SendAnswerReminder(_ context.Context, r AnswerReminder) error {
-	if err := s.failed(); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.AnswerReminders = append(s.AnswerReminders, r)
-	return nil
-}
-
-// SendHolderAnswerReminder records a delivered Holder Answer Reminder.
+// SendHolderAnswerReminder records a delivered Answer Reminder.
 func (s *CaptureEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
 	if err := s.failed(); err != nil {
 		return err
@@ -1478,26 +1324,14 @@ func (s *CaptureEmailSender) ConsentWithdrawalConfirmations() []ConsentWithdrawa
 	return out
 }
 
-// AnswerRemindersSent returns the Answer Reminders delivered so far, in the
-// order the sweep sent them — which is the order that matters, since the job
-// works oldest sale first and a test asserting who got the one available slot
-// is asserting on that order.
-func (s *CaptureEmailSender) AnswerRemindersSent() []AnswerReminder {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]AnswerReminder, len(s.AnswerReminders))
-	copy(out, s.AnswerReminders)
-	return out
-}
-
-// HolderAnswerRemindersSent returns the Answer Reminders delivered to Holders so
-// far, in the order the sweep sent them.
+// HolderAnswerRemindersSent returns the Answer Reminders delivered so far, in
+// the order the sweep sent them — which is the order that matters, since the
+// job works oldest sale first and a test asserting who got the one available
+// slot is asserting on that order.
 //
-// Tests assert on its LENGTH as much as on its contents, and on the length of
-// AnswerRemindersSent beside it: a mixed Sale producing "one mail to the buyer
-// and one to each Holder" is a statement about two counts, and "the buyer was
-// not also chased about the accepted Ticket" cannot be told from any message's
-// contents at all.
+// Tests assert on its LENGTH as much as on its contents: "nobody was chased
+// about an unassigned Ticket" cannot be told from any message's contents at
+// all.
 func (s *CaptureEmailSender) HolderAnswerRemindersSent() []HolderAnswerReminder {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1634,7 +1468,6 @@ func (s *CaptureEmailSender) Reset() {
 	s.VoidedSales = nil
 	s.RefusedReversals = nil
 	s.WithdrawalConfirmations = nil
-	s.AnswerReminders = nil
 	s.HolderAnswerReminders = nil
 	s.TicketAssignments = nil
 	s.NoLongerHoldings = nil

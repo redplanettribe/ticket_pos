@@ -2,14 +2,14 @@
  * A Ticket Question and its Answer, as rules rather than as markup (#312,
  * ADR 0044; the Answer Link itself is retired by ADR 0049).
  *
- * THE FILE OUTLIVES ITS NAME. It was written for the Answer Link's page, and
- * that page is gone — nothing mints an Answer Link, nothing opens one, and
- * /answer is a static tombstone. What stayed is everything that was never about
- * the link: the shapes of a Ticket Question and an Answer, and the rules for
- * drawing and posting one, which the Assignment Link page (lib/assignment-link.ts)
- * and a Holder's own panel (lib/buyer-answers.ts) share. It keeps its path
- * because those importers are live; renaming it is a diff about nothing until
- * they all move together.
+ * THE SHARED TICKET QUESTION MODULE. It was written as lib/answer-link.ts for
+ * the Answer Link's page, and that page is gone — nothing mints an Answer Link,
+ * nothing opens one, and /answer is a static tombstone. What stayed is
+ * everything that was never about the link: the shapes of a Ticket Question and
+ * an Answer, and the rules for drawing and posting one, which the Assignment
+ * Link page (lib/assignment-link.ts), the held-ticket panel
+ * (lib/held-ticket-panel.ts) and the buyer's sale page (lib/buyer-answers.ts)
+ * all share. Renamed with #347 once every importer had moved.
  *
  * NOTHING HERE INVENTS A FIELD. It renders what arrived, and what arrives is
  * only ever a question and its answer.

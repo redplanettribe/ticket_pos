@@ -25,15 +25,18 @@ import "time"
 // disagreed with itself about what "required" means. The debt is the debt. The
 // silence is the reminder's.
 //
-// WHAT #328 CHANGED, STATED ONCE AND AT THE TOP. ADR 0044 addressed this mail to
-// the buyer "because there is nobody else to address", and rationed it per
-// Ticket Sale on the strength of that: one buyer, one inbox. ADR 0046 gave a
-// Ticket a Holder who accepts by mail, and both halves of that sentence stopped
-// being true. The reminder now follows the ANSWER — to the Holder for a Ticket
-// that is `accepted`, to the buyer for every other Ticket on the Sale — and the
-// rationing follows the recipient, from the Sale down to the TICKET. A per-Sale
-// allowance could not ration four Holders at all: the first one mailed would
-// spend it and the other three would never be written to.
+// WHO IS ADDRESSED, STATED ONCE AND AT THE TOP. ADR 0044 addressed this mail to
+// the buyer "because there is nobody else to address". ADR 0046 gave a Ticket a
+// Holder who accepts by mail, and ADR 0049 finished the thought: only the Holder
+// answers, so only the Holder is chased. The reminder goes to the address that
+// ACCEPTED the Ticket — the buyer for their own Self-held Ticket (ADR 0048), a
+// named Holder for an accepted one — and an `unassigned`, `assigned` or purged
+// Ticket has NO recipient at all. Nobody can answer for it, so nobody is
+// nagged about it: an unassigned Ticket is an assignment debt, not an Answer
+// debt, and an Assignment Reminder is a separate decision ADR 0049 deferred.
+// The rationing follows the recipient, from the Sale down to the TICKET. A
+// per-Sale allowance could not ration four Holders at all: the first one
+// mailed would spend it and the other three would never be written to.
 //
 // THE CAPS THEMSELVES ARE UNCHANGED. At most one per 7 days, at most two ever,
 // silence once the Event has started, nothing at all for a reversed Sale, and
@@ -87,15 +90,13 @@ const (
 	// the row is the Ticket's and it is spent whoever the mail went to.
 	//
 	// WHAT THIS COSTS, SAID PLAINLY, because moving the unit down made the
-	// feature louder and ADR 0046 says so. A four-Ticket sale with nothing
-	// accepted still produces the two mails it always did — the sweep groups
-	// every buyer-addressed Ticket of one Sale into ONE message and spends all
-	// four allowances on it — but a sale with four accepted Holders can now
-	// produce eight mails in all rather than two, to five different people. No
-	// ONE person is written to more than twice, which is the promise this
-	// constant makes and the only promise it ever made — and since #335 it holds
-	// for a Holder of several Tickets too, whose owed Tickets share ONE envelope
-	// per sweep instead of one each, each still burning its own allowance.
+	// feature louder and ADR 0046 says so. A sale with four accepted Holders can
+	// produce eight mails in all rather than two, to four different people. No
+	// ONE person is written to more than twice about any one Ticket, which is
+	// the promise this constant makes and the only promise it ever made — and
+	// since #335 it holds for a Holder of several Tickets too, whose owed
+	// Tickets share ONE envelope per sweep instead of one each, each still
+	// burning its own allowance.
 	MaxAnswerReminders = 2
 )
 
@@ -108,12 +109,11 @@ const (
 // catch.
 //
 // IT HAS NO FIELD FOR THE RECIPIENT, and that is deliberate rather than an
-// omission. Who a Ticket's reminder is addressed to is decided by its assignment
-// state (AssignmentState, migration 080) and changes nothing about WHETHER one
-// may be sent: a Holder's ticket falls silent when the Event starts on the same
-// terms a buyer's does, and inherits whatever allowance the Ticket had already
-// spent under its previous recipient. A rule that could say yes to one reader
-// and no to another about the same Ticket would be two rules.
+// omission. Who a Ticket's reminder is addressed to — its Holder, or nobody —
+// is decided by its assignment state (AnswerReminderRecipient, migration 080)
+// and changes nothing about WHETHER a held Ticket may be chased: the rule has
+// a clock, a cap and a cooldown, and a Ticket inherits whatever allowance it
+// had already spent under a previous Holder.
 //
 // WHAT IS DELIBERATELY ABSENT IS MARKETING CONSENT. An Answer Reminder is
 // transactional — it is about tickets somebody bought or accepted, on the same
@@ -182,13 +182,10 @@ type AnswerReminderInputs struct {
 // FIVE CLAUSES, ALL CONJUNCTIVE, and repository.answerReminderRation is the
 // same five in the same order. Neither may be changed alone.
 //
-// IT ANSWERS ABOUT A TICKET AND NEVER ABOUT A TICKET SALE, which is the whole of
-// what #328 changed here — the signature is identical and the meaning of
-// RemindersSent moved down a level. ADR 0044's note that "a remind the holder
-// variant of this function is not a feature that is missing, it is the decision
-// the whole feature is built around" is retired by ADR 0046, and there is still
-// no such variant: WHO is addressed is read off the Ticket's assignment state by
-// the caller, and this function is the same rule for both.
+// IT ANSWERS ABOUT A TICKET AND NEVER ABOUT A TICKET SALE — the meaning of
+// RemindersSent moved down a level in #328 and the signature did not change.
+// WHO is addressed is a separate question with a separate function,
+// AnswerReminderRecipient, and this one has no opinion about it.
 func MayRemind(in AnswerReminderInputs) bool {
 	return in.HasOutstandingAnswers &&
 		in.SaleStatus == TicketSaleStatusActive &&
@@ -197,130 +194,78 @@ func MayRemind(in AnswerReminderInputs) bool {
 		(in.LastRemindedAt.IsZero() || !in.Now.Before(in.LastRemindedAt.Add(AnswerReminderInterval)))
 }
 
-// AnswerReminderRecipient is who one Ticket's reminder is addressed to.
+// AnswerReminderRecipient is the address one Ticket's Answer Reminder goes to,
+// and "" when the Ticket has nobody to chase.
 //
-// TWO VALUES AND NOT THREE, though a Ticket has three assignment states. An
-// `assigned` Ticket — an address typed and never accepted — is the buyer's to
-// chase exactly as an `unassigned` one is, because nobody at that address has
-// agreed to hear from this platform about anything. ADR 0046: ignoring the
-// Assignment mail IS the decline, and a platform that started chasing a
-// non-answer would be reading silence as consent.
+// HOLDER OR NOBODY (ADR 0049). Only an `accepted` Ticket has a recipient, and
+// it is the address that accepted it — a named Holder, or the buyer for their
+// own Self-held Ticket, which is `accepted` by paying (ADR 0048) and is
+// indistinguishable here from any other. An `unassigned` Ticket has nobody
+// who can answer for it; an `assigned` one has an address that has agreed to
+// nothing (ADR 0046: ignoring the Assignment mail IS the decline); and a
+// Ticket the Holder Address Purge has been through reads `unassigned` again.
+// None of the three is chased, deferred or counted as due: the buyer's debt on
+// such a Ticket is an assignment, not an Answer, and nudging that is a
+// different mail ADR 0049 explicitly left unbuilt.
 //
-// A STRING RATHER THAN A BOOL, beside TicketAssignmentState and for a weaker
-// version of its reason: nothing puts this on the wire, but a struct field
-// reading `Recipient: RemindTheHolder` is legible at the send site in a way
-// `ToHolder: true` is not, and the send site is where a mistake reaches an inbox.
-type AnswerReminderRecipient string
+// IT GOES THROUGH AssignmentState AND NEVER TESTS accepted_at ITSELF, which is
+// the rule migration 080 states and every other reader of the three columns
+// obeys. The pointers are that function's own signature: nil for a column that
+// is NULL.
+//
+// THE SAME CLAUSE LIVES IN SQL, as repository.answerReminderRation's
+// `tk.accepted_at IS NOT NULL`, so the sweep can skip what it may not chase
+// inside the database; the repository applies THIS one to every row anyway, and
+// a disagreement resolves as silence.
+func AnswerReminderRecipient(holderEmail string, assignedAt, acceptedAt *time.Time) string {
+	if AssignmentState(holderEmail, assignedAt, acceptedAt) != TicketAccepted {
+		return ""
+	}
+	return holderEmail
+}
 
-const (
-	// RemindTheBuyer: the Ticket is `unassigned` or `assigned`, so the person who
-	// bought it is the person who can act. Exactly today's behaviour, and still
-	// the answer for most Tickets on this platform.
-	//
-	// IT IS ALSO WHAT A PURGED TICKET GETS. The Holder Address Purge (#331,
-	// migration 081) takes an address nobody accepted when the Event starts, and
-	// a purged Ticket reads `unassigned` through AssignmentState — so it falls
-	// back here, which is the truth: nobody holds it. In practice such a Ticket
-	// is past its Event's start and MayRemind has already silenced it.
-	RemindTheBuyer AnswerReminderRecipient = "buyer"
-	// RemindTheHolder: the Ticket is `accepted`, so the person who will use it
-	// proved their address, is a Verified Customer, and answers their own Ticket
-	// Questions through their own Assignment Link (#326).
-	//
-	// This is the case ADR 0044 said did not exist and ADR 0046 created. It is
-	// the whole point of #328: chasing the buyer here nags the one person the
-	// feature has just established does not know their friend's t-shirt size.
-	RemindTheHolder AnswerReminderRecipient = "holder"
-)
-
-// AnswerReminderCandidate is one TICKET the sweep found: the row MayRemind
+// AnswerReminderCandidate is one held TICKET the sweep found: the row MayRemind
 // decides about, and the unit the ledger is written in.
 //
 // IT IS NOT A MAIL. Several of these become one DueAnswerReminder when they
-// share a buyer, and several become one when they share a Holder (#335).
-// Keeping the two types apart is what stops the rationing from being reasoned
-// about in terms of messages: the caps count Tickets chased, and a mail
-// covering four Tickets spends four allowances.
+// share a Holder (#335). Keeping the two types apart is what stops the
+// rationing from being reasoned about in terms of messages: the caps count
+// Tickets chased, and a mail covering four Tickets spends four allowances.
 //
-// EVERY FIELD ABOUT THE SALE IS REPEATED ON EVERY TICKET OF IT, which is a
-// denormalisation the query produces for free and the grouping then collapses.
-// The alternative — a Sale struct holding a slice of Tickets — would need the
-// repository to build a tree out of a flat result set, and every consumer to
-// walk it to ask the one question that matters, which is whether this Ticket may
-// be chased.
+// IT CARRIES NO BUYER FACT. The buyer's name, address and Sale Confirmation
+// reference were selected while the buyer was a recipient; since ADR 0049 no
+// reminder is about a purchase, so there is nothing here for a template to
+// print by mistake.
 type AnswerReminderCandidate struct {
-	// TicketID is what the ledger row is written against, and the only field
-	// here that is not either a fact about the Sale or a fact about the reader.
+	// TicketID is what the ledger row is written against.
 	TicketID string
 
-	// Recipient is who this Ticket's mail is addressed to, derived by the
-	// repository from AssignmentState and never stored. See
-	// AnswerReminderRecipient.
-	Recipient AnswerReminderRecipient
+	// HolderEmail is the address that accepted this Ticket — the recipient, and
+	// since #335 the GROUPING KEY: every owed Ticket one address holds in one
+	// sweep's batch becomes one mail. Never empty on a candidate: a Ticket with
+	// no recipient is not one.
+	HolderEmail string
+	// TicketTypeName is what the Holder recognises their ticket by, one of the
+	// two public facts their surfaces are allowed to show (ADR 0046).
+	TicketTypeName string
 
-	// TicketSaleID is the Sale this Ticket belongs to. It is the GROUPING KEY for
-	// buyer-addressed Tickets — that is its whole job — and it is also what a
-	// failure log names so an operator can find the row.
+	// TicketSaleID is the Sale this Ticket belongs to, carried for the LOG LINE
+	// and the locale fallback only: it never reaches the message.
 	TicketSaleID string
 	// SaleStatus and EventStartsAt are the facts MayRemind is applied to. They
 	// travel with the candidate rather than being re-read, so the decision the
 	// service makes is about the same row the query returned.
 	SaleStatus    string
 	EventStartsAt time.Time
-	// EventEnd is when the Event finishes, or its start when it has no end. It is
-	// here for one purpose: the Confirmation Link the BUYER'S mail points at is
-	// signed with an expiry derived from it, exactly as the Sale Confirmation's
-	// is, so the two links in a buyer's inbox live the same length of time. The
-	// Holder's Assignment Link bakes in no expiry at all and reads the Event
-	// live, so it does not use this.
-	EventEnd  time.Time
+	// EventName is the other public fact the mail prints.
 	EventName string
 	// SaleLocale is the Sale Locale AS STORED — empty for a sale no page produced
-	// — and is handed to platform.ResolveMailLocale raw.
-	//
-	// THE TWO MAILS READ IT IN OPPOSITE ORDERS, which is the one thing about this
-	// field worth knowing. The buyer's reminder is about their own sale, so the
-	// language they bought in outranks whatever their record remembers (ADR
-	// 0033). The Holder's is not: they did not buy anything and were never on
-	// that page, so their own remembered Mail Locale comes first and this is only
-	// the better-than-nothing fallback — the same inversion #325 made for the
-	// Assignment mail, for the same reason and no other.
+	// — read LAST for this reader: a Holder did not buy anything and was never
+	// on the page that recorded it, so their own remembered Mail Locale comes
+	// first and this is the better-than-nothing fallback (#325's inversion, ADR
+	// 0033). It is no different for the buyer's own Self-held Ticket, whose
+	// record remembers the same language the sale did in every ordinary case.
 	SaleLocale string
-
-	// ConfirmationRef, CustomerEmail, CustomerFirstName and CustomerLastName are
-	// the BUYER, and are what a receipt already carries: a reference, a name, an
-	// address.
-	//
-	// THEY ARE SELECTED FOR EVERY CANDIDATE AND USED ONLY BY BUYER-ADDRESSED
-	// ONES. That is not sloppiness — the grouping needs the buyer's address to
-	// key on and the query would fetch it anyway — but nothing about the buyer
-	// may reach a Holder's mail, and the way that is enforced is that
-	// platform.HolderAnswerReminder HAS NO FIELD FOR ANY OF IT. A fact with
-	// nowhere to go cannot be leaked by somebody adding a line to a template.
-	ConfirmationRef   string
-	CustomerEmail     string
-	CustomerFirstName string
-	CustomerLastName  string
-
-	// HolderEmail is the address that accepted this Ticket, empty unless
-	// Recipient is RemindTheHolder.
-	//
-	// IT IS `tickets.holder_email` AND NOT THE CUSTOMER'S CURRENT ADDRESS. The
-	// two are the same address today — accepting mints or matches a Customer on
-	// this normalised value — and this is the one the Assignment Link's
-	// fingerprint was signed against, so a link composed for any other address
-	// would not open.
-	HolderEmail string
-	// TicketTypeName is what the Holder recognises their ticket by, and is one of
-	// the two public facts their surfaces are allowed to show (ADR 0046). Empty
-	// on a buyer-addressed candidate, whose mail is about a whole purchase rather
-	// than about one Ticket.
-	TicketTypeName string
-	// AssignedAt is when this Ticket's current address was named. It exists for
-	// exactly one purpose: signing the Assignment Link, whose token names the
-	// Ticket and the instant, so that a reassignment kills every link minted
-	// before it. Nothing else reads it and nothing renders it.
-	AssignedAt time.Time
 
 	// RemindersSent and LastRemindedAt are THIS TICKET'S ledger, as the sweep read
 	// it. See AnswerReminderInputs for why both travel.
@@ -328,14 +273,14 @@ type AnswerReminderCandidate struct {
 	LastRemindedAt time.Time
 }
 
-// Inputs turns a candidate into the facts MayRemind decides on, so that no
-// caller assembles them by hand and no caller can quietly leave one out.
+// Inputs is the candidate as MayRemind reads it, at one moment.
 //
-// HasOutstandingAnswers is TRUE by construction: the sweep's WHERE is the
-// Outstanding Answer derivation itself, so a row that came back is a Ticket with
-// a debt. It is passed explicitly rather than defaulted, because the field
-// exists to make the clause readable in one place and a struct literal that
-// omitted it would silently say the opposite.
+// HasOutstandingAnswers IS TRUE BY CONSTRUCTION: the query that produced this
+// candidate is the Outstanding Answer derivation with the ration appended, so a
+// row that came back owes something. It is set explicitly rather than left to
+// the zero value because MayRemind must refuse a zero-valued input, and a
+// candidate that silently satisfied the first clause would be a candidate that
+// could not be told from one that had been checked.
 func (c AnswerReminderCandidate) Inputs(now time.Time) AnswerReminderInputs {
 	return AnswerReminderInputs{
 		HasOutstandingAnswers: true,
@@ -347,125 +292,52 @@ func (c AnswerReminderCandidate) Inputs(now time.Time) AnswerReminderInputs {
 	}
 }
 
-// DueAnswerReminder is ONE MAIL the sweep is to send, with everything the
-// message needs and nothing it does not.
+// DueAnswerReminder is ONE MAIL the sweep will send: one Holder, every owed
+// Ticket they hold that this batch reached.
 //
-// IT LIVES IN THE CATALOG ROOT PACKAGE so that the sales module — which composes
-// and sends both mails, because that is where the Confirmation Link, the Mail
-// Locale chain and the transactional sender already live — can name the type
-// without importing catalog's service. Sales already imports this package for
-// shared pricing types, so this closes no cycle.
-//
-// ONE VALUE, TWO SHAPES, AND THE RECIPIENT SAYS WHICH. A buyer's mail covers
-// every Ticket of one Sale that is still theirs to chase; a Holder's covers
-// every Ticket they accepted that the sweep found owing. The fields the other
-// shape does not use are zero, and the send site switches on Recipient rather
-// than sniffing for an empty string.
-//
-// BOTH ARE PER PERSON NOW, AND THE LINKS ARE STILL PER TICKET (#335). The buyer
-// has one surface for the whole purchase — the Confirmation Link page — so four
-// Tickets are one message with one link. The Holder's surface IS a Ticket: the
-// Assignment Link opens exactly one, by design and as the whole security
-// property of the feature, and there is still no single address that would open
-// two — inventing one would be inventing a surface that discloses a Sale to
-// somebody entitled to see one Ticket. What #335 ruled is that the ENVELOPE
-// follows the inbox anyway: one mail per Holder per sweep, listing each owed
-// Ticket with its own Assignment Link, because the buyer's side already fans
-// Tickets into one message per Sale, per-Ticket envelopes to a Holder were an
-// inconsistency as well as a volume problem, and mailing one address twice in
-// one sweep is the shape spam filters punish. Per-Ticket rationing is
-// unchanged: each listed Ticket burns its own allowance; only the envelope is
-// shared.
+// ONE PER HOLDER PER SWEEP (#335). Per-Ticket rationing is unchanged: each
+// listed Ticket burns its own allowance; only the envelope is shared.
 type DueAnswerReminder struct {
-	// Recipient decides which half of this struct is meaningful, and which of the
-	// two messages is composed. There is no third case.
-	Recipient AnswerReminderRecipient
-
+	// HolderEmail is where the mail goes, and the key the candidates were
+	// grouped under.
+	HolderEmail string
 	// TicketIDs are the Tickets THIS MAIL COVERS, and the ledger rows it spends
-	// once a provider has accepted it. One to many for either recipient since
-	// #335, in the order the query returned them.
+	// once a provider has accepted it — in the order the query returned them.
 	//
 	// THE LEDGER IS WRITTEN FROM THIS AND NEVER FROM THE SALE. A mail covering
-	// three Tickets writes three rows, so the fourth Ticket — answered, or
-	// already chased twice, or added to the Sale later — keeps the allowance
-	// nobody spent on its behalf.
+	// three Tickets writes three rows, so the fourth — answered, already chased
+	// twice, or added later — keeps the allowance nobody spent on its behalf.
 	TicketIDs []string
+	// Tickets are what the message prints, one entry per TicketIDs element.
+	Tickets []HolderReminderTicket
 
-	// TicketSaleID is the Sale this mail is about. On a Holder's mail it is
-	// carried for the LOG LINE ONLY, so an operator diagnosing a failure can find
-	// the row; it never reaches the message, because a Holder is never told which
-	// purchase they came from.
-	TicketSaleID string
-	// SaleStatus and EventStartsAt are MayRemind's facts, kept so the send site
-	// can log or re-reason about the same row the query returned.
+	// TicketSaleID is the FIRST listed Ticket's Sale, carried for the log line
+	// and the locale fallback only; a mail grouped per Holder may span Sales and
+	// no Sale fact ever reaches the message. SaleStatus, EventStartsAt and
+	// EventName are the same Ticket's, kept so the send site can log or
+	// re-reason about the row the query returned.
+	TicketSaleID  string
 	SaleStatus    string
 	EventStartsAt time.Time
-	// EventEnd signs the buyer's Confirmation Link expiry. Unused by a Holder's
-	// mail, whose link bakes in no expiry and reads the Event live.
-	EventEnd time.Time
-	// EventName is the one fact both mails print, and the only fact about the
-	// purchase a Holder's mail is allowed to name: an Event is already public on
-	// its own Storefront page.
-	EventName string
-	// SaleLocale is the Sale Locale as stored, read FIRST for a buyer and LAST
-	// for a Holder. See AnswerReminderCandidate.SaleLocale.
+	EventName     string
+	// SaleLocale is read LAST for this reader; see
+	// AnswerReminderCandidate.SaleLocale.
 	SaleLocale string
-
-	// ConfirmationRef, CustomerEmail, CustomerFirstName and CustomerLastName are
-	// the buyer's, and are set ONLY when Recipient is RemindTheBuyer.
-	//
-	// ON A HOLDER'S MAIL THEY ARE EMPTY, and that is a disclosure rule rather
-	// than an optimisation: a Sale Confirmation reference and a buyer's name are
-	// facts about somebody else's purchase, and ADR 0044's rule — carried over
-	// unchanged by ADR 0046 and applied to an inbox — says a Holder is told
-	// neither. The mail type they would be composed into has no field for them
-	// either, which is the enforcement that survives somebody editing this file.
-	ConfirmationRef   string
-	CustomerEmail     string
-	CustomerFirstName string
-	CustomerLastName  string
-
-	// HolderEmail is where a Holder's mail goes, set ONLY when Recipient is
-	// RemindTheHolder. Since #335 it is also the GROUPING KEY for
-	// holder-addressed candidates: every owed Ticket this address accepted in
-	// one sweep's batch becomes one entry of HolderTickets below.
-	HolderEmail string
-	// HolderTickets are the owed Tickets a Holder's ONE mail lists, in the order
-	// the query returned them, each with its own Assignment Link (#335). Empty
-	// on a buyer's mail. Its length always equals len(TicketIDs) on a Holder's:
-	// the entry is what the message prints, the id is what the ledger spends.
-	HolderTickets []HolderReminderTicket
 }
 
-// HolderReminderTicket is one owed Ticket as a Holder's Answer Reminder lists
-// it: the two public facts the reader recognises it by, and the link they
-// answer through.
+// HolderReminderTicket is one owed Ticket as the Answer Reminder lists it: the
+// two public facts the reader recognises it by, and nothing else.
 //
 // EventName travels PER TICKET, not once per mail, because the envelope is per
-// Holder per sweep (#335) and nothing guarantees every Ticket one address
-// accepted belongs to one Event — the mail must be able to name each honestly.
+// Holder per sweep (#335) and nothing guarantees every Ticket one address holds
+// belongs to one Event — the mail must be able to name each honestly.
 //
-// AssignmentLink is the composed Assignment Link URL this Holder answers
-// through — the same link their Assignment mail carried, minted fresh because
-// the platform stores no tokens.
-//
-// IT IS A CREDENTIAL AND THE ONLY ONE THAT MINTS AN IDENTITY (ADR 0046), so it
-// is worth stating exactly how far it travels and why that is allowed. It is
-// composed inside the catalog service, by the one function that composes
-// Assignment Links, and handed to the sales module for the single purpose of
-// putting it in a message addressed to the HolderEmail it groups under — the
-// same address it was already mailed to. It never reaches a buyer surface, an
-// API response or a log line: the sweep's 200 body is counts and names nobody,
-// and the failure logs name a Ticket Sale and never a link. Anything that
-// widens where this field travels is widening where that credential travels,
-// and is a change ADR 0046 rates as severely as leaking the signing key.
-//
-// A TICKET WHOSE LINK COULD NOT BE SIGNED — a deployment with no link secret —
-// IS NEVER LISTED: the sweep DROPS that candidate rather than listing it
-// linkless, exactly as it skips a Confirmation Link it could not sign. Nothing
-// is recorded, so the Ticket is due again as soon as the deployment is fixed.
+// IT CARRIES NO LINK. Since ADR 0049 the reader answers from their own Customer
+// Area, behind a sign-in to the address this mail is sent to, and the sales
+// module composes that one address for the whole message. A credential per
+// Ticket — the Assignment Link this mail used to carry — is no longer minted
+// for a reminder, which is one fewer place a credential travels.
 type HolderReminderTicket struct {
 	EventName      string
 	TicketTypeName string
-	AssignmentLink string
 }

@@ -29,14 +29,14 @@ import (
 //     had started, or because two mails had already gone, would be a list
 //     disagreeing with itself.
 //
-// THE GRAIN OF THIS FILE IS THE TICKET SINCE #328, and that is the whole of what
-// changed. It used to group one row per (Ticket, question) pair down to one row
-// per SALE, because the mail was addressed to the buyer and the buyer is a
-// property of the Sale. A Ticket now has a Holder who may be the person to
-// write to (ADR 0046), so the query stops one level lower: it returns one row
-// per candidate TICKET with that Ticket's own ledger, and the SERVICE groups
-// buyer-addressed Tickets back into one message per Sale. Grouping in Go rather
-// than in SQL is deliberate — see the note on ListAnswerReminderCandidates.
+// THE GRAIN OF THIS FILE IS THE TICKET SINCE #328. It used to group one row per
+// (Ticket, question) pair down to one row per SALE, because the mail was
+// addressed to the buyer and the buyer is a property of the Sale. A Ticket now
+// has a Holder, who since ADR 0049 is the ONLY person written to, so the query
+// stops one level lower: it returns one row per candidate held TICKET with that
+// Ticket's own ledger, and the SERVICE groups the Tickets one Holder holds into
+// one message. Grouping in Go rather than in SQL is deliberate — see the note
+// on ListAnswerReminderCandidates.
 //
 // The mails themselves are composed and sent by the sales module, which is where
 // a Ticket Sale's Confirmation Link, Mail Locale and email sender already live.
@@ -83,14 +83,15 @@ const answerReminderLedger = `
 // hundred-and-first would never be reached inside any batch. The database has to
 // be able to skip what it may not mail.
 //
-// FOUR CLAUSES. The fifth of MayRemind's five — the debt itself — is already
-// outstandingAnswerWhere above, which is the point of assembling the two:
+// FOUR CLAUSES OF MayRemind'S, AND ONE OF ITS OWN. The fifth of MayRemind's
+// five — the debt itself — is already outstandingAnswerWhere above, which is
+// the point of assembling the two:
 //
 //   - $1, twice: the Event must have a start AND it must still be ahead. NULL
 //     starts_at is refused rather than allowed, matching MayRemind's zero-time
 //     case: an Event nobody has placed in time has no doors for this mail to be
-//     before, and both the Answer Link and the Assignment Link a reader would be
-//     sent to expire at a start that does not exist.
+//     before, and the answer window a reader would be sent to closes at a start
+//     that does not exist.
 //
 //   - $2: the lifetime cap, `<` and not `!=`, so a ledger holding more rows than
 //     the cap allows goes quiet instead of wrapping around into sending again.
@@ -103,15 +104,20 @@ const answerReminderLedger = `
 // A reversed Sale needs no clause here: `s.status = 'active'` is already in
 // outstandingAnswerWhere, and a reversed Sale's Tickets owe nothing at all.
 //
-// AND THERE IS NO CLAUSE ABOUT THE HOLDER. Whether a Ticket is `unassigned`,
-// `assigned` or `accepted` decides who is written to and never whether anybody
-// is — a rule that could say yes to one reader and no to another about the same
-// Ticket would be two rules, and MayRemind has no field for it either.
+// AND ONE CLAUSE ABOUT THE HOLDER, which is catalog.AnswerReminderRecipient in
+// SQL: only an `accepted` Ticket has anybody to write to (ADR 0049). An
+// `unassigned`, `assigned` or purged Ticket is SKIPPED here — not deferred, not
+// counted as due — because nobody can answer for it, and a batch that carried
+// such rows to the service only to drop them would be a batch those rows could
+// starve. accepted_at is tested directly here and only here, because SQL has
+// no AssignmentState to go through; the Go function is applied to every row
+// that comes back, and a disagreement resolves as silence.
 const answerReminderRation = `
 	AND e.starts_at IS NOT NULL
 	AND e.starts_at > $1
 	AND r.sent_count < $2
 	AND (r.last_sent_at IS NULL OR r.last_sent_at <= $3)
+	AND tk.accepted_at IS NOT NULL
 `
 
 // answerReminderFrom is the whole sweep's FROM: the debt derivation, the Event
@@ -124,11 +130,13 @@ const answerReminderRation = `
 //
 // NOTHING IS JOINED FOR THE HOLDER, and that is worth stating because a reader
 // will expect a `customers` join here. A Holder's mail names nobody: it carries
-// the Event, the Ticket Type and their own link, exactly as the Assignment mail
-// that reached them first did (ADR 0046). Their address is on the Ticket, and
-// their language is read by the sales module from the same seam every other mail
-// reads a Mail Locale through. There is no Holder fact this query needs that
-// `tickets` does not already hold.
+// the Event, the Ticket Type and the Customer Area's address, nothing more (ADR
+// 0046, ADR 0049). Their address is on the Ticket, and their language is read
+// by the sales module from the same seam every other mail reads a Mail Locale
+// through. There is no Holder fact this query needs that `tickets` does not
+// already hold — and NOTHING ABOUT THE BUYER IS SELECTED, because no reminder
+// is about a purchase any more and a column that is never read is a column a
+// template cannot print.
 const answerReminderFrom = outstandingAnswerFrom + `
 	JOIN events e ON e.id = s.event_id
 ` + answerReminderLedger
@@ -139,9 +147,7 @@ const answerReminderFrom = outstandingAnswerFrom + `
 // chances to add a column to two of them.
 const answerReminderSelect = `
 	SELECT tk.id, tk.holder_email, tk.assigned_at, tk.accepted_at, tt.name,
-	       s.id, s.status, e.starts_at, COALESCE(e.ends_at, e.starts_at), e.name,
-	       COALESCE(s.locale, ''), s.confirmation_ref, s.customer_email,
-	       s.customer_first_name, s.customer_last_name,
+	       s.id, s.status, e.starts_at, e.name, COALESCE(s.locale, ''),
 	       r.sent_count, r.last_sent_at
 `
 
@@ -157,49 +163,42 @@ const answerReminderSelect = `
 // the caller reads.
 const answerReminderGroupBy = `
 	GROUP BY tk.id, tk.holder_email, tk.assigned_at, tk.accepted_at, tk.ordinal,
-	         tt.name, s.id, s.status, e.starts_at, e.ends_at, e.name, s.locale,
-	         s.confirmation_ref, s.customer_email,
-	         s.customer_first_name, s.customer_last_name,
+	         tt.name, s.id, s.status, e.starts_at, e.name, s.locale,
 	         s.sold_at, r.sent_count, r.last_sent_at
 `
 
-// ListAnswerReminderCandidates returns the TICKETS that may be chased now,
+// ListAnswerReminderCandidates returns the held TICKETS that may be chased now,
 // oldest sale first and in ticket order within a sale, at most limit of them.
 //
 // IT RETURNS TICKETS AND NOT MAILS, and the grouping into messages is the
-// service's. That split is deliberate: a buyer's mail covers several Tickets and
-// a Holder's covers one, so a query that returned mails would have to encode
-// that rule in SQL — as an array_agg over a CASE — and the rule would then live
-// somewhere no unit test can reach. What SQL is good at here is skipping the
-// Tickets nobody may be written to about, which is what the ration is for.
+// service's. That split is deliberate: one Holder's mail covers every owed
+// Ticket they hold, so a query that returned mails would have to encode that
+// rule in SQL — as an array_agg — and the rule would then live somewhere no
+// unit test can reach. What SQL is good at here is skipping the Tickets nobody
+// may be written to about, which is what the ration is for.
 //
 // ORDERED BY SALE AND THEN BY TICKET, which is what makes the service's grouping
-// a single pass and, more importantly, what keeps a Sale's Tickets ADJACENT
-// under a batch smaller than the backlog. A batch boundary that fell inside a
-// Sale would split one buyer's mail across two runs and write to them twice in
-// two days; the service trims the trailing Sale for exactly that reason, and can
-// only do so because this ordering guarantees it is trailing.
+// a single pass. A batch boundary may fall between two Tickets one Holder
+// holds, in which case they are written to on two runs; each mail respects
+// every per-Ticket cap, the split is invisible from inside one batch, and a
+// rarity is the right price for a bound the query can actually promise.
 //
 // OLDEST SALE FIRST, matching the Organization's chase list. Under a batch
-// smaller than the backlog this is what decides who waits, and the buyer who
-// paid in January and has said nothing since is the one whose silence has run
-// longest.
+// smaller than the backlog this is what decides who waits, and the Holder whose
+// Ticket was bought in January and has said nothing since is the one whose
+// silence has run longest.
 //
 // IT NAMES NO ORGANIZATION AND NO EVENT, unlike every other query built on this
 // derivation, and that is not a missing scope. Its caller is a scheduled job
 // with no actor at all — nobody is asking, so there is nobody to scope to — and
 // what leaves this process is not a list anybody reads, it is a mail addressed
-// to a person about their own Ticket. The disclosure discipline is enforced past
-// this point instead, by the two message types: the buyer's carries the
-// reference and the buyer's name, the Holder's has no field for either.
+// to a person about their own Ticket.
 //
-// assignmentEnabled IS THE FEATURE FLAG AND IT REACHES THE RECIPIENT AND NOTHING
-// ELSE. A deployment with Ticket Assignment closed chases the buyer for every
-// Ticket, which is exactly the behaviour before ADR 0046 and exactly what
-// TicketUnassigned means to every other reader in this package. It does not
-// change who is DUE: an accepted Ticket owes what it owes either way, and a
-// deployment that closed the flag after some Tickets were accepted must not
-// silently stop chasing them.
+// IT READS NO FEATURE FLAG. With Ticket Assignment dark nothing is ever
+// accepted — a Self-held Ticket is minted only while it is open (ADR 0048) —
+// so there is nothing here for a flag to hide; and a deployment that closed it
+// after Tickets had been accepted keeps chasing their Holders, who can still
+// answer from the Customer Area.
 //
 // The LIMIT bounds one HTTP request and not the platform: what a run does not
 // reach is still due tomorrow, and nothing about the rationing depends on a
@@ -208,7 +207,6 @@ func (r *Repository) ListAnswerReminderCandidates(
 	ctx context.Context,
 	now time.Time,
 	cooldownCutoff time.Time,
-	assignmentEnabled bool,
 	limit int,
 ) ([]catalog.AnswerReminderCandidate, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, answerReminderSelect+
@@ -226,75 +224,39 @@ func (r *Repository) ListAnswerReminderCandidates(
 	candidates := make([]catalog.AnswerReminderCandidate, 0)
 	for rows.Next() {
 		var c catalog.AnswerReminderCandidate
-		// starts_at is NOT NULL by the ration's own clause and ends_at falls back
-		// to it, so both scan into plain times. The four honestly nullable columns
-		// are the assignment's — NULL on the great majority of Tickets, which have
-		// never been assigned to anybody — and last_sent_at, which is NULL for a
-		// Ticket nobody has chased.
+		// starts_at is NOT NULL by the ration's own clause, so it scans into a
+		// plain time. The nullable columns are the assignment's — which the ration
+		// has already required to be set, and which are scanned as nullable anyway
+		// so the Go rule below decides rather than a scan error — and
+		// last_sent_at, which is NULL for a Ticket nobody has chased.
 		var holderEmail sql.NullString
 		var assignedAt, acceptedAt, lastSent sql.NullTime
 		if err := rows.Scan(
 			&c.TicketID, &holderEmail, &assignedAt, &acceptedAt, &c.TicketTypeName,
-			&c.TicketSaleID, &c.SaleStatus, &c.EventStartsAt, &c.EventEnd, &c.EventName,
-			&c.SaleLocale, &c.ConfirmationRef, &c.CustomerEmail,
-			&c.CustomerFirstName, &c.CustomerLastName,
-			&c.RemindersSent, &lastSent,
+			&c.TicketSaleID, &c.SaleStatus, &c.EventStartsAt, &c.EventName,
+			&c.SaleLocale, &c.RemindersSent, &lastSent,
 		); err != nil {
 			return nil, err
 		}
 		if lastSent.Valid {
 			c.LastRemindedAt = lastSent.Time
 		}
-		c.Recipient = answerReminderRecipient(assignmentEnabled, holderEmail, assignedAt, acceptedAt)
-		if c.Recipient == catalog.RemindTheHolder {
-			c.HolderEmail = holderEmail.String
-			c.AssignedAt = assignedAt.Time
-		} else {
-			// A buyer-addressed candidate carries NO Holder fact, even when the
-			// Ticket has an address on it. An `assigned` Ticket's address belongs to
-			// somebody who has agreed to nothing, and the surest way for it not to
-			// be mailed by mistake is for it not to be in the value at all.
-			c.TicketTypeName = ""
+		// The Go statement of the recipient rule, applied to the row the SQL
+		// clause let through. A row the two disagree about is dropped here and
+		// mails nobody — the safe direction.
+		c.HolderEmail = catalog.AnswerReminderRecipient(
+			holderEmail.String, answerReminderTime(assignedAt), answerReminderTime(acceptedAt),
+		)
+		if c.HolderEmail == "" {
+			continue
 		}
 		candidates = append(candidates, c)
 	}
 	return candidates, rows.Err()
 }
 
-// answerReminderRecipient decides who one candidate Ticket's mail is addressed
-// to: the Holder if it has been accepted, the buyer otherwise.
-//
-// IT GOES THROUGH catalog.AssignmentState AND NEVER TESTS accepted_at ITSELF,
-// which is the rule migration 080 states and every other reader in this package
-// obeys. The state is derived from three columns that cannot disagree with
-// themselves, and a fourth place deriving it by hand is a fourth place that can
-// be wrong about a Ticket the Holder Address Purge has been through — a purged
-// Ticket (migration 081) reads `unassigned`, so it falls back to the buyer,
-// which is the truth: nobody holds it.
-//
-// THE FLAG IS CHECKED FIRST AND IT ONLY EVER DOWNGRADES. A closed deployment
-// addresses every Ticket to its buyer, which is the behaviour that shipped
-// before ADR 0046 and the behaviour ADR 0045 demands of a dark feature: it
-// answers exactly as a build that never had it.
-func answerReminderRecipient(
-	assignmentEnabled bool,
-	holderEmail sql.NullString,
-	assignedAt, acceptedAt sql.NullTime,
-) catalog.AnswerReminderRecipient {
-	if !assignmentEnabled {
-		return catalog.RemindTheBuyer
-	}
-	state := catalog.AssignmentState(
-		holderEmail.String, answerReminderTime(assignedAt), answerReminderTime(acceptedAt),
-	)
-	if state == catalog.TicketAccepted {
-		return catalog.RemindTheHolder
-	}
-	return catalog.RemindTheBuyer
-}
-
-// answerReminderTime is the pointer form catalog.AssignmentState reads a
-// timestamp in: nil for a column that is NULL.
+// answerReminderTime is the pointer form catalog.AnswerReminderRecipient reads
+// a timestamp in: nil for a column that is NULL.
 //
 // A LOCAL HELPER rather than a shared one, because the shape it converts to is
 // AssignmentState's own signature and nothing else in this package speaks it.
@@ -318,12 +280,9 @@ func answerReminderTime(v sql.NullTime) *time.Time {
 //
 // IT COUNTS MESSAGES AND NOT TICKETS, which is what an operator comparing it
 // against `sent` needs, and it is the one place the grouping rule is stated in
-// SQL. A distinct count over "the Holder's address, or this Ticket's Sale" is
-// exactly the fan-in the service performs: every buyer-addressed Ticket of one
-// Sale collapses to one, and every accepted Ticket collapses into its HOLDER'S
-// one mail — per Holder, not per Ticket, since #335's ruling. The two keys are
-// prefixed so a Holder's address can never collide with a Sale id in the same
-// set.
+// SQL. A distinct count over the Holder's address is exactly the fan-in the
+// service performs: every owed Ticket one address holds collapses into that
+// Holder's one mail — per Holder, not per Ticket, since #335's ruling.
 //
 // It is a SECOND QUERY rather than a window function on the listing, because
 // that one is bounded by a LIMIT and a count taken through it could only ever
@@ -332,17 +291,13 @@ func (r *Repository) CountAnswerRemindersDue(
 	ctx context.Context,
 	now time.Time,
 	cooldownCutoff time.Time,
-	assignmentEnabled bool,
 ) (int, error) {
 	var total int
 	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT CASE
-			WHEN $4 AND tk.accepted_at IS NOT NULL THEN 'holder:' || tk.holder_email
-			ELSE 'buyer:' || s.id::text
-		END)
+		SELECT COUNT(DISTINCT tk.holder_email)
 	`+answerReminderFrom+`
 		WHERE `+outstandingAnswerWhere+answerReminderRation,
-		now, catalog.MaxAnswerReminders, cooldownCutoff, assignmentEnabled,
+		now, catalog.MaxAnswerReminders, cooldownCutoff,
 	).Scan(&total)
 	return total, err
 }
@@ -351,9 +306,8 @@ func (r *Repository) CountAnswerRemindersDue(
 // these Tickets were chased at this moment.
 //
 // IT TAKES A SET AND NOT ONE ID, because one message spends several allowances.
-// A buyer's reminder covers every Ticket of their Sale still theirs to chase, so
-// a four-Ticket sale writes four rows for one mail; a Holder's covers the one
-// Ticket they accepted and writes one. Rows here count TICKETS CHASED and never
+// A Holder's reminder covers every owed Ticket they hold, so a Holder of three
+// writes three rows for one mail. Rows here count TICKETS CHASED and never
 // MESSAGES SENT, and nothing reads this table for a count of mail.
 //
 // ONE STATEMENT AND NOT A LOOP, so that a mail's rows land together or not at

@@ -8,17 +8,19 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
 
-// The Answer Reminder sweep: the mail telling somebody that a Ticket still owes
-// an Answer, and pointing them at the surface where they can give it (#317,
-// ADR 0044; #328, parent #322, ADR 0046).
+// The Answer Reminder sweep: the mail telling the Holder of a Ticket that it
+// still owes an Answer, and pointing them at the Customer Area where they can
+// give it (#317, ADR 0044; #328, parent #322, ADR 0046; #347, parent #342,
+// ADR 0049).
 //
-// IT WRITES TO WHOEVER CAN ACTUALLY ANSWER, which is the change #328 made and
-// the only one. ADR 0044 addressed this mail to the buyer "because there is
-// nobody else to address"; ADR 0046 gave a Ticket a Holder who accepts by mail,
-// so there is now, and chasing the buyer for a Ticket somebody else accepted
-// nags the one person this feature established does not know their friend's
-// t-shirt size. The Holder for an `accepted` Ticket, the buyer for every other
-// Ticket on the Sale, and a Sale with a mix produces both.
+// IT WRITES TO WHOEVER CAN ACTUALLY ANSWER, AND TO NOBODY ELSE. ADR 0044
+// addressed this mail to the buyer "because there is nobody else to address";
+// ADR 0046 gave a Ticket a Holder who accepts by mail; ADR 0049 ruled that only
+// the Holder answers. So the Holder of an `accepted` Ticket is chased — the
+// buyer counts, for the one Self-held Ticket they hold by paying (ADR 0048) —
+// and an unassigned or unaccepted Ticket is chased by nobody, because nobody
+// can answer for it. There is no buyer mail any more, and with Ticket
+// Assignment dark nothing is held, so nothing is chased.
 //
 // SWEPT, NOT TRIGGERED BY THE EDIT, and that is the original ticket's central
 // decision rather than an implementation choice. A reminder raised when a Ticket
@@ -26,8 +28,8 @@ import (
 // an Organization spends drafting four questions — and would mail them again the
 // next morning when somebody fixed a typo in one. A job that sweeps sees the
 // state, not the events, so no amount of authoring produces more than the
-// rationing allows. #328 makes that stronger rather than weaker: there are more
-// inboxes to get this wrong in now.
+// rationing allows. Holders make that stronger rather than weaker: there are
+// more inboxes to get this wrong in.
 //
 // IT IS A JOB IN THE SHAPE THIS BACKEND ALREADY HAS ONE — an internal endpoint a
 // scheduler calls and a human can curl — for the reason answerpurge.go gives and
@@ -36,19 +38,20 @@ import (
 // somebody happened to be browsing.
 //
 // WHERE THE PIECES LIVE. The debt, the rationing, the RECIPIENT and the ledger
-// are the catalog module's (catalog.MayRemind, catalog.AssignmentState,
+// are the catalog module's (catalog.MayRemind, catalog.AnswerReminderRecipient,
 // catalog/service/answer_reminders.go): what counts as an Outstanding Answer is
 // #313's rule, who holds a Ticket is ADR 0046's, and there may not be a second
-// copy of either. What is here is the MAIL — the links, the Mail Locales and the
-// transactional sender. This file decides nothing about who is owed a reminder
-// or who it is addressed to; it asks, and then writes to whoever comes back.
+// copy of either. What is here is the MAIL — the Customer Area's address, the
+// Mail Locale and the transactional sender. This file decides nothing about
+// who is owed a reminder or who it is addressed to; it asks, and then writes to
+// whoever comes back.
 //
 // IT SHIPS PAUSED. The Cloud Scheduler job is created with paused = true
 // (answer_reminder_enabled defaults false), exactly as the Follow Digest's two
 // schedulers and #316's purge did, and the catalog's side reads
 // TICKET_QUESTIONS_ENABLED on top of that — so a deployment has to make two
-// deliberate decisions before anybody is written to. #328 does not change that
-// and does not unpause anything.
+// deliberate decisions before anybody is written to. Nothing here unpauses
+// anything.
 
 // AnswerReminderSource is what sales needs from catalog to send Answer
 // Reminders: who is due one, and the record that one was sent.
@@ -56,9 +59,9 @@ import (
 // THREE METHODS, AND EVERY JUDGEMENT IS ON THE FAR SIDE OF THEM. This module
 // does not know what a Ticket Question is, that a retired one owes nothing, that
 // a reversed Sale's Tickets have ceased to exist, that the reminder falls silent
-// when the doors open, that two is the lifetime cap, or — since #328 — what it
-// means for a Ticket to have been accepted. It knows that some messages are due
-// and that sending one has to be written down.
+// when the doors open, that two is the lifetime cap, or what it means for a
+// Ticket to be held. It knows that some messages are due and that sending one
+// has to be written down.
 //
 // It is the same arrangement OutstandingAnswerReporter has for the receipt's one
 // sentence, widened rather than duplicated in spirit: one module owns the debt
@@ -74,15 +77,16 @@ import (
 // mailed by accident; the failure mode of an unwired seam is silence.
 type AnswerReminderSource interface {
 	// AnswerRemindersDue returns the MAILS that may be sent now, oldest sale
-	// first, built from at most limit candidate Tickets. It reads both feature
-	// flags, derives each Ticket's recipient and applies the whole of
-	// catalog.MayRemind on its own side, so a dark deployment — and a Ticket that
-	// has had its two, or whose Event has started, or whose Sale was reversed —
-	// never reaches this module at all.
+	// first, built from at most limit candidate Tickets. It reads the feature
+	// flag, keeps only Tickets with a Holder and applies the whole of
+	// catalog.MayRemind on its own side, so a dark deployment — and a Ticket
+	// nobody holds, or that has had its two, or whose Event has started, or
+	// whose Sale was reversed — never reaches this module at all.
 	//
 	// THE LIMIT COUNTS TICKETS AND THE RESULT COUNTS MAILS, so this returns fewer
-	// values than it was asked for whenever a Sale has more than one Ticket still
-	// owing. That is the right way round: what a batch has to bound is rows read.
+	// values than it was asked for whenever one Holder has more than one Ticket
+	// still owing. That is the right way round: what a batch has to bound is
+	// rows read.
 	AnswerRemindersDue(ctx context.Context, limit int) ([]catalog.DueAnswerReminder, error)
 	// CountAnswerRemindersDue is the standing backlog in MAILS, ignoring any
 	// batch: reporting, not the job.
@@ -109,11 +113,10 @@ type AnswerReminderSource interface {
 //
 // THE BATCH COUNTS TICKETS AND NOT MAILS SINCE #328, and it is unchanged at 50
 // deliberately rather than by omission. Fifty candidate Tickets is at most fifty
-// messages — the case where every one of them is a separate accepted Holder —
-// and usually far fewer, because a Sale's buyer-addressed Tickets collapse into
-// one. The old number therefore still bounds the same worst case it always did,
-// and raising it to keep the mail count constant would raise the worst case
-// instead.
+// messages — the case where every one of them has a different Holder — and
+// fewer whenever somebody holds several. The old number therefore still bounds
+// the same worst case it always did, and raising it to keep the mail count
+// constant would raise the worst case instead.
 //
 // THE BATCH IS NOT PACED, unlike the Digest's, and the difference is worth
 // stating because the two jobs otherwise look alike. The Digest drains a whole
@@ -141,10 +144,11 @@ const (
 // operator can act on where "thirty-eight sent, two had no link" says all of it.
 //
 // EVERY FIGURE HERE COUNTS MESSAGES, never Tickets and never people. One mail
-// covering four of a buyer's Tickets is one Sent and four ledger rows; a Sale
-// with two accepted Holders and two unaccepted Tickets is three Sent. The
-// distinction is not pedantry — it is what makes `sent` comparable against
-// `due_total` two runs apart, which is the only thing an operator reads this for.
+// covering four of a Holder's Tickets is one Sent and four ledger rows; a Sale
+// with two accepted Holders, a Self-held Ticket and an unassigned one is three
+// Sent. The distinction is not pedantry — it is what makes `sent` comparable
+// against `due_total` two runs apart, which is the only thing an operator reads
+// this for.
 //
 // AND IT NAMES NOBODY. There is no address, no Ticket, no Sale and no Event
 // anywhere in this struct, deliberately: a response listing who had just been
@@ -156,23 +160,22 @@ type AnswerReminderSweepResult struct {
 	// the batch. It is what the run had to work with, and DueTotal below is what
 	// there was.
 	Due int `json:"due"`
-	// Sent is reminders the provider accepted and the ledger recorded, to buyers
-	// and Holders alike. On a platform where the feature ships dark and the job
-	// ships paused, zero is the only answer.
+	// Sent is reminders the provider accepted and the ledger recorded. On a
+	// platform where the feature ships dark and the job ships paused, zero is
+	// the only answer.
 	//
-	// IT DOES NOT SAY WHICH KIND, and adding a breakdown was considered and
-	// refused: on a platform with one Organization, "two of today's reminders
-	// went to Holders" is close enough to naming somebody, and an operator
-	// diagnosing this job needs to know that mail moved rather than who read it.
+	// IT DOES NOT SAY WHO, and adding a breakdown was considered and refused:
+	// on a platform with one Organization, "two of today's reminders went to
+	// buyers" is close enough to naming somebody, and an operator diagnosing
+	// this job needs to know that mail moved rather than who read it.
 	Sent int `json:"sent"`
-	// Skipped is candidates this run deliberately did not mail: a link that could
-	// not be signed, or an address the row does not carry. NOTHING WAS SENT and
-	// nothing was recorded, so they are due again on the next tick — which is
-	// right, because the fault is the deployment's rather than the reader's.
+	// Skipped is candidates this run deliberately did not mail: a deployment
+	// with no Storefront origin to point at, or an address the row does not
+	// carry. NOTHING WAS SENT and nothing was recorded, so they are due again on
+	// the next tick — which is right, because the fault is the deployment's
+	// rather than the reader's.
 	//
-	// A number that stays high is a misconfiguration, not a backlog: the only way
-	// to fail to sign a Confirmation Link or an Assignment Link is to have no
-	// link secret.
+	// A number that stays high is a misconfiguration, not a backlog.
 	Skipped int `json:"skipped"`
 	// Failed is reminders the provider refused. They are NOT recorded in the
 	// ledger, so the reader is due again on the next tick and has lost nothing.
@@ -193,16 +196,16 @@ type AnswerReminderSweepResult struct {
 	DueTotal int `json:"due_total"`
 }
 
-// SweepAnswerReminders mails the people who can answer what an active Ticket
+// SweepAnswerReminders mails the Holders who can answer what an active Ticket
 // Sale's Tickets still owe, and nobody else.
 //
 // WHAT IT DOES NOT DO is decide who. Every rule — the debt, the seven days, the
 // cap of two, the silence once the Event has started, the reversed Sale, and
-// since #328 whether a Ticket's mail is addressed to its Holder or to the buyer
-// — is applied by the catalog module before a candidate is returned, and this
-// loop composes a message for each one it is handed. That separation is what
-// stops the rationing from being restated here, where it would be a third copy
-// after the SQL and catalog.MayRemind.
+// whether a Ticket has a Holder to write to at all — is applied by the catalog
+// module before a candidate is returned, and this loop composes a message for
+// each one it is handed. That separation is what stops the rationing from being
+// restated here, where it would be a third copy after the SQL and
+// catalog.MayRemind.
 //
 // THE ORDER OF SEND-THEN-RECORD IS LOAD-BEARING and is the one thing in this
 // file worth reading twice. Recording first and failing to send would ration
@@ -269,24 +272,11 @@ func (s *Service) SweepAnswerReminders(ctx context.Context) (*AnswerReminderSwee
 	return result, nil
 }
 
-// sendAnswerReminder writes to one reader and records that it did, tallying the
-// outcome. It never returns an error: every way this can go wrong is one row of
-// a batch, and the run continues.
-//
-// IT SWITCHES ON THE RECIPIENT AND NOT ON A FIELD BEING EMPTY. There are exactly
-// two kinds of message and the catalog said which this is; sniffing for a
-// non-empty HolderEmail would turn a future third case, or a bug that left a
-// field unset, into a mail sent to the wrong person rather than into a compile
-// error or a loud default.
+// sendAnswerReminder writes to one Holder and records that it did, tallying
+// the outcome. It never returns an error: every way this can go wrong is one
+// row of a batch, and the run continues.
 func (s *Service) sendAnswerReminder(ctx context.Context, due catalog.DueAnswerReminder, result *AnswerReminderSweepResult) {
-	sent := false
-	switch due.Recipient {
-	case catalog.RemindTheHolder:
-		sent = s.sendHolderAnswerReminder(ctx, due, result)
-	default:
-		sent = s.sendBuyerAnswerReminder(ctx, due, result)
-	}
-	if !sent {
+	if !s.sendHolderAnswerReminder(ctx, due, result) {
 		return
 	}
 
@@ -296,10 +286,9 @@ func (s *Service) sendAnswerReminder(ctx context.Context, due catalog.DueAnswerR
 		// this reader may receive one reminder more than the cap intended, and the
 		// only way anybody learns that is this line and the Unrecorded tally.
 		//
-		// THE LOG NAMES A TICKET SALE AND NOT A PERSON, which holds for a Holder's
-		// mail too even though the Sale is not a fact that reader is ever told: an
-		// operator has to be able to find the row, and the row is what they can
-		// find it by.
+		// THE LOG NAMES A TICKET SALE AND NOT A PERSON, even though the Sale is
+		// not a fact this reader is ever told: an operator has to be able to find
+		// the row, and the row is what they can find it by.
 		result.Unrecorded++
 		result.Sent++
 		s.logger.Error("an Answer Reminder was sent but could not be recorded; this recipient may receive one more than the cap allows",
@@ -310,151 +299,94 @@ func (s *Service) sendAnswerReminder(ctx context.Context, due catalog.DueAnswerR
 	result.Sent++
 }
 
-// sendBuyerAnswerReminder writes to the buyer about the Tickets of their Sale
-// that are still theirs to chase — every one that is `unassigned` or `assigned`.
-// It reports whether a provider accepted the message.
-//
-// THIS IS THE MAIL AS IT ALWAYS WAS, pointing at the buyer's own sale page where
-// they answer what they know and copy each Ticket's Answer Link out for whoever
-// will be using it. What changed under it is which Tickets it is about: an
-// accepted one is the Holder's now, and the buyer is not chased about it.
-func (s *Service) sendBuyerAnswerReminder(
-	ctx context.Context, due catalog.DueAnswerReminder, result *AnswerReminderSweepResult,
-) bool {
-	// A Sale with no address cannot be written to. It should be unreachable — a
-	// Ticket Sale records its buyer's email on every channel — and it is checked
-	// because the alternative is handing an empty To to the provider and counting
-	// the refusal as a provider fault.
-	if due.CustomerEmail == "" {
-		result.Skipped++
-		s.logger.Warn("a Ticket Sale due an Answer Reminder carries no buyer address",
-			"ticket_sale_id", due.TicketSaleID)
-		return false
-	}
-
-	// THE LINK IS THE MESSAGE, so a Sale whose link cannot be signed is skipped
-	// rather than mailed without one. This is the opposite of the Sale
-	// Confirmation's ruling — a receipt without its link still carries the
-	// reference and the total and is worth far more than no email — and the
-	// difference is that this mail has nothing else to say. "Open your purchase"
-	// with no link to open is worse than silence: the reader goes looking for
-	// something that is not there.
-	//
-	// Nothing is recorded, so the Sale is due again as soon as the deployment is
-	// fixed. The only way to reach here is a service with no link secret, which
-	// NewApp refuses to build in production.
-	link := s.confirmationLink(due.TicketSaleID, due.EventEnd)
-	if link == "" {
-		result.Skipped++
-		s.logger.Warn("could not sign the Confirmation Link for an Answer Reminder; nobody was written to and the Sale stays due",
-			"ticket_sale_id", due.TicketSaleID)
-		return false
-	}
-
-	reminder := platform.AnswerReminder{
-		To:               due.CustomerEmail,
-		CustomerName:     displayName(due.CustomerFirstName, due.CustomerLastName),
-		EventName:        due.EventName,
-		Reference:        due.ConfirmationRef,
-		ConfirmationLink: link,
-		// The same chain every other mail about a sale goes through: the Sale
-		// Locale, then what the recipient's record remembers, then English. This
-		// mail is sent longer after the sale than any other, which is exactly the
-		// case ADR 0033 put the Sale Locale first for — and this reader IS the
-		// party to that sale, which is what keeps the order this way round while
-		// the Holder's is inverted below.
-		Locale: s.mailLocale(ctx, due.TicketSaleID, due.SaleLocale, due.CustomerEmail),
-	}
-
-	if err := s.email.SendAnswerReminder(ctx, reminder); err != nil {
-		// Nothing is recorded, so the buyer is due again on the next tick and has
-		// lost none of their allowance to a provider outage.
-		result.Failed++
-		s.logger.Error("answer reminder send failed",
-			"ticket_sale_id", due.TicketSaleID, "error", err)
-		return false
-	}
-	return true
-}
-
-// sendHolderAnswerReminder writes ONCE to the person who accepted Tickets,
-// about every owed Ticket of theirs this sweep found — one mail per Holder per
-// sweep, each Ticket listed with its own Assignment Link (#335). It reports
-// whether a provider accepted the message.
+// sendHolderAnswerReminder writes ONCE to the person who holds Tickets, about
+// every owed Ticket of theirs this sweep found — one mail per Holder per sweep
+// (#335), pointing at the Customer Area (ADR 0049). It reports whether a
+// provider accepted the message.
 //
 // IT NAMES NO BUYER AND NO PURCHASE, and the enforcement is that
-// platform.HolderAnswerReminder has no field for either — see that type. What is
-// composed here is, per Ticket, an Event name, a Ticket Type name and a link,
-// all of which this reader was already shown when they accepted.
+// platform.HolderAnswerReminder has no field for either — see that type. What
+// is composed here is, per Ticket, an Event name and a Ticket Type name, and
+// once, the address of the page the reader signs in to.
 //
-// THE LINKS ARRIVE ALREADY SIGNED, by the catalog module, which is the only
-// place on this platform an Assignment Link is composed (ADR 0046). This module
-// puts them in a message addressed to the Holder and nowhere else: they are not
-// logged, not returned, and not rendered on any surface. A Ticket whose link
-// could not be signed — a deployment with no link secret — was dropped by the
-// catalog before it got here, so a mail with nothing to list would be a bug —
-// checked anyway, because the cost of being wrong is a mail telling somebody to
-// open nothing.
+// THE LINK IS THE MESSAGE, so a deployment with no Storefront origin to point
+// at skips the mail rather than sending one with nothing to open: "answer from
+// your tickets page" with no page is worse than silence, because the reader
+// goes looking for something that is not there. Nothing is recorded, so the
+// Holder is due again as soon as the deployment is fixed.
 func (s *Service) sendHolderAnswerReminder(
 	ctx context.Context, due catalog.DueAnswerReminder, result *AnswerReminderSweepResult,
 ) bool {
-	if due.HolderEmail == "" || len(due.HolderTickets) == 0 {
+	if due.HolderEmail == "" || len(due.Tickets) == 0 {
 		result.Skipped++
-		s.logger.Warn("a Holder's Answer Reminder carries no address or no tickets; nobody was written to and they stay due",
+		s.logger.Warn("an Answer Reminder carries no address or no tickets; nobody was written to and they stay due",
+			"ticket_sale_id", due.TicketSaleID)
+		return false
+	}
+	customerArea := s.customerAreaURL()
+	if customerArea == "" {
+		result.Skipped++
+		s.logger.Warn("no Storefront origin to point an Answer Reminder at; nobody was written to and they stay due",
 			"ticket_sale_id", due.TicketSaleID)
 		return false
 	}
 
-	tickets := make([]platform.HolderAnswerReminderTicket, 0, len(due.HolderTickets))
-	for _, ticket := range due.HolderTickets {
-		if ticket.AssignmentLink == "" {
-			// Unreachable — the catalog drops a linkless Ticket rather than
-			// listing it — and refused here anyway: an empty link would render as
-			// an instruction with nothing under it, and the Ticket stays due.
-			result.Skipped++
-			s.logger.Warn("a Ticket on a Holder's Answer Reminder carries no link; the whole mail was withheld and everything on it stays due",
-				"ticket_sale_id", due.TicketSaleID)
-			return false
-		}
+	tickets := make([]platform.HolderAnswerReminderTicket, 0, len(due.Tickets))
+	for _, ticket := range due.Tickets {
 		tickets = append(tickets, platform.HolderAnswerReminderTicket{
 			EventName:      ticket.EventName,
 			TicketTypeName: ticket.TicketTypeName,
-			AnswerURL:      ticket.AssignmentLink,
 		})
 	}
 
 	reminder := platform.HolderAnswerReminder{
-		To:      due.HolderEmail,
-		Tickets: tickets,
-		// THE CHAIN IS READ IN THE OTHER ORDER FOR THIS READER, which is the one
-		// thing about this function that differs from its buyer-addressed sibling
-		// beyond the disclosure. A Holder is not party to the sale: they did not
-		// buy anything, were never on the page that recorded a Sale Locale, and
-		// may not share the buyer's language at all — a Spanish-speaking Holder
-		// whose friend paid on the English site is exactly the case this feature
-		// exists to serve. So their own remembered Mail Locale outranks the sale's,
-		// and the sale's is the better-than-nothing fallback: a friend who bought
-		// in Spanish is more likely than chance to have Spanish-speaking friends.
-		// English is the floor, as always.
+		To:              due.HolderEmail,
+		Tickets:         tickets,
+		CustomerAreaURL: customerArea,
+		// THE CHAIN IS READ RECIPIENT-FIRST FOR THIS READER, unlike every other
+		// mail about a sale. A Holder is not party to the sale: they did not buy
+		// anything, were never on the page that recorded a Sale Locale, and may
+		// not share the buyer's language at all — a Spanish-speaking Holder whose
+		// friend paid on the English site is exactly the case this feature exists
+		// to serve. So their own remembered Mail Locale outranks the sale's, and
+		// the sale's is the better-than-nothing fallback: a friend who bought in
+		// Spanish is more likely than chance to have Spanish-speaking friends.
+		// English is the floor, as always. For the buyer's own Self-held Ticket
+		// the two agree in every ordinary case.
 		//
 		// #325 made this inversion for the Assignment mail
-		// (service.assignmentMailLocale) and the reasoning is identical here. It
-		// does NOT extend to the buyer's reminder, which is about their own
-		// purchase and keeps ADR 0033's ordinary order.
+		// (service.assignmentMailLocale) and the reasoning is identical here.
 		Locale: s.holderMailLocale(ctx, due.TicketSaleID, due.SaleLocale, due.HolderEmail),
 	}
 
 	if err := s.email.SendHolderAnswerReminder(ctx, reminder); err != nil {
 		// Nothing is recorded, so the Holder is due again on the next tick and has
-		// lost none of their allowance to a provider outage. The link is not
-		// logged: it is a credential that mints an identity, and a log aggregator
-		// is a wider audience than an inbox.
+		// lost none of their allowance to a provider outage.
 		result.Failed++
 		s.logger.Error("holder answer reminder send failed",
 			"ticket_sale_id", due.TicketSaleID, "error", err)
 		return false
 	}
 	return true
+}
+
+// customerAreaURL is the Storefront's Customer Area — every Ticket the reader
+// holds — and it is where an Answer Reminder sends them (ADR 0049).
+//
+// IT NAMES NO TICKET AND NO SALE, because the Storefront has no per-Ticket page
+// for a Holder: the held-ticket panel on this page lists everything the
+// signed-in address holds. It carries no Locale segment, on the Digest's terms
+// (digest/service.storefrontTicketSalesURL): the Storefront resolves a language
+// for an address that names none, and a mail that hard-coded one would send a
+// Spanish reader to an English page whenever the two disagreed.
+//
+// IT IS NOT A CREDENTIAL. Nothing in it is signed and a forwarded copy opens
+// nothing; the sign-in behind it is what proves who is reading.
+func (s *Service) customerAreaURL() string {
+	if s.storefrontBaseURL == "" {
+		return ""
+	}
+	return s.storefrontBaseURL + "/tickets"
 }
 
 // holderMailLocale resolves the language of a mail whose reader is NOT the party

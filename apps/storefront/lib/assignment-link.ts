@@ -15,7 +15,7 @@
  * with an integration test over the raw response body); this file is one reason
  * it stays one.
  *
- * IT REUSES lib/answer-link's QUESTION TYPES ON PURPOSE. A Holder answers the
+ * IT REUSES lib/ticket-questions's QUESTION TYPES ON PURPOSE. A Holder answers the
  * same Ticket Questions through the same shapes with the same retired-question
  * rule; a second copy of those types here would be a second place for the rule
  * about retired questions to drift, and a reply visible on one page and gone
@@ -25,7 +25,7 @@
  * directly unit-testable. It returns SHAPES and never a sentence.
  */
 
-import type { QuestionAnswer } from "@/lib/answer-link";
+import type { QuestionAnswer } from "@/lib/ticket-questions";
 
 /**
  * What accepting an Assignment Link returns: FOUR FIELDS AND NO MORE.

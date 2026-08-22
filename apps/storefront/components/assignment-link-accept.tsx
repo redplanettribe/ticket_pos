@@ -12,8 +12,8 @@ import { useMessages, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { TicketQuestionRow } from "@/components/ticket-question-row";
-import { visibleQuestions } from "@/lib/answer-link";
-import type { QuestionAnswer } from "@/lib/answer-link";
+import { visibleQuestions } from "@/lib/ticket-questions";
+import type { QuestionAnswer } from "@/lib/ticket-questions";
 import {
   assignmentLinkFailure,
   holderNameIsGiven,

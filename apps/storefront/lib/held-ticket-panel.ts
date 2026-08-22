@@ -14,7 +14,7 @@
 
 // Relative and with its extension so the test runner (node --test, no path
 // aliases) can resolve it, as lib/undo-window.ts does.
-import { visibleQuestionsOf, type QuestionAnswer, type QuestionKind } from "./answer-link.ts";
+import { visibleQuestionsOf, type QuestionAnswer, type QuestionKind } from "./ticket-questions.ts";
 
 /**
  * What the panel's header offers.

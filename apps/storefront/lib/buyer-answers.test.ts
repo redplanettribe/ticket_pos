@@ -9,7 +9,7 @@ import {
   type BuyerTicket,
   type HeldTicket,
 } from "./buyer-answers.ts";
-import type { Question, QuestionAnswer } from "./answer-link.ts";
+import type { Question, QuestionAnswer } from "./ticket-questions.ts";
 
 /**
  * The buyer's own surface, as rules (#315, ADR 0044; narrowed by #344,

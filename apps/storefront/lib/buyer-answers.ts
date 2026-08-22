@@ -24,7 +24,7 @@
  * finds its questions in the held list by `ticket_id`. The rules below are the
  * joins between the two and the two "draw nothing at all" decisions.
  *
- * IT REUSES lib/answer-link.ts RATHER THAN RESTATING IT. A Ticket Question, an
+ * IT REUSES lib/ticket-questions.ts RATHER THAN RESTATING IT. A Ticket Question, an
  * Answer and the body that writes one are the same shapes on every surface that
  * touches them, and the rules for turning a form into a payload are the same
  * rules — a second copy would be a second opinion about what `checked: false`
@@ -40,9 +40,9 @@
  * explicit that a question's words must never enter the catalog.
  */
 
-import type { QuestionAnswer } from "@/lib/answer-link";
+import type { QuestionAnswer } from "@/lib/ticket-questions";
 
-export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from "@/lib/answer-link";
+export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from "@/lib/ticket-questions";
 
 /**
  * One Ticket of the buyer's own Ticket Sale, as the sale-scoped list sends it:

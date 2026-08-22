@@ -124,7 +124,7 @@ type mailBaseline struct {
 func captureMailBaseline(env *testEnv) mailBaseline {
 	return mailBaseline{
 		confirmations: len(env.email.Confirmations()),
-		reminders:     len(env.email.AnswerRemindersSent()),
+		reminders:     len(env.email.HolderAnswerRemindersSent()),
 		passcodes:     env.email.OTPSendCount(),
 	}
 }
@@ -147,7 +147,7 @@ func assertNoAssignmentMailWasSent(t *testing.T, env *testEnv, before mailBaseli
 		t.Errorf("assigning sent %d new Sale Confirmation(s); #324 sends no mail at all",
 			got-before.confirmations)
 	}
-	if got := len(env.email.AnswerRemindersSent()); got != before.reminders {
+	if got := len(env.email.HolderAnswerRemindersSent()); got != before.reminders {
 		t.Errorf("assigning sent %d new Answer Reminder(s); nothing about assignment mails anybody in #324",
 			got-before.reminders)
 	}

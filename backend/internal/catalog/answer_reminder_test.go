@@ -208,36 +208,63 @@ func TestAnswerReminderCandidateInputsCarryTheWholeRule(t *testing.T) {
 	}
 }
 
-// THE RULE HAS NO OPINION ABOUT WHO IS ADDRESSED, which is what makes "the
-// Holder is chased on exactly the terms the buyer was" true rather than hoped
-// for. Two candidates differing only in recipient must decide identically:
-// AnswerReminderInputs has no field for it, and this test is what notices if
-// somebody adds one.
+// THE RULE HAS NO OPINION ABOUT WHO IS ADDRESSED. Whether a held Ticket may be
+// chased is a fact about the Ticket; who is chased is AnswerReminderRecipient's
+// question. AnswerReminderInputs has no field for a recipient, and the
+// allowance is the TICKET'S: one that has spent it is silent whoever holds it
+// now, which is what stops a reassignment from buying a fresh chase.
 func TestMayRemindDoesNotDependOnWhoIsAddressed(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
-	base := AnswerReminderCandidate{
+	candidate := AnswerReminderCandidate{
 		TicketID:      "ticket-1",
 		TicketSaleID:  "sale-1",
+		HolderEmail:   "carla@example.com",
 		SaleStatus:    TicketSaleStatusActive,
 		EventStartsAt: now.Add(48 * time.Hour),
 	}
-
-	toBuyer := base
-	toBuyer.Recipient = RemindTheBuyer
-	toHolder := base
-	toHolder.Recipient = RemindTheHolder
-	toHolder.HolderEmail = "carla@example.com"
-
-	if MayRemind(toBuyer.Inputs(now)) != MayRemind(toHolder.Inputs(now)) {
-		t.Fatal("the rationing decided differently for a Holder than for a buyer: whether somebody may be chased is a fact about the Ticket, and who is chased is a separate question")
+	if !MayRemind(candidate.Inputs(now)) {
+		t.Fatal("a held Ticket owing an Answer on an upcoming Event is due its first reminder")
 	}
 
-	// And the allowance is the TICKET'S, so a Ticket that has spent it is silent
-	// whoever it would now be addressed to. This is what stops a reassignment or
-	// an acceptance from buying a fresh chase.
-	spent := toHolder
+	spent := candidate
+	spent.HolderEmail = "diego@example.com"
 	spent.RemindersSent = MaxAnswerReminders
 	if MayRemind(spent.Inputs(now)) {
 		t.Fatal("a Ticket that had spent its allowance was chased again because it had changed hands: the cap is the Ticket's for its whole life")
+	}
+}
+
+// HOLDER OR NOBODY (ADR 0049). An accepted Ticket is chased through the address
+// that accepted it — a named Holder or the buyer of a Self-held Ticket alike —
+// and every other assignment state has no recipient at all.
+func TestAnswerReminderRecipientIsTheHolderOfAnAcceptedTicket(t *testing.T) {
+	assigned := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	accepted := assigned.Add(time.Hour)
+
+	if got := AnswerReminderRecipient("carla@example.com", &assigned, &accepted); got != "carla@example.com" {
+		t.Fatalf("recipient = %q, want the address that accepted the Ticket", got)
+	}
+	// A Self-held Ticket is accepted by paying (ADR 0048) and reads exactly as
+	// any accepted one: the buyer is chased as its Holder and as nothing else.
+	if got := AnswerReminderRecipient("ana@example.com", &assigned, &assigned); got != "ana@example.com" {
+		t.Fatalf("recipient of a Self-held Ticket = %q, want the buyer, as its Holder", got)
+	}
+}
+
+func TestAnswerReminderRecipientIsNobodyForAnUnheldTicket(t *testing.T) {
+	assigned := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+
+	if got := AnswerReminderRecipient("", nil, nil); got != "" {
+		t.Fatalf("an unassigned Ticket has recipient %q, want nobody: an unassigned Ticket is an assignment debt, not an Answer debt", got)
+	}
+	// Assigned and never accepted: an address that has agreed to nothing, and
+	// ignoring the Assignment mail IS the decline (ADR 0046).
+	if got := AnswerReminderRecipient("carla@example.com", &assigned, nil); got != "" {
+		t.Fatalf("an assigned-but-unaccepted Ticket has recipient %q, want nobody", got)
+	}
+	// Purged by the Holder Address Purge: the address is gone and the Ticket
+	// reads unassigned again, whatever assigned_at still says.
+	if got := AnswerReminderRecipient("", &assigned, nil); got != "" {
+		t.Fatalf("a purged never-accepted Ticket has recipient %q, want nobody", got)
 	}
 }

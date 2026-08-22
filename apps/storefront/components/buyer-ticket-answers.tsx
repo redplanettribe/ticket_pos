@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { HeldTicketAnswers } from "@/components/held-ticket-answers";
 import { TicketAssignmentRow } from "@/components/ticket-assignment-row";
-import { visibleQuestionsOf } from "@/lib/answer-link";
+import { visibleQuestionsOf } from "@/lib/ticket-questions";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   hasAnythingToShow,

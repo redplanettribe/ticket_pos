@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Question, QuestionAnswer, QuestionKind } from "./answer-link.ts";
+import type { Question, QuestionAnswer, QuestionKind } from "./ticket-questions.ts";
 import {
   closedWindowKey,
   collapsesAfterSave,

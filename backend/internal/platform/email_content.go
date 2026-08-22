@@ -519,120 +519,49 @@ func (c SaleConfirmation) Text() string {
 	return text
 }
 
-// The Answer Reminder (#317, ADR 0044): the mail telling a buyer that Tickets
-// on their Ticket Sale still owe Answers.
+// The Answer Reminder (#317, ADR 0044; #328, ADR 0046; #347, ADR 0049): the
+// message telling the Holder of a Ticket that it still owes an answer, and
+// where to give it.
 //
-// IT IS THE RECEIPT'S ONE SENTENCE, SENT ON ITS OWN. saleConfirmationOutstandingCopy
-// above says the same thing to somebody who is already reading about their
-// purchase; this says it to somebody who is not, weeks later, because a question
-// was added after they bought or because they skipped the form. The two are
-// deliberately worded alike — "answer them there, or copy and pass each ticket's
-// own link to whoever will be using it" is the instruction in both — so a buyer
-// who reads both meets one idea twice rather than two ideas once.
-//
-// IT NAMES NO NUMBER AND NO QUESTION. Not "three tickets still need answers" and
-// not "we still need a t-shirt size": the debt is derived live and would be
-// wrong the moment the buyer answered one, and the questions are the
-// Organization's words on a page this mail links to. What this message is for is
-// getting the buyer to that page.
-//
-// IT CARRIES NO UNSUBSCRIBE FOOTER, because it is transactional and there is
-// nothing to unsubscribe from — the Follow Digest is the only mail a Customer
-// can turn off (ADR 0034). What stops it instead is catalog.MayRemind, and the
-// closing line says so in the reader's own terms: this is the platform promising
-// in the message itself that the chase is nearly over.
-//
-// "Tickets" is the buyer's word for the things they bought, not the domain's
-// Ticket, exactly as the receipt has always used it. A mail that switched
-// vocabulary to match a schema would be the platform talking to itself.
-var (
-	answerReminderSubjectCopy = translated(
-		"Some tickets for %s still need answers",
-		"Algunas entradas para %s aún necesitan respuestas",
-	)
-	// The greeting, what is owed and which purchase it is about, declared whole
-	// in both languages: one block of prose, so a translator cannot reorder half
-	// of it.
-	answerReminderOpeningCopy = translated(
-		"Hi %s,\n\nSome of the tickets on your purchase for %s still need answers.\nReference: %s",
-		"Hola %s:\n\nAlgunas de las entradas de su compra de %s aún necesitan respuestas.\nReferencia: %s",
-	)
-	// The instruction and the link, which are the whole point of the message. The
-	// second sentence is the receipt's own promise about the same link, repeated
-	// because this mail may be the only one of the two still in the inbox.
-	answerReminderActionCopy = translated(
-		"Open your purchase to answer them there, or to copy and pass each ticket's own link to whoever will be using it:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
-		"Abra su compra para responderlas allí, o para copiar y enviar el enlace de cada entrada a quien vaya a usarla:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
-	)
-	// The closing, and the sentence that makes the rationing visible to the
-	// person it protects. It says the answers are optional, because they are —
-	// nothing on this platform was ever refused for want of one — and it says
-	// this message is nearly the last, because catalog.MaxAnswerReminders is two.
-	//
-	// IT PROMISES ONLY WHAT THE CODE ENFORCES: "at most one more" is true of the
-	// first reminder and generous about the second, which is the safe direction
-	// for a promise printed in an inbox. Anyone raising the cap has to come here
-	// and either change this sentence or break it.
-	answerReminderClosingCopy = translated(
-		"Answering is optional and your tickets are valid either way. We will send at most one more reminder about this purchase.",
-		"Responder es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más sobre esta compra.",
-	)
-)
-
-// Subject is the Answer Reminder's subject line: the Event and what is owed,
-// which is the whole of what a buyer sees in a mailbox list. It names the Event
-// rather than the reference, because the Event is what somebody recognises three
-// weeks after buying and a reference is what they have to go and look up.
-func (r AnswerReminder) Subject() string {
-	return fmt.Sprintf(answerReminderSubjectCopy.in(r.Locale), r.EventName)
-}
-
-// Text is the Answer Reminder's plain-text body.
-//
-// NOTHING HERE IS CONDITIONAL, unlike the receipt's four optional lines, and
-// that is a property of the message rather than an accident of it being short: a
-// reminder without its link is not a shorter reminder, it is an instruction its
-// reader cannot follow. The job refuses to compose one at all — see the sales
-// module's SweepAnswerReminders — so by the time this renders, every part of it
-// is present.
-func (r AnswerReminder) Text() string {
-	text := fmt.Sprintf(answerReminderOpeningCopy.in(r.Locale), r.CustomerName, r.EventName, r.Reference)
-	text += "\n\n" + fmt.Sprintf(answerReminderActionCopy.in(r.Locale), r.ConfirmationLink)
-	text += "\n\n" + answerReminderClosingCopy.in(r.Locale)
-	return text
-}
-
-// The Holder's Answer Reminder (#328, parent #322, ADR 0046): the message
-// telling somebody that the ticket they accepted still owes an answer.
-//
-// IT IS WRITTEN FOR SOMEBODY WHO HAS ALREADY SAID YES, and every sentence below
-// is shaped by that — which is what makes it a different message from the
-// Assignment mail rather than a variation on it. That one had to explain where
-// the address came from to a stranger; this reader clicked a link from their own
-// inbox, gave their name and knows perfectly well what event this is. So this
-// one begins with the fact, exactly as the buyer's reminder does.
+// IT IS THE RECEIPT'S ONE SENTENCE, SENT ON ITS OWN, TO WHOEVER HOLDS THE
+// TICKET. saleConfirmationOutstandingCopy above says the same thing to a buyer
+// already reading about their purchase; this says it weeks later to the person
+// who will actually use the ticket — the buyer about their own Self-held
+// Ticket, a Holder about the one they accepted — because a question was added
+// after the sale or because they skipped the form.
 //
 // IT NAMES NOBODY AND NO PURCHASE. There is no greeting by name even though the
-// platform now knows the name — the Assignment mail set that precedent and
-// mail gets forwarded — and above all no buyer, no price, no Tax ID and no Sale
+// platform may know the name — the Assignment mail set that precedent and mail
+// gets forwarded — and above all no buyer, no price, no Tax ID and no Sale
 // Confirmation reference. That is ADR 0044's disclosure rule carried over
-// unchanged, and it holds despite this reader being a Verified Customer: being a
-// Customer of this platform buys nobody a fact about somebody else's purchase.
+// unchanged, and it holds despite this reader being a Verified Customer: being
+// a Customer of this platform buys nobody a fact about somebody else's
+// purchase. The buyer reading it about their own Ticket loses nothing: their
+// receipt already said everything this withholds.
 //
-// IT NAMES THE TICKET TYPE WHERE THE BUYER'S NAMES A REFERENCE, and for the same
-// job. A buyer holding two sales for one Event tells them apart by the
-// reference; a Holder has one Ticket and tells it apart by what it is. Both are
-// public facts on the Event's own Storefront page.
+// IT NAMES THE TICKET TYPE, because that is how a Holder tells their ticket
+// apart — a public fact on the Event's own Storefront page — and NO NUMBER AND
+// NO QUESTION. Not "two questions still need answers" and not "we still need a
+// t-shirt size": the debt is derived live and would be wrong the moment one
+// was answered, and the questions are the Organization's words on a page this
+// mail sends the reader to.
 //
-// IT SAYS ANSWERING IS OPTIONAL AND THAT THE CHASE IS NEARLY OVER, exactly as
-// the buyer's closing does and enforcing the same constant: this mail carries no
+// IT POINTS AT THE CUSTOMER AREA, ONCE. Since ADR 0049 the reader answers from
+// their own held-ticket panel, behind a sign-in to the address this mail
+// reached, so the message carries one ordinary address for however many
+// Tickets it lists — never a per-Ticket credential. The Answer Link is retired
+// and the Assignment Link stays in the Assignment mail, where accepting is the
+// point of clicking.
+//
+// IT SAYS ANSWERING IS OPTIONAL AND THAT THE CHASE IS NEARLY OVER, enforcing
+// the same constant the receipt's sentence leans on: this mail carries no
 // unsubscribe, because it is transactional (ADR 0034 keeps that footer for the
 // one message it belongs on), so catalog.MaxAnswerReminders is the only thing
 // standing between this reader and an unbounded chase. Anyone raising the cap
-// has to come here and either change this sentence or break it.
+// has to come here and either change the closing sentence or break it.
 //
 // The Spanish is usted throughout and takes "entrada" for the thing the reader
-// holds, matching the Assignment mail that reached them first.
+// holds, matching the Assignment mail that reached a Holder first.
 var (
 	holderAnswerReminderSubjectCopy = translated(
 		"Your ticket for %s still needs an answer",
@@ -640,18 +569,23 @@ var (
 	)
 	// What is owed and which ticket it is about, declared whole in both
 	// languages: one block of prose, so a translator cannot reorder half of it.
+	//
+	// "Your ticket" and never "the ticket you accepted": the buyer reads this
+	// about a Self-held Ticket they never accepted anything for, and the
+	// sentence has to be true for both readers.
 	holderAnswerReminderOpeningCopy = translated(
-		"The ticket you accepted still needs an answer to a question from the organizer.\n\nEvent: %s\nTicket: %s",
-		"La entrada que aceptó aún necesita respuesta a una pregunta de la organización.\n\nEvento: %s\nEntrada: %s",
+		"Your ticket still needs an answer to a question from the organizer.\n\nEvent: %s\nTicket: %s",
+		"Su entrada aún necesita respuesta a una pregunta de la organización.\n\nEvento: %s\nEntrada: %s",
 	)
-	// The instruction and the link, which are the whole point of the message. The
-	// link is the reader's OWN — it opens their one ticket and nothing else — and
-	// the sentence says so, because a reader who has been told this platform
-	// never shows them somebody else's purchase should not have to wonder what
-	// they are about to open.
+	// The instruction and the address, which are the whole point of the message.
+	// It says to sign in with THIS address, because the Customer Area shows a
+	// reader the Tickets held by the address they signed in with and nothing
+	// else — a reader who signs in as somebody else finds an empty panel and no
+	// explanation. And it says when the door closes, because the answer window
+	// shuts at the Event's start and a reader who waits past it finds the same.
 	holderAnswerReminderActionCopy = translated(
-		"Open your ticket to answer:\n%s\n\nThis link opens your ticket only, and stops working when the event starts.",
-		"Abra su entrada para responder:\n%s\n\nEste enlace abre solo su entrada y deja de funcionar cuando empieza el evento.",
+		"Answer from your tickets page:\n%s\n\nSign in there with this email address. Answers can be given until the event starts.",
+		"Responda desde su página de entradas:\n%s\n\nInicie sesión allí con esta dirección de correo. Puede responder hasta que empiece el evento.",
 	)
 	// The closing, and the sentence that makes the rationing visible to the
 	// person it protects. "At most one more" is true of the first reminder and
@@ -663,12 +597,10 @@ var (
 	)
 
 	// THE PLURAL SHAPE, WHICH #335 RULED INTO EXISTENCE: one mail per Holder per
-	// sweep, listing each owed Ticket with its own Assignment Link. The singular
-	// copy above is untouched — a Holder of one Ticket reads exactly the mail
-	// they always did — and these variants exist only for the person who
-	// accepted several, who used to get one envelope per Ticket and now gets a
-	// list. Same reader, same register (usted), same disclosure rule: Events,
-	// Ticket Types, their own links, and nothing about anybody's purchase.
+	// sweep, listing each owed Ticket. The singular copy above is what a Holder
+	// of one Ticket reads; these variants exist only for the person who holds
+	// several. Same reader, same register (usted), same disclosure rule: Events,
+	// Ticket Types, one sign-in address, and nothing about anybody's purchase.
 	holderAnswerReminderSubjectPluralCopy = translated(
 		"Your tickets for %s still need answers",
 		"Sus entradas para %s aún necesitan respuestas",
@@ -681,19 +613,14 @@ var (
 		"Sus entradas aún necesitan respuestas",
 	)
 	holderAnswerReminderOpeningPluralCopy = translated(
-		"The tickets you accepted still need answers to questions from the organizer.",
-		"Las entradas que aceptó aún necesitan respuesta a preguntas de la organización.",
+		"Your tickets still need answers to questions from the organizer.",
+		"Sus entradas aún necesitan respuesta a preguntas de la organización.",
 	)
-	// One block per Ticket: what it is, and the link that answers for it. The
-	// link sits INSIDE its Ticket's block so a reader holding a General and a
-	// VIP ticket cannot mistake which questions a link opens.
+	// One block per Ticket: what it is. The one address that opens all of them
+	// follows the list, since the panel shows every Ticket the reader holds.
 	holderAnswerReminderTicketPluralCopy = translated(
-		"Event: %s\nTicket: %s\nAnswer here:\n%s",
-		"Evento: %s\nEntrada: %s\nResponda aquí:\n%s",
-	)
-	holderAnswerReminderLinksPluralCopy = translated(
-		"Each link opens its own ticket only, and stops working when the event starts.",
-		"Cada enlace abre solo su entrada y deja de funcionar cuando empieza el evento.",
+		"Event: %s\nTicket: %s",
+		"Evento: %s\nEntrada: %s",
 	)
 	// "About each of them" rather than "about it": the promise is per Ticket
 	// because the cap is (catalog.MaxAnswerReminders), and only the envelope was
@@ -705,17 +632,15 @@ var (
 	)
 )
 
-// Subject is the Holder's Answer Reminder's subject line: their ticket or
+// Subject is the Answer Reminder's subject line: the reader's ticket or
 // tickets, the Event where one can honestly headline it, and what is owed.
 //
-// IT SAYS "YOUR TICKET(S)" AND NEVER "SOME TICKETS", which is the difference
-// between this and the buyer's subject and is the whole of what #328 is about:
-// this reader is told about what THEY hold, never about a purchase, which
-// would be somebody else's. Since #335 the mail may list several Tickets, so
-// the subject goes plural when it does — named after the Event when every
-// listed Ticket shares one, and Event-less when they do not, because a subject
-// that named one Event over a list spanning two would be wrong about half of
-// what it announces.
+// IT SAYS "YOUR TICKET(S)" AND NEVER "SOME TICKETS": this reader is told about
+// what THEY hold, never about a purchase. Since #335 the mail may list several
+// Tickets, so the subject goes plural when it does — named after the Event
+// when every listed Ticket shares one, and Event-less when they do not,
+// because a subject that named one Event over a list spanning two would be
+// wrong about half of what it announces.
 func (r HolderAnswerReminder) Subject() string {
 	if len(r.Tickets) == 1 {
 		return fmt.Sprintf(holderAnswerReminderSubjectCopy.in(r.Locale), r.Tickets[0].EventName)
@@ -729,24 +654,23 @@ func (r HolderAnswerReminder) Subject() string {
 	return fmt.Sprintf(holderAnswerReminderSubjectPluralCopy.in(r.Locale), event)
 }
 
-// Text is the Holder's Answer Reminder's plain-text body.
+// Text is the Answer Reminder's plain-text body.
 //
-// NOTHING HERE IS CONDITIONAL, for the reason the other two reminders' bodies
-// have nothing conditional in them: a reminder without its link is not a shorter
-// reminder, it is an instruction its reader cannot follow. The sweep refuses to
-// compose one at all — a Ticket whose Assignment Link cannot be signed is
-// dropped and stays due — so by the time this renders, every part of it is
-// present.
+// NOTHING HERE IS CONDITIONAL, unlike the receipt's optional lines: a reminder
+// without its address is not a shorter reminder, it is an instruction its
+// reader cannot follow. The sweep refuses to compose one at all — see the sales
+// module's SweepAnswerReminders — so by the time this renders, every part of it
+// is present.
 //
-// ONE TICKET RENDERS EXACTLY THE MAIL IT ALWAYS DID; a list only appears for
-// the Holder who accepted several (#335). The two shapes share the discipline:
-// every Ticket's link sits inside its own block, and the closing states the
-// per-Ticket cap in the reader's own terms.
+// ONE TICKET RENDERS A SINGLE BLOCK; a list only appears for the Holder of
+// several (#335). The two shapes share the discipline: the one address follows
+// whatever is listed, and the closing states the per-Ticket cap in the reader's
+// own terms.
 func (r HolderAnswerReminder) Text() string {
 	if len(r.Tickets) == 1 {
 		ticket := r.Tickets[0]
 		text := fmt.Sprintf(holderAnswerReminderOpeningCopy.in(r.Locale), ticket.EventName, ticket.TicketTypeName)
-		text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), ticket.AnswerURL)
+		text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), r.CustomerAreaURL)
 		text += "\n\n" + holderAnswerReminderClosingCopy.in(r.Locale)
 		return text
 	}
@@ -754,9 +678,9 @@ func (r HolderAnswerReminder) Text() string {
 	text := holderAnswerReminderOpeningPluralCopy.in(r.Locale)
 	for _, ticket := range r.Tickets {
 		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale),
-			ticket.EventName, ticket.TicketTypeName, ticket.AnswerURL)
+			ticket.EventName, ticket.TicketTypeName)
 	}
-	text += "\n\n" + holderAnswerReminderLinksPluralCopy.in(r.Locale)
+	text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), r.CustomerAreaURL)
 	text += "\n\n" + holderAnswerReminderClosingPluralCopy.in(r.Locale)
 	return text
 }

@@ -13,7 +13,7 @@ import {
   toggleOption,
   type AnswerBody,
   type QuestionAnswer,
-} from "@/lib/answer-link";
+} from "@/lib/ticket-questions";
 import { saveTrigger } from "@/lib/held-ticket-panel";
 
 /**
@@ -128,7 +128,8 @@ export function TicketQuestionRow({
     const body = answerBodyFor(question, next.value, next.checked, next.optionIds);
     if (body === null) {
       // Nothing to send. An empty field is not an Answer of "", and no
-      // surface offers a way to take an Answer back — see lib/answer-link.ts.
+      // surface offers a way to take an Answer back — see answerBodyFor in
+      // lib/ticket-questions.ts.
       // With a button there is a sentence for it; without one there is only
       // an empty field the reader can see for themself.
       if (!autosave) setFailure(copy.nothingToSave ?? "");

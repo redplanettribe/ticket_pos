@@ -14,7 +14,7 @@ import {
   type QuestionAnswer,
   type QuestionKind,
   type QuestionOption,
-} from "./answer-link.ts";
+} from "./ticket-questions.ts";
 
 function option(id: string, label: string, retired = false): QuestionOption {
   return { id, label, sort_order: 0, retired };

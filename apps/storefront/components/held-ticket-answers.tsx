@@ -4,7 +4,7 @@ import { useMessages, useTranslations } from "next-intl";
 import { useState, type ReactNode } from "react";
 
 import { TicketQuestionRow } from "@/components/ticket-question-row";
-import { visibleQuestionsOf, type AnswerBody } from "@/lib/answer-link";
+import { visibleQuestionsOf, type AnswerBody } from "@/lib/ticket-questions";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { HeldTicket } from "@/lib/buyer-answers";
 import { closedWindowKey, collapsesAfterSave, panelDisclosure } from "@/lib/held-ticket-panel";
