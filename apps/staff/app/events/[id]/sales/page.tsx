@@ -53,17 +53,34 @@ function parseFilters(searchParams: SalesSearchParams): SalesFilters {
   };
 }
 
-// fetchEventTimezone loads just the Event timezone (for sold-at formatting),
-// tolerating failure so the list still renders in the viewer's local zone.
-async function fetchEventTimezone(eventId: string, token: string): Promise<string | null> {
+// EventFacts is what this page needs off the Event payload: the timezone every
+// time in the table is drawn in, and the Ticket Question feature flag, which
+// decides whether a sale's row offers its Tickets' Answers at all.
+//
+// One read for both. The flag rides on the Event payload rather than on a
+// frontend environment variable so that there is ONE answer to whether the
+// feature is on (#309, ADR 0045) — a second copy here could disagree with the
+// API, which would offer a button whose every request 404s.
+type EventFacts = {
+  timezone: string | null;
+  ticketQuestionsEnabled: boolean;
+};
+
+// fetchEventFacts tolerates failure so the list still renders — in the viewer's
+// local zone, and without the Answers button, which is the same state a build
+// with the flag off is in.
+async function fetchEventFacts(eventId: string, token: string): Promise<EventFacts> {
   try {
     const envelope = await callBackend<EventDetail>(`/api/v1/staff/events/${eventId}`, {
       method: "GET",
       sessionToken: token,
     });
-    return envelope.data?.timezone ?? null;
+    return {
+      timezone: envelope.data?.timezone ?? null,
+      ticketQuestionsEnabled: envelope.data?.ticket_questions_enabled ?? false,
+    };
   } catch {
-    return null;
+    return { timezone: null, ticketQuestionsEnabled: false };
   }
 }
 
@@ -98,9 +115,10 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
 
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  const [timezone, ticketTypes] = token
-    ? await Promise.all([fetchEventTimezone(id, token), fetchTicketTypeOptions(id, token)])
-    : [null, []];
+  const [facts, ticketTypes] = token
+    ? await Promise.all([fetchEventFacts(id, token), fetchTicketTypeOptions(id, token)])
+    : [{ timezone: null, ticketQuestionsEnabled: false } satisfies EventFacts, []];
+  const timezone = facts.timezone;
 
   return (
     // SalesRefreshProvider lets the owner-only import section signal the Sales
@@ -117,6 +135,7 @@ export default async function EventSalesPage({ params, searchParams }: EventSale
           dir={parseSaleDir(resolvedSearchParams.dir)}
           timezone={timezone}
           canExport={isOwner}
+          ticketQuestionsEnabled={facts.ticketQuestionsEnabled}
         />
         {/* The Event's timezone reaches the import history for the same reason
             it reaches the list: an imported batch happened at a moment, and the
