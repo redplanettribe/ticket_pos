@@ -268,10 +268,6 @@ func domainHTTPStatus(code string) int {
 	// are not told who the buyer is.
 	case "ASSIGNMENT_LINK_UNAVAILABLE":
 		return http.StatusInternalServerError
-	// A Holder's name that is not one (#325). 400 beside INVALID_HOLDER_EMAIL:
-	// the body itself is wrong and restating it correctly is what fixes it.
-	case "INVALID_HOLDER_NAME":
-		return http.StatusBadRequest
 	// No link secret configured is a deployment fault and not the holder's, so it
 	// is a 500 beside CONFIRMATION_LINK_UNAVAILABLE. Telling somebody their link
 	// is broken when it is the server that is broken sends them back to the buyer

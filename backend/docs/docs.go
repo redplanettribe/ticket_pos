@@ -124,7 +124,7 @@ const docTemplate = `{
             "handler.assignmentLinkNameBody": {
                 "properties": {
                     "first_name": {
-                        "description": "FirstName and LastName are stored separately (ADR 0005) and written to the\nCustomer as their current asserted name. Trimmed, bounded and refused when\neither half is blank by catalog.ParseHolderName in the service, and NOT\nhere: a name is a domain value with one definition, and a second check in\nthe handler is a second place for it to disagree.",
+                        "description": "FirstName and LastName are stored separately (ADR 0005) and written to the\nCustomer as their current asserted name. Required and bounded HERE, in the\nhandler, as the standard VALIDATION_FAILED envelope (#336): the token\nnames the Ticket, so unlike the buyer's Holder email write there is no id\nfor an early 400 to leak (see the INVALID_HOLDER_EMAIL exception in the\napi-errors skill). The bound is catalog.MaxHolderNameLength, so the\ndomain still owns the number.",
                         "type": "string"
                     },
                     "last_name": {
@@ -8817,7 +8817,7 @@ const docTemplate = `{
         },
         "/api/v1/public/assignment-link/name": {
             "put": {
-                "description": "Writes the first and last name of the Holder who accepted the Ticket the signed Assignment Link names, as that Customer's current asserted name — stored separately (ADR 0005), and overwriting whatever the record held, since the person editing is the person the record is about. **A Holder is never asked for a Tax ID**: it is a fact about the sale's buyer, never about an attendee, and this body has nowhere to put one. It accepts the assignment first if it has not been accepted already, so the name and the click are one act. No sign-in, no session minted, and no consent granted. Refused with 400 INVALID_HOLDER_NAME when either half is blank or too long, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off.",
+                "description": "Writes the first and last name of the Holder who accepted the Ticket the signed Assignment Link names, as that Customer's current asserted name — stored separately (ADR 0005), and overwriting whatever the record held, since the person editing is the person the record is about. **A Holder is never asked for a Tax ID**: it is a fact about the sale's buyer, never about an attendee, and this body has nowhere to put one. It accepts the assignment first if it has not been accepted already, so the name and the click are one act. No sign-in, no session minted, and no consent granted. Refused with 400 VALIDATION_FAILED carrying ` + "`" + `details.fields` + "`" + ` when either half of the name is blank or over 100 characters, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off.",
                 "requestBody": {
                     "content": {
                         "application/json": {
