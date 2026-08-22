@@ -538,16 +538,25 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 				fee = *line.Fee
 			}
 			amountCents += line.Quantity * unitPrice
-			if _, err := tx.ExecContext(ctx, `
+			var lineID string
+			if err := tx.QueryRowContext(ctx, `
 				INSERT INTO ticket_sale_lines (
 					ticket_sale_id, ticket_type_id, quantity, unit_price_cents,
 					base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points,
 					created_at
 				)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				RETURNING id
 			`, saleID, line.TicketTypeID, line.Quantity, unitPrice,
 				fee.BasePriceCents, fee.FeeCents, fee.FeeIVACents,
-				fee.FeeBasisPoints, fee.FeeIVABasisPoints, in.Now); err != nil {
+				fee.FeeBasisPoints, fee.FeeIVABasisPoints, in.Now).Scan(&lineID); err != nil {
+				return nil, err
+			}
+			// The line's Tickets, minted in the same breath as the line itself.
+			// Nothing between these two statements may fail without both rolling
+			// back together: that is the whole of how "one Ticket per ticket sold"
+			// is kept true (ADR 0043).
+			if err := mintTickets(ctx, tx, lineID, line.Quantity, in.Now); err != nil {
 				return nil, err
 			}
 		}
@@ -575,6 +584,31 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	}
 
 	return recorded, nil
+}
+
+// mintTickets writes one Ticket per unit of a Ticket Sale Line's quantity, in
+// the caller's transaction — the act that turns a quantity into the units of
+// admission it counts (#308, ADR 0043).
+//
+// IT TAKES A TRANSACTION AND NO POOL, deliberately, and it is unexported for
+// the same reason. A Ticket exists only because a Ticket Sale Line does, so
+// there is no honest caller outside the transaction that wrote the line: a
+// Ticket minted afterwards is a Ticket that a crash in between could have left
+// unminted, and the invariant this table ships with — one Ticket per ticket
+// sold — is held by exactly that atomicity and by nothing else. Anything that
+// ever writes a Ticket Sale Line outside the commit spine must call this beside
+// it, in the same transaction.
+//
+// The insert mirrors migration 071's backfill statement, generate_series and
+// all, so that a Ticket minted at sale time and a Ticket backfilled onto an old
+// sale are the same row written by the same shape.
+func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quantity int, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO tickets (ticket_sale_line_id, ordinal, created_at)
+		SELECT $1, ordinals.n, $3
+		FROM generate_series(1, $2) AS ordinals (n)
+	`, ticketSaleLineID, quantity, now)
+	return err
 }
 
 // liveHoldsForUpdate returns the quantities live Capacity Holds claim per

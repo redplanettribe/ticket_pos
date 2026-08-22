@@ -563,6 +563,31 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/promotion", orgAdmin(http.HandlerFunc(ch.SetTicketTypePromotion)))
 	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/promotion", orgAdmin(http.HandlerFunc(ch.UpdateTicketTypePromotion)))
 	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/promotion", orgAdmin(http.HandlerFunc(ch.RemoveTicketTypePromotion)))
+	// A Ticket Type's Ticket Questions (#309, ADR 0045). Gated exactly as editing
+	// the Ticket Type they belong to is, for the reason its Promotion is: a
+	// Ticket Question is part of defining the Ticket Type, not a separate thing
+	// with a separate audience, and a surface that decided its own gate would be
+	// a second answer to a question `orgAdmin` already answers here.
+	//
+	// THESE ROUTES ARE REGISTERED WHETHER OR NOT THE FEATURE FLAG IS ON, and
+	// answer 404 while it is off. The flag lives in the catalog service rather
+	// than in this file deliberately: a route that exists only under a condition
+	// is a shape no test can exercise both sides of, and the property this
+	// feature has to prove — that with the flag off nothing differs from today —
+	// needs both sides reachable in one process. See ADR 0045 and
+	// catalog.ErrTicketQuestionsUnavailable for why the refusal is a 404.
+	mux.Handle("GET /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions", orgAdmin(http.HandlerFunc(ch.ListTicketQuestions)))
+	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions", orgAdmin(http.HandlerFunc(ch.CreateTicketQuestion)))
+	// The reorder registers before the {questionId} routes so that "order" is
+	// read as the verb it is rather than as somebody's question id.
+	mux.Handle("PUT /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/order", orgAdmin(http.HandlerFunc(ch.ReorderTicketQuestions)))
+	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}", orgAdmin(http.HandlerFunc(ch.UpdateTicketQuestion)))
+	// DELETE retires and never deletes, on both of these: what has been answered
+	// keeps reading on its Ticket and in the Sales Export.
+	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}", orgAdmin(http.HandlerFunc(ch.RetireTicketQuestion)))
+	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options", orgAdmin(http.HandlerFunc(ch.AddTicketQuestionOption)))
+	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RenameTicketQuestionOption)))
+	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RetireTicketQuestionOption)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

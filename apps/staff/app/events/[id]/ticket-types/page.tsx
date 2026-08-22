@@ -21,6 +21,15 @@ type EventSummary = {
   fee_handling: FeeHandling;
   fee_basis_points: number;
   fee_iva_basis_points: number;
+  /**
+   * The platform's Ticket Question feature flag, which rides on the Event
+   * payload for the same reason the fee rates above do: this page composes the
+   * Ticket Type editor, and the flag decides whether that editor offers a Ticket
+   * Question surface at all (#309, ADR 0045). Reading it from the API rather
+   * than from an environment variable of the frontend's own keeps one answer to
+   * the question of whether the feature is on.
+   */
+  ticket_questions_enabled: boolean;
 };
 
 async function fetchEventSummary(eventId: string): Promise<EventSummary | null> {
@@ -53,6 +62,7 @@ export default async function TicketTypesPage({ params }: TicketTypesPageProps) 
       eventId={id}
       eventStatus={event.status}
       eventTimezone={event.timezone}
+      ticketQuestionsEnabled={event.ticket_questions_enabled}
       feeHandling={event.fee_handling}
       feeRates={{
         fee_basis_points: event.fee_basis_points,

@@ -42,6 +42,7 @@ import {
   purchaseLimitWireValue,
 } from "@/lib/purchase-limit";
 
+import { TicketQuestionsDialog } from "./ticket-questions-dialog";
 import { TicketTypeCard } from "./ticket-type-card";
 
 type TicketTypesSectionProps = {
@@ -52,6 +53,13 @@ type TicketTypesSectionProps = {
   feeRates: FeeRates;
   /** The Event's timezone: Promotion windows are typed and read in it (ADR 0021). */
   eventTimezone: string | null;
+  /**
+   * The platform's Ticket Question feature flag, read off the Event payload
+   * (#309, ADR 0045). False hides the authoring surface entirely — no button, no
+   * dialog — which is the shipped state and the reason nothing on this page
+   * differs from before the feature landed.
+   */
+  ticketQuestionsEnabled: boolean;
   onTicketTypeCountChange?: (count: number) => void;
   missingWarning?: boolean;
 };
@@ -99,6 +107,7 @@ export function TicketTypesSection({
   feeHandling,
   feeRates,
   eventTimezone,
+  ticketQuestionsEnabled,
   onTicketTypeCountChange,
   missingWarning,
 }: TicketTypesSectionProps) {
@@ -111,6 +120,9 @@ export function TicketTypesSection({
   const [editTarget, setEditTarget] = useState<TicketType | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TicketType | null>(null);
   const [promotionTarget, setPromotionTarget] = useState<TicketType | null>(null);
+  // The Ticket Type whose Ticket Questions are being authored, or null. Only
+  // ever set while the feature flag is on.
+  const [questionsTarget, setQuestionsTarget] = useState<TicketType | null>(null);
   const [form, setForm] = useState<TicketTypeFormState>(emptyForm);
   const [promotionForm, setPromotionForm] = useState<PromotionFormState>(emptyPromotionForm);
   const [saving, setSaving] = useState(false);
@@ -642,11 +654,30 @@ export function TicketTypesSection({
                 onMoveDown={() => void moveTicketType(ticketType, "down")}
                 onEdit={() => openEditDialog(ticketType)}
                 onPromotion={() => openPromotionDialog(ticketType)}
+                onQuestions={
+                  ticketQuestionsEnabled ? () => setQuestionsTarget(ticketType) : undefined
+                }
                 onDelete={() => setDeleteTarget(ticketType)}
               />
             ))}
           </ul>
         )}
+        {/* Ticket Question authoring (#309). Mounted only once a Ticket Type has
+            been chosen AND the flag is on, so a build with the flag off never
+            renders this subtree at all (ADR 0045). */}
+        {ticketQuestionsEnabled && questionsTarget ? (
+          <TicketQuestionsDialog
+            open
+            onOpenChange={(open) => {
+              if (!open) {
+                setQuestionsTarget(null);
+              }
+            }}
+            eventId={eventId}
+            ticketTypeId={questionsTarget.id}
+            ticketTypeName={questionsTarget.name}
+          />
+        ) : null}
         {/* A reorder swaps two rows and refetches; without this the change is
             silent to assistive tech. */}
         <p aria-live="polite" className="sr-only">

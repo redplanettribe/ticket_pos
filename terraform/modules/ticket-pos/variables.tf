@@ -405,6 +405,12 @@ variable "otp_global_ceiling" {
   }
 }
 
+variable "ticket_questions_enabled" {
+  description = "Whether an Organization may define Ticket Questions in the staff app (#309). STARTS FALSE, and the prerequisite is legal rather than technical: a Ticket Question can ask anything an Organization types, including dietary requirements, and the published Privacy Policy does not describe collecting that (ADR 0045). It flips only once a Policy Version that does has published — which re-gates every Customer, so it should ride with other policy changes. With it false the staff endpoints answer 404 and no Storefront surface or export differs from a build without the feature."
+  type        = bool
+  default     = false
+}
+
 # --- Reversal Reconciler ------------------------------------------------------
 
 variable "reversal_reconciler_enabled" {

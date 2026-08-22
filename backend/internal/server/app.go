@@ -288,6 +288,10 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	if options.clock != nil {
 		catalogService = catalogService.WithClock(options.clock)
 	}
+	// The Ticket Question authoring surface, dark unless a deployment has
+	// deliberately opened it (#309, ADR 0045). Unset, misspelt or absent leaves
+	// it closed.
+	catalogService = catalogService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by

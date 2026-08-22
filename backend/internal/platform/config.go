@@ -75,6 +75,22 @@ type Config struct {
 	// Fees holds the Platform Fee and Fee IVA rates the platform withholds on
 	// every Online Sale. See FeeConfig.
 	Fees FeeConfig
+	// TicketQuestionsEnabled opens the Ticket Question authoring surface, from
+	// TICKET_QUESTIONS_ENABLED (#309, ADR 0045).
+	//
+	// IT STARTS FALSE, AND FLIPPING IT IS A DECISION SOMEBODY MUST TAKE ON
+	// PURPOSE. A Ticket Question can ask anything an Organization types, and the
+	// two examples that motivated the feature — a t-shirt size and dietary
+	// requirements — put health data in reach. The published Privacy Policy does
+	// not describe collecting any of it, so the flag flips only once a Policy
+	// Version that does has published. Read ADR 0045 before changing this
+	// default; the ADR was written to prevent exactly that change being made
+	// casually.
+	//
+	// With it off, no Answer can be authored into existence, no Storefront
+	// surface changes, and no export changes — the staff endpoints answer 404 as
+	// a build without the feature does.
+	TicketQuestionsEnabled bool
 }
 
 // FeeConfig is the platform-wide fee schedule: the Platform Fee rate and the
@@ -363,6 +379,12 @@ func LoadConfig() (Config, error) {
 		Google:           google,
 		PayPhone:         payPhone,
 		Fees:             fees,
+
+		// envIsTrue is read the permissive way round here for once in the right
+		// direction: anything it cannot parse as true — unset, empty, misspelt —
+		// leaves Ticket Question authoring closed. A typo in this setting must
+		// never be what opens it (ADR 0045).
+		TicketQuestionsEnabled: envIsTrue("TICKET_QUESTIONS_ENABLED"),
 	}
 	return cfg, nil
 }

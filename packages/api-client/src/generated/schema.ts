@@ -6129,6 +6129,664 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List ticket questions
+         * @description Lists the Ticket Questions defined on a ticket type, retired ones last. Answers 404 while the Ticket Question feature flag is off.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create ticket question
+         * @description Adds a Ticket Question to a ticket type, with its Options when the kind is a choice one. Answers 404 while the Ticket Question feature flag is off.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Ticket question */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.ticketQuestionBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Retire ticket question
+         * @description Retires a Ticket Question. Never deletes: what has been answered keeps reading. Answers 404 while the Ticket Question feature flag is off.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Update ticket question
+         * @description Restates a Ticket Question. The kind is refused when any Answer exists. Answers 404 while the Ticket Question feature flag is off.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Ticket question */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.ticketQuestionBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add ticket question option
+         * @description Adds an Option to a choice Ticket Question, refusing a twenty-first. Answers 404 while the Ticket Question feature flag is off.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Option label */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.ticketQuestionOptionBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Retire ticket question option
+         * @description Retires an Option: gone from new lists, kept on the Tickets that chose it. Refuses the last live one. Answers 404 while the Ticket Question feature flag is off.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                    /** @description Option ID */
+                    optionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Rename ticket question option
+         * @description Corrects an Option's label. The Option's identity is untouched, so Answers given under the old wording stay attached. Answers 404 while the Ticket Question feature flag is off.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                    /** @description Option ID */
+                    optionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description Option label */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.ticketQuestionOptionBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reorder ticket questions
+         * @description States the whole running order of a ticket type's live Ticket Questions. Answers 404 while the Ticket Question feature flag is off.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket type ID */
+                    ticketTypeId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The whole running order */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.reorderTicketQuestionsBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketQuestionList"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/video-upload-url": {
         parameters: {
             query?: never;
@@ -7346,6 +8004,9 @@ export interface components {
             note?: string;
             paid_at?: string;
         };
+        "handler.reorderTicketQuestionsBody": {
+            question_ids?: string[];
+        };
         "handler.reverseSaleBody": {
             note?: string;
             platform_fee_kept?: boolean;
@@ -7362,6 +8023,34 @@ export interface components {
         };
         "handler.staffLocaleBody": {
             locale?: string;
+        };
+        "handler.ticketQuestionBody": {
+            /** @description Kind is one of the seven; see catalog.ParseTicketQuestionKind. */
+            kind?: string;
+            /**
+             * @description Label is the Organization's own words, stored as coined and read
+             *     identically in every Locale (ADR 0027).
+             */
+            label?: string;
+            /**
+             * @description OptionLabels are the Options a choice question is created with. Read on
+             *     create only; update ignores it, because the Option endpoints own Options
+             *     once the question exists.
+             */
+            option_labels?: string[];
+            /**
+             * @description Required produces an Outstanding Answer and nothing more. Absent is false,
+             *     which is the right default: a question nobody said was required is not.
+             */
+            required?: boolean;
+            /**
+             * @description Timing is 'at_checkout' or 'after_purchase'. Absent means at_checkout,
+             *     which is the only value v1 writes.
+             */
+            timing?: string;
+        };
+        "handler.ticketQuestionOptionBody": {
+            label?: string;
         };
         "handler.undoImportBody": {
             notify_buyers?: boolean;
@@ -7862,6 +8551,16 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeTicketQuestionDetail": {
+            data?: components["schemas"]["service.TicketQuestionView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeTicketQuestionList": {
+            data?: components["schemas"]["service.TicketQuestionView"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeTicketTypeDetail": {
             data?: components["schemas"]["service.TicketTypeDetail"];
             error?: components["schemas"]["platform.APIError"];
@@ -8270,6 +8969,17 @@ export interface components {
             slug?: string;
             starts_at?: string;
             status?: string;
+            /**
+             * @description TicketQuestionsEnabled is the platform's Ticket Question feature flag
+             *     (ADR 0045), not a property of this Event — it rides here for the reason
+             *     FeeBasisPoints above does: the Ticket Type editor is composed from this
+             *     payload, and the flag decides whether that editor offers a Ticket Question
+             *     surface at all. Surfacing it lets the staff app hide the section rather
+             *     than render one whose every request would 404, and it keeps the answer in
+             *     ONE place: a second environment variable on the frontend could disagree
+             *     with the backend about whether the feature is on.
+             */
+            ticket_questions_enabled?: boolean;
             timezone?: string;
             venue_address?: string;
             venue_name?: string;
@@ -9333,6 +10043,46 @@ export interface components {
             canonical_key?: string;
             curated?: boolean;
             name?: string;
+        };
+        "service.TicketQuestionOptionView": {
+            /**
+             * @description ID is the Option's stable identity. A rename changes Label and never this,
+             *     which is what keeps the Answers given under the old wording attached.
+             */
+            id?: string;
+            label?: string;
+            /**
+             * @description Retired means gone from new lists, kept on the Tickets that chose it, and
+             *     still entitled to its column in the Sales Export.
+             */
+            retired?: boolean;
+            sort_order?: number;
+        };
+        "service.TicketQuestionView": {
+            created_at?: string;
+            id?: string;
+            kind?: string;
+            label?: string;
+            /** @description Options is empty for the five kinds that are not answered by choosing. */
+            options?: components["schemas"]["service.TicketQuestionOptionView"][];
+            /**
+             * @description Required produces an Outstanding Answer and nothing else. It is not a
+             *     constraint, and no surface may treat it as one.
+             */
+            required?: boolean;
+            /**
+             * @description Retired is true for a question kept only so that what has already been
+             *     answered still reads. Retired questions are returned so the authoring
+             *     surface can show them rather than appearing to have lost them.
+             */
+            retired?: boolean;
+            sort_order?: number;
+            /**
+             * @description Timing is 'at_checkout' on every row written so far; the field is here so
+             *     the Organization's choice can be honoured later without migrating Answers.
+             */
+            timing?: string;
+            updated_at?: string;
         };
         "service.TicketSaleLineView": {
             quantity?: number;

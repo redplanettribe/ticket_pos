@@ -62,6 +62,11 @@ export type EventDetail = {
   /** Hand-offs to the Registration Link. Clicks — never registrations, never
    * people: the platform loses sight of the buyer at the link. */
   registration_click_count: number;
+  /** The platform's Ticket Question feature flag, not a property of this Event
+   * — it rides here for the same reason the fee rates do, because the Ticket
+   * Type editor is composed from this payload (#309, ADR 0045). False is the
+   * shipped state, and with it false no surface offers Ticket Questions. */
+  ticket_questions_enabled: boolean;
   created_at: string;
 };
 

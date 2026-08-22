@@ -216,3 +216,9 @@ variable "follow_digest_drain_attempt_deadline_seconds" {
   type        = number
   default     = 90
 }
+
+variable "ticket_questions_enabled" {
+  description = "Whether an Organization may define Ticket Questions in the staff app (#309). STARTS FALSE. The prerequisite is a published Policy Version describing this collection (ADR 0045) — flipping it before that puts the platform in the position of deliberately collecting, through a mechanism it built, data its own policy says it does not collect. Read the ADR before changing this."
+  type        = bool
+  default     = false
+}

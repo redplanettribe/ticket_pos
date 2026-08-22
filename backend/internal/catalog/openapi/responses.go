@@ -53,6 +53,22 @@ type EnvelopeTicketTypeDetail struct {
 	RequestID string                   `json:"request_id"`
 }
 
+// EnvelopeTicketQuestionList documents Ticket Question list success responses.
+type EnvelopeTicketQuestionList struct {
+	Data      []service.TicketQuestionView `json:"data"`
+	Error     *platform.APIError           `json:"error"`
+	RequestID string                       `json:"request_id"`
+}
+
+// EnvelopeTicketQuestionDetail documents the single-Ticket-Question responses.
+// Every Option write answers with the whole question rather than the Option, so
+// an editor never has to reassemble one from a fragment.
+type EnvelopeTicketQuestionDetail struct {
+	Data      service.TicketQuestionView `json:"data"`
+	Error     *platform.APIError         `json:"error"`
+	RequestID string                     `json:"request_id"`
+}
+
 // EnvelopeTagList documents tag list success responses (search and event tags).
 type EnvelopeTagList struct {
 	Data      []service.TagView  `json:"data"`

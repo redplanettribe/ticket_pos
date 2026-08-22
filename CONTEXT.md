@@ -178,6 +178,19 @@ Governs future checkouts only: lowering it never unmakes a Ticket Sale, so a Cus
 Also refuses the offending rows of a Sale Import, counting the rows of one file against each other, so importing history recorded before the limit existed means raising or clearing it first.
 _Avoid_: Quota, cap, max quantity, rate limit, one-per-person, purchase restriction
 
+**Ticket Question**:
+Something an Organization wants to know about the person who will hold a ticket, defined on a Ticket Type and asked of each of its Tickets — a t-shirt size on a workshop ticket, dietary requirements on a dinner ticket.
+Of one of seven kinds: short text, long text, single choice, multiple choice, number, date, or a single tick box. A choice question offers Options; the others do not. Deliberately not a file upload and not a purpose-built email or phone field.
+Belongs to one Ticket Type, so the same wording on three Ticket Types is three Ticket Questions that happen to read alike. Written in the Organization's own words and read as coined in every Locale, like a Custom Tag.
+May be marked required, which makes an unanswered one an Outstanding Answer rather than a refusal: nothing about a Ticket Question ever blocks a checkout, a door sale or a Sale Import.
+_Avoid_: Custom field, form field, extra, attendee question, survey, questionnaire
+
+**Option**:
+One selectable value of a choice Ticket Question — `S`, `M`, `L`. At most twenty per question.
+Identified by more than its label: an Option's label may be corrected without forking the Answers already given under it, and each Answer keeps its own snapshot of the words the person actually read.
+Added at any time and retired but never deleted: a retired Option leaves new buyers' lists, stays on the Tickets that chose it, and keeps its column in the Sales Export. Nothing answered ever disappears.
+_Avoid_: Choice, value, answer option, enum, list item
+
 **Tag**:
 A discovery facet an Event can wear, describing what kind of Event it is (e.g. "Music", "Workshop", "Techno"). An Event may carry several Tags, and Tags live in one system-wide shared pool reused across all Organizations. Aids Storefront discovery. Distinct from Ticket Type, which is a purchasable category within a single Event.
 _Avoid_: Category, genre, label, keyword
@@ -209,11 +222,19 @@ _Avoid_: Order, purchase, transaction
 One Ticket Type and the quantity sold within a Ticket Sale.
 _Avoid_: Line item, cart item
 
+**Ticket**:
+One unit of admission within a Ticket Sale: where a Ticket Sale Line says three, there are three Tickets.
+Exists for every ticket sold on every Sales Channel, whether or not anything is asked of it, and is brought into being in the same act that records its Ticket Sale — never before, so a Payment that is abandoned leaves none behind.
+Holds no state of its own. Whether a Ticket stands is read from its Ticket Sale, because a Sale Reversal is always whole-Sale and a second copy of that fact could only ever disagree with the first.
+What it is not, yet: it cannot be scanned, checked in, transferred, or handed to a named person. It is the thing a Ticket Question is asked of, and the smallest thing this platform can say anything about.
+_Avoid_: Issued ticket, admission, seat, pass, attendee, entry
+
 **Tickets Sold**:
 How many tickets an Event has moved: the quantities of its Ticket Sale Lines summed across active Ticket Sales, on every Sales Channel — a ticket sold at the door fills a seat exactly as one sold online does.
 Answers "how many people are coming", where a count of Ticket Sales answers "how many times did somebody check out". One Ticket Sale of four tickets is 1 sale and 4 Tickets Sold, so neither figure can be read off the other and a surface showing one of them has to say which it is. Dropped by a Sale Reversal whole-Sale, like every other figure.
 Not a count of people: a ticket is a thing sold, and the platform does not yet know who walks in on it — which is why Tickets Sold is the honest name for the closest answer the model has.
 Summable at any grain the question needs: a day of an Event, a Ticket Type, an Event entire.
+Counted from the quantities and not from the Tickets, even though there is now one Ticket per ticket sold. Quantity stays the truth because a Capacity Hold is quantity-shaped and has no Tickets at all — a pending Payment holds stock before any Ticket exists — and because the same sums carry the fee and Net Proceeds arithmetic beside them. Tickets are a projection of the figure, minted from it, and the two agreeing is an invariant the tests assert rather than a query.
 Published, not merely reported: the Storefront states an Event's Tickets Sold to anyone reading its page, as one figure for the whole Event, so the _Avoid_ list below now governs Customer-facing copy and not only staff surfaces (ADR 0042). Stated only where there is enough of it to state — beneath a floor the Storefront says nothing at all, and an Event with External Registration has no Tickets Sold to say anything about, since it produces no Ticket Sale.
 _Avoid_: Sales (as a word for tickets), attendees, headcount, seats, admissions. In Spanish: entradas vendidas, never asistentes
 
@@ -258,8 +279,35 @@ The claim a pending Payment places on Ticket Type capacity so a Customer cannot 
 _Avoid_: Reservation, cart lock, inventory block
 
 **Sale Confirmation**:
-A per-Ticket-Sale receipt carrying a human-readable reference code (e.g. `TP-3F9K2`), emailed to the Customer whenever a Ticket Sale is recorded. Not a per-attendee admission ticket; the model leaves room to attach individual tickets later.
+A per-Ticket-Sale receipt carrying a human-readable reference code (e.g. `TP-3F9K2`), emailed to the Customer whenever a Ticket Sale is recorded.
+Not an admission ticket and not one of the Tickets it covers: a Ticket is a unit of admission, this is the record of the transaction that produced several of them. Says so when it has to — a Sale whose Tickets carry Outstanding Answers gains one line pointing at its Confirmation Link, and every other Sale Confirmation reads exactly as it always has.
 _Avoid_: Ticket, receipt, order confirmation
+
+**Answer**:
+What one Ticket says in reply to one Ticket Question.
+A property of the Ticket rather than of the buyer: a person buying four tickets is not assumed to know four people's sizes, and the Answer stands wherever it came from — the buyer at checkout, the holder through an Answer Link, or Event Staff typing it in afterwards.
+Supplied by choice: nothing anywhere is refused for want of one. A choice Answer records which Option was picked together with the words that Option showed at the time.
+Changeable until the Event starts, read in the Event's timezone, and never on a reversed Ticket Sale. The platform keeps when it was last changed and not who changed it: which of four friends ordered the wrong size is not a dispute this product adjudicates.
+_Avoid_: Response, submission, field value, entry, reply
+
+**Answer Link**:
+A signed link opening one Ticket's Ticket Questions, for the buyer to pass to whoever will hold that ticket.
+Named for what it does and nothing more: it answers, it does not transfer. The Ticket Sale, the receipt and the Reversal Window stay with the buyer, and holding this link makes nobody a Customer.
+Shows the Event, the Ticket Type and the questions — never the buyer, the price, the Tax ID, the Sale Confirmation reference or the Sale's other Tickets, because a link forwarded into a group chat should disclose nothing about who paid.
+Asks for no proof of identity, which is the price of not collecting an address from someone who never came to this platform; a wrong Answer is fixable by the buyer and by Event Staff. Expires when the Event starts and stops opening when its Ticket Sale is reversed.
+Distinct from the Confirmation Link, which opens a whole Ticket Sale, and from the Consent Confirmation Link, which resolves a consent — three tokens, three purposes, and none of them opens what the others do.
+_Avoid_: Claim link, ticket link, share link, invite, magic link, transfer
+
+**Outstanding Answer**:
+A required Ticket Question that one Ticket has not answered yet — a debt, not a defect.
+The whole meaning of "required" on this platform: an Answer that is owed and visible as owed, rather than a gate. It is what a Sales Export's blank cell means, what an Answer Reminder is about, and the only thing an Organization can act on when the buyer did not know.
+_Avoid_: Missing, incomplete, unanswered (as the term), pending, required field
+
+**Answer Reminder**:
+The mail telling a buyer that Tickets on their Ticket Sale still owe Answers, and pointing them back at their sale to give them or pass on the Answer Links.
+Addressed to the buyer because there is nobody else to address: the platform holds no address for a holder and does not ask for one. So a Ticket Question added after a sale reaches its holder only if the buyer forwards it.
+Swept rather than triggered, so an Organization drafting its questions cannot mail the same people four times in ten minutes; rationed per Ticket Sale and silent once the Event has started. Transactional, so it is not gated by Marketing Consent, and written in the recipient's Mail Locale.
+_Avoid_: Nudge, chase, follow-up, notification, reminder email (unqualified)
 
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
