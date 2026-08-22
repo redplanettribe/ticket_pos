@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 )
 
 // The reads behind the Sales Export's per-Ticket sheet (#314): the Event's
@@ -116,6 +118,30 @@ type ExportedTicket struct {
 	// TicketTypeName is the Ticket Type's CURRENT name, joined live exactly as
 	// the data sheet's Ticket Type headings are.
 	TicketTypeName string
+
+	// THE HOLDER, AS THE EXPORT MAY SEE IT (#330, parent #322, ADR 0047).
+
+	// AssignmentState is `unassigned`, `assigned` or `accepted`, derived here by
+	// catalog.AssignmentState so that the file cannot use the word differently
+	// from the buyer's page or the staff guest list (migration 080). A Ticket
+	// whose address was purged at Event start reads `unassigned` (migration 081).
+	AssignmentState catalog.TicketAssignmentState
+	// HolderFirstName, HolderLastName and HolderEmail are the accepted Holder,
+	// and are EMPTY ON EVERY OTHER TICKET.
+	//
+	// THEY ARE READ OFF THE JOINED CUSTOMER AND NEVER OFF tickets.holder_email,
+	// and that is the enforcement of ADR 0047 rather than a stylistic choice.
+	// A Customer reference exists only where an acceptance does — migration
+	// 080's tickets_holder_customer_requires_acceptance_ck refuses the pairing
+	// outright — so an address that was typed by a buyer and never accepted has
+	// no row for this join to reach, and cannot arrive here however this struct
+	// is later filled in. Selecting tk.holder_email into this field would be the
+	// one-line change that reverses the decision the whole feature is drawn
+	// around; there is deliberately no field on this struct for it to land in.
+	HolderFirstName string
+	HolderLastName  string
+	HolderEmail     string
+
 	// Answers is what this Ticket has said, one entry per Ticket Question it has
 	// answered. A question missing from here is an Outstanding Answer, or one
 	// this Ticket was never asked because it belongs to another Ticket Type.
@@ -160,11 +186,25 @@ func (r *Repository) ListTicketsForSales(ctx context.Context, saleIDs []string) 
 		return nil, nil
 	}
 
+	// The assignment columns (migration 080) and the Holder's Customer row.
+	//
+	// TWO DIFFERENT THINGS ARE BEING READ HERE AND THEY MUST NOT BE CONFLATED.
+	// tk.holder_email, tk.assigned_at and tk.accepted_at decide which of three
+	// WORDS the state column says, and the address among them is scanned into a
+	// local that never leaves this loop. The Holder's NAME AND ADDRESS come from
+	// the LEFT JOIN, and only from it — see ExportedTicket for why that join is
+	// ADR 0047's rule made structural rather than remembered.
+	//
+	// The join is LEFT because almost every Ticket has no Holder: an Event where
+	// nobody has accepted must still export every one of its Tickets.
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT l.ticket_sale_id, tk.id, tt.name
+		SELECT l.ticket_sale_id, tk.id, tt.name,
+		       tk.holder_email, tk.assigned_at, tk.accepted_at,
+		       h.first_name, h.last_name, h.email
 		FROM tickets tk
 		JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
 		JOIN ticket_types tt ON tt.id = l.ticket_type_id
+		LEFT JOIN customers h ON h.id = tk.holder_customer_id
 		WHERE l.ticket_sale_id = ANY($1)
 		ORDER BY l.ticket_sale_id, tt.sort_order, tt.name, l.id, tk.ordinal
 	`, saleIDs)
@@ -180,9 +220,24 @@ func (r *Repository) ListTicketsForSales(ctx context.Context, saleIDs []string) 
 	for rows.Next() {
 		var saleID string
 		ticket := &ExportedTicket{}
-		if err := rows.Scan(&saleID, &ticket.ID, &ticket.TicketTypeName); err != nil {
+		// Scoped to this iteration and never hung off the Ticket. This is the
+		// unaccepted address, and the only thing it is allowed to do is help
+		// decide a word.
+		var holderEmail sql.NullString
+		var assignedAt, acceptedAt sql.NullTime
+		var firstName, lastName, customerEmail sql.NullString
+		if err := rows.Scan(
+			&saleID, &ticket.ID, &ticket.TicketTypeName,
+			&holderEmail, &assignedAt, &acceptedAt,
+			&firstName, &lastName, &customerEmail,
+		); err != nil {
 			return nil, err
 		}
+		ticket.AssignmentState = catalog.AssignmentState(
+			holderEmail.String, assignmentTime(assignedAt), assignmentTime(acceptedAt))
+		ticket.HolderFirstName = firstName.String
+		ticket.HolderLastName = lastName.String
+		ticket.HolderEmail = customerEmail.String
 		bySale[saleID] = append(bySale[saleID], ticket)
 		at[ticket.ID] = ticket
 	}
@@ -285,6 +340,17 @@ func (r *Repository) ListTicketsForSales(ctx context.Context, saleIDs []string) 
 // flatten turns the assembly's pointers back into values, which is what a caller
 // wants: nothing outside this function has any business holding a Ticket's
 // address.
+// assignmentTime hands catalog.AssignmentState the nil it reads an absence as.
+// Postgres NULL, sql.NullTime and a nil *time.Time are three spellings of one
+// fact, and this is where the last two meet.
+func assignmentTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	at := value.Time
+	return &at
+}
+
 func flatten(bySale map[string][]*ExportedTicket) map[string][]ExportedTicket {
 	out := make(map[string][]ExportedTicket, len(bySale))
 	for saleID, tickets := range bySale {

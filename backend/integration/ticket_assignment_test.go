@@ -43,6 +43,12 @@ func buyerAssignmentPath(ticketSaleID, ticketID string) string {
 func enableTicketAssignment(t *testing.T) {
 	t.Helper()
 	sharedApp.CatalogService.WithTicketAssignment(true)
+	// And sales, which reads the SAME environment variable for one thing: the
+	// Holder columns on the Sales Export's per-Ticket sheet (#330, ADR 0047).
+	// Both services here because server wiring hands both the one value, and a
+	// helper that opened only half of it would let a test pass against a
+	// deployment shape that does not exist.
+	sharedApp.SalesService.WithTicketAssignment(true)
 }
 
 // assignTicket puts one address on one Ticket and returns the whole response,

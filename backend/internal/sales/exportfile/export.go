@@ -386,6 +386,21 @@ func infoLines(info Info, loc *time.Location, rowCount int, answers Answers) []s
 				colConfirmationRef+". A blank cell there is a question that ticket has not "+
 				"answered, or was never asked because it belongs to another Ticket Type.",
 		)
+		// And who the ticket is for, once assignment is open. The sentence about
+		// what is NOT there is the load-bearing half (ADR 0047): an Organizer who
+		// typed an address into their own event and cannot find it in the file
+		// would otherwise report the export as broken, and the answer is that the
+		// address is not theirs to see until the person it belongs to has said so.
+		if answers.Assignment {
+			lines = append(lines,
+				"",
+				"That sheet also names each ticket's holder: its "+colAssignmentState+" — "+
+					"unassigned, assigned or accepted — and, for a ticket whose holder has "+
+					"accepted, their name and email address. An address a buyer entered that "+
+					"its owner has not accepted is not shown here: it is theirs to disclose, "+
+					"not ours, and it is deleted when the event starts.",
+			)
+		}
 	}
 
 	return lines

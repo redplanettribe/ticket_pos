@@ -29,6 +29,24 @@ const AnswersSheet = "Ticket Answers"
 // up on the other sheet, and a VLOOKUP cannot span two spellings of one column.
 const colTicketTypeName = "ticket_type"
 
+// The Holder columns (#330, parent #322, ADR 0047): who the Ticket was handed
+// to, beside what they answered.
+//
+// FOUR COLUMNS AND NOT TWO. The state is carried as well as the person because
+// a blank name is ambiguous without it — an Organizer looking at an empty row
+// cannot otherwise tell a Ticket nobody was named for from one whose Holder has
+// not clicked yet, and those are different things to do something about.
+//
+// The names are spelled like the data sheet's `customer_*` trio and not like it:
+// same shape, different word, because a Holder is emphatically not the buyer.
+// Nothing joins the two sheets on them.
+const (
+	colAssignmentState = "assignment_state"
+	colHolderFirstName = "holder_first_name"
+	colHolderLastName  = "holder_last_name"
+	colHolderEmail     = "holder_email"
+)
+
 // answersFixedColumns are the columns every per-Ticket sheet has, in order, left
 // to right. The Event's Ticket Question columns follow them — see
 // answersLayoutFor, which is the only place this sheet's layout is decided.
@@ -46,6 +64,25 @@ const colTicketTypeName = "ticket_type"
 // identical rows on this sheet are two tickets that answered alike, which is the
 // truth of the matter.
 var answersFixedColumns = []string{colConfirmationRef, colTicketTypeName}
+
+// holderColumns are the four the sheet gains once Ticket Assignment is open,
+// spliced in after the Ticket Type and BEFORE the Ticket Questions — see
+// answersLayoutFor.
+//
+// BEFORE THE QUESTIONS ON PURPOSE, and this is the whole shape of the ticket:
+// "who is coming and what size are they" is one sheet, read left to right, and
+// the person comes before what the person said. Put after the questions they
+// would sit off the right edge of a wide Event's sheet, which is the same as
+// being in a second file.
+//
+// The state leads the three person columns because it is the one cell that is
+// never blank, and it is what tells a reader how to read the blanks beside it.
+var holderColumns = []string{
+	colAssignmentState,
+	colHolderFirstName,
+	colHolderLastName,
+	colHolderEmail,
+}
 
 // QuestionColumn is one Ticket Question of the Event, and one or more columns of
 // the sheet.
@@ -108,6 +145,39 @@ type TicketRow struct {
 	// TicketTypeName is the Ticket Type's CURRENT name, joined live exactly as
 	// the data sheet's Ticket Type headings are.
 	TicketTypeName string
+
+	// THE HOLDER (#330, ADR 0047). Empty on every row while Ticket Assignment is
+	// closed, and Answers.Assignment is what decides whether the columns exist
+	// at all — never the presence of a value here, because a column that came
+	// and went with the data would make an Organizer wonder what they filtered
+	// out.
+
+	// AssignmentState is `unassigned`, `assigned` or `accepted`, derived by
+	// catalog.AssignmentState and never stored (migration 080). It is the only
+	// one of these four that is written on every row, and it is what makes the
+	// three blanks beside it readable.
+	//
+	// A PURGED TICKET READS `unassigned`, which is migration 081's decision kept
+	// rather than re-litigated here: the address was taken at Event start, and
+	// nobody holds the Ticket. There is no fourth word for it.
+	AssignmentState string
+	// HolderFirstName, HolderLastName and HolderEmail are the accepted Holder,
+	// and they are EMPTY UNLESS THE TICKET IS `accepted`. That is not a display
+	// convention — it is ADR 0047's line, and the one the whole design is drawn
+	// around: an address a buyer typed and its owner never accepted has no
+	// consent moment behind it, is not the Organization's to see, and never
+	// reaches this file. A Ticket in `assigned` therefore exports the WORD
+	// `assigned` and three blank cells.
+	//
+	// They are also structurally incapable of carrying an unaccepted address:
+	// the repository reads all three off the joined CUSTOMER row, which exists
+	// only where accepted_at does (migration 080's
+	// tickets_holder_customer_requires_acceptance_ck). There is no query here
+	// that could leak one by being edited carelessly.
+	HolderFirstName string
+	HolderLastName  string
+	HolderEmail     string
+
 	// Answers is what this Ticket has said, keyed by Ticket Question id — never
 	// by label, which is wording and not identity.
 	//
@@ -163,6 +233,17 @@ type Answer struct {
 // received is exactly the workbook they keep receiving.
 type Answers struct {
 	Questions []QuestionColumn
+	// Assignment is whether TICKET_ASSIGNMENT_ENABLED is open, and the whole of
+	// the test for whether this sheet carries the four Holder columns (#330).
+	//
+	// THE FLAG AND NOT THE DATA. With assignment closed the workbook is exactly
+	// the one it was before this ticket — same columns, same letters — which is
+	// what makes the flag a real off switch rather than a hidden surface, the
+	// same property WithTicketQuestions buys for the sheet as a whole (ADR 0045).
+	// With it open the columns are there on every Event, whether or not anybody
+	// has been named: an empty column is information and a missing one is a
+	// reader wondering what they filtered out.
+	Assignment bool
 	// Tickets are the Tickets of the Ticket Sales the file carries, and only
 	// those: the sheet respects whatever filters the Sales list was showing,
 	// like the rest of the file. It is built from the very rows the data sheet
@@ -189,8 +270,9 @@ const answerDateFormat = "yyyy-mm-dd"
 // multiple-choice question contributes no column of its own and one per Option
 // instead, each keyed by the OPTION's id — which is what makes a rename move a
 // heading rather than fork a column.
-func answersLayoutFor(questions []QuestionColumn) layout {
-	width := len(answersFixedColumns) + len(questions)
+func answersLayoutFor(answers Answers) layout {
+	questions := answers.Questions
+	width := len(answersFixedColumns) + len(holderColumns) + len(questions)
 	out := layout{
 		headers: make([]string, 0, width),
 		index:   make(map[string]int, width),
@@ -201,6 +283,13 @@ func answersLayoutFor(questions []QuestionColumn) layout {
 	}
 	for _, col := range answersFixedColumns {
 		add(col, col)
+	}
+	// The Holder, between the Ticket Type and the questions: the person, then
+	// what the person said.
+	if answers.Assignment {
+		for _, col := range holderColumns {
+			add(col, col)
+		}
 	}
 	for _, q := range questions {
 		if len(q.Options) == 0 {
@@ -221,7 +310,7 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 		return err
 	}
 
-	cols := answersLayoutFor(answers.Questions)
+	cols := answersLayoutFor(answers)
 	for i, h := range cols.headers {
 		cell, err := excelize.CoordinatesToCellName(i+1, 1)
 		if err != nil {
@@ -246,6 +335,11 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 		if err := setStr(f, AnswersSheet, cols, colTicketTypeName, row, ticket.TicketTypeName); err != nil {
 			return err
 		}
+		if answers.Assignment {
+			if err := writeHolder(f, cols, ticket, row); err != nil {
+				return err
+			}
+		}
 
 		for _, q := range answers.Questions {
 			answer, answered := ticket.Answers[q.ID]
@@ -264,8 +358,12 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 		}
 	}
 
-	// Wide enough that a question's wording is readable as a heading without the
-	// recipient widening every column first.
+	// Wide enough that a question's wording — and a Holder's email address, which
+	// is the longest thing on the sheet — is readable without the recipient
+	// widening every column first. The same 22 the data sheet gives
+	// customer_email, and it spans every column the layout produced, so the
+	// Holder columns are covered by arriving in it rather than by a rule of
+	// their own.
 	first, err := excelize.ColumnNumberToName(1)
 	if err != nil {
 		return err
@@ -275,6 +373,40 @@ func addAnswersSheet(f *excelize.File, answers Answers) error {
 		return err
 	}
 	return f.SetColWidth(AnswersSheet, first, last, 22)
+}
+
+// writeHolder writes the four Holder columns for one Ticket (#330, ADR 0047).
+//
+// EVERY BLANK HERE IS DELIBERATE AND NONE OF THEM IS A ZERO. An empty value is
+// left unwritten rather than written as "", so the cell is genuinely blank — the
+// same absent-versus-empty rule the Answers beside it follow, and the same one
+// the data sheet's money columns follow. A reader filtering on "is blank" gets
+// the rows nobody has accepted, which is the question they are asking.
+//
+// The state is written on every row and the three person columns only where
+// there is a person. NOTHING HERE TESTS THE STATE TO DECIDE THAT: the values are
+// already empty unless the Ticket is `accepted`, because the repository read
+// them off a Customer row that only an acceptance can produce. A test on the
+// word would be a second copy of ADR 0047's rule, and a second copy is a chance
+// to disagree with the first.
+func writeHolder(f *excelize.File, cols layout, ticket TicketRow, row int) error {
+	for _, col := range []struct {
+		key   string
+		value string
+	}{
+		{colAssignmentState, ticket.AssignmentState},
+		{colHolderFirstName, ticket.HolderFirstName},
+		{colHolderLastName, ticket.HolderLastName},
+		{colHolderEmail, ticket.HolderEmail},
+	} {
+		if col.value == "" {
+			continue
+		}
+		if err := setStr(f, AnswersSheet, cols, col.key, row, col.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeAnswer writes one Ticket's Answer to one Ticket Question, in whichever

@@ -299,8 +299,13 @@ type Service struct {
 	// discarding personal data by accident. Off is how the feature ships, and
 	// off means a checkout identical to the one before this ticket.
 	ticketQuestionsEnabled bool
-	logger                 platform.Logger
-	now                    func() time.Time
+	// ticketAssignmentEnabled decides whether the Sales Export's per-Ticket
+	// sheet carries the four Holder columns (#330, ADR 0047). It is the SAME
+	// TICKET_ASSIGNMENT_ENABLED the catalog service is handed and a SEPARATE
+	// flag from ticketQuestionsEnabled above — see WithTicketAssignment.
+	ticketAssignmentEnabled bool
+	logger                  platform.Logger
+	now                     func() time.Time
 	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
 	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
 	drainBatch int
@@ -355,6 +360,27 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // in a file either.
 func (s *Service) WithTicketQuestions(enabled bool) *Service {
 	s.ticketQuestionsEnabled = enabled
+	return s
+}
+
+// WithTicketAssignment opens the Sales Export's Holder columns, from the same
+// TICKET_ASSIGNMENT_ENABLED the catalog service is handed (#330, parent #322,
+// ADR 0047).
+//
+// A SECOND WithX BESIDE WithTicketQuestions AND NEVER A SECOND ARGUMENT TO IT,
+// exactly as catalog's pair is arranged and for the reason stated there: the two
+// flags are independent, and the suite's ability to say so — assignment closed
+// while questions stay open, and the reverse — is the whole point of there being
+// two. This module needs its own copy for the reason it needs its own copy of
+// the questions flag: the export is a sales artifact and catalog's service is
+// not a dependency of it.
+//
+// Off — which is how it ships — the per-Ticket sheet is exactly the sheet #314
+// built, column for column. An address disclosed before the Privacy Policy
+// describes the disclosure must not leave the building in a file (ADR 0045), and
+// with this closed there is no column for one to leave in.
+func (s *Service) WithTicketAssignment(enabled bool) *Service {
+	s.ticketAssignmentEnabled = enabled
 	return s
 }
 

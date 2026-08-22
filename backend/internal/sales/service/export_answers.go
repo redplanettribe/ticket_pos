@@ -91,6 +91,15 @@ func (s *Service) exportAnswers(ctx context.Context, orgID, eventID string, rows
 			out := exportfile.TicketRow{
 				ConfirmationRef: row.ConfirmationRef,
 				TicketTypeName:  ticket.TicketTypeName,
+				// The Holder, carried through unexamined (#330, ADR 0047). The
+				// repository has already decided what may be seen — the name and
+				// address come off a joined Customer row that only an acceptance
+				// can produce — so there is nothing to filter here, and a filter
+				// here would be a second copy of that rule.
+				AssignmentState: string(ticket.AssignmentState),
+				HolderFirstName: ticket.HolderFirstName,
+				HolderLastName:  ticket.HolderLastName,
+				HolderEmail:     ticket.HolderEmail,
 			}
 			if len(ticket.Answers) > 0 {
 				out.Answers = make(map[string]exportfile.Answer, len(ticket.Answers))
@@ -103,7 +112,15 @@ func (s *Service) exportAnswers(ctx context.Context, orgID, eventID string, rows
 		}
 	}
 
-	return exportfile.Answers{Questions: columns, Tickets: tickets}, nil
+	return exportfile.Answers{
+		Questions: columns,
+		Tickets:   tickets,
+		// The SECOND flag, read separately (#330). The sheet exists because the
+		// Event asks something; its Holder columns exist because assignment is
+		// open. An Event can be in either state without the other, and folding
+		// the two tests together would make one flag silently gate the other.
+		Assignment: s.ticketAssignmentEnabled,
+	}, nil
 }
 
 // exportedAnswer turns one stored Answer into the shape the file writes.
