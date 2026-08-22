@@ -3,9 +3,9 @@
 import { useMessages, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
+import { HeldTicketAnswers } from "@/components/held-ticket-answers";
 import { TicketAssignmentRow } from "@/components/ticket-assignment-row";
-import { TicketQuestionRow } from "@/components/ticket-question-row";
-import { visibleQuestionsOf, type AnswerBody } from "@/lib/answer-link";
+import { visibleQuestionsOf } from "@/lib/answer-link";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   hasAnythingToShow,
@@ -74,9 +74,10 @@ import {
  * and questions closed answers 404 here and shows nothing at all. That gate is
  * the API's and belongs to whoever unpicks it.
  *
- * THE SAVE BUTTON STAYS, for now. ADR 0049 wants each Answer to persist as it
- * is given and the panel to collapse once nothing is owed; that is #345, and
- * this component keeps today's per-question Save until it lands.
+ * THE BUYER'S OWN ROW IS THE HELD-TICKET PANEL (#345): the same
+ * components/held-ticket-answers.tsx a Holder sees in their own Customer Area
+ * — open while owed, autosaving, folded behind "Review or edit" once nothing
+ * is. This file only decides WHICH row is theirs and what its header says.
  */
 type BuyerTicketAnswersProps = {
   ticketSaleId: string;
@@ -222,7 +223,6 @@ function TicketBlock({
   // none here — not "none yet", none: the sale-scoped payload never carried
   // them, so there is nothing this block could draw even by mistake.
   const questions = heldRow === null ? [] : visibleQuestionsOf(heldRow.questions);
-  const own = heldRow !== null;
   const assignable = assignmentOffered(ticket);
 
   if (questions.length === 0 && !assignable) {
@@ -230,40 +230,6 @@ function TicketBlock({
     // dark. Drawn as nothing rather than as an empty block: there is nothing
     // to say about it and nothing to do with it.
     return null;
-  }
-
-  /**
-   * Answering one question on the buyer's own Ticket, through the held-ticket
-   * route — the same route a Holder uses from their own Customer Area.
-   *
-   * ONE TICKET COMES BACK, not the sale. Each held Ticket's panel stands
-   * alone, and the row is patched in by id.
-   */
-  async function save(questionId: string, body: AnswerBody): Promise<string | null> {
-    try {
-      const response = await fetch(
-        `/api/customer/held-tickets/${encodeURIComponent(ticket.ticket_id)}` +
-          `/answers/${encodeURIComponent(questionId)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          // No token and no id in the body. The session cookie is the whole
-          // credential on this surface, and the ids are in the address.
-          body: JSON.stringify(body),
-        },
-      );
-      const envelope = (await response.json()) as {
-        data: HeldTicket | null;
-        error: { code: string; message: string; details?: unknown } | null;
-      };
-      if (!response.ok || envelope.error || !envelope.data) {
-        return apiErrorMessage(errorCopy, envelope.error) ?? t("answers.saveFailed");
-      }
-      onAnswered(envelope.data);
-      return null;
-    } catch {
-      return t("answers.networkFailed");
-    }
   }
 
   /**
@@ -299,68 +265,17 @@ function TicketBlock({
     }
   }
 
-  const state = assignmentStateOf(ticket);
-  const holder = holderEmailOf(ticket);
-  const outstanding = heldRow?.outstanding_count ?? 0;
-
-  // ONE COLLAPSED ROW PER TICKET, opened on demand. The row's default reading
-  // is who the Ticket is for; the address field waits behind it. The buyer's
-  // own Ticket starts OPEN: its questions are theirs to answer.
-  return (
-    // `open` is set only on the buyer's own row and left UNDEFINED on the rest:
-    // a `false` here would be re-applied by React on every redraw, snapping a
-    // row shut the moment a save inside it came back.
-    <details className="group" open={own ? true : undefined}>
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
-        <span
-          aria-hidden
-          className="text-muted-foreground transition-transform group-open:rotate-90"
-        >
-          ▸
-        </span>
-        <span className="font-medium">
-          {own ?
-            t("answers.ownTicket")
-          : t("answers.ticketHeading", { position, total })}
-        </span>
-        <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
-        {/* The state, in the buyer's words: "accepted", never "claimed". */}
-        <span className="text-muted-foreground min-w-0 flex-1 whitespace-nowrap">
-          {own ? null
-          : state === "accepted" ?
-            t("assignment.rowAccepted", { email: holder })
-          : state === "assigned" ?
-            t("assignment.rowAssigned", { email: holder })
-          : assignable ?
-            t("assignment.rowUnassigned")
-          : null}
-        </span>
-        {/* The badge is about the buyer's OWN questions. A Ticket they do not
-            hold owes them nothing, and says nothing. */}
-        {own && questions.length > 0 ?
-          <span
-            className={
-              outstanding > 0 ?
-                "ml-auto whitespace-nowrap text-sm font-medium"
-              : "text-muted-foreground ml-auto whitespace-nowrap text-sm"
-            }
-          >
-            {outstanding > 0 ?
-              t("answers.rowOutstanding", { count: outstanding })
-            : t("answers.rowAnswered")}
-          </span>
-        : null}
-      </summary>
-
-      <div className="space-y-4 px-3 pb-4 pt-1">
-        {/* ABOVE THE QUESTIONS, because it is what tells this Ticket from the
-            other three. NOT remounted when the sale redraws: the field holds
-            what the buyer typed, and a remount would take the "saved"
-            confirmation off the screen at the moment it was earned. */}
-        {/* The buyer's own Ticket: the address is theirs, so the field is
-            offered only as "give it to someone else" rather than drawn open
-            with their own email in it. */}
-        {assignable && own ?
+  if (heldRow !== null) {
+    // THE BUYER'S OWN TICKET: the held-ticket panel — the same one a Holder
+    // sees in their Customer Area — with "give it to someone else" folded
+    // inside it above the questions. The panel decides whether it starts open
+    // (an Answer is owed), folds (the last one saved) or has no chevron at all
+    // (asks nothing) — see lib/held-ticket-panel.ts. The address is the
+    // buyer's own, so the field is offered only as a give-away rather than
+    // drawn open with their own email in it.
+    return (
+      <HeldTicketAnswers ticket={heldRow} header={t("answers.ownTicket")} onAnswered={onAnswered}>
+        {assignable ?
           <details className="text-sm">
             <summary className="text-muted-foreground cursor-pointer">
               {t("assignment.giveAway")}
@@ -369,27 +284,49 @@ function TicketBlock({
               <TicketAssignmentRow ticket={ticket} save={assign} />
             </div>
           </details>
-        : assignable ?
-          <TicketAssignmentRow ticket={ticket} save={assign} />
         : null}
+      </HeldTicketAnswers>
+    );
+  }
 
-        {own ?
-          <div className="space-y-5">
-            {questions.map((pair) => (
-              <TicketQuestionRow
-                key={pair.question.id}
-                pair={pair}
-                copy={{
-                  requiredMark: (question: string) => t("answers.requiredMark", { question }),
-                  save: t("answers.save"),
-                  saved: t("answers.saved"),
-                  nothingToSave: t("answers.nothingToSave"),
-                  retiredQuestion: t("answers.retiredQuestion"),
-                }}
-                save={(body) => save(pair.question.id, body)}
-              />
-            ))}
-          </div>
+  const state = assignmentStateOf(ticket);
+  const holder = holderEmailOf(ticket);
+
+  // ONE COLLAPSED ROW PER TICKET the buyer does not hold, opened on demand.
+  // The row's default reading is who the Ticket is for; the address field
+  // waits behind it. No badge: a Ticket the buyer does not hold owes them
+  // nothing, and says nothing.
+  return (
+    // `open` is left UNDEFINED: a `false` here would be re-applied by React on
+    // every redraw, snapping a row shut the moment a save inside it came back.
+    <details className="group">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
+        <span
+          aria-hidden
+          className="text-muted-foreground transition-transform group-open:rotate-90"
+        >
+          ▸
+        </span>
+        <span className="font-medium">{t("answers.ticketHeading", { position, total })}</span>
+        <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
+        {/* The state, in the buyer's words: "accepted", never "claimed". */}
+        <span className="text-muted-foreground min-w-0 flex-1 whitespace-nowrap">
+          {state === "accepted" ?
+            t("assignment.rowAccepted", { email: holder })
+          : state === "assigned" ?
+            t("assignment.rowAssigned", { email: holder })
+          : assignable ?
+            t("assignment.rowUnassigned")
+          : null}
+        </span>
+      </summary>
+
+      <div className="space-y-4 px-3 pb-4 pt-1">
+        {/* NOT remounted when the sale redraws: the field holds what the buyer
+            typed, and a remount would take the "saved" confirmation off the
+            screen at the moment it was earned. */}
+        {assignable ?
+          <TicketAssignmentRow ticket={ticket} save={assign} />
         : null}
       </div>
     </details>

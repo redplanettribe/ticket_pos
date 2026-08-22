@@ -14,6 +14,7 @@ import {
 } from "@ticket-pos/ui";
 
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
+import { HeldTickets } from "@/components/held-tickets";
 import { MyInfo } from "@/components/my-info";
 import { RetryFailedRead } from "@/components/reversal-watch";
 import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
@@ -286,6 +287,9 @@ async function CustomerArea({
         )}
       </section>
 
+      {/* The Tickets somebody gave this Customer, with their questions: a
+          client component, because the questions are fetched and answered
+          from the browser (#345). See components/held-tickets.tsx. */}
       {holding.length > 0 ? <HeldTickets holding={holding} /> : null}
 
       {past.length > 0 ? (
@@ -308,54 +312,6 @@ async function CustomerArea({
     </>
   );
 }
-
-/**
- * The Events somebody else bought a ticket for and this Customer accepted (#325,
- * ADR 0046).
- *
- * A SECTION OF ITS OWN AND NOT ROWS AMONG THE PURCHASES, because these are not
- * purchases: the Ticket Sale, the money, the Sale Confirmation and the Reversal
- * Window all stayed with the buyer. What is drawn is the Event, the
- * Organization and the Ticket Type — and no amount, no confirmation reference,
- * no Tax ID and no Undo, none of which the API sends here.
- *
- * It is the way back that does not depend on keeping the mail, which is the
- * whole reason a Holder becomes a Customer at all.
- */
-async function HeldTickets({ holding }: { holding: HeldTicket[] }) {
-  const t = await getTranslations("customerArea");
-  return (
-    <section className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight">
-          {t("holdingHeading")}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {t("holdingDescription")}
-        </p>
-      </div>
-      <ul className="space-y-4">
-        {holding.map((ticket) => (
-          <li key={ticket.ticket_id} className="rounded-lg border p-4">
-            {/* The Event's name and its Organization's are drawn AS COINED in
-                either language, like every other Organization-authored string
-                on this platform (ADR 0027). */}
-            <Link
-              href={`/${ticket.organization.slug}/${ticket.event.slug}`}
-              className="font-medium underline"
-            >
-              {ticket.event.name}
-            </Link>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {ticket.organization.name} · {ticket.ticket_type_name}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 /**
  * The empty state points at the explorer rather than dead-ending. A Customer can
  * reach this legitimately: signing in creates the record if a Ticket Sale never
