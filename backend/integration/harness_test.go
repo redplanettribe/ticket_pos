@@ -182,6 +182,7 @@ func setupTest(t *testing.T) *testEnv {
 	// one of them leaving the flag on cannot quietly change what the rest of the
 	// suite is running against.
 	sharedApp.CatalogService.WithTicketQuestions(false)
+	sharedApp.SalesService.WithTicketQuestions(false)
 	// The Follow Digest pipeline has its own clock because it reasons in WEEKS:
 	// which week a Customer is owed a Digest for, and when a failed one comes due
 	// again (#220, ADR 0030). Its tests move time further than any other.

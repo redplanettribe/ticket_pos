@@ -51,6 +51,11 @@ func optionPath(eventID, ticketTypeID, questionID, optionID string) string {
 func enableTicketQuestions(t *testing.T) {
 	t.Helper()
 	sharedApp.CatalogService.WithTicketQuestions(true)
+	// The same flag, read by the module that puts Answers into the Sales Export
+	// (#314). One deployment switch, so a test cannot end up in a state no
+	// deployment can be in: questions that can be authored but never exported,
+	// or exported but never authored.
+	sharedApp.SalesService.WithTicketQuestions(true)
 }
 
 func decodeTicketQuestion(t *testing.T, data json.RawMessage) ticketQuestion {
