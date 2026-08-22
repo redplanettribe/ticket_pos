@@ -214,7 +214,8 @@ How many tickets an Event has moved: the quantities of its Ticket Sale Lines sum
 Answers "how many people are coming", where a count of Ticket Sales answers "how many times did somebody check out". One Ticket Sale of four tickets is 1 sale and 4 Tickets Sold, so neither figure can be read off the other and a surface showing one of them has to say which it is. Dropped by a Sale Reversal whole-Sale, like every other figure.
 Not a count of people: a ticket is a thing sold, and the platform does not yet know who walks in on it — which is why Tickets Sold is the honest name for the closest answer the model has.
 Summable at any grain the question needs: a day of an Event, a Ticket Type, an Event entire.
-_Avoid_: Sales (as a word for tickets), attendees, headcount, seats, admissions
+Published, not merely reported: the Storefront states an Event's Tickets Sold to anyone reading its page, as one figure for the whole Event, so the _Avoid_ list below now governs Customer-facing copy and not only staff surfaces (ADR 0042). Stated only where there is enough of it to state — beneath a floor the Storefront says nothing at all, and an Event with External Registration has no Tickets Sold to say anything about, since it produces no Ticket Sale.
+_Avoid_: Sales (as a word for tickets), attendees, headcount, seats, admissions. In Spanish: entradas vendidas, never asistentes
 
 **Sales Channel**:
 The medium through which a Ticket Sale is recorded: `online`, `in_person`, or `import`. Distinct from Sales Source, which further qualifies where an imported sale originated.
