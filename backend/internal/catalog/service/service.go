@@ -223,6 +223,19 @@ type Service struct {
 	// OPEN when nobody decided it should be, and no arrangement of arguments
 	// makes "off" easier to reach by accident than the zero value does.
 	ticketQuestionsEnabled bool
+	// ticketAssignmentEnabled is the Ticket Assignment feature flag (#324,
+	// parent #322), and is SEPARATE from ticketQuestionsEnabled above.
+	//
+	// TWO FIELDS AND NOT ONE, because the two features are separable and the
+	// whole operational point of a second flag is that assignment can be killed
+	// without taking Ticket Questions dark. Anything in this service that reads
+	// one of them to decide the other has quietly merged them.
+	//
+	// FALSE IS THE ZERO VALUE, for exactly the reason its neighbour's is, and
+	// with more at stake: what this flag opens is the platform storing an email
+	// address supplied by somebody with no authority to supply it, before any
+	// published Policy Version describes that collection.
+	ticketAssignmentEnabled bool
 	// answerLinks signs and verifies Answer Links (#312, ADR 0044).
 	//
 	// ITS ZERO VALUE IS UNCONFIGURED, which mints nothing and opens nothing —
@@ -273,6 +286,18 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // rather than a claim.
 func (s *Service) WithTicketQuestions(enabled bool) *Service {
 	s.ticketQuestionsEnabled = enabled
+	return s
+}
+
+// WithTicketAssignment opens or closes Ticket Assignment (#324, parent #322).
+//
+// A SECOND WithX BESIDE WithTicketQuestions AND NEVER A SECOND ARGUMENT TO IT.
+// NewApp calls it with platform.Config.TicketAssignmentEnabled, which is read
+// from TICKET_ASSIGNMENT_ENABLED; the integration suite calls it to exercise
+// both sides, which is the only way "assignment can be closed while questions
+// stay open" can be a test rather than a claim.
+func (s *Service) WithTicketAssignment(enabled bool) *Service {
+	s.ticketAssignmentEnabled = enabled
 	return s
 }
 

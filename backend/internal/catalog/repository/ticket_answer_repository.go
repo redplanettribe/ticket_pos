@@ -34,9 +34,39 @@ type AnswerableTicket struct {
 	// SaleStatus is 'active' or 'reversed', read from the Ticket Sale because a
 	// Sale Reversal is always whole-Sale.
 	SaleStatus string
+	// Channel is the Sales Channel the Ticket Sale was recorded on: 'online',
+	// 'in_person' or 'import'. Read from the Ticket Sale for the reason
+	// SaleStatus is — a Ticket carries no copy of anything its Sale already says
+	// (ADR 0043).
+	//
+	// It rides here because Ticket Assignment refuses `in_person` (#324): a door
+	// sale has no buyer surface to assign from. Nothing about ANSWERS consults
+	// it — an `in_person` Ticket's Answers are perfectly writable by Event Staff
+	// — so it is a column this struct carries for one of its readers, exactly as
+	// ConfirmationRef is carried for the staff one.
+	Channel string
 	// EventStartsAt is the instant the doors open. Invalid on an Event that has
 	// not said when it starts, which has not started.
 	EventStartsAt sql.NullTime
+
+	// THE TICKET ASSIGNMENT (#324, parent #322). Four columns on the Ticket
+	// rather than a joined entity — see migration 080 — and the state they
+	// describe is DERIVED from them by catalog.AssignmentState and never stored.
+
+	// HolderEmail is the address the buyer named for this Ticket, normalised.
+	// Invalid while the Ticket is `unassigned`, which is every Ticket until the
+	// flag opens.
+	HolderEmail sql.NullString
+	// HolderCustomerID is the Customer the Holder proved themselves to be, and
+	// the whole of what `accepted` means. ALWAYS INVALID IN #324: nothing writes
+	// it until #325 lands the Assignment mail and the accept flow.
+	HolderCustomerID sql.NullString
+	// AssignedAt is when the CURRENT address was named — not how many times, and
+	// not who by. It stands still when the same address is submitted again.
+	AssignedAt sql.NullTime
+	// AcceptedAt is when the Holder clicked. ALWAYS INVALID IN #324, for the
+	// reason HolderCustomerID is.
+	AcceptedAt sql.NullTime
 }
 
 // TicketAnswer is what one Ticket says in reply to one Ticket Question.
@@ -93,7 +123,8 @@ type TicketAnswerOption struct {
 
 const answerableTicketColumns = `
 	tk.id, tk.ordinal, l.ticket_type_id, tt.name,
-	s.id, s.confirmation_ref, s.status, e.starts_at
+	s.id, s.confirmation_ref, s.status, s.channel, e.starts_at,
+	tk.holder_email, tk.holder_customer_id, tk.assigned_at, tk.accepted_at
 `
 
 func scanAnswerableTicket(row interface {
@@ -102,7 +133,8 @@ func scanAnswerableTicket(row interface {
 	var t AnswerableTicket
 	if err := row.Scan(
 		&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
-		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.EventStartsAt,
+		&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+		&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

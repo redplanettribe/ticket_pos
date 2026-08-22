@@ -482,3 +482,84 @@ func ErrAnswerLinkExpired() apperror.DomainError {
 func ErrAnswerLinkUnavailable() apperror.DomainError {
 	return apperror.New("ANSWER_LINK_UNAVAILABLE", "Answer links are unavailable.", nil)
 }
+
+// ErrTicketAssignmentUnavailable is returned when any Ticket Assignment surface
+// is asked for while TICKET_ASSIGNMENT_ENABLED is off (#324, parent #322).
+//
+// ITS OWN FLAG AND ITS OWN REFUSAL, separate from
+// ErrTicketQuestionsUnavailable. The two features are genuinely separable —
+// Ticket Questions are merged and work without assignment, and a guest list is
+// worth having on a Ticket Type that asks nothing — and separate refusals are
+// what make "killing assignment does not take questions dark" a testable
+// property rather than a claim.
+//
+// It maps to 404 and not 403, for the reason its Ticket Question neighbour
+// does: 403 would say "this exists and you may not have it", and while the flag
+// is off there is nothing here. This endpoint answers exactly as an unrouted
+// path does on a build without the feature.
+func ErrTicketAssignmentUnavailable() apperror.DomainError {
+	return apperror.New("TICKET_ASSIGNMENT_UNAVAILABLE", "Not found.", nil)
+}
+
+// ErrInvalidHolderEmail is returned when what the buyer typed is not an address
+// (#324). See catalog.ParseHolderEmail for what "is not" means and why the
+// check is as weak as it is.
+//
+// 400 AND NOT 409: the body itself is wrong and restating it correctly is
+// exactly what fixes it, which is the same line INVALID_ANSWER sits on. It
+// carries no detail about the address — there is nothing useful to say beyond
+// "that is not an email address", and the buyer can see what they typed.
+func ErrInvalidHolderEmail() apperror.DomainError {
+	return apperror.New(
+		"INVALID_HOLDER_EMAIL",
+		"That is not a valid email address.",
+		map[string]any{"max_length": MaxHolderEmailLength},
+	)
+}
+
+// ErrAssignmentChannelUnsupported is returned when a Ticket of an `in_person`
+// Ticket Sale is assigned (#324).
+//
+// A DOOR SALE HAS NO BUYER SURFACE. Assignment happens after purchase, from the
+// Confirmation Link page or the Customer Area, and neither exists for a sale
+// recorded at the door. The refusal states that rather than pretending the
+// feature is off, because the buyer of an `online` sale standing beside them
+// can do it.
+func ErrAssignmentChannelUnsupported() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_CHANNEL_UNSUPPORTED",
+		"Tickets sold at the door cannot be assigned to an email address.",
+		nil,
+	)
+}
+
+// ErrAssignmentSaleReversed is returned when a Ticket of a reversed Ticket Sale
+// is assigned (#324).
+//
+// A CODE OF ITS OWN RATHER THAN TICKET_SALE_REVERSED, even though the fact is
+// the same one. The two refusals are told apart because the sentence a surface
+// must show differs — one is about answers no longer changing, the other about
+// there being nobody to hand a refunded ticket to — and a shared code would
+// make the Storefront guess which it meant from the route it called.
+func ErrAssignmentSaleReversed() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_SALE_REVERSED",
+		"This ticket's sale has been reversed, so it can no longer be assigned.",
+		nil,
+	)
+}
+
+// ErrAssignmentEventStarted is returned when a Ticket is assigned after its
+// Event has started (#324).
+//
+// The window closes at the doors, exactly as the Answer window does. Told apart
+// from its Answer twin for the reason above, and because this deadline is also
+// when #322's retention purge takes an unaccepted address — so an assignment
+// made after it would be naming somebody the platform is about to forget.
+func ErrAssignmentEventStarted() apperror.DomainError {
+	return apperror.New(
+		"ASSIGNMENT_EVENT_STARTED",
+		"This event has started, so its tickets can no longer be assigned.",
+		nil,
+	)
+}

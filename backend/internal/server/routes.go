@@ -305,6 +305,39 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
 	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}",
 		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerOwnTicketQuestion)))
+	// The buyer assigns one of their own Tickets to an email address (#324,
+	// parent #322). Registered here rather than under a namespace of its own
+	// because it is the same surface as the two routes above it — the
+	// Confirmation Link page and the Customer Area, which are one page — and
+	// because a Ticket Assignment is a fact about a TICKET, which is the
+	// catalog's, while who is asking is this namespace's.
+	//
+	// NOT A ROUTE OF ITS OWN PER VERB. Assigning, reassigning and correcting a
+	// mistyped address are one statement — "this Ticket's Holder address is now
+	// X" — so they are one PUT. A second `reassign` route would be a second
+	// place to remember that a change of address CLEARS THAT TICKET'S ANSWERS,
+	// and the first place it would be forgotten; an Answer is a fact about a
+	// person and must never be inherited by a new Holder.
+	//
+	// BEHIND THE SAME GATE AS ITS NEIGHBOURS AND NOT BEHIND ONE MORE. A
+	// Confirmation Link session may assign, exactly as it may answer, and for
+	// the reason stated above: this feature exists so that the person holding
+	// the receipt can distribute the tickets they bought, and demanding a
+	// passcode of the buyer would put the platform's own distribution route
+	// behind a stricter door than the forwarded Answer Link it replaces. What it
+	// still may not do is undo the purchase. The session narrows to its one Sale
+	// inside the service, so a link session naming any other Ticket Sale is
+	// answered as if it did not exist.
+	//
+	// BEHIND ITS OWN FLAG, WHICH SHIPS CLOSED. TICKET_ASSIGNMENT_ENABLED is
+	// separate from TICKET_QUESTIONS_ENABLED (ADR 0045 governs both): the
+	// service reads it before it reads anything else and answers 404, so this
+	// path behaves exactly as an unrouted one until a Policy Version describes
+	// the platform storing an address a buyer supplied for somebody else. NO
+	// MAIL IS SENT from here — the Assignment mail and the Holder's accept flow
+	// are #325, which is also what makes the `accepted` state reachable.
+	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment",
+		signedIn(http.HandlerFunc(app.CatalogHandler.AssignOwnTicket)))
 	// The Customer Area's one write: "My info" (#102). Scoped by the session
 	// like every route above it, and narrowed once more inside the service — a
 	// Confirmation Link session may read its one sale but may not rewrite the

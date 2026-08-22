@@ -258,3 +258,9 @@ variable "ticket_questions_enabled" {
   type        = bool
   default     = false
 }
+
+variable "ticket_assignment_enabled" {
+  description = "Whether a buyer may assign one of their own Tickets to an email address (#324, parent #322). STARTS FALSE, and is DELIBERATELY ABSENT FROM terraform.tfvars so that opening it is an addition somebody has to write rather than a value they edit. It is a separate flag from ticket_questions_enabled above and must stay one: killing assignment must not take Ticket Questions dark. The prerequisite is a published Policy Version covering three things ADR 0045's clause does not — the platform mailing an address supplied by a third party, a Customer record minted from that click, and disclosure of the Holder's address to the Organization as a separate controller. Flipping it before that has the platform mailing people who never came here, at an address given by somebody with no authority to give it."
+  type        = bool
+  default     = false
+}

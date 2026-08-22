@@ -42,6 +42,18 @@ type buyerTicket struct {
 	Answerable        bool   `json:"answerable"`
 	AnswerableRefusal string `json:"answerable_refusal"`
 	OutstandingCount  int    `json:"outstanding_count"`
+	// The Ticket Assignment fields (#324), decoded here so that the buyer's list
+	// is read by ONE struct across both files. They are absent from the payload
+	// entirely while TICKET_ASSIGNMENT_ENABLED is closed, which is what makes
+	// their zero values meaningful — see ticket_assignment_test.go, where the
+	// flag test asserts their absence over the RAW bytes rather than through
+	// this decode.
+	AssignmentState   string  `json:"assignment_state"`
+	HolderEmail       string  `json:"holder_email"`
+	AssignedAt        *string `json:"assigned_at"`
+	AcceptedAt        *string `json:"accepted_at"`
+	Assignable        bool    `json:"assignable"`
+	AssignableRefusal string  `json:"assignable_refusal"`
 	Questions         []struct {
 		Question ticketQuestion `json:"question"`
 		Answer   *struct {

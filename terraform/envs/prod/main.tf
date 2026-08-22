@@ -121,4 +121,11 @@ module "ticket_pos" {
   # opening it a reviewable diff in this file rather than a module default
   # nobody reads.
   ticket_questions_enabled = var.ticket_questions_enabled
+
+  # Ticket Assignment (#324, parent #322). Threaded through on the line above's
+  # terms and declared SEPARATELY on purpose: the two are different decisions
+  # with different legal prerequisites, and a deployment must be able to shut
+  # assignment without shutting questions. It has no entry in terraform.tfvars,
+  # so it is false until somebody writes one.
+  ticket_assignment_enabled = var.ticket_assignment_enabled
 }

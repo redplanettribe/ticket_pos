@@ -166,6 +166,27 @@ func domainHTTPStatus(code string) int {
 	// a build without the feature would. See catalog.ErrTicketQuestionsUnavailable.
 	case "TICKET_QUESTIONS_UNAVAILABLE":
 		return http.StatusNotFound
+	// Ticket Assignment asked for while ITS OWN flag is off (#324, parent #322).
+	// A separate case from TICKET_QUESTIONS_UNAVAILABLE above and not a second
+	// label on it, because TICKET_ASSIGNMENT_ENABLED is a separate flag: killing
+	// assignment must not take Ticket Questions dark, and one shared code here
+	// would be the first place that separation quietly stopped being true. Same
+	// 404 and for the same reason — while the flag is off there is nothing here.
+	case "TICKET_ASSIGNMENT_UNAVAILABLE":
+		return http.StatusNotFound
+	// The Ticket Assignment window refusals (#324). 409 beside the Answer
+	// window's two: the request was well formed and the buyer was entitled to
+	// make it, and what stands in the way is a fact about the sale — it was
+	// recorded at the door and has no buyer surface, it was reversed, or the
+	// doors have opened. None becomes the answer by being retried with the same
+	// body.
+	case "ASSIGNMENT_CHANNEL_UNSUPPORTED", "ASSIGNMENT_SALE_REVERSED", "ASSIGNMENT_EVENT_STARTED":
+		return http.StatusConflict
+	// A Holder address that is not an address (#324). 400 and not 409, on the
+	// same line INVALID_ANSWER sits on: the body itself is wrong and restating
+	// it correctly is exactly what fixes it.
+	case "INVALID_HOLDER_EMAIL":
+		return http.StatusBadRequest
 	// The Ticket Question authoring refusals (#309). All 409 for the reason their
 	// Promotion neighbours are: the request was well formed and the Org Admin was
 	// entitled to make it, and what stands in the way is a fact about the question

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
@@ -82,6 +83,48 @@ type BuyerTicketAnswersView struct {
 	// Counted rather than restated so that what the buyer is asked to chase and
 	// what the Organization sees outstanding can never be two different numbers.
 	OutstandingCount int `json:"outstanding_count"`
+	// THE TICKET ASSIGNMENT (#324, parent #322). Five fields that answer the
+	// buyer's question "which of my four Tickets is which", which the Answer
+	// Links deliberately never could — they disclose nothing, so they are
+	// indistinguishable from one another.
+	//
+	// EVERY ONE OF THEM IS `omitempty`, AND THAT IS THE FLAG'S DOING. With
+	// TICKET_ASSIGNMENT_ENABLED closed the service fills none of them, so this
+	// payload is byte-identical to the one a build without the feature sends.
+	// That is what makes "with the flag closed, Ticket Questions continue to
+	// work unchanged" an assertion a test can make about the bytes rather than a
+	// claim about the code.
+
+	// AssignmentState is `unassigned`, `assigned` or `accepted`, derived by
+	// catalog.AssignmentState and never stored. Absent while the flag is closed.
+	//
+	// `accepted` IS UNREACHABLE IN #324: no mail is sent, so there is no
+	// Assignment Link to click. #325 makes it reachable.
+	AssignmentState string `json:"assignment_state,omitempty"`
+	// HolderEmail is the address this Ticket was assigned to, shown back to the
+	// buyer who typed it. Empty while unassigned.
+	//
+	// SHOWN TO THE BUYER AND TO NOBODY ELSE ON THIS SURFACE. It is on the payload
+	// because the buyer typed it and telling their four Tickets apart is the
+	// whole point of the feature; it is on no public or Answer Link payload,
+	// where a third party's address would be a disclosure.
+	HolderEmail string `json:"holder_email,omitempty"`
+	// AssignedAt is when this address was named, and AcceptedAt when the Holder
+	// clicked. Both nil when they have not happened; AcceptedAt is always nil in
+	// #324.
+	AssignedAt *time.Time `json:"assigned_at,omitempty"`
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	// Assignable is whether this Ticket may be assigned or reassigned right now,
+	// and AssignableRefusal names why not — a token and never a sentence, exactly
+	// as AnswerableRefusal is, because the Storefront owns the words in the
+	// reader's language.
+	//
+	// A SEPARATE PAIR FROM Answerable ABOVE and not a reuse of it, because the
+	// two windows genuinely differ: a door sale's Answers are writable and its
+	// Tickets are not assignable. Collapsing them would make one of those two
+	// wrong on every `in_person` sale.
+	Assignable        bool   `json:"assignable,omitempty"`
+	AssignableRefusal string `json:"assignable_refusal,omitempty"`
 	// Questions carries the Ticket Type's questions in the order they are asked,
 	// retired ones last, each with this Ticket's Answer or null. The labels read
 	// AS THE ORGANIZATION COINED THEM in every Locale, like a Custom Tag
@@ -237,6 +280,10 @@ func (s *Service) buyerTicketAnswersViews(
 			OutstandingCount:  outstandingAnswerCount(tickets[i].SaleStatus, staff.Questions),
 			Questions:         staff.Questions,
 		}
+		// The Ticket Assignment, and NOTHING AT ALL while the flag is closed
+		// (#324). Every assignment field is omitempty, so a dark build's payload
+		// is the one a build without the feature sends — see the struct.
+		s.fillBuyerAssignment(&view, tickets[i])
 		// A link is minted only while the Ticket can still be answered. Handing
 		// out a link that opens nothing would be worse than handing out none: the
 		// buyer forwards it, believes the job done, and nobody finds out.

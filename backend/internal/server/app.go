@@ -300,6 +300,18 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// deliberately opened it (#309, ADR 0045). Unset, misspelt or absent leaves
 	// it closed.
 	catalogService = catalogService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
+	// Ticket Assignment, dark unless a deployment has deliberately opened it
+	// (#324, parent #322). A SEPARATE CONFIG FIELD read from a SEPARATE
+	// environment variable, and never cfg.TicketQuestionsEnabled reused: the two
+	// features are separable, and the operational property this second flag
+	// exists to buy is that assignment can be killed without taking Ticket
+	// Questions dark.
+	//
+	// Only the catalog service is handed it, because only the catalog owns a
+	// Ticket. Sales is not taught about it — nothing in checkout, the door or a
+	// Sale Import touches an assignment, and nothing about assignment may block
+	// or delay any of them.
+	catalogService = catalogService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
 	// The Answer Link's signing key and the origin its links point at (#312,
 	// ADR 0044).
 	//

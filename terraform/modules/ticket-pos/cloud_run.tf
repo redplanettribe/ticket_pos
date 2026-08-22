@@ -289,6 +289,19 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.ticket_questions_enabled ? "true" : "false"
       }
 
+      # The Ticket Assignment flag (#324, parent #322). Its OWN env var, fed by
+      # its OWN variable, and deliberately not `var.ticket_questions_enabled`
+      # reused: the operational property the second flag buys is that assignment
+      # can be killed without taking Ticket Questions dark, and a shared value
+      # here would be the first place that stopped being true. Same reasoning as
+      # its neighbour otherwise — a plain env var so that changing it is
+      # reviewable in a diff, and anything the API cannot parse as true leaves
+      # the surface dark.
+      env {
+        name  = "TICKET_ASSIGNMENT_ENABLED"
+        value = var.ticket_assignment_enabled ? "true" : "false"
+      }
+
       # Required, not optional: without it the API refuses to start in production
       # rather than sign Confirmation Links with a default (confirmation_link.tf).
       env {

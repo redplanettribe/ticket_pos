@@ -2023,6 +2023,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign one of your own tickets to an email address
+         * @description Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **No mail is sent by this endpoint**; the Assignment mail and the Holder's accept flow are a later ticket, so a Ticket assigned here reaches the `assigned` state and stops. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on `online` and `import` Ticket Sales only — an `in_person` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                    /** @description Ticket id */
+                    ticketId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The email address to assign this ticket to */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.buyerAssignmentBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBuyerTicketAnswers"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/unsubscribe": {
         parameters: {
             query?: never;
@@ -8731,6 +8825,15 @@ export interface components {
             /** @description Text answers short_text and long_text. */
             text?: string;
         };
+        "handler.buyerAssignmentBody": {
+            /**
+             * @description HolderEmail is the address as the buyer typed it. Normalised and shape
+             *     checked by catalog.ParseHolderEmail in the service, and NOT here — the
+             *     address is a domain value with one definition, and a second check in the
+             *     handler is a second place for it to disagree.
+             */
+            holder_email?: string;
+        };
         "handler.checkoutAnswerBody": {
             checked?: boolean;
             date?: string;
@@ -9819,6 +9922,7 @@ export interface components {
             status?: "pending" | "approved";
         };
         "service.BuyerTicketAnswersView": {
+            accepted_at?: string;
             /**
              * @description AnswerLink is the per-Ticket link this page exists to hand out, and is
              *     EMPTY once the Ticket can no longer be answered.
@@ -9845,6 +9949,43 @@ export interface components {
              *     that will not take.
              */
             answerable_refusal?: string;
+            /**
+             * @description Assignable is whether this Ticket may be assigned or reassigned right now,
+             *     and AssignableRefusal names why not — a token and never a sentence, exactly
+             *     as AnswerableRefusal is, because the Storefront owns the words in the
+             *     reader's language.
+             *
+             *     A SEPARATE PAIR FROM Answerable ABOVE and not a reuse of it, because the
+             *     two windows genuinely differ: a door sale's Answers are writable and its
+             *     Tickets are not assignable. Collapsing them would make one of those two
+             *     wrong on every `in_person` sale.
+             */
+            assignable?: boolean;
+            assignable_refusal?: string;
+            /**
+             * @description AssignedAt is when this address was named, and AcceptedAt when the Holder
+             *     clicked. Both nil when they have not happened; AcceptedAt is always nil in
+             *     #324.
+             */
+            assigned_at?: string;
+            /**
+             * @description AssignmentState is `unassigned`, `assigned` or `accepted`, derived by
+             *     catalog.AssignmentState and never stored. Absent while the flag is closed.
+             *
+             *     `accepted` IS UNREACHABLE IN #324: no mail is sent, so there is no
+             *     Assignment Link to click. #325 makes it reachable.
+             */
+            assignment_state?: string;
+            /**
+             * @description HolderEmail is the address this Ticket was assigned to, shown back to the
+             *     buyer who typed it. Empty while unassigned.
+             *
+             *     SHOWN TO THE BUYER AND TO NOBODY ELSE ON THIS SURFACE. It is on the payload
+             *     because the buyer typed it and telling their four Tickets apart is the
+             *     whole point of the feature; it is on no public or Answer Link payload,
+             *     where a third party's address would be a disclosure.
+             */
+            holder_email?: string;
             /**
              * @description Ordinal is which of its line's units this is, 1..quantity. It is what lets
              *     the page say "ticket 2 of 4" — the only thing telling two Tickets of one

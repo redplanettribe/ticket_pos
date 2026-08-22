@@ -411,6 +411,12 @@ variable "ticket_questions_enabled" {
   default     = false
 }
 
+variable "ticket_assignment_enabled" {
+  description = "Whether a buyer may assign one of their own Tickets to an email address (#324, parent #322). A SEPARATE VARIABLE FROM ticket_questions_enabled ABOVE AND NEVER A SECOND USE OF IT: the two features are separable, and two flags are what let assignment be killed without taking Ticket Questions dark. STARTS FALSE, and the prerequisite is legal rather than technical — what this opens is the platform storing, and later mailing, an email address supplied by somebody with no authority to supply it, and disclosing it to the Organization as a separate controller. None of that is described by the published Privacy Policy. It flips only once a Policy Version that does has published; that clause is batched with the one ticket_questions_enabled waits on, so the re-acceptance of every Customer is paid for once. With it false the buyer's assign endpoint answers 404, no address is stored, no mail is sent and the buyer's own payload is byte-identical to a build without the feature."
+  type        = bool
+  default     = false
+}
+
 # --- Reversal Reconciler ------------------------------------------------------
 
 variable "reversal_reconciler_enabled" {

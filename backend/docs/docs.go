@@ -181,6 +181,15 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.buyerAssignmentBody": {
+                "properties": {
+                    "holder_email": {
+                        "description": "HolderEmail is the address as the buyer typed it. Normalised and shape\nchecked by catalog.ParseHolderEmail in the service, and NOT here — the\naddress is a domain value with one definition, and a second check in the\nhandler is a second place for it to disagree.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.checkoutAnswerBody": {
                 "properties": {
                     "checked": {
@@ -2337,6 +2346,9 @@ const docTemplate = `{
             },
             "service.BuyerTicketAnswersView": {
                 "properties": {
+                    "accepted_at": {
+                        "type": "string"
+                    },
                     "answer_link": {
                         "description": "AnswerLink is the per-Ticket link this page exists to hand out, and is\nEMPTY once the Ticket can no longer be answered.\n\nEmpty rather than present-but-dead, because the copy button is a promise:\na buyer who copies a link into a group chat has finished the task as far as\nthey know, and will not find out for weeks that what they sent opened\nnothing. Better to have no button than a button that forwards a dead end.\nThe same reasoning applies to a link the deployment could not sign at all,\nwhich is a misconfiguration rather than anything about this Sale, and which\nmust not take the rest of the page down with it.",
                         "type": "string"
@@ -2347,6 +2359,25 @@ const docTemplate = `{
                     },
                     "answerable_refusal": {
                         "description": "AnswerableRefusal names WHY not, or is empty while it is answerable, so the\npage can say what happened rather than leaving somebody pressing a form\nthat will not take.",
+                        "type": "string"
+                    },
+                    "assignable": {
+                        "description": "Assignable is whether this Ticket may be assigned or reassigned right now,\nand AssignableRefusal names why not — a token and never a sentence, exactly\nas AnswerableRefusal is, because the Storefront owns the words in the\nreader's language.\n\nA SEPARATE PAIR FROM Answerable ABOVE and not a reuse of it, because the\ntwo windows genuinely differ: a door sale's Answers are writable and its\nTickets are not assignable. Collapsing them would make one of those two\nwrong on every ` + "`" + `in_person` + "`" + ` sale.",
+                        "type": "boolean"
+                    },
+                    "assignable_refusal": {
+                        "type": "string"
+                    },
+                    "assigned_at": {
+                        "description": "AssignedAt is when this address was named, and AcceptedAt when the Holder\nclicked. Both nil when they have not happened; AcceptedAt is always nil in\n#324.",
+                        "type": "string"
+                    },
+                    "assignment_state": {
+                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored. Absent while the flag is closed.\n\n` + "`" + `accepted` + "`" + ` IS UNREACHABLE IN #324: no mail is sent, so there is no\nAssignment Link to click. #325 makes it reachable.",
+                        "type": "string"
+                    },
+                    "holder_email": {
+                        "description": "HolderEmail is the address this Ticket was assigned to, shown back to the\nbuyer who typed it. Empty while unassigned.\n\nSHOWN TO THE BUYER AND TO NOBODY ELSE ON THIS SURFACE. It is on the payload\nbecause the buyer typed it and telling their four Tickets apart is the\nwhole point of the feature; it is on no public or Answer Link payload,\nwhere a third party's address would be a disclosure.",
                         "type": "string"
                     },
                     "ordinal": {
@@ -6747,6 +6778,122 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Answer a ticket question on your own Ticket Sale",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/assignment": {
+            "put": {
+                "description": "Names the email address that holds one Ticket of the signed-in Customer's own Ticket Sale, creating the Ticket Assignment or replacing the one that was there — assign, reassign and correcting a typo are all this one call. **No mail is sent by this endpoint**; the Assignment mail and the Holder's accept flow are a later ticket, so a Ticket assigned here reaches the ` + "`" + `assigned` + "`" + ` state and stops. **Reassigning to a DIFFERENT address clears that Ticket's Answers back to Outstanding**: an Answer is a fact about a person and is never inherited by a new Holder. A first assignment clears nothing, and re-sending the address the Ticket already carries is a no-op that moves no timestamp. The buyer may assign any Ticket of their sale, including to their own address, and may assign only some of them. Authorization is the Customer Session; a Confirmation Link session may assign the one sale it names. A Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Available on ` + "`" + `online` + "`" + ` and ` + "`" + `import` + "`" + ` Ticket Sales only — an ` + "`" + `in_person` + "`" + ` door sale has no buyer surface and is refused with 409 ASSIGNMENT_CHANNEL_UNSUPPORTED. Also refused with 409 once the Event has started (ASSIGNMENT_EVENT_STARTED) or the Ticket Sale has been reversed (ASSIGNMENT_SALE_REVERSED), and with 400 INVALID_HOLDER_EMAIL when the value is not an email address. The whole sale's tickets come back, not just the one that changed. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off, which is how it ships — that flag is separate from the Ticket Question one, so closing it leaves Ticket Questions working. The Storefront must tell the buyer, before they submit, that the address will be mailed and shown to the Organization.",
+                "parameters": [
+                    {
+                        "description": "Ticket Sale id",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket id",
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.buyerAssignmentBody",
+                                        "summary": "body",
+                                        "description": "The email address to assign this ticket to"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The email address to assign this ticket to",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeBuyerTicketAnswers"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Assign one of your own tickets to an email address",
                 "tags": [
                     "customer"
                 ]

@@ -87,6 +87,15 @@ services:
       # decision ADR 0045 was written to prevent being taken casually: it must
       # wait for a Policy Version that describes the collection.
       TICKET_QUESTIONS_ENABLED: ${TICKET_QUESTIONS_ENABLED:-}
+      # Ticket Assignment (#324, parent #322). ITS OWN VARIABLE, separate from
+      # the one above: assignment can be worked on, or killed, without taking
+      # Ticket Questions with it. Empty by default, which leaves the buyer's
+      # assign endpoint answering 404 and the buyer's payload byte-identical to
+      # a build without the feature — the shipped state. Set
+      # TICKET_ASSIGNMENT_ENABLED=true in the root .env to work on it locally.
+      # In production it waits on a Policy Version describing the platform
+      # storing and mailing an address one person supplied for another.
+      TICKET_ASSIGNMENT_ENABLED: ${TICKET_ASSIGNMENT_ENABLED:-}
       # The `development` Google OAuth client, also from the root .env. Empty (the
       # default) leaves Google Sign-In off and the button hidden; passcode
       # sign-in is unaffected either way. GOOGLE_TOKEN_ENDPOINT is deliberately
