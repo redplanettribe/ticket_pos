@@ -519,6 +519,89 @@ func (c SaleConfirmation) Text() string {
 	return text
 }
 
+// The Answer Reminder (#317, ADR 0044): the mail telling a buyer that Tickets
+// on their Ticket Sale still owe Answers.
+//
+// IT IS THE RECEIPT'S ONE SENTENCE, SENT ON ITS OWN. saleConfirmationOutstandingCopy
+// above says the same thing to somebody who is already reading about their
+// purchase; this says it to somebody who is not, weeks later, because a question
+// was added after they bought or because they skipped the form. The two are
+// deliberately worded alike — "answer them there, or copy and pass each ticket's
+// own link to whoever will be using it" is the instruction in both — so a buyer
+// who reads both meets one idea twice rather than two ideas once.
+//
+// IT NAMES NO NUMBER AND NO QUESTION. Not "three tickets still need answers" and
+// not "we still need a t-shirt size": the debt is derived live and would be
+// wrong the moment the buyer answered one, and the questions are the
+// Organization's words on a page this mail links to. What this message is for is
+// getting the buyer to that page.
+//
+// IT CARRIES NO UNSUBSCRIBE FOOTER, because it is transactional and there is
+// nothing to unsubscribe from — the Follow Digest is the only mail a Customer
+// can turn off (ADR 0034). What stops it instead is catalog.MayRemind, and the
+// closing line says so in the reader's own terms: this is the platform promising
+// in the message itself that the chase is nearly over.
+//
+// "Tickets" is the buyer's word for the things they bought, not the domain's
+// Ticket, exactly as the receipt has always used it. A mail that switched
+// vocabulary to match a schema would be the platform talking to itself.
+var (
+	answerReminderSubjectCopy = translated(
+		"Some tickets for %s still need answers",
+		"Algunas entradas para %s aún necesitan respuestas",
+	)
+	// The greeting, what is owed and which purchase it is about, declared whole
+	// in both languages: one block of prose, so a translator cannot reorder half
+	// of it.
+	answerReminderOpeningCopy = translated(
+		"Hi %s,\n\nSome of the tickets on your purchase for %s still need answers.\nReference: %s",
+		"Hola %s:\n\nAlgunas de las entradas de su compra de %s aún necesitan respuestas.\nReferencia: %s",
+	)
+	// The instruction and the link, which are the whole point of the message. The
+	// second sentence is the receipt's own promise about the same link, repeated
+	// because this mail may be the only one of the two still in the inbox.
+	answerReminderActionCopy = translated(
+		"Open your purchase to answer them there, or to copy and pass each ticket's own link to whoever will be using it:\n%s\n\nThis link opens this purchase only, and stays valid until shortly after the event.",
+		"Abra su compra para responderlas allí, o para copiar y enviar el enlace de cada entrada a quien vaya a usarla:\n%s\n\nEste enlace abre solo esta compra y sigue siendo válido hasta poco después del evento.",
+	)
+	// The closing, and the sentence that makes the rationing visible to the
+	// person it protects. It says the answers are optional, because they are —
+	// nothing on this platform was ever refused for want of one — and it says
+	// this message is nearly the last, because catalog.MaxAnswerReminders is two.
+	//
+	// IT PROMISES ONLY WHAT THE CODE ENFORCES: "at most one more" is true of the
+	// first reminder and generous about the second, which is the safe direction
+	// for a promise printed in an inbox. Anyone raising the cap has to come here
+	// and either change this sentence or break it.
+	answerReminderClosingCopy = translated(
+		"Answering is optional and your tickets are valid either way. We will send at most one more reminder about this purchase.",
+		"Responder es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más sobre esta compra.",
+	)
+)
+
+// Subject is the Answer Reminder's subject line: the Event and what is owed,
+// which is the whole of what a buyer sees in a mailbox list. It names the Event
+// rather than the reference, because the Event is what somebody recognises three
+// weeks after buying and a reference is what they have to go and look up.
+func (r AnswerReminder) Subject() string {
+	return fmt.Sprintf(answerReminderSubjectCopy.in(r.Locale), r.EventName)
+}
+
+// Text is the Answer Reminder's plain-text body.
+//
+// NOTHING HERE IS CONDITIONAL, unlike the receipt's four optional lines, and
+// that is a property of the message rather than an accident of it being short: a
+// reminder without its link is not a shorter reminder, it is an instruction its
+// reader cannot follow. The job refuses to compose one at all — see the sales
+// module's SweepAnswerReminders — so by the time this renders, every part of it
+// is present.
+func (r AnswerReminder) Text() string {
+	text := fmt.Sprintf(answerReminderOpeningCopy.in(r.Locale), r.CustomerName, r.EventName, r.Reference)
+	text += "\n\n" + fmt.Sprintf(answerReminderActionCopy.in(r.Locale), r.ConfirmationLink)
+	text += "\n\n" + answerReminderClosingCopy.in(r.Locale)
+	return text
+}
+
 // The Sale Voided notice (#246, ADR 0033) — the mail that says a purchase is
 // gone.
 //
