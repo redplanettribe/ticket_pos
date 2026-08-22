@@ -1,5 +1,19 @@
 # The holder answers by link, and the platform never writes to them
 
+**Superseded in part by [ADR 0046](./0046-a-ticket-is-assigned-to-a-holder-who-accepts-by-mail.md).**
+Two things below no longer hold. The rule that *"the platform never emails a holder… asks for no
+holder addresses and stores none"* falls: a buyer may now assign a Ticket to a Holder by email
+address after the purchase, and the platform mails that address an Assignment Link whose click
+accepts. With it falls the Answer Reminder's rationale — that mail is addressed to the buyer *"because
+there is nobody else to address"*, and once a Holder has accepted there is. The option this ADR
+rejected, collecting holder addresses at checkout, is still rejected; what changed is that assignment
+happens after the money has moved and that the accept click supplies the capture moment this ADR said
+the design lacked. Everything else here stands and is still load-bearing: the Answer belongs to the
+Ticket, three parties may supply it, "required" means outstanding rather than blocking, the Answer
+Link discloses nothing and transfers nothing, and checkout-time Answers are still held on the Payment
+and purged. See also
+[ADR 0047](./0047-the-organization-sees-the-holders-address.md) for what the Organization is shown.
+
 ## Context
 
 Ticket Questions ask for facts about the person who will hold a ticket. The obvious design — put the
