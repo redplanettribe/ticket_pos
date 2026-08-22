@@ -4590,6 +4590,10 @@
             },
             "service.TicketOwingAnswersView": {
                 "properties": {
+                    "assignment_state": {
+                        "description": "AssignmentState is `unassigned`, `assigned` or `accepted`, derived by\ncatalog.AssignmentState and never stored.\n\nIT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the\nwire at all: a name arrives only with acceptance, so without the state an\n`assigned` Ticket whose Holder never clicked would be indistinguishable\nfrom one nobody was ever named for — and those are opposite facts to an\nOrganizer deciding whether to chase.\n\nTHREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the\nretention purge has taken (migration 081) reads `unassigned` here, like\nevery other surface: nobody holds it, which is the truth. What happened to\nit is a fact for the platform's records, not a state of the assignment.",
+                        "type": "string"
+                    },
                     "channel": {
                         "description": "Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row\nrather than filtering it. A door sale and a Sale Import start out owing\nevery question because nobody ever put the questions to those buyers —\nthere is no checkout form on either. They stand here beside the online\nones, and the channel is what stops that reading as lost data.",
                         "type": "string"
@@ -4601,10 +4605,20 @@
                         "type": "string"
                     },
                     "customer_first_name": {
-                        "description": "The buyer, who is the ONLY person there is to chase: the platform holds no\naddress for a Ticket's holder and does not ask for one, so a question added\nafter a sale reaches its holder only if the buyer forwards it.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
+                        "description": "The buyer: the party of record for the Sale, and the person to chase for\nany Ticket nobody has accepted. They are no longer the only one — an\naccepted Ticket names its Holder below — but they remain here on every row,\nbecause a Holder is the named person a Ticket was handed to and never its\nowner, and the Sale stays whole with the buyer either way.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
                         "type": "string"
                     },
                     "customer_last_name": {
+                        "type": "string"
+                    },
+                    "holder_email": {
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "description": "HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was\nhanded to, and they are filled ONLY once that person has ACCEPTED.\n\nTHE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see\nfillGuestListEntry, which is the one place to change if it is ever\nrevisited. The address is disclosed deliberately and at a stated cost (ADR\n0047): an Organizer needs a way to reach the people attending its Event,\nand a name it cannot write to leaves it routing through buyers by hand,\nwhich is the problem assignment was built to end.",
+                        "type": "string"
+                    },
+                    "holder_last_name": {
                         "type": "string"
                     },
                     "ordinal": {
@@ -10555,7 +10569,7 @@
         },
         "/api/v1/staff/events/{id}/outstanding-answers": {
             "get": {
-                "description": "A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because \"twelve people never told us\" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.",
+                "description": "A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because \"twelve people never told us\" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off. EACH ROW IS ALSO A GUEST LIST ENTRY: it carries the Ticket's `assignment_state` — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED, that Holder's own name and email address beside the Answers they owe (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as `assigned` and never named, and a Ticket whose unaccepted address the retention purge has taken reads `unassigned` like any other. All four fields are ABSENT while the Ticket Assignment feature flag is off, which is a separate flag from the Ticket Question one.",
                 "parameters": [
                     {
                         "description": "Event ID",

@@ -21,9 +21,13 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
+  ASSIGNMENT_STATE_KEYS,
   SALES_CHANNEL_KEYS,
+  assignmentStateBadgeVariant,
   buyerName,
   fetchOutstandingAnswers,
+  guestListVisible,
+  holderName,
   type OutstandingAnswersPage,
   type TicketOwingAnswers,
 } from "@/lib/outstanding-answers";
@@ -119,6 +123,15 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
 
   const rows = result?.data ?? [];
   const pagination = result?.pagination;
+  /*
+    Whether to draw the guest list at all.
+
+    THE FEATURE FLAG IS READ OFF THE PAYLOAD'S ABSENCE and nowhere else, exactly
+    as the Storefront reads it: with `TICKET_ASSIGNMENT_ENABLED` closed the API
+    omits every assignment field, so this app needs no second copy of a
+    deployment flag it cannot see (ADR 0045).
+  */
+  const showGuests = guestListVisible(rows);
 
   return (
     <Card>
@@ -169,6 +182,11 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="py-2 pr-4 font-medium">{t("colBuyer")}</th>
+                    {/* The guest column appears only when the API sent an
+                        assignment at all — see `guestListVisible`. A column of
+                        blanks on a deployment where assignment is closed would
+                        be a promise this platform is not yet making. */}
+                    {showGuests ? <th className="py-2 pr-4 font-medium">{t("colGuest")}</th> : null}
                     <th className="py-2 pr-4 font-medium">{t("colTicket")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colSold")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colOwes")}</th>
@@ -188,6 +206,7 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                       }
                       answersLabel={sales("ticketAnswers")}
                       channelLabel={sales(SALES_CHANNEL_KEYS[ticket.channel])}
+                      showGuest={showGuests}
                     />
                   ))}
                 </tbody>
@@ -252,6 +271,8 @@ type OutstandingRowProps = {
   onOpen: () => void;
   answersLabel: string;
   channelLabel: string;
+  /** Whether this Event's rows carry a guest at all; see `guestListVisible`. */
+  showGuest: boolean;
 };
 
 /** One Ticket that owes, and the questions it owes. */
@@ -261,6 +282,7 @@ function OutstandingRow({
   onOpen,
   answersLabel,
   channelLabel,
+  showGuest,
 }: OutstandingRowProps) {
   const t = useTranslations("outstandingAnswers");
   const locale = toAppLocale(useLocale());
@@ -278,6 +300,7 @@ function OutstandingRow({
         <div className="font-medium">{buyerName(ticket)}</div>
         <div className="text-muted-foreground">{ticket.customer_email}</div>
       </td>
+      {showGuest ? <GuestCell ticket={ticket} /> : null}
       <td className="py-3 pr-4">
         {/* The Ticket Type as the Organization named it, with the ordinal that
             tells two Tickets of one line apart, and the buyer's own reference,
@@ -310,5 +333,43 @@ function OutstandingRow({
         </Button>
       </td>
     </tr>
+  );
+}
+
+type GuestCellProps = { ticket: TicketOwingAnswers };
+
+/**
+ * Who is coming on one Ticket (#329, ADR 0047).
+ *
+ * THE STATE IS ALWAYS DRAWN AND THE PERSON IS NOT, and that asymmetry is the
+ * whole cell. A name arrives only when a Holder ACCEPTS, so without the state an
+ * `assigned` Ticket whose Holder never clicked would look exactly like one
+ * nobody was ever named for — and those are opposite facts to an Organizer
+ * deciding whether to chase, or whether to expect somebody at the door.
+ *
+ * AN `assigned` ROW NAMES NOBODY, INCLUDING NO ADDRESS. The API withholds it,
+ * and this cell would have nothing to draw even if it wanted to: an address a
+ * buyer typed and its owner never accepted has no consent moment behind it, and
+ * the person may not know a ticket was bought for them.
+ *
+ * The address of an ACCEPTED Holder is shown, deliberately and at a stated cost
+ * (ADR 0047) — an Organizer needs a way to reach the people attending its Event,
+ * and this platform builds no surface for it to mail them.
+ */
+function GuestCell({ ticket }: GuestCellProps) {
+  const t = useTranslations("outstandingAnswers");
+  const state = ticket.assignment_state ?? "unassigned";
+  const name = holderName(ticket);
+
+  return (
+    <td className="py-3 pr-4">
+      {name ? <div className="font-medium">{name}</div> : null}
+      {ticket.holder_email ? (
+        <div className="text-muted-foreground">{ticket.holder_email}</div>
+      ) : null}
+      <Badge variant={assignmentStateBadgeVariant(state)} className={name ? "mt-1" : undefined}>
+        {t(ASSIGNMENT_STATE_KEYS[state])}
+      </Badge>
+    </td>
   );
 }

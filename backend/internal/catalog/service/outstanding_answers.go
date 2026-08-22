@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog"
+	"github.com/peter/ticket_pos/backend/internal/catalog/repository"
 )
 
 // The Outstanding Answers surface (#313): which of an Event's Tickets still owe
@@ -18,6 +21,12 @@ import (
 // catalog.IsOutstandingAnswer and implemented once in SQL in
 // repository.outstandingAnswerWhere; nothing here re-decides it. This file's job
 // is to page the result and shape it for a screen.
+//
+// AND IT IS THE GUEST LIST (#329, parent #322, ADR 0047). The same read, widened
+// rather than duplicated: it already walks the Event's Tickets, and an Organizer
+// asking "who is coming" and an Organizer asking "who has not told me their size"
+// are one person looking at one list. A second staff endpoint over the same rows
+// would be the same query twice, disagreeing eventually.
 
 // OutstandingAnswersPage is one page of an Event's Tickets that owe Answers,
 // with the two counts a reader needs to make sense of it.
@@ -71,9 +80,11 @@ type TicketOwingAnswersView struct {
 	// there is no checkout form on either. They stand here beside the online
 	// ones, and the channel is what stops that reading as lost data.
 	Channel string `json:"channel"`
-	// The buyer, who is the ONLY person there is to chase: the platform holds no
-	// address for a Ticket's holder and does not ask for one, so a question added
-	// after a sale reaches its holder only if the buyer forwards it.
+	// The buyer: the party of record for the Sale, and the person to chase for
+	// any Ticket nobody has accepted. They are no longer the only one — an
+	// accepted Ticket names its Holder below — but they remain here on every row,
+	// because a Holder is the named person a Ticket was handed to and never its
+	// owner, and the Sale stays whole with the buyer either way.
 	//
 	// The two name parts stay APART, as they are on the Sales list and in the
 	// column they are read from. Joining them here would mean choosing an order
@@ -83,6 +94,43 @@ type TicketOwingAnswersView struct {
 	CustomerLastName  string    `json:"customer_last_name"`
 	CustomerEmail     string    `json:"customer_email"`
 	SoldAt            time.Time `json:"sold_at"`
+	// THE GUEST LIST (#329, parent #322, ADR 0047). Who is coming, beside what
+	// they still owe. This is the answer to "who is in the room", which this
+	// Organization could previously give only as the buyer's name repeated once
+	// per Ticket — and it is on THIS payload rather than a second endpoint's
+	// because one list of Tickets is what an Organizer came to read.
+	//
+	// EVERY FIELD IS `omitempty`, AND THAT IS THE FLAG'S DOING, exactly as it is
+	// on the buyer's row. With TICKET_ASSIGNMENT_ENABLED closed the service fills
+	// none of them and this payload is byte-identical to the one a build without
+	// the feature sends (ADR 0045).
+
+	// AssignmentState is `unassigned`, `assigned` or `accepted`, derived by
+	// catalog.AssignmentState and never stored.
+	//
+	// IT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the
+	// wire at all: a name arrives only with acceptance, so without the state an
+	// `assigned` Ticket whose Holder never clicked would be indistinguishable
+	// from one nobody was ever named for — and those are opposite facts to an
+	// Organizer deciding whether to chase.
+	//
+	// THREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the
+	// retention purge has taken (migration 081) reads `unassigned` here, like
+	// every other surface: nobody holds it, which is the truth. What happened to
+	// it is a fact for the platform's records, not a state of the assignment.
+	AssignmentState string `json:"assignment_state,omitempty"`
+	// HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was
+	// handed to, and they are filled ONLY once that person has ACCEPTED.
+	//
+	// THE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see
+	// fillGuestListEntry, which is the one place to change if it is ever
+	// revisited. The address is disclosed deliberately and at a stated cost (ADR
+	// 0047): an Organizer needs a way to reach the people attending its Event,
+	// and a name it cannot write to leaves it routing through buyers by hand,
+	// which is the problem assignment was built to end.
+	HolderFirstName string `json:"holder_first_name,omitempty"`
+	HolderLastName  string `json:"holder_last_name,omitempty"`
+	HolderEmail     string `json:"holder_email,omitempty"`
 	// Outstanding names the required questions this Ticket has not answered, in
 	// the order they are asked. Never empty: a Ticket with nothing outstanding
 	// is not on this list at all.
@@ -179,7 +227,7 @@ func (s *Service) ListOutstandingAnswers(
 	}
 
 	for _, ticket := range tickets {
-		result.Data = append(result.Data, TicketOwingAnswersView{
+		view := TicketOwingAnswersView{
 			TicketID:          ticket.ID,
 			Ordinal:           ticket.Ordinal,
 			TicketTypeID:      ticket.TicketTypeID,
@@ -192,9 +240,56 @@ func (s *Service) ListOutstandingAnswers(
 			CustomerEmail:     ticket.CustomerEmail,
 			SoldAt:            ticket.SoldAt,
 			Outstanding:       outstandingOrEmpty(byTicket[ticket.ID]),
-		})
+		}
+		s.fillGuestListEntry(&view, ticket)
+		result.Data = append(result.Data, view)
 	}
 	return result, nil
+}
+
+// fillGuestListEntry puts one Ticket's Holder onto the Organization's row, or
+// leaves the row exactly as it was while the flag is closed (#329, ADR 0047).
+//
+// THE EARLY RETURN IS THE FLAG'S WHOLE EFFECT ON THIS READ, for the reason
+// fillBuyerAssignment's is: every field it would otherwise set is `omitempty`, so
+// a closed build sends the bytes a build without the feature sends and ADR 0045's
+// "no surface differs" is an assertion a test can make about the body.
+//
+// THE STATE IS DERIVED THROUGH catalog.AssignmentState and never re-decided, so
+// the word `assigned` cannot mean one thing on the buyer's page and another on
+// the Organization's list.
+//
+// AND THIS IS WHERE THE DISCLOSURE LINE IS DRAWN. Nothing about the Holder is
+// filled until AcceptedAt, and the ONE test is the state. An address a buyer
+// typed and its owner never accepted has no consent moment behind it at all —
+// the person may not know a ticket was bought for them — and ADR 0047 rejects
+// disclosing it outright, in the same breath as it accepts disclosing an accepted
+// one. The Organization is told that such a Ticket is `assigned`, and not who it
+// was assigned to.
+//
+// NOTE THE ASYMMETRY WITH THE BUYER'S ROW, which shows the address from the
+// moment it is typed. It is the same address and two different readers: the buyer
+// typed it and is telling their four Tickets apart, and the Organization is being
+// handed a stranger's contact detail.
+func (s *Service) fillGuestListEntry(view *TicketOwingAnswersView, ticket repository.TicketOwingAnswers) {
+	if !s.ticketAssignmentEnabled {
+		return
+	}
+
+	holderEmail := ""
+	if ticket.HolderEmail.Valid {
+		holderEmail = ticket.HolderEmail.String
+	}
+	state := catalog.AssignmentState(
+		holderEmail, nullTimeOrNil(ticket.AssignedAt), nullTimeOrNil(ticket.AcceptedAt),
+	)
+	view.AssignmentState = string(state)
+	if state != catalog.TicketAccepted {
+		return
+	}
+	view.HolderFirstName = ticket.HolderFirstName.String
+	view.HolderLastName = ticket.HolderLastName.String
+	view.HolderEmail = holderEmail
 }
 
 // outstandingOrEmpty keeps the field an ARRAY on the wire rather than null. A

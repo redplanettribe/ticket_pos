@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -101,6 +102,24 @@ const outstandingAnswerScope = `
 	AND s.event_id = $1 AND s.organization_id = $2
 `
 
+// outstandingAnswerHolderJoin reaches the Customer an accepted Holder proved
+// themselves to be, so that a row on this list can say WHO is coming and not
+// only which Ticket owes what (#329, ADR 0047).
+//
+// A SEPARATE CONST, ADDED BY ONE CALLER, and deliberately not folded into
+// outstandingAnswerFrom. The other three callers of that join — the whole-Event
+// count, the per-Ticket question listing and the Sale's EXISTS — decide the DEBT,
+// and the debt has no opinion about who holds a Ticket. A join in the shared FROM
+// would put the Holder into three queries that must never select them and would
+// make a disclosure decision by accident.
+//
+// LEFT, AND ON THE PRIMARY KEY, so it can neither drop a row nor multiply one: a
+// Ticket has at most one holder_customer_id, and that column is NULL on every
+// Ticket that was never accepted — which is all of them while the flag is closed.
+const outstandingAnswerHolderJoin = `
+	LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
+`
+
 // TicketSaleHasOutstandingAnswers reports whether ANY Ticket of one Ticket Sale
 // still owes a required Ticket Question an Answer (#315).
 //
@@ -171,6 +190,40 @@ type TicketOwingAnswers struct {
 	// counted in the same GROUP BY that found the Ticket, so it can never
 	// disagree with the questions listed beside it.
 	OutstandingCount int
+
+	// THE GUEST LIST (#329, parent #322, ADR 0047). Who this Ticket was handed
+	// to, beside what it owes, so that "who is coming and what size are they" is
+	// one read rather than two — which is the whole reason this surface was
+	// extended instead of a second one being built.
+	//
+	// FOUR COLUMNS AND NO STATE. The state is DERIVED by catalog.AssignmentState
+	// from three of them, in the service, through the same function the buyer's
+	// page and the export come through. A `state` column selected here would be a
+	// fifth opinion about what these three columns already say.
+
+	// HolderEmail is the address the buyer named, and AssignedAt when they named
+	// it. Invalid on an `unassigned` Ticket — and equally invalid on one whose
+	// address the retention purge has taken (migration 081), which is why a
+	// purged Ticket reads `unassigned` here as it does everywhere else.
+	//
+	// WHAT THE ORGANIZATION IS SHOWN IS NOT DECIDED HERE. This is the repository
+	// reporting the row; the disclosure rule — nothing before acceptance — is
+	// stated once in the service, where the payload is built.
+	HolderEmail sql.NullString
+	AssignedAt  sql.NullTime
+	// AcceptedAt is when the Holder clicked, and the whole of what `accepted`
+	// means. It is also the ONLY thing that makes the two name columns below
+	// non-NULL, because migration 080 refuses a holder_customer_id without it.
+	AcceptedAt sql.NullTime
+	// HolderFirstName and HolderLastName are the accepted Holder's own asserted
+	// name, read from the Customer their click minted or matched — never from
+	// the Ticket Sale, whose name is the BUYER's and is what this list showed
+	// four times over before this feature existed.
+	//
+	// APART, AS THE BUYER'S TWO ARE, per ADR 0005: which part leads a person's
+	// name is the reader's question and not this row's.
+	HolderFirstName sql.NullString
+	HolderLastName  sql.NullString
 }
 
 // OutstandingQuestion is one required Ticket Question one Ticket has not
@@ -229,12 +282,16 @@ func (r *Repository) ListTicketsOwingAnswers(
 		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
 		       s.id, s.confirmation_ref, s.channel,
 		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
-		       COUNT(*) AS outstanding_count
-	`+outstandingAnswerFrom+`
+		       COUNT(*) AS outstanding_count,
+		       tk.holder_email, tk.assigned_at, tk.accepted_at,
+		       hc.first_name, hc.last_name
+	`+outstandingAnswerFrom+outstandingAnswerHolderJoin+`
 		WHERE `+outstandingAnswerWhere+outstandingAnswerScope+`
 		GROUP BY tk.id, tk.ordinal, l.ticket_type_id, tt.name,
 		         s.id, s.confirmation_ref, s.channel,
-		         s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at
+		         s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
+		         tk.holder_email, tk.assigned_at, tk.accepted_at,
+		         hc.first_name, hc.last_name
 		ORDER BY s.sold_at ASC, s.id ASC, tk.ordinal ASC
 		LIMIT $3 OFFSET $4
 	`, eventID, organizationID, limit, offset)
@@ -251,6 +308,8 @@ func (r *Repository) ListTicketsOwingAnswers(
 			&t.TicketSaleID, &t.ConfirmationRef, &t.Channel,
 			&t.CustomerFirstName, &t.CustomerLastName, &t.CustomerEmail, &t.SoldAt,
 			&t.OutstandingCount,
+			&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt,
+			&t.HolderFirstName, &t.HolderLastName,
 		); err != nil {
 			return nil, 0, err
 		}

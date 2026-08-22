@@ -4217,6 +4217,22 @@ components:
       type: object
     service.TicketOwingAnswersView:
       properties:
+        assignment_state:
+          description: |-
+            AssignmentState is `unassigned`, `assigned` or `accepted`, derived by
+            catalog.AssignmentState and never stored.
+
+            IT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the
+            wire at all: a name arrives only with acceptance, so without the state an
+            `assigned` Ticket whose Holder never clicked would be indistinguishable
+            from one nobody was ever named for — and those are opposite facts to an
+            Organizer deciding whether to chase.
+
+            THREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the
+            retention purge has taken (migration 081) reads `unassigned` here, like
+            every other surface: nobody holds it, which is the truth. What happened to
+            it is a fact for the platform's records, not a state of the assignment.
+          type: string
         channel:
           description: |-
             Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row
@@ -4231,9 +4247,11 @@ components:
           type: string
         customer_first_name:
           description: |-
-            The buyer, who is the ONLY person there is to chase: the platform holds no
-            address for a Ticket's holder and does not ask for one, so a question added
-            after a sale reaches its holder only if the buyer forwards it.
+            The buyer: the party of record for the Sale, and the person to chase for
+            any Ticket nobody has accepted. They are no longer the only one — an
+            accepted Ticket names its Holder below — but they remain here on every row,
+            because a Holder is the named person a Ticket was handed to and never its
+            owner, and the Sale stays whole with the buyer either way.
 
             The two name parts stay APART, as they are on the Sales list and in the
             column they are read from. Joining them here would mean choosing an order
@@ -4241,6 +4259,22 @@ components:
             not this payload's.
           type: string
         customer_last_name:
+          type: string
+        holder_email:
+          type: string
+        holder_first_name:
+          description: |-
+            HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was
+            handed to, and they are filled ONLY once that person has ACCEPTED.
+
+            THE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see
+            fillGuestListEntry, which is the one place to change if it is ever
+            revisited. The address is disclosed deliberately and at a stated cost (ADR
+            0047): an Organizer needs a way to reach the people attending its Event,
+            and a name it cannot write to leaves it routing through buyers by hand,
+            which is the problem assignment was built to end.
+          type: string
+        holder_last_name:
           type: string
         ordinal:
           description: |-
@@ -8981,7 +9015,15 @@ paths:
         us" is what a reader after the fact came to find out. `outstanding_count`
         is the Event''s total number of debts, while `pagination.total` counts the
         Tickets carrying them. Answers 404 while the Ticket Question feature flag
-        is off.'
+        is off. EACH ROW IS ALSO A GUEST LIST ENTRY: it carries the Ticket''s `assignment_state`
+        — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED,
+        that Holder''s own name and email address beside the Answers they owe (ADR
+        0047). Nothing about a Holder is disclosed before acceptance: an address a
+        buyer typed and its owner never accepted is reported as `assigned` and never
+        named, and a Ticket whose unaccepted address the retention purge has taken
+        reads `unassigned` like any other. All four fields are ABSENT while the Ticket
+        Assignment feature flag is off, which is a separate flag from the Ticket Question
+        one.'
       parameters:
       - description: Event ID
         in: path

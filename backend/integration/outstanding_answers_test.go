@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,7 +33,14 @@ type outstandingAnswers struct {
 		CustomerLastName  string    `json:"customer_last_name"`
 		CustomerEmail     string    `json:"customer_email"`
 		SoldAt            time.Time `json:"sold_at"`
-		Outstanding       []struct {
+		// The guest list (#329). Every one of these is ABSENT while
+		// TICKET_ASSIGNMENT_ENABLED is closed, which is a separate flag from the
+		// one that opens this whole surface — see the flag test below.
+		AssignmentState string `json:"assignment_state"`
+		HolderFirstName string `json:"holder_first_name"`
+		HolderLastName  string `json:"holder_last_name"`
+		HolderEmail     string `json:"holder_email"`
+		Outstanding     []struct {
 			QuestionID string `json:"question_id"`
 			Label      string `json:"label"`
 			Kind       string `json:"kind"`
@@ -530,5 +538,264 @@ func TestOutstandingAnswersAreScopedAndGated(t *testing.T) {
 	resp, body = env.get(t, outstandingPath(eventID), authHeader(staffSessionID))
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status=%d, want 403 for event_staff; error=%+v", resp.StatusCode, body.Error)
+	}
+}
+
+// THE GUEST LIST (#329, parent #322, ADR 0047).
+//
+// The same read, widened rather than duplicated. An Organization asked "who is
+// coming to my Event" could previously answer only with the buyer's name
+// repeated once per Ticket; these tests are what makes it answer with people.
+//
+// THE ROWS ARE THE SAME ROWS. Nothing below adds a Ticket to this list or takes
+// one off it: the list is still the Event's Tickets that owe required Answers,
+// and the guest is a fact carried BY a row. That is the whole reason there is no
+// second staff endpoint — and it is also the coupling it leaves behind, which
+// TestTheGuestListOnlyReachesTicketsThatOweAnAnswer records.
+
+// guestEntry is what the Organization is shown about the person on one row.
+type guestEntry struct {
+	state, firstName, lastName, email string
+}
+
+// guestRow picks one Ticket's row off the Organization's list, failing if the
+// Ticket is not on it — so a test that means "Carla's row says X" cannot quietly
+// pass because there was no row at all.
+func guestRow(t *testing.T, page outstandingAnswers, ticketID string) guestEntry {
+	t.Helper()
+	for _, row := range page.Data {
+		if row.TicketID == ticketID {
+			return guestEntry{row.AssignmentState, row.HolderFirstName, row.HolderLastName, row.HolderEmail}
+		}
+	}
+	t.Fatalf("Ticket %s is not on the Organization's list", ticketID)
+	return guestEntry{}
+}
+
+// THE CENTRE OF THIS TICKET: three Tickets of one Event in the three states, on
+// one list, and what the Organization is shown about each.
+//
+//   - `accepted` — a Holder proved the address and gave their own name. The
+//     Organization sees BOTH, name and address, which is the disclosure ADR 0047
+//     records with its cost stated: an Organizer needs a way to reach the people
+//     attending its Event, and a name it cannot write to leaves it routing
+//     through buyers by hand.
+//   - `assigned` — an address was typed and nobody clicked it. The Organization
+//     is told the state and NOT the person. That address has no consent moment
+//     behind it at all; ADR 0047 rejects disclosing it outright and calls it the
+//     line the whole design is drawn around.
+//   - `unassigned` — nobody was named. Neither.
+//
+// AND THE BUYER STAYS ON EVERY ROW. A Holder is the named person a Ticket was
+// handed to and never its owner: the Sale, the money and the Reversal Window are
+// still the buyer's, and a guest list that replaced them would be describing a
+// transfer that never happened.
+func TestTheGuestListNamesAcceptedHoldersAndNobodyElse(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	accepted, assigned := f.anaTicketIDs[0], f.anaTicketIDs[1]
+
+	// Carla is handed a Ticket and accepts it, which mints her Customer record,
+	// and then gives the name the Organization will read.
+	assignTicketOK(t, env, f.ana, f.anaSaleID, accepted, "carla@example.com")
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
+	acceptAssignmentOK(t, env, token)
+	resp, body, _ := answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+		"token": token, "first_name": "Carla", "last_name": "Ruiz",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder name status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	// Diego is handed the other one and never clicks. A minute later, so the two
+	// assignments are separable facts on this suite's fixed clock.
+	holdClocksAt(fixedClock.Add(time.Minute))
+	assignTicketOK(t, env, f.ana, f.anaSaleID, assigned, "diego@example.com")
+
+	page := listOutstanding(t, env, f.staffSession, f.eventID)
+	if page.Pagination.Total != 3 {
+		t.Fatalf("tickets on the list = %d, want the Event's three — assignment adds and removes no rows",
+			page.Pagination.Total)
+	}
+
+	if got := guestRow(t, page, accepted); got.state != "accepted" ||
+		got.firstName != "Carla" || got.lastName != "Ruiz" || got.email != "carla@example.com" {
+		t.Errorf("the accepted row reads %+v.\n"+
+			"An Organization sees an accepted Holder's name AND email address (ADR 0047), "+
+			"and the two name parts stay apart (ADR 0005).", got)
+	}
+
+	// THE ASSIGNED ROW IS THE ONE TO GET RIGHT. It says `assigned` and says
+	// nothing else: no name, because nobody has given one, and no address,
+	// because the person at it has agreed to nothing and may not know a ticket
+	// was bought for them.
+	got := guestRow(t, page, assigned)
+	if got.state != "assigned" {
+		t.Errorf("the assigned row reads state=%q, want `assigned` — without the state a Ticket "+
+			"nobody accepted is indistinguishable from one nobody was named for", got.state)
+	}
+	if got.firstName != "" || got.lastName != "" {
+		t.Errorf("the assigned row names %q %q; a name arrives only with acceptance", got.firstName, got.lastName)
+	}
+	if got.email != "" {
+		t.Errorf("the assigned row discloses %q.\n"+
+			"ADR 0047: an address that was typed by a buyer and never accepted is NEVER shown to the "+
+			"Organization. That is the line the whole design is drawn around.", got.email)
+	}
+
+	// And Bruno's Ticket, which nobody was ever named for.
+	if got := guestRow(t, page, f.brunoTicketIDs[0]); got.state != "unassigned" ||
+		got.firstName != "" || got.email != "" {
+		t.Errorf("the unassigned row reads %+v, want the state alone", got)
+	}
+
+	// The buyer is still on every row, Holder or no Holder.
+	for _, row := range page.Data {
+		if row.CustomerEmail == "" || row.CustomerFirstName == "" {
+			t.Errorf("row %s lost its buyer: %+v — assignment is never transfer", row.TicketID, row)
+		}
+	}
+	// Nothing else about a stranger's address leaked onto the list either.
+	raw, err := json.Marshal(page)
+	if err != nil {
+		t.Fatalf("re-encode page: %v", err)
+	}
+	if strings.Contains(string(raw), "diego@example.com") {
+		t.Error("diego@example.com appears somewhere on the Organization's list; nothing is disclosed before acceptance")
+	}
+}
+
+// A PURGED TICKET READS `unassigned` TO THE ORGANIZATION, AND THERE IS NO FOURTH
+// STATE.
+//
+// An address nobody accepted is taken when the Event starts (#331, migration
+// 081), which takes `assigned_at` with it and leaves only the platform's own
+// marker that this Ticket once carried one. That marker is not a state and
+// nothing derives one from it: nobody holds the Ticket, which is the truth, and
+// a `purged` on the wire would be a fourth value on a feature whose three states
+// are its whole vocabulary.
+func TestAPurgedHolderAddressReadsAsUnassignedOnTheGuestList(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "diego@example.com")
+	if got := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID); got.state != "assigned" {
+		t.Fatalf("state before the purge = %q, want `assigned`", got.state)
+	}
+
+	// The doors open — the fixture's Event starts 30 days out — and the purge
+	// takes the address it was never allowed to keep.
+	holdClocksAt(fixedClock.Add(30*24*time.Hour + time.Hour))
+	if result := purgeHolderAddresses(t, env); result.AddressesPurged != 1 {
+		t.Fatalf("purge = %+v, want the one unaccepted address taken", result)
+	}
+
+	// The Event has started, and this list still reports its debts — "twelve
+	// people never told us" is what a reader after the fact came to find out.
+	got := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID)
+	if got.state != "unassigned" {
+		t.Errorf("a purged Ticket reads state=%q to the Organization, want `unassigned` — "+
+			"three states and never four (migration 081)", got.state)
+	}
+	if got.email != "" || got.firstName != "" {
+		t.Errorf("a purged Ticket still discloses %+v", got)
+	}
+}
+
+// EVENT STAFF CAN STILL CORRECT ANY ANSWER ON ANY TICKET OF THEIR EVENT,
+// INCLUDING AN ACCEPTED ONE.
+//
+// Acceptance closes the ANSWER LINK — a stranger still holding a forwarded URL
+// must not overwrite the Holder's own reply (ADR 0046) — and it closes nothing
+// else. An Organization that could not fix the size of a Holder who has stopped
+// replying would find the guest list turning every unreachable person into a
+// dead end, which is the opposite of what this surface is for.
+func TestStaffStillAnswerForAnAcceptedHolder(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
+	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com")))
+
+	page := listOutstanding(t, env, f.staffSession, f.eventID)
+	if got := guestRow(t, page, ticketID); got.state != "accepted" {
+		t.Fatalf("state = %q, want `accepted`", got.state)
+	}
+	if labels := labelsOwedBy(page, ticketID); len(labels) != 1 {
+		t.Fatalf("an accepted Ticket owes %v; accepting answers nothing by itself", labels)
+	}
+
+	// The row is acted on exactly as any other is: through the jump it carries.
+	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "S"})
+	if !owesNothing(listOutstanding(t, env, f.staffSession, f.eventID), ticketID) {
+		t.Error("the Ticket still owes after Event Staff answered it — an unreachable Holder is a dead end")
+	}
+}
+
+// WITH TICKET_ASSIGNMENT_ENABLED CLOSED, THIS SURFACE IS BYTE-IDENTICAL TO WHAT A
+// BUILD WITHOUT THE FEATURE SENDS.
+//
+// The two flags are separate on purpose: killing assignment must not take Ticket
+// Questions down with it, so the Outstanding Answers list has to keep working
+// with the guest list absent — not empty, ABSENT. Asserted on the RAW BODY,
+// because a decoded struct reports an empty string for a field sent as `""` and
+// for one never sent at all, and those are the two cases this distinguishes
+// (ADR 0045).
+func TestTheGuestListIsAbsentWhileTheAssignmentFlagIsClosed(t *testing.T) {
+	env := setupTest(t)
+	// Questions open, assignment left CLOSED — deliberately not calling
+	// enableTicketAssignment, which is the shipped state.
+	f := newBuyerAnswersFixture(t, env)
+
+	resp, body := env.get(t, outstandingPath(f.eventID), authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d error=%+v — closing assignment must not close Ticket Questions",
+			resp.StatusCode, body.Error)
+	}
+	page := decodeOutstanding(t, body.Data)
+	if page.Pagination.Total != 3 {
+		t.Fatalf("tickets = %d, want the Event's three still listed", page.Pagination.Total)
+	}
+	for _, forbidden := range []string{"assignment_state", "holder_first_name", "holder_last_name", "holder_email"} {
+		if strings.Contains(string(body.Data), forbidden) {
+			t.Errorf("the response carries %q while TICKET_ASSIGNMENT_ENABLED is closed.\n"+
+				"A closed build must send the bytes a build without the feature sends (ADR 0045).", forbidden)
+		}
+	}
+}
+
+// THE GUEST LIST REACHES ONLY TICKETS THAT OWE AN ANSWER, AND THIS TEST EXISTS
+// TO RECORD THAT RATHER THAN TO BLESS IT.
+//
+// The guest rides on the Outstanding Answers read — one surface and not two,
+// which is #329's decision — and that read's rows are the Tickets still owing a
+// required Ticket Question. So a Ticket whose Answers are all in DROPS OFF the
+// guest list at the moment it is fully answered, and a Ticket Type that asks
+// nothing never appears on it at all. An Organization that asks no Ticket
+// Questions therefore has no guest list, and the whole route 404s while
+// TICKET_QUESTIONS_ENABLED is closed however open assignment is.
+//
+// That is a real gap between "who is coming" and what this surface can answer,
+// and closing it is a decision about what this list IS — every Ticket, or every
+// Ticket that owes — which is beyond the ticket that widened the row. It is
+// asserted here so the gap is a known property with a test naming it, and so
+// that whoever closes it has something that fails when they do.
+func TestTheGuestListOnlyReachesTicketsThatOweAnAnswer(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
+	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com")))
+	if got := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID); got.email == "" {
+		t.Fatal("the accepted Holder is not on the list to begin with")
+	}
+
+	// Carla answers the one required question, and leaves the list with her name.
+	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "S"})
+	if !owesNothing(listOutstanding(t, env, f.staffSession, f.eventID), ticketID) {
+		t.Fatal("a fully answered Ticket is still on the Outstanding Answers list")
 	}
 }
