@@ -34,7 +34,7 @@ name somebody else typed and often is not attending. Every Sale in production pr
 decision, so leaving them alone would ship the feature to an audience for whom every Sale page still
 says "0 of N tickets have an address" and asks the buyer to name themself; a migration therefore
 holds Ticket 1 for the buyer on each existing Online Sale, stamped with the Sale's own time so the
-row is indistinguishable from one the checkout would have written. It skips a reversed Sale (the
+row is indistinguishable from one the checkout would have written. It skips a reversed Sale — whether reversed by an Organizer or through a Reversal Request, whatever became of it (the
 Ticket admits nobody, and the roster would say otherwise), a Sale where Ticket 1 was already handed
 to someone, and a Sale where the buyer already holds any Ticket by the link flow — one Ticket, not
 two.
