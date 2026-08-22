@@ -40,6 +40,16 @@ type CommitLine struct {
 	// platform withholds only from money it actually held — and those lines
 	// record their unit price as the base price with nothing withheld.
 	Fee *sales.FeeSnapshot
+	// Answers are the Ticket Questions this line's buyer answered at checkout,
+	// carried off the Payment that is settling and written onto the Tickets this
+	// line is about to mint, index by ordinal (#311, ADR 0044).
+	//
+	// EMPTY ON EVERY OTHER SALES CHANNEL, AND THAT IS NOT A GAP. A box office
+	// sale and a Sale Import have no checkout form and no Payment to have held
+	// anything: their Tickets are minted with every question outstanding, and the
+	// holder answers by Answer Link afterwards exactly as an online buyer's
+	// unanswered ones do. Only ApprovePaymentAndCommitSale ever fills this.
+	Answers []LineAnswer
 }
 
 // CommitSale is one Ticket Sale to record on any Sales Channel: the buyer as
@@ -556,7 +566,20 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			// Nothing between these two statements may fail without both rolling
 			// back together: that is the whole of how "one Ticket per ticket sold"
 			// is kept true (ADR 0043).
-			if err := mintTickets(ctx, tx, lineID, line.Quantity, in.Now); err != nil {
+			ticketIDs, err := mintTickets(ctx, tx, lineID, line.Quantity, in.Now)
+			if err != nil {
+				return nil, err
+			}
+			// And the Answers the buyer gave at checkout, landing on those very
+			// Tickets in the same transaction (#311). The Payment held them keyed
+			// by (payment line, index) across the provider redirect; here index n
+			// becomes ordinal n, which is what `tickets.ordinal` exists for.
+			//
+			// Inside the transaction and not after it, for mintTickets' reason
+			// exactly: a Payment that fails or expires must produce no Tickets and
+			// no Answers on any Ticket, and the only thing making that true is
+			// that all three writes roll back together.
+			if err := writeTicketAnswers(ctx, tx, ticketIDs, line.Answers, in.Now); err != nil {
 				return nil, err
 			}
 		}
@@ -602,13 +625,35 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 // The insert mirrors migration 071's backfill statement, generate_series and
 // all, so that a Ticket minted at sale time and a Ticket backfilled onto an old
 // sale are the same row written by the same shape.
-func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quantity int, now time.Time) error {
-	_, err := tx.ExecContext(ctx, `
+//
+// IT RETURNS THE TICKETS KEYED BY ORDINAL, and the key is the ordinal rather
+// than a slice position deliberately. The Answers held on a Payment are keyed by
+// an index that MEANS the ordinal (#311, migration 074), so handing the caller a
+// map straight from the column removes the one place an off-by-one could live —
+// and `RETURNING` makes no promise about row order, so a slice would have had to
+// be sorted back into the order the map already has.
+func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quantity int, now time.Time) (map[int]string, error) {
+	rows, err := tx.QueryContext(ctx, `
 		INSERT INTO tickets (ticket_sale_line_id, ordinal, created_at)
 		SELECT $1, ordinals.n, $3
 		FROM generate_series(1, $2) AS ordinals (n)
+		RETURNING ordinal, id
 	`, ticketSaleLineID, quantity, now)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ticketIDs := make(map[int]string, quantity)
+	for rows.Next() {
+		var ordinal int
+		var id string
+		if err := rows.Scan(&ordinal, &id); err != nil {
+			return nil, err
+		}
+		ticketIDs[ordinal] = id
+	}
+	return ticketIDs, rows.Err()
 }
 
 // liveHoldsForUpdate returns the quantities live Capacity Holds claim per
