@@ -146,6 +146,29 @@
     "networkFailed": "That didn't work. Check your connection and try again.",
     "proofExpired": "This took too long, or that code had already been used. Start again and we'll send you a new passcode."
   },
+  "answerLink": {
+    "metaTitle": "Answer a few questions · {brand}",
+    "title": "Answer a few questions",
+    "description": "Whoever bought this ticket sent you this link so you can answer for yourself.",
+    "intro": "The organiser asked these about whoever is coming. Answer what you like — nothing here is required to attend, and you can come back to this link and change an answer until the event starts.",
+    "requiredMark": "(the organiser is waiting on this one)",
+    "save": "Save",
+    "saved": "Saved",
+    "saveFailed": "That didn't save. Try again.",
+    "networkFailed": "That didn't save. Check your connection and try again.",
+    "nothingToSave": "There's nothing to save yet — fill this in first.",
+    "retiredQuestion": "The organiser has stopped asking this. Your answer is kept as it was.",
+    "nothingAskedTitle": "Nothing to answer",
+    "nothingAskedDescription": "The organiser isn't asking anything about this ticket. There's nothing for you to do here.",
+    "incompleteTitle": "This link is incomplete",
+    "incompleteDescription": "Part of it was probably cut off in the message. Ask whoever sent it to send the whole link again.",
+    "invalidTitle": "This link doesn't work",
+    "invalidDescription": "It may have been cut off in the message, or it may no longer be good. Ask whoever sent it for a fresh one.",
+    "expiredTitle": "The event has started",
+    "expiredDescription": "Answers close when the doors open, so there's nothing left to change. Speak to the organiser at the event if something needs fixing.",
+    "unavailableTitle": "We can't open this right now",
+    "unavailableDescription": "Something is wrong on our side, and it isn't your link. Please try again later."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Get tickets for {event}.",
@@ -445,7 +468,12 @@
       "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
       "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference.",
       "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead.",
-      "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead."
+      "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead.",
+      "ANSWER_LINK_INVALID": "This link doesn't work. Ask whoever sent it for a fresh one.",
+      "ANSWER_LINK_EXPIRED": "The event has started, so answers are closed.",
+      "ANSWER_LINK_UNAVAILABLE": "Something is wrong on our side. Please try again later.",
+      "INVALID_ANSWER": "That answer doesn't fit this question.",
+      "ANSWER_OPTION_NOT_OFFERED": "That option isn't one this question offers any more."
     },
     "field": {
       "REQUIRED": "is required",

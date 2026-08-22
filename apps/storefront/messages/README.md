@@ -19,6 +19,7 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `myInfo`       | The Customer's own details                                         |
 | `privacySettings` | A Customer's own consents, at `/{locale}/privacy`               |
 | `privacy`      | The Privacy Policy page's chrome — never the policy itself         |
+| `answerLink`   | The Answer Link's page at `/{locale}/answer` — its chrome only     |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
 | `tags`         | Preset Tag names, which belong to no single surface either         |
 
@@ -113,6 +114,13 @@ Two rules, mirroring the ones above:
   SHA-256 of the exact text a person was shown and a hash taken over a file in
   this directory could not be checked against what the page rendered (#250).
   Legal text pasted in here would be text no test can tie to the fingerprint.
+- **Ticket Question and Option labels are not in here, and must never be.** The
+  `answerLink` namespace holds the page's heading, its hints and its Save button
+  — chrome. The questions themselves are an Organization's own words, read AS
+  COINED in every Locale like a Custom Tag (ADR 0027), and so are an Answer's own
+  text: translating "T-shirt size" into the reader's language would be the
+  platform putting words in an Organization's mouth, and translating a reply
+  would be putting them in a Customer's.
 - **"Multiticketing" is not in here.** It is a brand name and reads the same in
   every language, so it lives in `lib/brand.ts` and is interpolated in
   (`"Powered by {brand}"`) rather than being copied into each catalog where a
