@@ -253,113 +253,315 @@ func TestBackfillAgreesWithTheCheckoutAboutWhichTicketIsTheBuyers(t *testing.T) 
 	}
 }
 
-// THE FOUR SALES LEFT ALONE: reversed; Ticket 1 already handed to somebody;
-// the buyer already holding another Ticket by its Assignment Link; and a Sale
-// that is not `online`.
-func TestBackfillSkipsTheSalesItMustNotTouch(t *testing.T) {
+// WHAT THE BACKFILL LEAVES ALONE (#340). Each exclusion below is one focused
+// test, and each is read back the way the buyer and the Organizer read it: the
+// Sale page and the Holder List. Where a surface cannot show a Sale at all (an
+// operator-reversed Sale has no page to open) the holder columns stand in.
+
+// skipFixture is the common staging: an Event with the flags open, and a buy
+// that makes a pre-0048 Online Sale for one address.
+type skipFixture struct {
+	env       *testEnv
+	sessionID string
+	eventID   string
+	gaID      string
+	slug      string
+}
+
+func newSkipFixture(t *testing.T, name, slug string) skipFixture {
+	t.Helper()
 	env := setupTest(t)
 	enableTicketQuestions(t)
 	enableTicketAssignment(t)
 	sessionID := orgAdminSession(t, env)
-	_, gaID := publishCheckoutEvent(t, env, sessionID, "Skip Fest", "skip-fest", 1000, 40)
+	eventID, gaID := publishCheckoutEvent(t, env, sessionID, name, slug, 1000, 40)
+	return skipFixture{env: env, sessionID: sessionID, eventID: eventID, gaID: gaID, slug: slug}
+}
 
-	buy := func(email string, quantity int) (saleID, ref string) {
-		begun := beginCheckoutOK(t, env, "test-org", "skip-fest",
-			checkoutBody(email, "Ana", "Lopez", cartLine(gaID, quantity)))
-		settled := confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
-		saleID = saleIDOfPayment(t, env, begun.ClientTransactionID)
-		clearSelfHeld(t, env, saleID)
-		return saleID, settled.ConfirmationRef
-	}
+// buy makes an Online Sale and clears the Self-held Ticket, which is exactly
+// the state of every Sale made before ADR 0048.
+func (f skipFixture) buy(t *testing.T, email string, quantity int) (saleID, ref string) {
+	t.Helper()
+	begun := beginCheckoutOK(t, f.env, "test-org", f.slug,
+		checkoutBody(email, "Ana", "Lopez", cartLine(f.gaID, quantity)))
+	settled := confirmCheckoutOK(t, f.env, begun.ClientTransactionID, "approved")
+	saleID = saleIDOfPayment(t, f.env, begun.ClientTransactionID)
+	clearSelfHeld(t, f.env, saleID)
+	return saleID, settled.ConfirmationRef
+}
 
-	// Reversed by an operator, which records no `sale_reversals` row — the
-	// status column alone says the Ticket admits nobody.
-	reversedRef := claimFreeOnlineSale(t, env, sessionID, "Free Skip Fest", "free-skip-fest", "rev@example.com", 2)
-	reversedSale := saleIDOfRef(t, env, reversedRef)
-	clearSelfHeld(t, env, reversedSale)
-	operatorReverseOK(t, payphoneEnv, operatorSession(t, env, "operator@example.com"), reversedRef,
-		operatorReversalBody{Note: strPtr("refunded")})
-
-	// A buyer's own Reversal Request, in flight: a `sale_reversals` row.
-	requestedSale, _ := buy("req@example.com", 2)
-	if _, err := env.db.Exec(`
-		INSERT INTO sale_reversals (ticket_sale_id, client_transaction_id, requested_at, status, next_attempt_at)
-		VALUES ($1, 'tx-req', NOW(), 'in_flight', NOW())
-	`, requestedSale); err != nil {
-		t.Fatalf("stage a reversal request: %v", err)
-	}
-
-	// Ticket 1 handed to a friend before the deploy.
-	ana := customerSignIn(t, env, "ana@example.com")
-	handedSale, _ := buy("ana@example.com", 2)
-	var handedFirst string
-	for _, tk := range listBuyerTickets(t, env, ana, handedSale) {
-		if tk.Ordinal == 1 {
-			handedFirst = tk.TicketID
+// ticketAt is the Ticket of a Sale at one ordinal, as the buyer sees it.
+func (f skipFixture) ticketAt(t *testing.T, session, saleID string, ordinal int) string {
+	t.Helper()
+	for _, tk := range listBuyerTickets(t, f.env, session, saleID) {
+		if tk.Ordinal == ordinal {
+			return tk.TicketID
 		}
 	}
-	assignTicketOK(t, env, ana, handedSale, handedFirst, "carla@example.com")
+	t.Fatalf("sale %s has no Ticket #%d", saleID, ordinal)
+	return ""
+}
 
-	// The buyer accepted Ticket 2 for themself by link before the deploy.
-	linkedSale, _ := buy("ana@example.com", 2)
-	var linkedSecond string
-	for _, tk := range listBuyerTickets(t, env, ana, linkedSale) {
-		if tk.Ordinal == 2 {
-			linkedSecond = tk.TicketID
+// heldCount is how many Tickets of a Sale have any Holder at all.
+func heldCount(t *testing.T, env *testEnv, saleID string) int {
+	t.Helper()
+	n := 0
+	for _, r := range holderRows(t, env, saleID) {
+		if r.holder.Valid {
+			n++
 		}
 	}
-	env.email.Reset()
-	assignTicketOK(t, env, ana, linkedSale, linkedSecond, "Ana@Example.com")
-	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "ana@example.com")))
+	return n
+}
 
-	// A door sale.
-	doorSale, doorRef := buy("door@example.com", 2)
-	moveSaleToTheDoor(t, env, doorRef)
+// assertSaleUnassignedEverywhere asserts that no Ticket of the Sale has a
+// Holder: in the columns, on the buyer's Sale page and on the Holder List —
+// where an `unassigned` row is also the proof that no Holder reminder could be
+// addressed, since the reminder sweep chases holders through accepted_at and
+// these Tickets have none.
+func assertSaleUnassignedEverywhere(t *testing.T, f skipFixture, buyerSession, saleID, what string) {
+	t.Helper()
+	if got := heldCount(t, f.env, saleID); got != 0 {
+		t.Errorf("%s has %d held Tickets, want 0", what, got)
+	}
+	for _, tk := range listBuyerTickets(t, f.env, buyerSession, saleID) {
+		if tk.AssignmentState != "unassigned" || tk.SelfHeld || tk.HolderEmail != "" {
+			t.Errorf("%s: Sale page shows %s #%d state=%q holder=%q self_held=%v, want unassigned",
+				what, tk.TicketTypeName, tk.Ordinal, tk.AssignmentState, tk.HolderEmail, tk.SelfHeld)
+		}
+	}
+	for _, r := range listOutstanding(t, f.env, f.sessionID, f.eventID).Data {
+		if r.TicketSaleID != saleID {
+			continue
+		}
+		if r.AssignmentState != "unassigned" || r.HolderEmail != "" {
+			t.Errorf("%s: Holder List shows Ticket #%d state=%q holder=%q, want unassigned",
+				what, r.Ordinal, r.AssignmentState, r.HolderEmail)
+		}
+	}
+}
 
-	executeMigration(t, env, selfHeldBackfill)
+// holderListRowsHeldBy counts the Holder List rows of one Sale naming an
+// address as Holder — how many times the buyer is on the roster for it.
+func holderListRowsHeldBy(t *testing.T, f skipFixture, saleID, email string) int {
+	t.Helper()
+	n := 0
+	for _, r := range listOutstanding(t, f.env, f.sessionID, f.eventID).Data {
+		if r.TicketSaleID == saleID && r.HolderEmail == email {
+			n++
+		}
+	}
+	return n
+}
 
-	heldCount := func(saleID string) int {
-		n := 0
-		for _, r := range holderRows(t, env, saleID) {
-			if r.holder.Valid {
-				n++
+// A REVERSED ONLINE SALE: the Ticket admits nobody, so nobody is made its
+// Holder. Both ways a Sale is reversed disqualify it: the status column (an
+// operator's reversal) and a `sale_reversals` row (the buyer's own Reversal
+// Request, whatever became of it).
+func TestBackfillHoldsNothingOnAReversedSale(t *testing.T) {
+	f := newSkipFixture(t, "Reversed Fest", "reversed-fest")
+
+	t.Run("reversed by an operator", func(t *testing.T) {
+		ref := claimFreeOnlineSale(t, f.env, f.sessionID, "Free Reversed Fest", "free-reversed-fest", "rev@example.com", 2)
+		saleID := saleIDOfRef(t, f.env, ref)
+		clearSelfHeld(t, f.env, saleID)
+		operatorReverseOK(t, payphoneEnv, operatorSession(t, f.env, "operator@example.com"), ref,
+			operatorReversalBody{Note: strPtr("refunded")})
+
+		executeMigration(t, f.env, selfHeldBackfill)
+
+		if got := heldCount(t, f.env, saleID); got != 0 {
+			t.Errorf("an operator-reversed Sale has %d held Tickets, want 0", got)
+		}
+	})
+
+	t.Run("reversal requested by the buyer", func(t *testing.T) {
+		saleID, _ := f.buy(t, "req@example.com", 2)
+		if _, err := f.env.db.Exec(`
+			INSERT INTO sale_reversals (ticket_sale_id, client_transaction_id, requested_at, status, next_attempt_at)
+			VALUES ($1, 'tx-req', NOW(), 'in_flight', NOW())
+		`, saleID); err != nil {
+			t.Fatalf("stage a reversal request: %v", err)
+		}
+
+		executeMigration(t, f.env, selfHeldBackfill)
+
+		req := customerSignIn(t, f.env, "req@example.com")
+		assertSaleUnassignedEverywhere(t, f, req, saleID, "a Sale with a Reversal Request")
+	})
+}
+
+// TICKET 1 ALREADY HANDED TO A THIRD PARTY: the buyer's choice stands whether
+// the friend has accepted or not, and the buyer is given nothing else.
+func TestBackfillLeavesATicketOneHandedToAThirdPartyAlone(t *testing.T) {
+	f := newSkipFixture(t, "Handed Fest", "handed-fest")
+	ana := customerSignIn(t, f.env, "ana@example.com")
+
+	assertUntouched := func(t *testing.T, saleID, first, wantState string) {
+		t.Helper()
+		tickets := listBuyerTickets(t, f.env, ana, saleID)
+		if got := findBuyerRow(t, tickets, first); got.HolderEmail != "carla@example.com" || got.AssignmentState != wantState {
+			t.Errorf("Ticket 1 handed to a friend now reads state=%q holder=%q, want %s by carla@example.com",
+				got.AssignmentState, got.HolderEmail, wantState)
+		}
+		for _, tk := range tickets {
+			if tk.TicketID != first && tk.AssignmentState != "unassigned" {
+				t.Errorf("%s #%d was backfilled to %q; the buyer holds nothing on this Sale",
+					tk.TicketTypeName, tk.Ordinal, tk.HolderEmail)
 			}
 		}
-		return n
-	}
-	if got := heldCount(reversedSale); got != 0 {
-		t.Errorf("a reversed Sale has %d held Tickets, want 0", got)
-	}
-	if got := heldCount(requestedSale); got != 0 {
-		t.Errorf("a Sale with a Reversal Request has %d held Tickets, want 0", got)
-	}
-	if got := heldCount(doorSale); got != 0 {
-		t.Errorf("a door sale has %d held Tickets, want 0", got)
-	}
-
-	handed := listBuyerTickets(t, env, ana, handedSale)
-	if first := findBuyerRow(t, handed, handedFirst); first.HolderEmail != "carla@example.com" || first.AssignmentState != "assigned" {
-		t.Errorf("Ticket 1 handed to a friend now reads state=%q holder=%q", first.AssignmentState, first.HolderEmail)
-	}
-	for _, tk := range handed {
-		if tk.TicketID != handedFirst && tk.AssignmentState != "unassigned" {
-			t.Errorf("the friend's Sale had %s #%d backfilled to %q", tk.TicketTypeName, tk.Ordinal, tk.HolderEmail)
+		if got := holderListRowsHeldBy(t, f, saleID, "ana@example.com"); got != 0 {
+			t.Errorf("the buyer appears %d times on the Holder List for this Sale, want 0", got)
+		}
+		// The Holder List says what state Ticket 1 is in; a pending Holder's
+		// address is never disclosed there (ADR 0047), so the state is the
+		// whole of what it can say about the friend.
+		var seen bool
+		for _, r := range listOutstanding(t, f.env, f.sessionID, f.eventID).Data {
+			if r.TicketID != first {
+				continue
+			}
+			seen = true
+			if r.AssignmentState != wantState {
+				t.Errorf("the Holder List shows Ticket 1 as %q, want %q", r.AssignmentState, wantState)
+			}
+		}
+		if !seen {
+			t.Fatal("Ticket 1 is not on the Holder List")
 		}
 	}
 
-	linked := listBuyerTickets(t, env, ana, linkedSale)
-	for _, tk := range linked {
+	t.Run("pending", func(t *testing.T) {
+		saleID, _ := f.buy(t, "ana@example.com", 2)
+		first := f.ticketAt(t, ana, saleID, 1)
+		assignTicketOK(t, f.env, ana, saleID, first, "carla@example.com")
+
+		executeMigration(t, f.env, selfHeldBackfill)
+
+		assertUntouched(t, saleID, first, "assigned")
+	})
+
+	t.Run("accepted", func(t *testing.T) {
+		saleID, _ := f.buy(t, "ana@example.com", 2)
+		first := f.ticketAt(t, ana, saleID, 1)
+		f.env.email.Reset()
+		assignTicketOK(t, f.env, ana, saleID, first, "carla@example.com")
+		acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "carla@example.com")))
+
+		executeMigration(t, f.env, selfHeldBackfill)
+
+		assertUntouched(t, saleID, first, "accepted")
+	})
+}
+
+// THE BUYER ALREADY HOLDS ANOTHER TICKET OF THE SALE BY ITS ASSIGNMENT LINK:
+// one Ticket, not two, and the buyer is on the roster once.
+func TestBackfillHoldsNoSecondTicketForABuyerHoldingOneByLink(t *testing.T) {
+	f := newSkipFixture(t, "Linked Fest", "linked-fest")
+	ana := customerSignIn(t, f.env, "ana@example.com")
+	saleID, _ := f.buy(t, "ana@example.com", 3)
+	third := f.ticketAt(t, ana, saleID, 3)
+	f.env.email.Reset()
+	assignTicketOK(t, f.env, ana, saleID, third, "Ana@Example.com")
+	acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "ana@example.com")))
+
+	executeMigration(t, f.env, selfHeldBackfill)
+
+	for _, tk := range listBuyerTickets(t, f.env, ana, saleID) {
 		switch tk.TicketID {
-		case linkedSecond:
+		case third:
 			if tk.AssignmentState != "accepted" || tk.HolderEmail != "ana@example.com" {
 				t.Errorf("the Ticket the buyer accepted by link reads state=%q holder=%q", tk.AssignmentState, tk.HolderEmail)
 			}
 		default:
 			if tk.AssignmentState != "unassigned" {
-				t.Errorf("a buyer already holding Ticket 2 was given %s #%d too (%q); one Ticket, not two",
+				t.Errorf("a buyer already holding Ticket 3 was given %s #%d too (%q); one Ticket, not two",
 					tk.TicketTypeName, tk.Ordinal, tk.HolderEmail)
 			}
 		}
+	}
+	if got := holderListRowsHeldBy(t, f, saleID, "ana@example.com"); got != 1 {
+		t.Errorf("the buyer appears %d times on the Holder List for this Sale, want exactly once", got)
+	}
+}
+
+// A DOOR SALE OR A SALE IMPORT: the buyer is a name somebody else typed, and
+// the Sale is left entirely unassigned. Neither channel has a recording
+// endpoint yet, so each is staged in SQL from an Online Sale — the same way
+// the export tests stage them.
+func TestBackfillLeavesDoorAndImportedSalesAlone(t *testing.T) {
+	f := newSkipFixture(t, "Door Fest", "door-fest")
+
+	t.Run("door sale", func(t *testing.T) {
+		saleID, ref := f.buy(t, "door@example.com", 2)
+		moveSaleToTheDoor(t, f.env, ref)
+
+		executeMigration(t, f.env, selfHeldBackfill)
+
+		door := customerSignIn(t, f.env, "door@example.com")
+		assertSaleUnassignedEverywhere(t, f, door, saleID, "a door sale")
+	})
+
+	t.Run("sale import", func(t *testing.T) {
+		saleID, _ := f.buy(t, "import@example.com", 2)
+		res, err := f.env.db.Exec(`
+			UPDATE ticket_sales SET channel = 'import', source = 'direct', payment_method = 'cash'
+			WHERE id = $1
+		`, saleID)
+		if err != nil {
+			t.Fatalf("move the sale onto the import channel: %v", err)
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			t.Fatalf("moving the sale to import affected %d rows, want 1", n)
+		}
+
+		executeMigration(t, f.env, selfHeldBackfill)
+
+		imported := customerSignIn(t, f.env, "import@example.com")
+		assertSaleUnassignedEverywhere(t, f, imported, saleID, "a Sale Import")
+	})
+}
+
+// A HOLDER EMAIL DIFFERING ONLY IN CASE OR WHITESPACE from the buyer's still
+// counts as "already holds". The product writes both addresses normalised, so
+// the raw forms are staged in SQL on BOTH sides: the migration's comparison,
+// not the checkout's, is what is under test.
+func TestBackfillCountsACaseVariantHolderEmailAsAlreadyHeld(t *testing.T) {
+	f := newSkipFixture(t, "Case Fest", "case-fest")
+	ana := customerSignIn(t, f.env, "ana@example.com")
+	saleID, _ := f.buy(t, "ana@example.com", 2)
+	second := f.ticketAt(t, ana, saleID, 2)
+	f.env.email.Reset()
+	assignTicketOK(t, f.env, ana, saleID, second, "ana@example.com")
+	acceptAssignmentOK(t, f.env, assignmentTokenFrom(t, assignmentMailFor(t, f.env, "ana@example.com")))
+
+	if _, err := f.env.db.Exec(`UPDATE tickets SET holder_email = '  ANA@Example.com ' WHERE id = $1`, second); err != nil {
+		t.Fatalf("stage a raw holder address: %v", err)
+	}
+	if _, err := f.env.db.Exec(`UPDATE ticket_sales SET customer_email = ' Ana@EXAMPLE.com' WHERE id = $1`, saleID); err != nil {
+		t.Fatalf("stage a raw buyer address: %v", err)
+	}
+
+	executeMigration(t, f.env, selfHeldBackfill)
+
+	rows := holderRows(t, f.env, saleID)
+	if len(rows) != 2 {
+		t.Fatalf("sale has %d Tickets, want 2", len(rows))
+	}
+	for _, r := range rows {
+		if r.ticketID != second && r.holder.Valid {
+			t.Errorf("Ticket 1 was backfilled to %q although the buyer already holds Ticket 2 as %q",
+				r.holder.String, "  ANA@Example.com ")
+		}
+	}
+	var accepted int
+	for _, r := range listOutstanding(t, f.env, f.sessionID, f.eventID).Data {
+		if r.TicketSaleID == saleID && r.AssignmentState == "accepted" {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Errorf("the Holder List shows %d accepted Tickets on the Sale, want 1", accepted)
 	}
 }
 
