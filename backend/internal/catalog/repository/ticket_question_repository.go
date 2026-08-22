@@ -436,7 +436,7 @@ func (r *Repository) RetireTicketQuestionOption(
 // Question — the fact the kind freeze is read against.
 //
 // IT ALWAYS ANSWERS false TODAY, AND THAT IS NOT A STUB SHORTCUT. There is no
-// Answer table in migration 070 and nothing on the platform can produce one, so
+// Answer table in migration 072 and nothing on the platform can produce one, so
 // false is the true answer to the question as asked. It is a method rather than
 // a `false` inlined at the call site so that the ticket which lands Answers has
 // one place to change, and so the service's guard is written against a fact it
