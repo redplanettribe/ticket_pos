@@ -1858,6 +1858,171 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a Ticket Sale's tickets and their answers
+         * @description Returns every Ticket of one of the signed-in Customer's own Ticket Sales, with the Ticket Questions its Ticket Type asks, whatever has been answered so far, and a per-Ticket **Answer Link** to pass to whoever will be using that ticket (ADR 0044). This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. An Answer Link is minted only while the Ticket can still be answered: it is absent once the Event has started and on a reversed Ticket Sale, because a copy button that forwards a dead link is worse than no button. A reversed sale's Tickets are still listed and still readable — a Sale Reversal voids a purchase, it does not erase what its Tickets answered. Ticket Question labels and Option labels read as the Organization coined them in every Locale (ADR 0027). Answers 404 while the Ticket Question feature flag is off.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBuyerTicketAnswers"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Answer a ticket question on your own Ticket Sale
+         * @description Writes the Answer to one Ticket Question on one Ticket of the signed-in Customer's own Ticket Sale, creating it or correcting what was there. The buyer may answer ANY Ticket of their sale, not only one of them: an Answer belongs to the Ticket and the buyer, the holder of its Answer Link and Event Staff may all supply it (ADR 0044). An Answer written here replaces one given at checkout, and may itself be replaced later by whoever holds the Ticket's Answer Link — nothing records which of them wrote it. Authorization is the Customer Session; a Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. The whole sale's tickets come back, not just the one that changed, so the page's outstanding counts cannot go stale against the row beside them. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED) or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while the Ticket Question feature flag is off.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Ticket Sale id */
+                    ticketSaleId: string;
+                    /** @description Ticket id */
+                    ticketId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The answer, in the shape its question's kind takes */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.buyerAnswerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBuyerTicketAnswers"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/unsubscribe": {
         parameters: {
             query?: never;
@@ -8491,6 +8656,33 @@ export interface components {
              */
             policy_acceptance?: boolean;
         };
+        "handler.buyerAnswerBody": {
+            /** @description Checked answers checkbox. */
+            checked?: boolean;
+            /**
+             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+             *     date carries no time and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number answers number, as a decimal STRING rather than a JSON number.
+             *     JSON numbers are doubles in most parsers, and a value that survives a
+             *     NUMERIC column only to be rounded on the way through the wire would defeat
+             *     the column. See catalog.SubmittedAnswer.
+             */
+            number?: string;
+            /**
+             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
+             *     are OPTION IDENTITIES and never labels, because a label could not survive
+             *     a rename — which is the whole reason an Option has an id.
+             *
+             *     An empty array is somebody clearing their choices, which is refused as an
+             *     empty Answer; the way to say "not said" is to DELETE the Answer.
+             */
+            option_ids?: string[];
+            /** @description Text answers short_text and long_text. */
+            text?: string;
+        };
         "handler.checkoutAnswerBody": {
             checked?: boolean;
             date?: string;
@@ -8973,6 +9165,11 @@ export interface components {
         };
         "openapi.EnvelopeBeginCheckout": {
             data?: components["schemas"]["service.BeginCheckoutResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeBuyerTicketAnswers": {
+            data?: components["schemas"]["service.BuyerTicketAnswersView"][];
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
@@ -9520,6 +9717,63 @@ export interface components {
              * @enum {string}
              */
             status?: "pending" | "approved";
+        };
+        "service.BuyerTicketAnswersView": {
+            /**
+             * @description AnswerLink is the per-Ticket link this page exists to hand out, and is
+             *     EMPTY once the Ticket can no longer be answered.
+             *
+             *     Empty rather than present-but-dead, because the copy button is a promise:
+             *     a buyer who copies a link into a group chat has finished the task as far as
+             *     they know, and will not find out for weeks that what they sent opened
+             *     nothing. Better to have no button than a button that forwards a dead end.
+             *     The same reasoning applies to a link the deployment could not sign at all,
+             *     which is a misconfiguration rather than anything about this Sale, and which
+             *     must not take the rest of the page down with it.
+             */
+            answer_link?: string;
+            /**
+             * @description Answerable is whether this Ticket's Answers may still be written — false
+             *     once the Event has started and false on a reversed Sale. Never a reason to
+             *     hide anything below it: a reversed Sale keeps its place in the Customer
+             *     Area, and Answers that vanished with it would read as data destroyed.
+             */
+            answerable?: boolean;
+            /**
+             * @description AnswerableRefusal names WHY not, or is empty while it is answerable, so the
+             *     page can say what happened rather than leaving somebody pressing a form
+             *     that will not take.
+             */
+            answerable_refusal?: string;
+            /**
+             * @description Ordinal is which of its line's units this is, 1..quantity. It is what lets
+             *     the page say "ticket 2 of 4" — the only thing telling two Tickets of one
+             *     line apart, and the buyer's only handle on which link they are copying.
+             */
+            ordinal?: number;
+            /**
+             * @description OutstandingCount is how many required Ticket Questions this Ticket still
+             *     owes, from catalog.IsOutstandingAnswer — the ONE definition of the debt
+             *     (#313), shared with the Organization's chase list and the SQL behind it.
+             *     Counted rather than restated so that what the buyer is asked to chase and
+             *     what the Organization sees outstanding can never be two different numbers.
+             */
+            outstanding_count?: number;
+            /**
+             * @description Questions carries the Ticket Type's questions in the order they are asked,
+             *     retired ones last, each with this Ticket's Answer or null. The labels read
+             *     AS THE ORGANIZATION COINED THEM in every Locale, like a Custom Tag
+             *     (ADR 0027) — only the page's chrome follows the reader's language.
+             */
+            questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
+            /**
+             * @description TicketID names which Ticket this is, so the buyer's own form can post back
+             *     against it. Safe here and absent from AnswerLinkView, and the difference is
+             *     the credential: this reader proved they own the Sale, so an id they could
+             *     try somewhere else is an id for their own Ticket.
+             */
+            ticket_id?: string;
+            ticket_type_name?: string;
         };
         "service.ConfirmCheckoutResult": {
             client_transaction_id?: string;

@@ -117,6 +117,26 @@ type EnvelopeAnswerLink struct {
 	RequestID string                 `json:"request_id"`
 }
 
+// EnvelopeBuyerTicketAnswers documents both of the buyer's own responses — the
+// Tickets of their Ticket Sale, and the same list after one has been answered
+// (#315, ADR 0044).
+//
+// ITS DATA IS service.BuyerTicketAnswersView AND IS THE THIRD SHAPE THIS FEATURE
+// HAS, distinct from TicketAnswersView and from AnswerLinkView. The three exist
+// because each has a different reader and each may see a different amount, and
+// the generated client is where conflating them would do the damage: this is the
+// only one of the three carrying an ANSWER LINK, and the only one whose reader
+// has proved they own the purchase.
+//
+// A BARE ARRAY and not a nested page. There is no count to carry beside it — a
+// Ticket Sale's Tickets are all of them, never a page — and the per-Ticket
+// outstanding count travels on each row, where it belongs.
+type EnvelopeBuyerTicketAnswers struct {
+	Data      []service.BuyerTicketAnswersView `json:"data"`
+	Error     *platform.APIError               `json:"error"`
+	RequestID string                           `json:"request_id"`
+}
+
 // EnvelopeTagList documents tag list success responses (search and event tags).
 type EnvelopeTagList struct {
 	Data      []service.TagView  `json:"data"`

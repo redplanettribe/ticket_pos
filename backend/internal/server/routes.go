@@ -268,6 +268,29 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// forwarded email is not authority to undo somebody's purchase.
 	mux.Handle("POST /api/v1/customer/ticket-sales/{ticketSaleId}/reverse",
 		signedIn(http.HandlerFunc(app.SalesHandler.ReverseTicketSale)))
+	// The buyer's own Tickets, with their Ticket Questions and the per-Ticket
+	// Answer Links to pass on (#315, ADR 0044). Served by the CATALOG handler
+	// under this namespace, exactly as the undo above is served by the sales one
+	// and for the same reason: a Ticket, its questions and its Answers belong to
+	// the catalog, while who is asking belongs here.
+	//
+	// BEHIND THE SAME GATE AS THE READ ABOVE AND NOT BEHIND ONE MORE. A
+	// Confirmation Link session may use both of these, unlike the undo beside
+	// them, and the difference is what each one costs to get wrong. Undoing a
+	// purchase moves money and cannot be taken back, so it demands Proof of Email
+	// Ownership; answering a Ticket Question sets somebody's t-shirt size, is
+	// correctable by the buyer, the holder and Event Staff alike, and is the one
+	// thing the person holding a forwarded receipt most likely opened it to do.
+	// ADR 0044 already accepts an unauthenticated stranger writing these Answers
+	// through an Answer Link; demanding a passcode from the buyer holding their
+	// own receipt would be a stricter rule for the owner than for the public.
+	//
+	// The session narrows to its one Sale inside the service, so a link session
+	// asking about any other Ticket Sale is answered as if it did not exist.
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tickets",
+		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
+	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}",
+		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerOwnTicketQuestion)))
 	// The Customer Area's one write: "My info" (#102). Scoped by the session
 	// like every route above it, and narrowed once more inside the service — a
 	// Confirmation Link session may read its one sale but may not rewrite the
