@@ -20,6 +20,7 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/identity/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/server"
+	"github.com/peter/ticket_pos/backend/migrations"
 )
 
 type testEnv struct {
@@ -400,4 +401,31 @@ func orgAdminSession(t *testing.T, env *testEnv) string {
 	sessionID := verifyOTP(t, env, "admin@example.com")
 	createOrganization(t, env, sessionID, "Test Org", "test-org")
 	return sessionID
+}
+
+// executeMigration runs ONE named file from the embedded migrations set against
+// the shared test database, exactly as the runner would execute its body — in
+// a single transaction — but without touching schema_migrations, so a test can
+// run a data backfill over rows it staged, and run it again to prove a replay
+// changes nothing. The runner has already applied every file at startup; this
+// is for the backfills (071, 084) whose effect on real rows is the thing under
+// test, and it exists as one helper so that each such test reads the file the
+// deployment reads rather than a copy of its SQL.
+func executeMigration(t *testing.T, env *testEnv, name string) {
+	t.Helper()
+	body, err := migrations.Files.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read migration %s: %v", name, err)
+	}
+	tx, err := env.db.Begin()
+	if err != nil {
+		t.Fatalf("begin migration %s: %v", name, err)
+	}
+	if _, err := tx.Exec(string(body)); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("execute migration %s: %v", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit migration %s: %v", name, err)
+	}
 }
