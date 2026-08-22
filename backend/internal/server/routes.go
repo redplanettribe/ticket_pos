@@ -70,6 +70,32 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// week to every following Customer on the platform.
 	mux.HandleFunc("POST /api/v1/internal/follow-digests/enqueue", app.DigestHandler.EnqueueFollowDigests)
 	mux.HandleFunc("POST /api/v1/internal/follow-digests/drain", app.DigestHandler.DrainFollowDigests)
+
+	// The Abandoned Answer Purge (#316, ADR 0044): the Answers a buyer typed into
+	// a checkout that never became a sale, deleted 30 days on. Served by the SALES
+	// handler because the rows are held on a Payment, which is the sales module's
+	// (migration 074) — the catalog owns what a Ticket Question IS, and sales owns
+	// what a checkout collected.
+	//
+	// It obeys this namespace's rule in the way that matters most here: the
+	// caller cannot name the window. A cutoff parameter would make this route a
+	// way to delete every Answer on the platform on demand, which is the same
+	// shape of mistake as letting a caller name a Digest week.
+	mux.HandleFunc("POST /api/v1/internal/checkout-answers/purge", app.SalesHandler.PurgeAbandonedAnswers)
+
+	// The Answer Reminder sweep (#317, ADR 0044): one mail to each buyer whose
+	// Ticket Sale still owes Answers and whose rationing allows it. Served by the
+	// SALES handler because the message is about a Ticket Sale and is addressed
+	// to its buyer — the catalog decides WHO is owed one, this module writes to
+	// them.
+	//
+	// It is the one route in this namespace whose effect is somebody's INBOX, so
+	// the rule that a caller cannot aim a route is at its sharpest here: nothing
+	// names an Event, an Organization, a Sale or — the parameter that would
+	// matter most — a moment. WHO is written to is a property of the database and
+	// the clock, and a caller able to name the clock could lift the seven-day
+	// silence and mail the platform's whole outstanding backlog on demand.
+	mux.HandleFunc("POST /api/v1/internal/answer-reminders/sweep", app.SalesHandler.SweepAnswerReminders)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.
@@ -256,6 +282,29 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	// forwarded email is not authority to undo somebody's purchase.
 	mux.Handle("POST /api/v1/customer/ticket-sales/{ticketSaleId}/reverse",
 		signedIn(http.HandlerFunc(app.SalesHandler.ReverseTicketSale)))
+	// The buyer's own Tickets, with their Ticket Questions and the per-Ticket
+	// Answer Links to pass on (#315, ADR 0044). Served by the CATALOG handler
+	// under this namespace, exactly as the undo above is served by the sales one
+	// and for the same reason: a Ticket, its questions and its Answers belong to
+	// the catalog, while who is asking belongs here.
+	//
+	// BEHIND THE SAME GATE AS THE READ ABOVE AND NOT BEHIND ONE MORE. A
+	// Confirmation Link session may use both of these, unlike the undo beside
+	// them, and the difference is what each one costs to get wrong. Undoing a
+	// purchase moves money and cannot be taken back, so it demands Proof of Email
+	// Ownership; answering a Ticket Question sets somebody's t-shirt size, is
+	// correctable by the buyer, the holder and Event Staff alike, and is the one
+	// thing the person holding a forwarded receipt most likely opened it to do.
+	// ADR 0044 already accepts an unauthenticated stranger writing these Answers
+	// through an Answer Link; demanding a passcode from the buyer holding their
+	// own receipt would be a stricter rule for the owner than for the public.
+	//
+	// The session narrows to its one Sale inside the service, so a link session
+	// asking about any other Ticket Sale is answered as if it did not exist.
+	mux.Handle("GET /api/v1/customer/ticket-sales/{ticketSaleId}/tickets",
+		signedIn(http.HandlerFunc(app.CatalogHandler.ListBuyerTicketAnswers)))
+	mux.Handle("PUT /api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}",
+		signedIn(http.HandlerFunc(app.CatalogHandler.AnswerOwnTicketQuestion)))
 	// The Customer Area's one write: "My info" (#102). Scoped by the session
 	// like every route above it, and narrowed once more inside the service — a
 	// Confirmation Link session may read its one sale but may not rewrite the
@@ -428,6 +477,31 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// It answers 202 to everything — see the handler.
 	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click",
 		app.CatalogHandler.RecordRegistrationClick)
+
+	// The Answer Link (#312, ADR 0044): a signed, stateless, per-Ticket link
+	// opening ONE Ticket's Ticket Questions and nothing else, for the buyer to
+	// pass to whoever will hold that ticket.
+	//
+	// PUBLIC AND UNAUTHENTICATED, and unlike every other public route here that
+	// is a deliberate refusal rather than an absence of anything to protect.
+	// These two carry a credential — the signed token — and still take no
+	// session, mint none, and create no Customer. ADR 0044: requiring proof of
+	// identity would mean collecting an address from somebody who never came to
+	// this platform, which is the third-party collection problem the whole
+	// feature was shaped to avoid.
+	//
+	// NOTE WHAT SITS UNDER /public HERE AND WHAT DOES NOT. The Confirmation Link
+	// redeems under /customer because it mints a Customer Session; this one is
+	// under /public because it mints nothing. The namespace is the honest
+	// statement of what holding this link makes somebody: nothing.
+	//
+	// THE TOKEN IS IN THE BODY ON BOTH VERBS, the read included, so it never
+	// reaches an access log or a Referer header. That is why the read is a POST —
+	// see the handler, which defends the choice at length. Neither route takes an
+	// id in its address: the token names the Ticket, and a Ticket id in the path
+	// would be a second, unsigned way to say which Ticket this is.
+	mux.HandleFunc("POST /api/v1/public/answer-link", app.CatalogHandler.OpenAnswerLink)
+	mux.HandleFunc("PUT /api/v1/public/answer-link/questions/{questionId}", app.CatalogHandler.AnswerByAnswerLink)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {
@@ -588,6 +662,60 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options", orgAdmin(http.HandlerFunc(ch.AddTicketQuestionOption)))
 	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RenameTicketQuestionOption)))
 	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RetireTicketQuestionOption)))
+	// The Answer: what one Ticket says in reply to one Ticket Question (#310).
+	//
+	// GATED `orgAdmin`, EXACTLY AS THE QUESTION-AUTHORING ROUTES ABOVE ARE, and
+	// the choice is worth stating because the ticket is titled for Event Staff.
+	// It is the same gate for two reasons. It is the one the sibling Ticket
+	// Question routes already use, and a surface that decided its own would be a
+	// second answer to a question already answered here. And `event_staff` is
+	// refused every catalog verb today — `canManageEventSales`, which is named
+	// for the door and is where this would widen to, resolves to `orgAdmin`
+	// itself until Event assignments land (V7). So `orgAdmin` is what "Event
+	// Staff" can be given on this platform at this moment, and widening it later
+	// is one word in one place.
+	//
+	// THE READS ARE UNGATED BY THE EDIT WINDOW, deliberately. A reversed Ticket
+	// Sale's Tickets and a started Event's Answers stay listable and readable:
+	// a Sale Reversal voids a sale, it does not erase what its Tickets answered,
+	// and hiding them would make it look as though it had. Only the writes are
+	// refused — see catalog.AnswerWindow.
+	//
+	// Registered in every build and answering 404 while the flag is off, on the
+	// same terms as the questions above (ADR 0045).
+	//
+	// The Ticket Sale's Tickets register under `ticket-sales` and not under the
+	// sales handler's `/sales`, because what this returns is a Ticket and its
+	// questions rather than anything about the sale — the Ticket Sale is only
+	// how staff reach a Ticket at all.
+	mux.Handle("GET /api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets", orgAdmin(http.HandlerFunc(ch.ListTicketSaleAnswers)))
+	mux.Handle("GET /api/v1/staff/events/{id}/tickets/{ticketId}", orgAdmin(http.HandlerFunc(ch.GetTicketAnswers)))
+	// PUT and not POST: there is exactly one Answer per (Ticket, question) and
+	// the address names it, so answering and correcting are the same request
+	// with a different body.
+	mux.Handle("PUT /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.AnswerTicketQuestion)))
+	// The one real DELETE in this feature, and not an exception to "retired,
+	// never deleted": an Answer points at nothing, so removing one restores the
+	// state the Ticket was in before anybody answered.
+	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
+	// The Outstanding Answers list (#313): which of this Event's Tickets still
+	// owe required Answers, and which questions they owe.
+	//
+	// HUNG OFF THE EVENT and not off a Ticket Sale, because that is the question
+	// being asked. The per-sale route above is how staff reach ONE Ticket when
+	// somebody rings up about their order; this is the Organization looking at
+	// the whole Event before it orders the shirts, and the two cannot be the
+	// same address because they are aggregated over different things.
+	//
+	// A READ WITH NO STATE BEHIND IT. There is no outstanding_answers table:
+	// the debt is derived on every request from what the Ticket Type asks and
+	// what the Ticket has said, which is exactly why this list empties by itself
+	// as Answers arrive from any of the three routes and why a Sale Reversal
+	// drops a whole sale out of it without anything having to sweep.
+	//
+	// Same `orgAdmin` gate and the same 404-while-dark as every route above, for
+	// the same reasons.
+	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListOutstandingAnswers)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

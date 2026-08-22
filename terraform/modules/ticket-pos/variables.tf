@@ -516,3 +516,80 @@ variable "follow_digest_drain_attempt_deadline_seconds" {
     error_message = "follow_digest_drain_attempt_deadline_seconds must be between 60 and 1800: at least 60 so it outlives the backend's drain budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
   }
 }
+
+# --- Abandoned Answer Purge ---------------------------------------------------
+#
+# One job, one switch (#316, ADR 0044). Unlike the Follow Digest's pair there is
+# nothing to split: the purge has no queue to fill and then drain, only a
+# predicate.
+
+variable "answer_purge_enabled" {
+  description = "Whether the Abandoned Answer Purge tick actually fires. False leaves the job, its identity and its run.invoker grant in place but paused, which is how it ships. It stays off until TICKET_QUESTIONS_ENABLED has been open long enough for there to be Answers to purge (ADR 0045): before that this is a daily DELETE against an empty table, and turning it on is a separate decision from deploying it. It is also the first move if the purge is ever suspected of deleting more than it should — pause, then read, because the rows are gone."
+  type        = bool
+  default     = false
+}
+
+variable "answer_purge_schedule" {
+  description = "Unix cron for the purge tick. Daily, in the small hours, because the retention promise is measured in days and gains nothing from being measured in minutes — a run deletes by age, so one a day is never behind. Deliberately NOT per-minute like the reversal drain: this is the only scheduled job in the deployment that deletes anything, and a bug in a job that fires 1,440 times a day empties the table before the first alert is read. Changing it changes how promptly the 30-day window is enforced, never whether it is: a missed day is caught up by the next run at no cost, because nothing accumulates."
+  type        = string
+  default     = "20 3 * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.answer_purge_schedule))
+    error_message = "answer_purge_schedule must be five space-separated cron fields, e.g. \"20 3 * * *\"."
+  }
+}
+
+variable "answer_purge_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one purge before abandoning it. Unlike the reversal drain and the Digest drain this run has no budget of its own to expire first — it is a single DELETE against a predicate — so this is not the middle term of a three-term chain but simply a bound below api_request_timeout_seconds. A backend test reads this default and fails if it ever rises above that timeout, because a deadline above it means Scheduler waiting on a request the platform has already abandoned."
+  type        = number
+  default     = 120
+
+  validation {
+    # The floor is Cloud Scheduler's own practical minimum plus room for one
+    # statement against a table holding a month of abandoned checkouts. The
+    # ceiling is Cloud Scheduler's own limit for an HTTP target.
+    condition     = var.answer_purge_attempt_deadline_seconds >= 60 && var.answer_purge_attempt_deadline_seconds <= 1800
+    error_message = "answer_purge_attempt_deadline_seconds must be between 60 and 1800: at least 60 so one DELETE has room to finish, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
+# --- Answer Reminder ----------------------------------------------------------
+#
+# One job, one switch (#317, ADR 0044). Like the purge and unlike the Follow
+# Digest there is nothing to split: the sweep has no queue to fill and then
+# drain, it reads state and writes to whoever is owed a message.
+
+variable "answer_reminder_enabled" {
+  description = "Whether the Answer Reminder sweep tick actually fires. False leaves the job, its identity and its run.invoker grant in place but paused, which is how it ships. It stays off until TICKET_QUESTIONS_ENABLED has been open long enough for buyers to owe Answers (ADR 0045) — the backend's side reads that same flag and returns no candidates while it is closed, so both switches must be thrown deliberately. This is also the first move if the reminder is ever suspected of writing to the wrong people, or of writing too often: pause, then read, because a mail that has gone cannot be recalled."
+  type        = bool
+  default     = false
+}
+
+variable "answer_reminder_schedule" {
+  description = "Unix cron for the sweep tick, read in America/Guayaquil. Daily at 10:00, which is a working morning rather than a notification in the night: this job puts messages in buyers' inboxes, so the hour it fires is the hour they arrive. Deliberately not per-minute like the reversal drain — but note that the cadence is NOT what limits how often a buyer is written to. At most one mail per Ticket Sale per 7 days and at most two ever are enforced in the backend against a ledger (catalog.MayRemind), so an hourly cron would still mail nobody twice. What this number changes is how promptly a new debt is chased and how large one run is."
+  type        = string
+  default     = "0 10 * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.answer_reminder_schedule))
+    error_message = "answer_reminder_schedule must be five space-separated cron fields, e.g. \"0 10 * * *\"."
+  }
+}
+
+variable "answer_reminder_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one sweep before abandoning it. It is the middle term of a chain — the backend's own run budget must expire first, this second, api_request_timeout_seconds last — written down once, with what breaks when a term moves alone, in backend/internal/sales/service/answerreminder.go beside answerReminderBudget. Read that before moving this. A backend test reads this default and fails if the chain stops holding, because a deadline that expires before the run's own budget abandons the request mid-send and loses the ledger write for a mail the provider already accepted, which costs a buyer a duplicate."
+  type        = number
+  default     = 120
+
+  validation {
+    # The floor is the backend's run budget plus the mail provider timeout a send
+    # already in flight can still be paying. The ceiling is Cloud Scheduler's own
+    # limit for an HTTP target. The relationship that matters is held by the
+    # backend test named above — Terraform cannot read a Go constant — so this
+    # bound stays deliberately loose rather than restating a number that would go
+    # stale here.
+    condition     = var.answer_reminder_attempt_deadline_seconds >= 90 && var.answer_reminder_attempt_deadline_seconds <= 1800
+    error_message = "answer_reminder_attempt_deadline_seconds must be between 90 and 1800: at least 90 so it outlives the backend's 60s run budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}

@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 
 import { Badge } from "@ticket-pos/ui";
 
+import { BuyerTicketAnswers } from "@/components/buyer-ticket-answers";
 import { ReversalWatch } from "@/components/reversal-watch";
 import { UndoPurchase } from "@/components/undo-purchase";
 import { SignInToUndo, UndoWindowNotice } from "@/components/undo-window-notice";
@@ -234,6 +235,25 @@ export async function TicketSaleCard({
           reversalStatus={sale.reversal_status}
         />
       )}
+
+      {/* The Tickets on this Sale, their Ticket Questions and the per-Ticket
+          Answer Links the buyer passes on (#315, ADR 0044).
+
+          IT IS DRAWN ON BOTH SURFACES, unlike the undo above it, and the
+          difference between the two is the point. The undo moves money and
+          cannot be taken back, so it demands a full Customer Session and a
+          forwarded receipt does not get one. Answering a Ticket Question sets
+          somebody's t-shirt size, is correctable by the buyer, the holder and
+          Event Staff alike, and is the thing a person opening their receipt is
+          most likely there to do — ADR 0044 already lets an unauthenticated
+          stranger do it through an Answer Link, so refusing the buyer holding
+          their own receipt would be a stricter rule for the owner than for the
+          public.
+
+          It draws NOTHING at all unless this sale's Ticket Types ask something,
+          which most do not, and nothing while the feature is dark. So the great
+          majority of these cards are exactly the card they were before. */}
+      <BuyerTicketAnswers ticketSaleId={sale.id} />
     </li>
   );
 }

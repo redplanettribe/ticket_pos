@@ -15,6 +15,7 @@ export const EVENT_NAV_KEYS = [
   "ticketTypes",
   "affiliateLinks",
   "sales",
+  "outstandingAnswers",
   "trends",
 ] as const;
 
@@ -46,13 +47,29 @@ export type EventNavEntry = {
  * Trends is hidden from Event Staff rather than shown and refused: the Sales
  * Trends surface carries the same guard the Event's money already has, and
  * offering a tab that answers 403 is worse than not offering it.
+ *
+ * Outstanding Answers follows that rule twice over, which is why it takes a flag
+ * of its own rather than riding `fullAccess`. Its route is gated to Org Admins
+ * alone — narrower than `fullAccess`, which also admits an Event Owner — and the
+ * whole Ticket Question feature ships dark behind TICKET_QUESTIONS_ENABLED (ADR
+ * 0045). Both facts are the caller's to establish, because only the caller holds
+ * the Event payload the flag arrives on and the Member's actual role; this
+ * module keeps only the decision that the entry exists and where it sits.
  */
 export function eventNavItems({
   eventId,
   fullAccess,
+  outstandingAnswers = false,
 }: {
   eventId: string;
   fullAccess: boolean;
+  /**
+   * Whether this reader may see the Event's Outstanding Answers: the Ticket
+   * Question feature is on AND they are an Org Admin. Defaults to false, so a
+   * caller that has not thought about it gets the dark state the feature ships
+   * in rather than a tab that 404s.
+   */
+  outstandingAnswers?: boolean;
 }): EventNavEntry[] {
   return [
     // Details is the index of the Event, not its owner: without `exact` it would
@@ -64,6 +81,11 @@ export function eventNavItems({
       ? [{ key: "affiliateLinks" as const, href: `/events/${eventId}/affiliate-links` }]
       : []),
     { key: "sales", href: `/events/${eventId}/sales` },
+    // Outstanding Answers sits beside Sales because it is about what those sales
+    // did NOT come with: the required questions their Tickets have not answered.
+    ...(outstandingAnswers
+      ? [{ key: "outstandingAnswers" as const, href: `/events/${eventId}/outstanding-answers` }]
+      : []),
     // Trends reads the sales the tab above it lists, so it follows them.
     ...(fullAccess ? [{ key: "trends" as const, href: `/events/${eventId}/trends` }] : []),
   ];

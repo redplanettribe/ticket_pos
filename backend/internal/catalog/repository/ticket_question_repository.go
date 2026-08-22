@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 )
 
 // TicketQuestion is one thing an Organization wants to know about whoever will
@@ -426,14 +428,50 @@ func (r *Repository) RetireTicketQuestionOption(
 // TicketQuestionHasAnswers reports whether any Ticket has answered this Ticket
 // Question — the fact the kind freeze is read against.
 //
-// IT ALWAYS ANSWERS false TODAY, AND THAT IS NOT A STUB SHORTCUT. There is no
-// Answer table in migration 072 and nothing on the platform can produce one, so
-// false is the true answer to the question as asked. It is a method rather than
-// a `false` inlined at the call site so that the ticket which lands Answers has
-// one place to change, and so the service's guard is written against a fact it
-// asks for rather than one it assumes.
+// It answered `false` unconditionally until #310 landed the Answer, which was
+// the true answer while there was no table for one to live in. It is a real read
+// now, and the guard in catalog.TicketQuestionKindFrozen has teeth for the first
+// time: a `single_choice` whose Answers are Option identities does not become a
+// `date` by relabelling, so once a Ticket has replied the kind is frozen and the
+// way to change it is to retire the question and add another.
+//
+// EXISTS AND NOT COUNT: nothing here wants to know how many, and one is enough
+// to freeze the kind. It reads every Answer including those on REVERSED Ticket
+// Sales, deliberately — a reversed sale keeps its Tickets and their Answers, and
+// they are still stored in this question's kind, so changing the kind under them
+// would misread them exactly as it would misread a live one.
 func (r *Repository) TicketQuestionHasAnswers(ctx context.Context, questionID string) (bool, error) {
-	_ = ctx
-	_ = questionID
-	return false, nil
+	var exists bool
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM ticket_answers WHERE ticket_question_id = $1)
+	`, questionID).Scan(&exists)
+	return exists, err
+}
+
+// ListCheckoutQuestions returns the Ticket Questions a set of Ticket Types puts
+// to a buyer AT CHECKOUT, each with the Options it currently offers — the form
+// the Storefront event page draws (#311).
+//
+// The query and the fold are catalog.CheckoutQuestionsSQL and
+// catalog.ScanAskedQuestions, SHARED WITH THE SALES REPOSITORY, which reads what
+// comes back from that form. One definition of "what is this buyer being asked",
+// used by the surface that asks it and by the surface that judges the reply: two
+// copies of those filters would eventually differ, and the failure would be a
+// question shown whose answer is dropped, or one never shown that the capture
+// accepts.
+//
+// It takes Ticket Type ids rather than an Event id because that is what BOTH
+// callers hold — the event page has just listed its Ticket Types, and the
+// checkout has just resolved a cart — and because a Ticket Question belongs to a
+// Ticket Type and to nothing above it.
+func (r *Repository) ListCheckoutQuestions(ctx context.Context, ticketTypeIDs []string) ([]catalog.AskedQuestion, error) {
+	if len(ticketTypeIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, catalog.CheckoutQuestionsSQL, ticketTypeIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return catalog.ScanAskedQuestions(rows)
 }

@@ -114,6 +114,7 @@
     "navTicketTypes": "Tipos de Entrada",
     "navAffiliateLinks": "Enlaces de Afiliado",
     "navSales": "Ventas",
+    "navOutstandingAnswers": "Respuestas Pendientes",
     "navTrends": "Tendencias",
     "publish": "Publicar evento",
     "publishing": "Publicando...",
@@ -314,7 +315,7 @@
     "questionKindDate": "Fecha",
     "questionKindCheckbox": "Casilla",
     "questionRequired": "Obligatoria",
-    "questionRequiredHint": "Una pregunta obligatoria nunca bloquea nada: si queda sin responder aparece como pendiente para que la reclames, y jamás detiene una venta.",
+    "questionRequiredHint": "Una pregunta obligatoria nunca bloquea nada: si queda sin responder aparece como pendiente para que la reclame, y jamás detiene una venta.",
     "questionAdd": "Agregar pregunta",
     "questionAdding": "Agregando…",
     "questionRetire": "Retirar",
@@ -330,6 +331,46 @@
     "questionOptionsRequired": "Una pregunta de opciones necesita al menos una opción.",
     "questionOptionTooLong": "Una opción puede tener como máximo {max} caracteres.",
     "questionOptionCapReached": "Puede tener como máximo {max} opciones. Retire una para hacer sitio."
+  },
+  "ticketAnswers": {
+    "title": "Entradas de {reference}",
+    "description": "Cada entrada de esta venta y lo que responde a sus preguntas. Se puede responder hasta que empiece el evento, y nunca en una venta anulada.",
+    "loadFailed": "No se pudieron cargar las entradas de esta venta.",
+    "saveFailed": "No se pudo guardar esa respuesta.",
+    "noTickets": "Esta venta no tiene entradas.",
+    "noQuestions": "Este tipo de entrada no pregunta nada.",
+    "ticketHeading": "{name} · entrada {ordinal}",
+    "frozenBadge": "Respuestas cerradas",
+    "frozenEventStarted": "Este evento ya empezó, así que sus respuestas ya no se pueden cambiar. Lo que se respondió sigue aquí.",
+    "frozenSaleReversed": "Esta venta fue anulada, así que sus respuestas ya no se pueden cambiar. Lo que se respondió sigue aquí.",
+    "requiredBadge": "Obligatoria",
+    "retiredBadge": "Retirada",
+    "optionRetiredBadge": "Retirada",
+    "checkboxYes": "Sí",
+    "clearAnswer": "Borrar respuesta",
+    "chosenAs": "Se eligió como: {labels}",
+    "problemMissing": "Escriba una respuesta, o bórrela para dejarla pendiente.",
+    "problemWrongShape": "Ese no es el tipo de respuesta que admite esta pregunta.",
+    "problemTooLong": "Esa respuesta es demasiado larga.",
+    "problemNotANumber": "Escriba un número, con punto para los decimales.",
+    "problemNotADate": "Elija una fecha.",
+    "problemOneOptionOnly": "Esta pregunta admite una sola opción.",
+    "problemDuplicateOption": "Esa opción ya está elegida.",
+    "problemTooManyOptions": "Son más opciones de las que ofrece esta pregunta."
+  },
+  "outstandingAnswers": {
+    "title": "Respuestas Pendientes",
+    "description": "Preguntas obligatorias que estas entradas todavía no han respondido. Nunca se rechazó nada por falta de una, así que esto es sencillamente lo que queda por conseguir.",
+    "summary": "{answers, plural, one {# respuesta pendiente} other {# respuestas pendientes}} en {tickets, plural, one {# entrada} other {# entradas}}",
+    "nothingOutstanding": "No queda nada pendiente. Todas las preguntas obligatorias están respondidas en todas las entradas vigentes.",
+    "loadFailed": "No se pudieron cargar las respuestas pendientes de este evento.",
+    "colBuyer": "Comprador",
+    "colTicket": "Entrada",
+    "colSold": "Vendida",
+    "colOwes": "Debe",
+    "colActions": "Acciones",
+    "ticketHeading": "{name} · entrada {ordinal}",
+    "pageSummary": "Página {page} de {pages}"
   },
   "tags": {
     "title": "Etiquetas",
@@ -539,7 +580,8 @@
     "importUndoing": "Deshaciendo...",
     "importUndone": "{count, plural, one {Se revirtió # venta} other {Se revirtieron # ventas}}",
     "importUndoneNotified": "{count, plural, one {Se revirtió # venta y se avisó a los compradores} other {Se revirtieron # ventas y se avisó a los compradores}}",
-    "importUndoFailed": "No se pudo deshacer la importación."
+    "importUndoFailed": "No se pudo deshacer la importación.",
+    "ticketAnswers": "Respuestas"
   },
   "trends": {
     "title": "Tendencias",
@@ -1125,7 +1167,12 @@
       "TICKET_QUESTION_KIND_TAKES_NO_OPTIONS": "Solo las preguntas de opción única y opción múltiple tienen opciones.",
       "TICKET_QUESTION_OPTIONS_REQUIRED": "Una pregunta de opciones necesita al menos una opción. Retira la pregunta completa en su lugar.",
       "TOO_MANY_TICKET_QUESTION_OPTIONS": "Esa pregunta ya tiene todas las opciones que puede tener. Retira una para hacer sitio.",
-      "INVALID_TICKET_QUESTION_LABEL": "Escriba la pregunta y respete el límite de caracteres."
+      "INVALID_TICKET_QUESTION_LABEL": "Escriba la pregunta y respete el límite de caracteres.",
+      "TICKET_NOT_FOUND": "Esa entrada ya no existe.",
+      "ANSWER_NOT_FOUND": "Aquí no hay ninguna respuesta que borrar.",
+      "TICKET_SALE_REVERSED": "Esta venta fue anulada, así que sus respuestas ya no se pueden cambiar.",
+      "EVENT_STARTED_ANSWERS_CLOSED": "Este evento ya empezó, así que sus respuestas ya no se pueden cambiar.",
+      "ANSWER_OPTION_NOT_OFFERED": "Esa opción no es una de las que ofrece esta pregunta."
     },
     "field": {
       "REQUIRED": "es obligatorio",

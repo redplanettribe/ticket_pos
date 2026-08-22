@@ -146,6 +146,29 @@
     "networkFailed": "That didn't work. Check your connection and try again.",
     "proofExpired": "This took too long, or that code had already been used. Start again and we'll send you a new passcode."
   },
+  "answerLink": {
+    "metaTitle": "Answer a few questions · {brand}",
+    "title": "Answer a few questions",
+    "description": "Whoever bought this ticket sent you this link so you can answer for yourself.",
+    "intro": "The organizer asked these about whoever is coming. Answer what you like — nothing here is required to attend, and you can come back to this link and change an answer until the event starts.",
+    "requiredMark": "{question} (the organizer is waiting on this one)",
+    "save": "Save",
+    "saved": "Saved",
+    "saveFailed": "That didn't save. Try again.",
+    "networkFailed": "That didn't save. Check your connection and try again.",
+    "nothingToSave": "There's nothing to save yet — fill this in first.",
+    "retiredQuestion": "The organizer has stopped asking this. Your answer is kept as it was.",
+    "nothingAskedTitle": "Nothing to answer",
+    "nothingAskedDescription": "The organizer isn't asking anything about this ticket. There's nothing for you to do here.",
+    "incompleteTitle": "This link is incomplete",
+    "incompleteDescription": "Part of it was probably cut off in the message. Ask whoever sent it to send the whole link again.",
+    "invalidTitle": "This link doesn't work",
+    "invalidDescription": "It may have been cut off in the message, or it may no longer be good. Ask whoever sent it for a fresh one.",
+    "expiredTitle": "The event has started",
+    "expiredDescription": "Answers close when the doors open, so there's nothing left to change. Speak to the organizer at the event if something needs fixing.",
+    "unavailableTitle": "We can't open this right now",
+    "unavailableDescription": "Something is wrong on our side, and it isn't your link. Please try again later."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Get tickets for {event}.",
@@ -197,6 +220,14 @@
     "phoneLabel": "Phone (optional)",
     "submit": "Continue to payment",
     "submitting": "Starting payment…",
+    "answers": {
+      "title": "About each ticket",
+      "hint": "Optional — skip anything you don't know.",
+      "ticketHeading": "{ticketType} · ticket {index} of {total}",
+      "optional": "Optional",
+      "optionalLabel": "{question} · Optional",
+      "noAnswer": "No answer"
+    },
     "consent": {
       "notice": "How we handle your data",
       "readPolicy": "Read the full Privacy Policy",
@@ -321,7 +352,24 @@
     "refundPendingNote": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through — check back in a few minutes.",
     "refundPendingNoteLink": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through.",
     "undoFailed": "This purchase could not be undone. Try again.",
-    "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again."
+    "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again.",
+    "answers": {
+      "title": "Questions about these tickets",
+      "outstanding": "{count, plural, one {# question still needs an answer.} other {# questions still need answers.}}",
+      "allDone": "Everything the organizer asked has been answered.",
+      "ticketHeading": "Ticket {position} of {total}",
+      "copyHint": "Answer what you know. For the rest, copy this ticket's link and send it to whoever will be using it — it opens these questions and shows them nothing about your purchase.",
+      "copyLink": "Copy this ticket's link",
+      "copied": "Copied",
+      "linkClosed": "There's no link to share for this one any more. Answers close when the doors open, and a reversed purchase closes them too.",
+      "requiredMark": "{question} (the organizer is waiting on this one)",
+      "save": "Save",
+      "saved": "Saved",
+      "saveFailed": "That didn't save. Try again.",
+      "networkFailed": "That didn't save. Check your connection and try again.",
+      "nothingToSave": "There's nothing to save yet — fill this in first.",
+      "retiredQuestion": "The organizer has stopped asking this. The answer is kept as it was."
+    }
   },
   "myInfo": {
     "heading": "My info",
@@ -445,7 +493,12 @@
       "SALE_REVERSAL_FAILED": "We couldn't undo this purchase. Nothing has changed — contact the organizer with your confirmation reference.",
       "REVERSAL_UNRESOLVED": "We're looking into what happened to this refund with the payment provider. Nothing has changed here — contact the organizer with your confirmation reference.",
       "UNSUBSCRIBE_LINK_INVALID": "This unsubscribe link isn't valid. You can turn the weekly digest off from your account instead.",
-      "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead."
+      "CONSENT_CONFIRMATION_LINK_INVALID": "This confirmation link isn't valid. You can set your preferences from your account instead.",
+      "ANSWER_LINK_INVALID": "This link doesn't work. Ask whoever sent it for a fresh one.",
+      "ANSWER_LINK_EXPIRED": "The event has started, so answers are closed.",
+      "ANSWER_LINK_UNAVAILABLE": "Something is wrong on our side. Please try again later.",
+      "INVALID_ANSWER": "That answer doesn't fit this question.",
+      "ANSWER_OPTION_NOT_OFFERED": "That option isn't one this question offers any more."
     },
     "field": {
       "REQUIRED": "is required",

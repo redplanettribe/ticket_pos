@@ -277,6 +277,14 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// (#285, ADR 0041). Same seam, same reason: the language belongs to a person,
 	// and who a person is, is identity's rule.
 	salesService = salesService.WithStaffLocales(identityService)
+	// The Sales Export's per-Ticket sheet and the checkout's answer section, dark
+	// unless a deployment has deliberately opened the Ticket Question feature
+	// (#314, #311, ADR 0045). It reads the SAME config field catalog's service is
+	// handed below, so the two modules cannot disagree about whether the feature
+	// is on: a deployment where an Organization can author a question the checkout
+	// will not ask — or the reverse — is a deployment collecting or discarding
+	// personal data by accident.
+	salesService = salesService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a
@@ -292,7 +300,48 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// deliberately opened it (#309, ADR 0045). Unset, misspelt or absent leaves
 	// it closed.
 	catalogService = catalogService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
+	// The Answer Link's signing key and the origin its links point at (#312,
+	// ADR 0044).
+	//
+	// IT IS HANDED THE SAME DEPLOYMENT SECRET THE CONFIRMATION LINK USES, and
+	// derives its own key from it under a purpose label rather than signing with
+	// it — see catalog.NewAnswerLinkSigner. That is what keeps CONTEXT.md's
+	// promise that three signed links travel in one flow and none opens what the
+	// others do, without asking every deployment to configure a second secret it
+	// could forget and thereby ship a linkless feature.
+	catalogService = catalogService.WithAnswerLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
 	catalogHandler := cataloghandler.New(catalogService)
+
+	// The Sale Confirmation's one conditional sentence (#315, ADR 0044), tied on
+	// HERE rather than passed to either constructor.
+	//
+	// IT IS THE ONE PLACE THE TWO MODULES POINT AT EACH OTHER, and the knot is
+	// tied after both exist because it has to be: sales is built first, since the
+	// public Event page asks it about a Customer's holdings, so catalog's service
+	// does not exist yet at the moment sales is constructed. A constructor
+	// argument would therefore mean reordering the two, which would break the
+	// dependency that already runs the other way.
+	//
+	// The seam is one yes-or-no question wide. Sales learns nothing about what a
+	// Ticket Question is or when one is owed, and catalog reads its own feature
+	// flag on the far side — so a dark deployment answers false and every receipt
+	// renders exactly as it did before this feature existed (ADR 0045).
+	salesService = salesService.WithOutstandingAnswers(catalogService)
+
+	// The Answer Reminder sweep's seam (#317, ADR 0044), tied on here for the
+	// same reason and at the same moment as the one above it.
+	//
+	// It points the same way — sales asks catalog — and divides the work on the
+	// same line: catalog owns the debt, the rationing and the ledger of who has
+	// been written to, and sales owns the mail, because the Confirmation Link it
+	// points at, the Mail Locale it is written in and the transactional sender it
+	// goes out on are all already here for the Sale Confirmation.
+	//
+	// The far side reads TICKET_QUESTIONS_ENABLED, so a dark deployment sweeps
+	// nothing and mails nobody however often the endpoint is called (ADR 0045) —
+	// which is the inner of the two switches this job ships behind. The outer one
+	// is Terraform's: the Cloud Scheduler job is created paused.
+	salesService = salesService.WithAnswerReminders(catalogService)
 
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
 	// the canonical key the Storefront's chips already carry (#218). Turning the

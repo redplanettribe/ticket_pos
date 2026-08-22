@@ -173,6 +173,26 @@ func (s *ResendEmailSender) SendConsentWithdrawalConfirmation(ctx context.Contex
 	return nil
 }
 
+// SendAnswerReminder delivers an Answer Reminder to the buyer of a Ticket Sale
+// whose Tickets still owe Answers (#317, ADR 0044).
+//
+// The error is returned rather than swallowed, and the sweep that calls this
+// depends on it: a reminder is recorded in the ledger only once the provider
+// has accepted it, because the ledger is what rations the next one. Reporting a
+// failed send as a success would ration a buyer out of a reminder they never
+// received, permanently — the cap counts for the life of the Sale.
+//
+// It goes out on the TRANSACTIONAL identity and never the Digest one, which
+// SplitEmailSender guarantees structurally by embedding this sender rather than
+// listing its methods (ADR 0030).
+func (s *ResendEmailSender) SendAnswerReminder(ctx context.Context, r AnswerReminder) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send answer reminder failed", "email", r.To, "reference", r.Reference, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendPayoutRequestSubmitted delivers one Platform Operator's notice that an
 // Organization asked to be paid. Best-effort: the request is recorded whether or
 // not anybody was told, and the pending count on the operator navigation is the

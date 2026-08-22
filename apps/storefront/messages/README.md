@@ -13,12 +13,13 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `explorer`     | The global event explorer at `/{locale}`                           |
 | `organization` | An Organization's page, `/{locale}/{orgSlug}`                      |
 | `event`        | An Event's page and its Ticket Type list                           |
-| `checkout`     | Ticket selection, and the success / failed / stub terminals        |
+| `checkout`     | Ticket selection, the answer section, and the success / failed / stub terminals |
 | `signin`       | The Customer Session sign-in flow                                  |
 | `customerArea` | A Customer's own tickets and the undo of a purchase                |
 | `myInfo`       | The Customer's own details                                         |
 | `privacySettings` | A Customer's own consents, at `/{locale}/privacy`               |
 | `privacy`      | The Privacy Policy page's chrome — never the policy itself         |
+| `answerLink`   | The Answer Link's page at `/{locale}/answer` — its chrome only     |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
 | `tags`         | Preset Tag names, which belong to no single surface either         |
 
@@ -113,6 +114,17 @@ Two rules, mirroring the ones above:
   SHA-256 of the exact text a person was shown and a hash taken over a file in
   this directory could not be checked against what the page rendered (#250).
   Legal text pasted in here would be text no test can tie to the fingerprint.
+- **A Ticket Question's words are not in here, and must never be.** The
+  `answerLink` and `checkout.answers` keys are chrome only — headings, the line
+  saying the section can be skipped, the per-ticket heading, the "Optional" chip,
+  the empty entry of a choice select, the Save button. The QUESTIONS themselves,
+  their Options' labels, and an Answer's own text come from the API as the
+  Organization coined them and are read identically in every Locale, exactly as a
+  Custom Tag is (ADR 0027). Translating "T-shirt size" into the reader's language
+  would be the platform putting words in an Organization's mouth, and translating
+  a reply would be putting them in a Customer's — and a key here under an
+  Organization's own wording would contradict that the first time two
+  Organizations coin the same question.
 - **"Multiticketing" is not in here.** It is a brand name and reads the same in
   every language, so it lives in `lib/brand.ts` and is interpolated in
   (`"Powered by {brand}"`) rather than being copied into each catalog where a

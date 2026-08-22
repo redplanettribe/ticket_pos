@@ -463,8 +463,26 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		return &ApprovedPayment{AlreadySettled: true}, nil
 	}
 
+	// The Answers this Payment has been holding since begin-checkout (migration
+	// 074), read here and copied onto the Tickets the commit below mints — inside
+	// the one transaction that records the sale, exactly as the consent answers
+	// above are turned into a Consent Record. That is what makes "a Payment that
+	// fails or expires produces no Tickets and no Answers" true by construction
+	// rather than by remembering to clean up.
+	//
+	// READ UNCONDITIONALLY, AND NOT BEHIND THE FEATURE FLAG. The flag governs
+	// whether anything can be CAPTURED; a Payment begun while it was open and
+	// confirmed after it closed still holds answers, and dropping them here would
+	// destroy what somebody typed for the sake of a flag that was never about
+	// this leg. On the shipped, dark deployment the table is empty and this is one
+	// index scan returning nothing.
+	heldAnswers, err := listHeldAnswersByPaymentLine(ctx, tx, paymentID)
+	if err != nil {
+		return nil, err
+	}
+
 	lineRows, err := tx.QueryContext(ctx, `
-		SELECT ticket_type_id, quantity, unit_price_cents,
+		SELECT id, ticket_type_id, quantity, unit_price_cents,
 		       base_price_cents, fee_cents, fee_iva_cents, fee_basis_points, fee_iva_basis_points
 		FROM payment_lines
 		WHERE payment_id = $1
@@ -474,10 +492,10 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 	}
 	var lines []CommitLine
 	for lineRows.Next() {
-		var typeID string
+		var lineID, typeID string
 		var quantity int
 		var fee sales.FeeSnapshot
-		if err := lineRows.Scan(&typeID, &quantity, &fee.BuyerUnitPriceCents,
+		if err := lineRows.Scan(&lineID, &typeID, &quantity, &fee.BuyerUnitPriceCents,
 			&fee.BasePriceCents, &fee.FeeCents, &fee.FeeIVACents,
 			&fee.FeeBasisPoints, &fee.FeeIVABasisPoints); err != nil {
 			lineRows.Close()
@@ -488,7 +506,16 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		// edit, rate change, or Fee Handling flip since then may touch it.
 		price := fee.BuyerUnitPriceCents
 		snapshot := fee
-		lines = append(lines, CommitLine{TicketTypeID: typeID, Quantity: quantity, UnitPriceCents: &price, Fee: &snapshot})
+		lines = append(lines, CommitLine{
+			TicketTypeID:   typeID,
+			Quantity:       quantity,
+			UnitPriceCents: &price,
+			Fee:            &snapshot,
+			// The Answers ride the LINE from here on, because the line is what
+			// mints the Tickets they are about. Keyed by the Payment Line id,
+			// which is the half of (payment line, index) this loop is holding.
+			Answers: heldAnswers[lineID],
+		})
 	}
 	if err := lineRows.Err(); err != nil {
 		lineRows.Close()

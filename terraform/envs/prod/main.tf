@@ -94,6 +94,27 @@ module "ticket_pos" {
   follow_digest_drain_schedule                   = var.follow_digest_drain_schedule
   follow_digest_drain_attempt_deadline_seconds   = var.follow_digest_drain_attempt_deadline_seconds
 
+  # The Abandoned Answer Purge (#316, ADR 0044), threaded through the root on the
+  # same terms — but read the enabled flag as BOTH levers at once. It is the
+  # incident stop, as the two above are, and it is also a gate somebody must
+  # deliberately open: it ships false and stays false until there are Answers to
+  # purge, which cannot be true before ticket_questions_enabled below has been
+  # open for a while. Turning it on is a reviewable diff in this file, and so is
+  # turning it off at 3am.
+  answer_purge_enabled                  = var.answer_purge_enabled
+  answer_purge_schedule                 = var.answer_purge_schedule
+  answer_purge_attempt_deadline_seconds = var.answer_purge_attempt_deadline_seconds
+
+  # The Answer Reminder sweep (#317, ADR 0044). Threaded through the root on the
+  # purge's terms and for a sharper reason: this is the one scheduled job whose
+  # runs end up in somebody's inbox. It ships false, it stays false until there
+  # are buyers who owe Answers AND somebody is watching the first run, and
+  # turning it on — like turning it off during an incident — is a reviewable diff
+  # in this file rather than a console click the next apply undoes.
+  answer_reminder_enabled                  = var.answer_reminder_enabled
+  answer_reminder_schedule                 = var.answer_reminder_schedule
+  answer_reminder_attempt_deadline_seconds = var.answer_reminder_attempt_deadline_seconds
+
   # Ticket Question authoring (#309, ADR 0045). Threaded through the root for a
   # different reason than the two above: this one is not an incident lever but a
   # gate somebody must deliberately open, and declaring it here is what makes

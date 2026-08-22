@@ -223,6 +223,19 @@ type Service struct {
 	// OPEN when nobody decided it should be, and no arrangement of arguments
 	// makes "off" easier to reach by accident than the zero value does.
 	ticketQuestionsEnabled bool
+	// answerLinks signs and verifies Answer Links (#312, ADR 0044).
+	//
+	// ITS ZERO VALUE IS UNCONFIGURED, which mints nothing and opens nothing —
+	// the same reasoning the flag above gets, and for a sharper reason: the
+	// alternative failure mode is signing with a zero key, which anybody holding
+	// a copy of this source could forge into a link opening any Ticket's
+	// questions. A service nobody wired a secret into refuses; it does not
+	// improvise one.
+	answerLinks catalog.AnswerLinkSigner
+	// answerLinkBaseURL is the Storefront origin an Answer Link points at. A
+	// Storefront URL and never this API's: the holder must land on a page, and
+	// no browser addresses the Go API directly (ADR 0008).
+	answerLinkBaseURL string
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
@@ -260,6 +273,25 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // rather than a claim.
 func (s *Service) WithTicketQuestions(enabled bool) *Service {
 	s.ticketQuestionsEnabled = enabled
+	return s
+}
+
+// WithAnswerLinks gives this service the key it signs Answer Links with and the
+// Storefront origin they point at (#312, ADR 0044).
+//
+// The secret is the DEPLOYMENT's link secret — the same value the Confirmation
+// Link is signed with — and is turned into this purpose's own key here rather
+// than used directly. See catalog.NewAnswerLinkSigner: three signed links travel
+// in one flow and none may open what the others do, so each derives its key
+// under its own purpose label. Nothing outside that constructor ever holds the
+// derived key, and nothing inside this service ever holds the raw secret.
+//
+// A WithX rather than a constructor argument, beside WithTicketQuestions and for
+// the same reason: an unwired service is one that signs nothing, which is the
+// safe way to be unwired.
+func (s *Service) WithAnswerLinks(secret []byte, storefrontBaseURL string) *Service {
+	s.answerLinks = catalog.NewAnswerLinkSigner(secret)
+	s.answerLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")
 	return s
 }
 

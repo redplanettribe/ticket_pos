@@ -178,6 +178,50 @@ func domainHTTPStatus(code string) int {
 		"TICKET_QUESTION_OPTIONS_REQUIRED",
 		"TOO_MANY_TICKET_QUESTION_OPTIONS":
 		return http.StatusConflict
+	// A Ticket, or the Answer on one, that this Event does not have (#310). 404
+	// beside TICKET_QUESTION_NOT_FOUND above and for the same reason: the
+	// address named a thing and there is no such thing here, whether because it
+	// never existed or because it belongs to another Organization — which are
+	// deliberately the same answer.
+	case "TICKET_NOT_FOUND", "ANSWER_NOT_FOUND":
+		return http.StatusNotFound
+	// The two edit-window refusals (#310). 409: the request was well formed and
+	// the caller was entitled to make it, and what stands in the way is a fact
+	// about the Ticket — its Sale was reversed, or the doors have opened.
+	// Neither becomes the answer by being retried with the same body, and both
+	// leave everything already answered readable.
+	case "TICKET_SALE_REVERSED", "EVENT_STARTED_ANSWERS_CLOSED":
+		return http.StatusConflict
+	// An Answer that does not fit its Ticket Question (#310). 400 and not 409,
+	// which is the line between these and the two above: the body itself is
+	// wrong — text sent to a number question, an Option the question does not
+	// offer — and restating it correctly is exactly what fixes it. The details
+	// carry the kind and the problem token so the form can point at the field.
+	case "INVALID_ANSWER", "ANSWER_OPTION_NOT_OFFERED":
+		return http.StatusBadRequest
+	// An Answer Link that does not open (#312, ADR 0044). 401 beside its
+	// Confirmation Link neighbour and for the same reason: the token IS the
+	// credential, and one that was tampered with, truncated by a chat app, or
+	// signed by another deployment is a caller who proved nothing.
+	//
+	// ANSWER_LINK_INVALID also covers a reversed Ticket Sale, which is a 401 here
+	// where the staff route's TICKET_SALE_REVERSED is a 409 — the difference is
+	// the whole disclosure rule. Event Staff are entitled to know a sale was
+	// reversed; whoever the link was forwarded to is entitled to learn nothing
+	// about somebody else's purchase, so the reversal is indistinguishable from a
+	// forgery. See catalog.ErrAnswerLinkInvalid.
+	//
+	// ANSWER_LINK_EXPIRED is the one refusal told apart, because an Event's start
+	// is already published on the Storefront and saying so lets the page explain
+	// a deadline instead of implying a forgery.
+	case "ANSWER_LINK_INVALID", "ANSWER_LINK_EXPIRED":
+		return http.StatusUnauthorized
+	// No link secret configured is a deployment fault and not the holder's, so it
+	// is a 500 beside CONFIRMATION_LINK_UNAVAILABLE. Telling somebody their link
+	// is broken when it is the server that is broken sends them back to the buyer
+	// for a replacement that would fail identically.
+	case "ANSWER_LINK_UNAVAILABLE":
+		return http.StatusInternalServerError
 	// The Privacy Policy asked for in a language it is not published in (#250).
 	// 404 rather than a 400 about a bad parameter: the address named a document,
 	// and that document does not exist. Never a fallback to English — see

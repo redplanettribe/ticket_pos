@@ -139,6 +139,34 @@ type CustomerService interface {
 	ConsentConfirmationLinkURL(ctx context.Context, customerID string) (string, error)
 }
 
+// OutstandingAnswerReporter is what sales needs from catalog for the Sale
+// Confirmation's one conditional sentence (#315, ADR 0044).
+//
+// ONE METHOD, ANSWERING ONE YES-OR-NO QUESTION, and everything interesting is on
+// the far side of it. This module does not know what a Ticket Question is, that
+// `required` means outstanding rather than blocking, that a retired question
+// owes nothing, or that a reversed Sale's Tickets have ceased to exist. It knows
+// only that a receipt may carry one more sentence, and asks whoever owns the
+// debt whether it should.
+//
+// It is the same shape as ConsentConfirmationLinkURL above and for the same
+// reason: the receipt is assembled here, and each conditional line on it is a
+// question put to the module that owns the fact. The alternative — sales
+// counting unanswered rows for itself — would be a second definition of the
+// Outstanding Answer, and #313 exists precisely to stop there being one.
+//
+// OPTIONAL, unlike the consent capturer. A deployment that never wires it sends
+// the receipt it always sent, which is the correct behaviour while the feature
+// is dark and the correct behaviour if somebody forgets: see
+// hasOutstandingAnswers, where a nil reporter and an error are the same silence.
+type OutstandingAnswerReporter interface {
+	// TicketSaleHasOutstandingAnswers reports whether any Ticket of this Ticket
+	// Sale still owes a required Ticket Question an Answer. It reads the Ticket
+	// Question feature flag on its own side, so a dark deployment answers false
+	// and every receipt renders exactly as it did before this feature existed.
+	TicketSaleHasOutstandingAnswers(ctx context.Context, ticketSaleID string) (bool, error)
+}
+
 // ConsentCapturer is what sales needs from consent: the one write path every
 // capture surface on the platform goes through, offered inside the transaction
 // that is committing the sale (#253, parent #249).
@@ -254,8 +282,25 @@ type Service struct {
 	// processing personal data it cannot evidence, which is the one failure this
 	// whole feature exists to prevent.
 	consent ConsentCapturer
-	logger  platform.Logger
-	now     func() time.Time
+	// outstandingAnswers decides whether a Sale Confirmation carries its one
+	// extra sentence (#315). Optional, and nil on any deployment that has not
+	// wired it — which sends the receipt this platform always sent.
+	outstandingAnswers OutstandingAnswerReporter
+	// answerReminders is who is due an Answer Reminder and the ledger of who has
+	// had one (#317). Optional and nil on any deployment that has not wired it,
+	// which sweeps nothing and mails nobody — the failure mode of an unwired mail
+	// job has to be silence.
+	answerReminders AnswerReminderSource
+	// ticketQuestionsEnabled decides whether the checkout collects Answers at
+	// all (ADR 0045). It is the SAME environment variable the catalog service
+	// reads for the authoring surface, and one variable rather than two on
+	// purpose: a deployment where an Organization can author questions the
+	// checkout will not ask, or the reverse, is a deployment collecting or
+	// discarding personal data by accident. Off is how the feature ships, and
+	// off means a checkout identical to the one before this ticket.
+	ticketQuestionsEnabled bool
+	logger                 platform.Logger
+	now                    func() time.Time
 	// drainBatch narrows how many Reversal Requests one Reversal Reconciler run
 	// pursues. Zero means the deployed bound; see WithReversalDrainBatch.
 	drainBatch int
@@ -291,6 +336,62 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithTicketQuestions opens the Sales Export's per-Ticket sheet, from the same
+// TICKET_QUESTIONS_ENABLED the catalog service is handed (#309, #314, ADR 0045).
+//
+// It is a SECOND read of one flag rather than a second flag: the value comes
+// from platform.Config in both cases, so the two modules cannot disagree about
+// whether the feature is on. This module needs its own copy because the export
+// is a sales artifact and catalog's service is not a dependency of it — the
+// dependency runs the other way.
+//
+// Off — which is how it ships — the workbook is exactly the two-sheet one it has
+// always been, whatever rows an Event has in ticket_questions. That is what
+// makes the flag a real off switch rather than a hidden surface: an Answer given
+// before the Privacy Policy describes the collection must not leave the building
+// in a file either.
+func (s *Service) WithTicketQuestions(enabled bool) *Service {
+	s.ticketQuestionsEnabled = enabled
+	return s
+}
+
+// WithOutstandingAnswers wires the seam that decides whether a Sale
+// Confirmation carries its one extra sentence (#315, ADR 0044).
+//
+// A SETTER RATHER THAN A CONSTRUCTOR ARGUMENT, unlike the consent capturer,
+// because the two failures are not comparable. A deployment that forgot the
+// consent capturer would sell tickets without a Consent Record and must not be
+// reachable by omission; a deployment that forgets this one sends the receipt it
+// has always sent, which is exactly what a Sale owing nothing gets anyway. The
+// safe direction here is silence, so omission is allowed to mean it.
+//
+// It also breaks a dependency cycle honestly rather than by accident: the
+// catalog service is constructed with no knowledge of sales, and sales is
+// constructed with no knowledge of catalog, so the two are tied together
+// afterwards by whoever wires the application.
+func (s *Service) WithOutstandingAnswers(reporter OutstandingAnswerReporter) *Service {
+	s.outstandingAnswers = reporter
+	return s
+}
+
+// WithAnswerReminders wires the seam the Answer Reminder sweep runs on: who is
+// due one, and the ledger recording that one was sent (#317, ADR 0044).
+//
+// A SETTER, on WithOutstandingAnswers' terms and for the same reason — the
+// catalog service does not exist yet when this one is constructed, and a
+// deployment that forgets this seam mails nobody, which is the safe direction
+// for a mail job to fail in.
+//
+// It is a SECOND seam rather than two more methods on OutstandingAnswerReporter,
+// because the two serve different callers with different failure rules. That one
+// decides a single sentence on a receipt already earned by a committed sale and
+// answers false to everything it cannot resolve; this one drives a job whose read
+// failing is a run that did nothing and must say so.
+func (s *Service) WithAnswerReminders(source AnswerReminderSource) *Service {
+	s.answerReminders = source
 	return s
 }
 
@@ -465,7 +566,15 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 				AmountCents:      rs.AmountCents,
 				Currency:         event.Currency,
 				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
-				TaxID:            rs.CustomerTaxID,
+				// An IMPORTED sale's Tickets start out owing everything, because
+				// nobody ever put the questions to that buyer — there is no checkout
+				// form on a spreadsheet import. That is the honest state of the debt
+				// (see repository.outstandingAnswerWhere, which deliberately has no
+				// channel filter), and this is the one mail that can do anything
+				// about it: the buyer gets their Confirmation Link and the sentence
+				// telling them the Tickets behind it still need answers.
+				HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, rs.ID),
+				TaxID:                 rs.CustomerTaxID,
 				// An imported sale was produced by no page and records no Sale
 				// Locale, so this resolves to whatever the recipient's own record
 				// remembers, and to English for the great majority who have never
@@ -493,6 +602,35 @@ func (s *Service) confirmationLink(ticketSaleID string, eventEnd time.Time) stri
 		return ""
 	}
 	return link
+}
+
+// hasOutstandingAnswers asks whether this Ticket Sale's receipt should carry the
+// Outstanding Answers sentence (#315), and answers FALSE to every question it
+// cannot get a clean answer to.
+//
+// THREE WAYS TO GET FALSE, AND ALL THREE ARE THE RECEIPT THIS PLATFORM ALWAYS
+// SENT: the seam was never wired, the far side is dark because the feature flag
+// is off, or the read failed. That is not defensive coding for its own sake —
+// this decides one sentence on an email that has already been earned by a
+// committed sale, and every possible fault here is better answered by the
+// receipt as it was than by no receipt or by a wrong sentence.
+//
+// THE FAILURE IS LOGGED, for the same reason consentConfirmationLink's is and
+// not confirmationLink's: this one reads the database. An unsigned link means a
+// misconfigured deployment that fails loudly elsewhere, while a persistent
+// failure here would be a feature that had quietly stopped telling buyers
+// anything, with nothing anywhere to say so.
+func (s *Service) hasOutstandingAnswers(ctx context.Context, ticketSaleID string) bool {
+	if s.outstandingAnswers == nil {
+		return false
+	}
+	outstanding, err := s.outstandingAnswers.TicketSaleHasOutstandingAnswers(ctx, ticketSaleID)
+	if err != nil {
+		s.logger.Warn("could not tell whether a Ticket Sale has Outstanding Answers; the receipt goes out without the line that would have pointed at them",
+			"ticket_sale_id", ticketSaleID, "error", err)
+		return false
+	}
+	return outstanding
 }
 
 // ImportHistoryEntry is one committed Sale Import batch in an Event's history.
@@ -916,7 +1054,14 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		},
 	}
 
-	data, err := exportfile.Build(exported, types, loc, info)
+	// The per-Ticket sheet, built from the very rows the data sheet was built
+	// from — which is the whole of how it respects the Sales list's filters.
+	answers, err := s.exportAnswers(ctx, actor.OrganizationID, eventID, rows)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	data, err := exportfile.Build(exported, types, answers, loc, info)
 	if err != nil {
 		return nil, nil, err
 	}

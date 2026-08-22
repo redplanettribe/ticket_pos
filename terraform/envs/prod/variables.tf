@@ -217,6 +217,42 @@ variable "follow_digest_drain_attempt_deadline_seconds" {
   default     = 90
 }
 
+variable "answer_purge_enabled" {
+  description = "Whether the production Abandoned Answer Purge tick fires (#316, ADR 0044). STARTS FALSE and stays false until ticket_questions_enabled below has been open long enough for Payments to be holding Answers — before that it is a daily DELETE against an empty table. This is the only scheduled job in production that deletes anything: it is also the flag to set false first, and apply second, if the purge is ever suspected of taking more than the 30-day window allows."
+  type        = bool
+  default     = false
+}
+
+variable "answer_purge_schedule" {
+  description = "Unix cron for the production purge tick. Daily in the small hours; the module variable of the same name says why it is not per-minute."
+  type        = string
+  default     = "20 3 * * *"
+}
+
+variable "answer_purge_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production purge. It must stay below api_request_timeout_seconds; the module variable of the same name says why."
+  type        = number
+  default     = 120
+}
+
+variable "answer_reminder_enabled" {
+  description = "Whether the production Answer Reminder sweep tick fires (#317, ADR 0044). STARTS FALSE, and this is the flag that decides whether the platform writes to buyers who did not ask to be written to. It stays false until ticket_questions_enabled below has been open long enough for Ticket Sales to owe Answers, and until somebody is watching the first run: the mail is transactional and carries no unsubscribe, so what bounds it is the backend's rationing — at most one per Ticket Sale per 7 days, at most two ever — and nothing a recipient can do. Set it false and apply first if a reminder is ever suspected of reaching the wrong people or reaching them too often; a mail that has gone cannot be recalled."
+  type        = bool
+  default     = false
+}
+
+variable "answer_reminder_schedule" {
+  description = "Unix cron for the production sweep tick. Daily at 10:00 Ecuador time, because this job's firing hour is the hour buyers' mail arrives; the module variable of the same name says why the cadence is not what limits how often anybody is written to."
+  type        = string
+  default     = "0 10 * * *"
+}
+
+variable "answer_reminder_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production sweep. It is one term of a chain that must be read before it is moved; the module variable of the same name says where the chain is written down."
+  type        = number
+  default     = 120
+}
+
 variable "ticket_questions_enabled" {
   description = "Whether an Organization may define Ticket Questions in the staff app (#309). STARTS FALSE. The prerequisite is a published Policy Version describing this collection (ADR 0045) — flipping it before that puts the platform in the position of deliberately collecting, through a mechanism it built, data its own policy says it does not collect. Read the ADR before changing this."
   type        = bool

@@ -114,6 +114,7 @@
     "navTicketTypes": "Ticket Types",
     "navAffiliateLinks": "Affiliate Links",
     "navSales": "Sales",
+    "navOutstandingAnswers": "Outstanding Answers",
     "navTrends": "Trends",
     "publish": "Publish event",
     "publishing": "Publishing...",
@@ -331,6 +332,46 @@
     "questionOptionTooLong": "An option can be at most {max} characters.",
     "questionOptionCapReached": "You can have at most {max} options. Retire one to make room."
   },
+  "ticketAnswers": {
+    "title": "Tickets on {reference}",
+    "description": "Each ticket on this sale, and the Answer it gives to your questions. Answerable until the event starts, and never on a reversed sale.",
+    "loadFailed": "Could not load this sale's tickets.",
+    "saveFailed": "Could not save that answer.",
+    "noTickets": "This sale has no tickets.",
+    "noQuestions": "This ticket type asks nothing.",
+    "ticketHeading": "{name} · ticket {ordinal}",
+    "frozenBadge": "Answers closed",
+    "frozenEventStarted": "This event has started, so its answers can no longer be changed. What was answered stays here.",
+    "frozenSaleReversed": "This sale was reversed, so its answers can no longer be changed. What was answered stays here.",
+    "requiredBadge": "Required",
+    "retiredBadge": "Retired",
+    "optionRetiredBadge": "Retired",
+    "checkboxYes": "Yes",
+    "clearAnswer": "Clear answer",
+    "chosenAs": "Chosen as: {labels}",
+    "problemMissing": "Type an answer, or clear it to leave it outstanding.",
+    "problemWrongShape": "That is not the kind of answer this question takes.",
+    "problemTooLong": "That answer is too long.",
+    "problemNotANumber": "Type a number, using a dot for decimals.",
+    "problemNotADate": "Pick a date.",
+    "problemOneOptionOnly": "This question takes one option.",
+    "problemDuplicateOption": "That option is already chosen.",
+    "problemTooManyOptions": "That is more options than this question offers."
+  },
+  "outstandingAnswers": {
+    "title": "Outstanding Answers",
+    "description": "Required questions these tickets have not answered yet. Nothing was ever refused for want of one, so this is simply what is still to be chased.",
+    "summary": "{answers, plural, one {# outstanding answer} other {# outstanding answers}} across {tickets, plural, one {# ticket} other {# tickets}}",
+    "nothingOutstanding": "Nothing outstanding. Every required question has been answered on every ticket that still stands.",
+    "loadFailed": "Could not load this event's outstanding answers.",
+    "colBuyer": "Buyer",
+    "colTicket": "Ticket",
+    "colSold": "Sold",
+    "colOwes": "Owes",
+    "colActions": "Actions",
+    "ticketHeading": "{name} · ticket {ordinal}",
+    "pageSummary": "Page {page} of {pages}"
+  },
   "tags": {
     "title": "Tags",
     "description": "Add Preset Tags or coin Custom Tags to help customers discover this Event.",
@@ -539,7 +580,8 @@
     "importUndoing": "Undoing...",
     "importUndone": "{count, plural, one {Undid # sale} other {Undid # sales}}",
     "importUndoneNotified": "{count, plural, one {Undid # sale and notified buyers} other {Undid # sales and notified buyers}}",
-    "importUndoFailed": "Could not undo the import."
+    "importUndoFailed": "Could not undo the import.",
+    "ticketAnswers": "Answers"
   },
   "trends": {
     "title": "Trends",
@@ -1125,7 +1167,12 @@
       "TICKET_QUESTION_KIND_TAKES_NO_OPTIONS": "Only single choice and multiple choice questions have options.",
       "TICKET_QUESTION_OPTIONS_REQUIRED": "A choice question needs at least one option. Retire the whole question instead.",
       "TOO_MANY_TICKET_QUESTION_OPTIONS": "That question already has as many options as it can hold. Retire one to make room.",
-      "INVALID_TICKET_QUESTION_LABEL": "Please write the question, and keep it within the length limit."
+      "INVALID_TICKET_QUESTION_LABEL": "Please write the question, and keep it within the length limit.",
+      "TICKET_NOT_FOUND": "That ticket no longer exists.",
+      "ANSWER_NOT_FOUND": "There is no answer here to clear.",
+      "TICKET_SALE_REVERSED": "This sale was reversed, so its answers can no longer be changed.",
+      "EVENT_STARTED_ANSWERS_CLOSED": "This event has started, so its answers can no longer be changed.",
+      "ANSWER_OPTION_NOT_OFFERED": "That option is not one this question offers."
     },
     "field": {
       "REQUIRED": "is required",

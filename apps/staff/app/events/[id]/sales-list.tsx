@@ -50,6 +50,7 @@ import {
 } from "@/lib/sales-api";
 
 import { useSalesRefreshSignal } from "./sales-refresh";
+import { TicketAnswersDialog } from "./ticket-answers-dialog";
 
 /**
  * The token → catalog key maps for everything lib/sales-api.ts narrows.
@@ -126,6 +127,11 @@ type SalesListProps = {
   // may; Event Staff may not, and are not shown the button rather than shown one
   // that refuses them — the API refuses them too.
   canExport: boolean;
+  // The platform's Ticket Question feature flag, read off the Event payload
+  // (#309, ADR 0045) — not a property of this Event. False is the shipped state,
+  // and with it false no row offers an Answers button: every request behind one
+  // would 404, and the answer to whether the feature exists lives in ONE place.
+  ticketQuestionsEnabled: boolean;
 };
 
 // defaultDirFor is the direction a newly selected sort column starts in: newest
@@ -143,6 +149,7 @@ export function SalesList({
   dir,
   timezone,
   canExport,
+  ticketQuestionsEnabled,
 }: SalesListProps) {
   const t = useTranslations("sales");
   const errorCopy = useMessages().errors;
@@ -333,6 +340,8 @@ export function SalesList({
                   locale={locale}
                   expanded={expanded.has(sale.id)}
                   onToggle={() => toggleRow(sale.id)}
+                  ticketQuestionsEnabled={ticketQuestionsEnabled}
+                  eventId={eventId}
                 />
               ))}
             </table>
@@ -724,10 +733,24 @@ type SaleRowsProps = {
   locale: ReturnType<typeof toAppLocale>;
   expanded: boolean;
   onToggle: () => void;
+  ticketQuestionsEnabled: boolean;
+  eventId: string;
 };
 
-function SaleRows({ sale, timezone, locale, expanded, onToggle }: SaleRowsProps) {
+function SaleRows({
+  sale,
+  timezone,
+  locale,
+  expanded,
+  onToggle,
+  ticketQuestionsEnabled,
+  eventId,
+}: SaleRowsProps) {
   const t = useTranslations("sales");
+  // The Answers dialog opens from the row detail rather than from the row: it is
+  // a second surface about the same sale, and a button in the row itself would
+  // compete with the expand for the same click.
+  const [answersOpen, setAnswersOpen] = useState(false);
   // A Customer's name is data and is never translated. The zone is the Event's,
   // and the platform's clock beneath it — never the reader's machine.
   const name = `${sale.customer_first_name} ${sale.customer_last_name}`.trim() || NOTHING;
@@ -802,14 +825,39 @@ function SaleRows({ sale, timezone, locale, expanded, onToggle }: SaleRowsProps)
         <tr className="bg-muted/30">
           <td />
           <td className="py-3 pr-4 text-muted-foreground" colSpan={8}>
-            <div className="flex flex-wrap gap-x-8 gap-y-1">
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
               <span>
                 <span className="font-medium text-foreground">{t("paymentMethodHeading")}</span>{" "}
                 {paymentToken
                   ? t(PAYMENT_METHOD_KEYS[paymentToken])
                   : (sale.payment_method ?? NOTHING)}
               </span>
+              {/* The sale's Tickets and what each of them answered (#310).
+                  Offered only where the flag is on, because every request behind
+                  it would 404 while it is off (ADR 0045) — and offered on a
+                  REVERSED sale too, because a Sale Reversal voids a sale and
+                  does not erase what its Tickets said. The dialog refuses the
+                  writes and shows the reason. */}
+              {ticketQuestionsEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAnswersOpen(true)}
+                >
+                  {t("ticketAnswers")}
+                </Button>
+              ) : null}
             </div>
+            {ticketQuestionsEnabled ? (
+              <TicketAnswersDialog
+                open={answersOpen}
+                onOpenChange={setAnswersOpen}
+                eventId={eventId}
+                ticketSaleId={sale.id}
+                confirmationRef={sale.confirmation_ref}
+              />
+            ) : null}
           </td>
         </tr>
       ) : null}

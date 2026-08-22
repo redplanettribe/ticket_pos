@@ -146,6 +146,29 @@
     "networkFailed": "No funcionó. Revise su conexión e inténtelo de nuevo.",
     "proofExpired": "Pasó demasiado tiempo, o ese código ya se había usado. Empiece de nuevo y le enviaremos otro."
   },
+  "answerLink": {
+    "metaTitle": "Responda unas preguntas · {brand}",
+    "title": "Responda unas preguntas",
+    "description": "Quien compró esta entrada le envió este enlace para que responda usted mismo.",
+    "intro": "El organizador preguntó esto sobre quien va a asistir. Responda lo que quiera: nada de esto hace falta para entrar, y puede volver a este enlace y cambiar una respuesta hasta que empiece el evento.",
+    "requiredMark": "{question} (el organizador está esperando esta)",
+    "save": "Guardar",
+    "saved": "Guardado",
+    "saveFailed": "No se guardó. Inténtelo de nuevo.",
+    "networkFailed": "No se guardó. Revise su conexión e inténtelo de nuevo.",
+    "nothingToSave": "Todavía no hay nada que guardar: complete esto primero.",
+    "retiredQuestion": "El organizador dejó de preguntar esto. Su respuesta se conserva tal como estaba.",
+    "nothingAskedTitle": "No hay nada que responder",
+    "nothingAskedDescription": "El organizador no pregunta nada sobre esta entrada. Aquí no hay nada que usted deba hacer.",
+    "incompleteTitle": "Este enlace está incompleto",
+    "incompleteDescription": "Es probable que se haya cortado una parte en el mensaje. Pida a quien se lo envió que le mande el enlace completo.",
+    "invalidTitle": "Este enlace no funciona",
+    "invalidDescription": "Puede que se haya cortado en el mensaje, o puede que ya no sirva. Pida uno nuevo a quien se lo envió.",
+    "expiredTitle": "El evento ya empezó",
+    "expiredDescription": "Las respuestas se cierran cuando abren las puertas, así que ya no queda nada por cambiar. Hable con el organizador en el evento si hay algo que corregir.",
+    "unavailableTitle": "No podemos abrir esto ahora",
+    "unavailableDescription": "Algo falla de nuestro lado, y no es su enlace. Inténtelo de nuevo más tarde."
+  },
   "event": {
     "metaTitle": "{event} · {organization}",
     "metaDescription": "Obtenga entradas para {event}.",
@@ -197,6 +220,14 @@
     "phoneLabel": "Teléfono (opcional)",
     "submit": "Continuar al pago",
     "submitting": "Iniciando el pago…",
+    "answers": {
+      "title": "Sobre cada entrada",
+      "hint": "Opcional: omita lo que no sepa.",
+      "ticketHeading": "{ticketType} · entrada {index} de {total}",
+      "optional": "Opcional",
+      "optionalLabel": "{question} · Opcional",
+      "noAnswer": "Sin respuesta"
+    },
     "consent": {
       "notice": "Cómo tratamos sus datos",
       "readPolicy": "Leer la Política de Privacidad completa",
@@ -321,7 +352,24 @@
     "refundPendingNote": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete; vuelva a revisar en unos minutos.",
     "refundPendingNoteLink": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete.",
     "undoFailed": "No se pudo deshacer esta compra. Inténtelo de nuevo.",
-    "undoNetworkFailed": "No se pudo deshacer esta compra. Revise su conexión e inténtelo de nuevo."
+    "undoNetworkFailed": "No se pudo deshacer esta compra. Revise su conexión e inténtelo de nuevo.",
+    "answers": {
+      "title": "Preguntas sobre estas entradas",
+      "outstanding": "{count, plural, one {Falta responder # pregunta.} other {Faltan responder # preguntas.}}",
+      "allDone": "Ya está respondido todo lo que pidió el organizador.",
+      "ticketHeading": "Entrada {position} de {total}",
+      "copyHint": "Responda lo que sepa. Para el resto, copie el enlace de esta entrada y envíeselo a quien vaya a usarla: abre estas preguntas y no le muestra nada sobre su compra.",
+      "copyLink": "Copiar el enlace de esta entrada",
+      "copied": "Copiado",
+      "linkClosed": "Ya no hay ningún enlace que compartir para esta entrada. Las respuestas se cierran cuando empieza el evento, y una compra anulada también las cierra.",
+      "requiredMark": "{question} (el organizador está esperando esta)",
+      "save": "Guardar",
+      "saved": "Guardado",
+      "saveFailed": "No se guardó. Inténtelo de nuevo.",
+      "networkFailed": "No se guardó. Revise su conexión e inténtelo de nuevo.",
+      "nothingToSave": "Todavía no hay nada que guardar: complete este campo primero.",
+      "retiredQuestion": "El organizador ya no pregunta esto. La respuesta se conserva tal como estaba."
+    }
   },
   "myInfo": {
     "heading": "Mis datos",
@@ -445,7 +493,12 @@
       "SALE_REVERSAL_FAILED": "No pudimos deshacer esta compra. No cambió nada; contacte al organizador con su referencia de confirmación.",
       "REVERSAL_UNRESOLVED": "Estamos revisando con el proveedor de pagos qué pasó con este reembolso. Aquí no cambió nada; contacte al organizador con su referencia de confirmación.",
       "UNSUBSCRIBE_LINK_INVALID": "Este enlace para cancelar no es válido. Puede desactivar el resumen semanal desde su cuenta.",
-      "CONSENT_CONFIRMATION_LINK_INVALID": "Este enlace de confirmación no es válido. Puede configurar sus preferencias desde su cuenta."
+      "CONSENT_CONFIRMATION_LINK_INVALID": "Este enlace de confirmación no es válido. Puede configurar sus preferencias desde su cuenta.",
+      "ANSWER_LINK_INVALID": "Este enlace no funciona. Pida uno nuevo a quien se lo envió.",
+      "ANSWER_LINK_EXPIRED": "El evento ya empezó, así que las respuestas están cerradas.",
+      "ANSWER_LINK_UNAVAILABLE": "Algo falla de nuestro lado. Inténtelo de nuevo más tarde.",
+      "INVALID_ANSWER": "Esa respuesta no encaja con esta pregunta.",
+      "ANSWER_OPTION_NOT_OFFERED": "Esa opción ya no es una de las que ofrece esta pregunta."
     },
     "field": {
       "REQUIRED": "Campo obligatorio",

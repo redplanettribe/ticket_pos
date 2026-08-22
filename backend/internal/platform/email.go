@@ -64,6 +64,28 @@ type SaleConfirmation struct {
 	// word or never resolves at all. It sits below the Confirmation Link, because
 	// the receipt's job is the tickets and this is an aside.
 	ConsentConfirmationLink string
+	// HasOutstandingAnswers says whether any Ticket on this Sale still owes a
+	// required Ticket Question an Answer (#315, ADR 0044). True adds ONE sentence
+	// pointing back at the ConfirmationLink above; false — the zero value, and
+	// what every caller written before this feature passes — changes nothing at
+	// all, and there is a test freezing the rendered receipt against a literal to
+	// keep that true.
+	//
+	// A BOOLEAN AND NOT A COUNT, deliberately. "Three tickets still need answers"
+	// reads as more precise and is a promise the mail cannot keep: the debt is
+	// derived live and the buyer may answer two of them between the send and the
+	// read, at which point the receipt in their inbox is wrong forever. The page
+	// behind the Confirmation Link states the real figure at the moment it is
+	// looked at, which is the only moment it is true.
+	//
+	// WHAT IS DELIBERATELY ABSENT IS ANY ANSWER LINK. The sentence points at the
+	// Confirmation Link this mail already carries and introduces no URL of its
+	// own. An Answer Link is meant to be forwarded and this receipt is meant not
+	// to be — it holds the reference, the total and the Tax ID — so a per-Ticket
+	// link in the body would make "send my friend the t-shirt question" and "send
+	// my friend my receipt" the same gesture. Distribution happens on the page,
+	// where the buyer copies one link at a time.
+	HasOutstandingAnswers bool
 	// TaxID is the Tax ID this Ticket Sale was transacted under, printed on the
 	// receipt so the buyer can file it against their own expense records
 	// (ADR 0016). It is the sale's immutable snapshot, never the Customer's
@@ -137,6 +159,73 @@ type SaleReversalRefused struct {
 	// in flight, so no page, no header and no session is anywhere near the code
 	// that composes it. That is precisely why the language has to be a property
 	// of the sale — the only fact still standing when this is written.
+	Locale Locale
+}
+
+// AnswerReminder is the mail telling a buyer that Tickets on their Ticket Sale
+// still owe Answers, and pointing them back at their sale to give them or to
+// pass the per-Ticket links on (#317, ADR 0044).
+//
+// IT IS ADDRESSED TO THE BUYER BECAUSE THERE IS NOBODY ELSE TO ADDRESS. The
+// platform holds no address for a holder and asks for none, which is the
+// decision the whole feature is built around: collecting three friends'
+// addresses so the platform could write to them is the third-party collection
+// problem ADR 0044 exists to avoid. So a Ticket Question added after a sale
+// reaches its holder only if the buyer forwards it, and this is the message that
+// asks them to.
+//
+// IT IS TRANSACTIONAL, and this type's place on EmailSender's transactional half
+// is what makes that structural rather than remembered. It is about tickets
+// somebody bought, on the same footing as the Sale Confirmation that carries the
+// same sentence, so nothing anywhere reads Marketing Consent before sending it
+// and it is not even reachable from the marketing sending identity (ADR 0030,
+// ADR 0034). What bounds it instead is catalog.MayRemind: at most one per Ticket
+// Sale per week, at most two ever, and silence once the Event has started. Those
+// are the only brakes this message has, because a transactional mail carries no
+// unsubscribe footer.
+//
+// IT IS SWEPT RATHER THAN TRIGGERED. Nothing composes one of these when a
+// question is authored — an Organization drafting four questions in ten minutes
+// would otherwise mail the same people four times — so the only caller is the
+// scheduled job in the sales module.
+type AnswerReminder struct {
+	// To is the buyer's address, as the Ticket Sale recorded it. Never a
+	// holder's: there is no such column and there must never be one.
+	To           string
+	CustomerName string
+	EventName    string
+	// Reference is the Sale Confirmation reference, printed so a buyer holding
+	// two sales for one Event can tell which of them this is about. It is their
+	// own reference for their own purchase, in a mail already addressed to them —
+	// unlike the Answer Link page, which must never show it, because that page is
+	// built to be forwarded into a group chat and this mail is not.
+	Reference string
+	// ConfirmationLink opens this one Ticket Sale on the Storefront without
+	// signing in — the page where the buyer answers what they know and copies out
+	// each Ticket's own Answer Link for whoever will be using it (#315).
+	//
+	// IT IS THE WHOLE MESSAGE. Unlike the Sale Confirmation, which is worth
+	// sending without its link because it carries the reference and the total, a
+	// reminder with no link is an instruction its reader cannot follow. The job
+	// refuses to send one rather than composing it — see the sales module's
+	// SweepAnswerReminders, where a Sale whose link could not be signed is skipped
+	// and counted.
+	//
+	// WHAT IS DELIBERATELY ABSENT IS ANY ANSWER LINK. This mail introduces no URL
+	// of its own beyond this one, for the reason the receipt's sentence does not
+	// either: an Answer Link is meant to be forwarded and this mail is not.
+	// Distribution happens on the page, where the buyer copies one link at a time
+	// and decides who gets which.
+	ConfirmationLink string
+	// Locale is the language this reminder is written in, ALREADY RESOLVED by the
+	// caller through platform.ResolveMailLocale (ADR 0033): the Sale Locale, then
+	// the Customer's Mail Locale, then English.
+	//
+	// It is resolved from the SALE first for the reason every mail about a sale
+	// is: the language the buyer chose at the moment they bought outranks what
+	// their record remembers, and it governs every mail about that sale however
+	// long afterwards it is sent. This one is sent longest afterwards of any —
+	// weeks, by a job nobody is watching, from no page at all.
 	Locale Locale
 }
 
@@ -562,6 +651,16 @@ type EmailSender interface {
 	// who has just asked to stop receiving marketing, and is the one message that
 	// must arrive anyway.
 	SendConsentWithdrawalConfirmation(ctx context.Context, confirmation ConsentWithdrawalConfirmation) error
+	// SendAnswerReminder delivers an Answer Reminder to the buyer of a Ticket
+	// Sale whose Tickets still owe Answers (#317, ADR 0044).
+	//
+	// It is on the TRANSACTIONAL half of this interface, beside the receipt whose
+	// one extra sentence it repeats at length, and that placement is the decision
+	// rather than a filing choice: it means the message is not reachable from the
+	// marketing sending identity at all (ADR 0030), and that no consent state is
+	// anywhere near the code that sends it. What bounds it is catalog.MayRemind,
+	// which is the only thing that does.
+	SendAnswerReminder(ctx context.Context, reminder AnswerReminder) error
 	SendPayoutRequestSubmitted(ctx context.Context, submitted PayoutRequestSubmitted) error
 	SendPayoutRequestPaid(ctx context.Context, paid PayoutRequestPaid) error
 	SendPayoutRequestDeclined(ctx context.Context, declined PayoutRequestDeclined) error
@@ -615,6 +714,15 @@ func (s *LoggingEmailSender) SendSaleReversalRefused(_ context.Context, r SaleRe
 // time.
 func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, c ConsentWithdrawalConfirmation) error {
 	s.Logger.Info("consent withdrawal confirmation sent", "email", c.To, "locale", string(c.Locale))
+	return nil
+}
+
+// SendAnswerReminder logs the Answer Reminder for local development. The
+// address, the sale's reference and the language are logged and the body is
+// not: what a local developer needs to see is that a buyer was chased, about
+// which purchase, and in which language.
+func (s *LoggingEmailSender) SendAnswerReminder(_ context.Context, r AnswerReminder) error {
+	s.Logger.Info("answer reminder sent", "email", r.To, "reference", r.Reference, "locale", string(r.Locale))
 	return nil
 }
 
@@ -692,6 +800,11 @@ func (NoopEmailSender) SendConsentWithdrawalConfirmation(_ context.Context, _ Co
 	return nil
 }
 
+// SendAnswerReminder discards the Answer Reminder.
+func (NoopEmailSender) SendAnswerReminder(_ context.Context, _ AnswerReminder) error {
+	return nil
+}
+
 // SendPayoutRequestSubmitted discards the operator's submission notice.
 func (NoopEmailSender) SendPayoutRequestSubmitted(_ context.Context, _ PayoutRequestSubmitted) error {
 	return nil
@@ -747,6 +860,15 @@ type CaptureEmailSender struct {
 	// an act which moved nothing sends nothing cannot be told from a message's
 	// contents, only from there being none.
 	WithdrawalConfirmations []ConsentWithdrawalConfirmation
+	// The Answer Reminders delivered (#317). Kept whole rather than as rendered
+	// strings, so a test can call Subject() and Text() itself — which is the only
+	// way the Mail Locale is visible at all — and can assert on WHO was written
+	// to, which is what every rationing test is really about.
+	//
+	// Tests assert on the LENGTH as much as on the contents: "this buyer was not
+	// mailed a second time inside the week" cannot be told from any message's
+	// contents, only from there being none.
+	AnswerReminders []AnswerReminder
 	// The five Payout Request notices (#179, #188).
 	SubmittedPayoutRequests    []PayoutRequestSubmitted
 	PaidPayoutRequests         []PayoutRequestPaid
@@ -848,6 +970,17 @@ func (s *CaptureEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.WithdrawalConfirmations = append(s.WithdrawalConfirmations, c)
+	return nil
+}
+
+// SendAnswerReminder records a delivered Answer Reminder.
+func (s *CaptureEmailSender) SendAnswerReminder(_ context.Context, r AnswerReminder) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AnswerReminders = append(s.AnswerReminders, r)
 	return nil
 }
 
@@ -956,6 +1089,18 @@ func (s *CaptureEmailSender) ConsentWithdrawalConfirmations() []ConsentWithdrawa
 	return out
 }
 
+// AnswerRemindersSent returns the Answer Reminders delivered so far, in the
+// order the sweep sent them — which is the order that matters, since the job
+// works oldest sale first and a test asserting who got the one available slot
+// is asserting on that order.
+func (s *CaptureEmailSender) AnswerRemindersSent() []AnswerReminder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]AnswerReminder, len(s.AnswerReminders))
+	copy(out, s.AnswerReminders)
+	return out
+}
+
 // PayoutRequestsSubmitted returns a copy of the captured operator submission
 // notices. Tests assert on its LENGTH as much as on its contents: one notice per
 // allowlisted operator, and none at all when a repeated submission is handed the
@@ -1054,6 +1199,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.VoidedSales = nil
 	s.RefusedReversals = nil
 	s.WithdrawalConfirmations = nil
+	s.AnswerReminders = nil
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
 	s.DeclinedPayoutRequests = nil

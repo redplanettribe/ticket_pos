@@ -339,7 +339,7 @@ type Filters struct {
 //
 // rowCount is the number of data rows the file actually carries, so the reader
 // can check nothing was truncated between the screen and the file.
-func infoLines(info Info, loc *time.Location, rowCount int) []string {
+func infoLines(info Info, loc *time.Location, rowCount int, answers Answers) []string {
 	lines := []string{
 		"Sales Export",
 		"",
@@ -366,12 +366,29 @@ func infoLines(info Info, loc *time.Location, rowCount int) []string {
 	}
 	lines = append(lines, applied...)
 
-	return append(lines,
+	lines = append(lines,
 		"",
 		"This file reflects the filters that were on screen when it was downloaded, so two "+
 			"downloads of the same Event can differ. The Ticket Type columns are the Event's "+
 			"catalog as it stood at the moment above.",
 	)
+
+	// The second sheet is announced, because a reader who did not download the
+	// file has no other way to learn that the workbook is plural — and because
+	// what a blank cell on it MEANS is the one thing about it that cannot be
+	// read off it.
+	if answers.asked() {
+		lines = append(lines,
+			"",
+			"The "+AnswersSheet+" sheet lists one row per ticket, for the same sales as this "+
+				"file's other sheet, with one column per Ticket Question — and one TRUE/FALSE "+
+				"column per option where a question takes several. Join it back on "+
+				colConfirmationRef+". A blank cell there is a question that ticket has not "+
+				"answered, or was never asked because it belongs to another Ticket Type.",
+		)
+	}
+
+	return lines
 }
 
 // rowCountLine states how many Ticket Sales the file carries, which is what a
@@ -554,12 +571,18 @@ func addInfoSheet(f *excelize.File, lines []string) error {
 // TicketTypeColumn for why it is the catalog rather than the types the rows
 // mention.
 //
+// answers is the per-Ticket sheet, and it is OPTIONAL: an Event with no Ticket
+// Question hands over a zero value and the workbook is exactly the two-sheet one
+// it has always been. When it is present the file gains a THIRD sheet after the
+// data sheet — never columns on the data sheet, whose money must stay summable
+// at one row per Ticket Sale. See AnswersSheet.
+//
 // Cells are really typed — dates as date cells, money as numbers in major units
 // — because the recipient's next move is to sort, subtract and SUM, and a
 // column of strings that look like numbers cannot be done arithmetic to. loc is
 // the Event's timezone, which every date is drawn in and which the Info sheet
 // names outright, since an Excel date cell carries no timezone of its own.
-func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location, info Info) ([]byte, error) {
+func Build(sales []Sale, types []TicketTypeColumn, answers Answers, loc *time.Location, info Info) ([]byte, error) {
 	f := excelize.NewFile()
 	defer func() { _ = f.Close() }()
 
@@ -601,7 +624,7 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location, info Info
 			colStatus:            sale.Status,
 		}
 		for header, value := range text {
-			if err := setStr(f, cols, header, row, value); err != nil {
+			if err := setStr(f, DataSheet, cols, header, row, value); err != nil {
 				return nil, err
 			}
 		}
@@ -617,7 +640,7 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location, info Info
 			if value == nil {
 				continue
 			}
-			if err := setStr(f, cols, header, row, *value); err != nil {
+			if err := setStr(f, DataSheet, cols, header, row, *value); err != nil {
 				return nil, err
 			}
 		}
@@ -731,8 +754,17 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location, info Info
 		return nil, err
 	}
 
+	// The per-Ticket sheet, when the Event asks anything at all. It is added
+	// after the data sheet so it lands to the right of it, and before the Info
+	// sheet so the move that puts Info first still puts it first.
+	if answers.asked() {
+		if err := addAnswersSheet(f, answers); err != nil {
+			return nil, err
+		}
+	}
+
 	// Last, so the row count it states is the number of rows that were written.
-	if err := addInfoSheet(f, infoLines(info, loc, len(sales))); err != nil {
+	if err := addInfoSheet(f, infoLines(info, loc, len(sales), answers)); err != nil {
 		return nil, err
 	}
 
@@ -743,21 +775,33 @@ func Build(sales []Sale, types []TicketTypeColumn, loc *time.Location, info Info
 	return buf.Bytes(), nil
 }
 
-// setStr writes a text cell in the column with the given key.
-func setStr(f *excelize.File, cols layout, key string, row int, value string) error {
+// setStr writes a text cell in the column with the given key, on the named
+// sheet. Both sheets of the workbook write through it, so neither of them names
+// a column letter.
+func setStr(f *excelize.File, sheet string, cols layout, key string, row int, value string) error {
 	cell, err := cellRef(cols, key, row)
 	if err != nil {
 		return err
 	}
-	return f.SetCellStr(DataSheet, cell, value)
+	return f.SetCellStr(sheet, cell, value)
 }
 
 // cellRef resolves a column key and a 1-based row to a cell reference, so
 // nothing in this file names a column letter — and nothing resolves a column by
-// the heading a reader sees, which an organizer's Ticket Type name could
-// duplicate.
+// the heading a reader sees, which an organizer's Ticket Type name or a Ticket
+// Question's wording could duplicate.
+//
+// A key with no column is refused by name rather than resolved to column zero.
+// It is unreachable — every layout is built from the same slice the values are
+// written from — so this exists to make the day somebody splits those two apart
+// a failed download with a name in it, rather than a workbook quietly missing a
+// value.
 func cellRef(cols layout, key string, row int) (string, error) {
-	return excelize.CoordinatesToCellName(cols.index[key], row)
+	column, ok := cols.index[key]
+	if !ok {
+		return "", fmt.Errorf("exportfile: no column for %q", key)
+	}
+	return excelize.CoordinatesToCellName(column, row)
 }
 
 func ptr[T any](v T) *T { return &v }

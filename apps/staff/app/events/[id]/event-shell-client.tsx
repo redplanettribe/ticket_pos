@@ -17,6 +17,12 @@ type EventShellClientProps = {
   labels: EventShellLabels;
   eventId: string;
   fullAccess: boolean;
+  /**
+   * Whether the Outstanding Answers entry is offered. Decided on the server,
+   * where both halves of it are known — the Event's ticket_questions_enabled and
+   * the Member's role — and never re-derived here.
+   */
+  outstandingAnswers: boolean;
   eventName: string;
   /** The API's own token, which still decides the badge's colour. */
   status: string;
@@ -30,6 +36,7 @@ export function EventShellClient({
   labels,
   eventId,
   fullAccess,
+  outstandingAnswers,
   eventName,
   status,
   statusLabel,
@@ -43,6 +50,7 @@ export function EventShellClient({
       labels={labels}
       eventId={eventId}
       fullAccess={fullAccess}
+      outstandingAnswers={outstandingAnswers}
       eventName={eventName}
       statusLabel={statusLabel}
       statusVariant={statusBadgeVariant(status)}

@@ -48,7 +48,56 @@ type CheckoutRequestBody = {
   networking_consent?: unknown;
   lines?: unknown;
   locale?: unknown;
+  answers?: unknown;
 };
+
+/**
+ * The answer section, relayed shape-only and NEVER refused (#311, ADR 0044).
+ *
+ * This hop asks one question of each entry — is it addressable at all, meaning
+ * does it name a Ticket Type, a ticket, and a question — and drops the ones that
+ * are not, because an entry with no address is one the API could not act on
+ * either. It asks NOTHING about the reply: which slot a question's kind takes,
+ * whether an Option belongs to it, whether a number is a number, are all the
+ * API's findings, and its answer to "no" is to drop the reply rather than refuse
+ * the purchase.
+ *
+ * A malformed `answers` therefore yields an empty list and a completed checkout,
+ * never a 400. That is the difference between this and parseLines above, and it
+ * is the whole of ADR 0044 expressed in one function: a cart that cannot be read
+ * is a checkout that cannot happen, while an answer that cannot be read is a
+ * t-shirt size.
+ *
+ * The reply keys are copied verbatim rather than rebuilt, so `checked: false`
+ * survives — an unticked box somebody read is an answer — and `number` stays the
+ * string it was typed as, because rebuilding it through a JSON number is how a
+ * NUMERIC column loses a trailing zero.
+ */
+function parseAnswers(value: unknown): NonNullable<BeginCheckoutRequest["answers"]> {
+  if (!Array.isArray(value)) return [];
+  const answers: NonNullable<BeginCheckoutRequest["answers"]> = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { ticket_type_id, ticket_index, ticket_question_id, text, number, date, checked, option_ids } =
+      entry as Record<string, unknown>;
+    if (typeof ticket_type_id !== "string" || ticket_type_id.trim() === "") continue;
+    if (typeof ticket_question_id !== "string" || ticket_question_id.trim() === "") continue;
+    if (typeof ticket_index !== "number" || !Number.isSafeInteger(ticket_index)) continue;
+    answers.push({
+      ticket_type_id: ticket_type_id.trim(),
+      ticket_index,
+      ticket_question_id: ticket_question_id.trim(),
+      ...(typeof text === "string" ? { text } : {}),
+      ...(typeof number === "string" ? { number } : {}),
+      ...(typeof date === "string" ? { date } : {}),
+      ...(typeof checked === "boolean" ? { checked } : {}),
+      ...(Array.isArray(option_ids) && option_ids.every((id) => typeof id === "string")
+        ? { option_ids: option_ids as string[] }
+        : {}),
+    });
+  }
+  return answers;
+}
 
 /**
  * One consent box, relayed only when the dialog actually drew it.
@@ -173,6 +222,11 @@ export async function POST(request: Request) {
   // below and the cookie written after it are statements about the same page.
   const locale = checkoutLocale(body.locale, request.headers.get("referer"));
 
+  // The answer section. Never a reason to fail: an unreadable one is an empty
+  // one, and the key is dropped rather than sent as [] so that a checkout with
+  // nothing to say is byte-identical to the one before this feature existed.
+  const answers = parseAnswers(body.answers);
+
   try {
     // The Customer Session token, when the visitor has one, rides along in
     // Authorization. It is never required — guest checkout is the baseline — and
@@ -218,6 +272,7 @@ export async function POST(request: Request) {
         // sale", which is the truth, and the receipt then falls back to what
         // the buyer's own record remembers (ADR 0033).
         ...(locale ? { locale } : {}),
+        ...(answers.length > 0 ? { answers } : {}),
         lines,
       },
       await customerSessionToken(),
