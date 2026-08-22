@@ -656,17 +656,8 @@ func ErrAssignmentLinkUnavailable() apperror.DomainError {
 	return apperror.New("ASSIGNMENT_LINK_UNAVAILABLE", "Assignment links are unavailable.", nil)
 }
 
-// ErrInvalidHolderName is returned when the name a Holder gave is not one
-// (#325). See catalog.ParseHolderName.
-//
-// 400 beside INVALID_HOLDER_EMAIL: the body is wrong and restating it correctly
-// is what fixes it. BOTH HALVES ARE REQUIRED — the name is stored separately
-// (ADR 0005) and is written to the Customer as their current asserted name, so
-// half a name would be half a person on the Organization's guest list.
-func ErrInvalidHolderName() apperror.DomainError {
-	return apperror.New(
-		"INVALID_HOLDER_NAME",
-		"Please give a first name and a last name.",
-		map[string]any{"max_length": MaxHolderNameLength},
-	)
-}
+// A Holder's name that is blank or overlong is refused by the HANDLER as
+// VALIDATION_FAILED, not here (#336): the Assignment Link token names the
+// Ticket, so there is no id an early 400 could leak — unlike the Holder EMAIL,
+// whose ErrInvalidHolderEmail stays a domain error above precisely because
+// there is one. See catalog.ParseHolderName for the domain's definition.

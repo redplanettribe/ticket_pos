@@ -3,7 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 	"github.com/peter/ticket_pos/backend/internal/catalog/service"
 	"github.com/peter/ticket_pos/backend/internal/platform"
 )
@@ -54,12 +57,44 @@ type assignmentLinkBody struct {
 type assignmentLinkNameBody struct {
 	assignmentLinkBody
 	// FirstName and LastName are stored separately (ADR 0005) and written to the
-	// Customer as their current asserted name. Trimmed, bounded and refused when
-	// either half is blank by catalog.ParseHolderName in the service, and NOT
-	// here: a name is a domain value with one definition, and a second check in
-	// the handler is a second place for it to disagree.
+	// Customer as their current asserted name. Required and bounded HERE, in the
+	// handler, as the standard VALIDATION_FAILED envelope (#336): the token
+	// names the Ticket, so unlike the buyer's Holder email write there is no id
+	// for an early 400 to leak (see the INVALID_HOLDER_EMAIL exception in the
+	// api-errors skill). The bound is catalog.MaxHolderNameLength, so the
+	// domain still owns the number.
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
+}
+
+// validateHolderName checks the two halves of a Holder's name the way every
+// handler checks required fields: blank is REQUIRED, over the domain's cap is
+// TOO_LONG. Trimming here matches catalog.ParseHolderName, which is what the
+// service will parse the same values with.
+func validateHolderName(firstName, lastName string) []platform.FieldError {
+	var fields []platform.FieldError
+	for _, half := range []struct {
+		field, value string
+	}{
+		{"first_name", firstName},
+		{"last_name", lastName},
+	} {
+		trimmed := strings.TrimSpace(half.value)
+		switch {
+		case trimmed == "":
+			fields = append(fields, platform.FieldError{
+				Field: half.field, Code: platform.CodeRequired, Message: "is required",
+			})
+		case len(trimmed) > catalog.MaxHolderNameLength:
+			fields = append(fields, platform.FieldError{
+				Field: half.field,
+				Code:  platform.CodeTooLong,
+				Message: "must be at most " +
+					strconv.Itoa(catalog.MaxHolderNameLength) + " characters",
+			})
+		}
+	}
+	return fields
 }
 
 // assignmentLinkAnswerBody is the token plus the Answer being given.
@@ -121,7 +156,7 @@ func (h *Handler) AcceptAssignmentLink(w http.ResponseWriter, r *http.Request) {
 // same request with a different body.
 //
 // @Summary      Give the holder's name through an assignment link
-// @Description  Writes the first and last name of the Holder who accepted the Ticket the signed Assignment Link names, as that Customer's current asserted name — stored separately (ADR 0005), and overwriting whatever the record held, since the person editing is the person the record is about. **A Holder is never asked for a Tax ID**: it is a fact about the sale's buyer, never about an attendee, and this body has nowhere to put one. It accepts the assignment first if it has not been accepted already, so the name and the click are one act. No sign-in, no session minted, and no consent granted. Refused with 400 INVALID_HOLDER_NAME when either half is blank or too long, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off.
+// @Description  Writes the first and last name of the Holder who accepted the Ticket the signed Assignment Link names, as that Customer's current asserted name — stored separately (ADR 0005), and overwriting whatever the record held, since the person editing is the person the record is about. **A Holder is never asked for a Tax ID**: it is a fact about the sale's buyer, never about an attendee, and this body has nowhere to put one. It accepts the assignment first if it has not been accepted already, so the name and the click are one act. No sign-in, no session minted, and no consent granted. Refused with 400 VALIDATION_FAILED carrying `details.fields` when either half of the name is blank or over 100 characters, and with the same 401s the accept route gives. Answers 404 while TICKET_ASSIGNMENT_ENABLED is off.
 // @Tags         public
 // @Accept       json
 // @Produce      json
@@ -142,6 +177,10 @@ func (h *Handler) NameByAssignmentLink(w http.ResponseWriter, r *http.Request) {
 	}
 	token, ok := answerLinkToken(w, reqID, body.Token)
 	if !ok {
+		return
+	}
+	if fields := validateHolderName(body.FirstName, body.LastName); len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
 		return
 	}
 

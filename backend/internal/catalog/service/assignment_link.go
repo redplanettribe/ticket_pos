@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/peter/ticket_pos/backend/internal/catalog"
@@ -203,9 +204,16 @@ func (s *Service) NameByAssignmentLink(
 		return nil, err
 	}
 
+	// The handler has already refused a blank or overlong half as
+	// VALIDATION_FAILED (#336) — required-fields validation is the handler's,
+	// and the token names the Ticket so there is no id for that 400 to leak.
+	// ParseHolderName here is the domain's one definition of the trim and
+	// bound, and reaching its refusal means a caller skipped the handler's
+	// check: a programming error, not a Holder's, so it surfaces as a 500
+	// rather than as a code any client is told to handle.
 	first, last, ok := catalog.ParseHolderName(firstName, lastName)
 	if !ok {
-		return nil, catalog.ErrInvalidHolderName()
+		return nil, fmt.Errorf("holder name reached the service unvalidated")
 	}
 	if err := s.holders.NameHolder(ctx, holder.CustomerID, first, last); err != nil {
 		return nil, err

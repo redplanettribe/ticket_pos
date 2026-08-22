@@ -476,10 +476,34 @@ func TestAKnownCustomersNameIsPrefilledOnlyAfterTheClick(t *testing.T) {
 
 	// HALF A NAME IS NOT A NAME. Both halves are stored separately (ADR 0005) and
 	// both are required, because half a name is half a person on a guest list.
+	// Refused by the HANDLER as the standard validation envelope (#336): the
+	// token names the Ticket, so there is no id here for a 400 to leak.
 	resp, body, _ = answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
 		"token": token, "first_name": "  ", "last_name": "Díaz",
 	})
-	assertAPIError(t, resp, body, http.StatusBadRequest, "INVALID_HOLDER_NAME")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("blank first name status=%d, want 400 (error=%+v)", resp.StatusCode, body.Error)
+	}
+	fields := fieldErrorsByName(t, body)
+	if got, ok := fields["first_name"]; !ok || got.Code != "REQUIRED" {
+		t.Errorf("blank first name field error = %+v, want first_name REQUIRED", fields)
+	}
+	if _, ok := fields["last_name"]; ok {
+		t.Errorf("last_name was given and should not be refused; got %+v", fields)
+	}
+
+	// AND A HALF THAT OVERFLOWS ITS COLUMN IS NOT A NAME EITHER — the same 100
+	// the Customer's own name fields are held to at checkout.
+	resp, body, _ = answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+		"token": token, "first_name": strings.Repeat("z", 101), "last_name": "Díaz",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("overlong first name status=%d, want 400 (error=%+v)", resp.StatusCode, body.Error)
+	}
+	fields = fieldErrorsByName(t, body)
+	if got, ok := fields["first_name"]; !ok || got.Code != "TOO_LONG" {
+		t.Errorf("overlong first name field error = %+v, want first_name TOO_LONG", fields)
+	}
 }
 
 // A HOLDER IS NEVER ASKED FOR A TAX ID, and cannot be given one through this
