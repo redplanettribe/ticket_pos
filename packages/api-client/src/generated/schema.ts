@@ -10441,6 +10441,15 @@ export interface components {
              */
             questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
             /**
+             * @description SelfHeld is whether this Ticket's Holder is the buyer themself — the one
+             *     Ticket an Online Sale hands the buyer at purchase (ADR 0048), or any
+             *     Ticket they later assigned to their own address and accepted. The
+             *     Storefront says "your ticket" on it and asks the buyer to answer it,
+             *     where every other Ticket is its Holder's to answer. Absent while the
+             *     assignment flag is closed, like the rest of this block.
+             */
+            self_held?: boolean;
+            /**
              * @description TicketID names which Ticket this is, so the buyer's own form can post back
              *     against it. Safe here and absent from AnswerLinkView, and the difference is
              *     the credential: this reader proved they own the Sale, so an id they could
@@ -11619,6 +11628,15 @@ export interface components {
             venue_name?: string;
         };
         "service.PublicEventDetail": {
+            /**
+             * @description BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the
+             *     buyer its first Ticket as their own Self-held Ticket (ADR 0048) — which
+             *     is the platform's Ticket Assignment flag and not a property of the
+             *     Event, riding here for the reason ticket_questions does: the checkout
+             *     dialog draws a "Your ticket" section from this payload, and it may only
+             *     call a Ticket the buyer's own when the sale will actually make it so.
+             */
+            buyer_holds_first_ticket?: boolean;
             cover_image_url?: string;
             /**
              * @description CoverVideoURL is the Event's optional Cover Video, played in the hero over

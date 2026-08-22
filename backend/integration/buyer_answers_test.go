@@ -52,6 +52,7 @@ type buyerTicket struct {
 	HolderEmail       string  `json:"holder_email"`
 	AssignedAt        *string `json:"assigned_at"`
 	AcceptedAt        *string `json:"accepted_at"`
+	SelfHeld          bool    `json:"self_held"`
 	Assignable        bool    `json:"assignable"`
 	AssignableRefusal string  `json:"assignable_refusal"`
 	Questions         []struct {

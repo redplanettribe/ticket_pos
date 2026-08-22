@@ -110,11 +110,12 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   const dialog = page.getByRole("dialog", { name: "Checkout" });
   await expect(dialog).toBeVisible();
 
-  // The dialog asks the question once per ticket and is explicit that it may be
-  // skipped (#311, ADR 0044): the buyer of two is not assumed to know the second
-  // person's answer. Both are left blank here, which is the premise of the whole
-  // feature — the Holder answers for their own ticket, below.
-  await expect(dialog.getByLabel(QUESTION, { exact: false })).toHaveCount(2);
+  // The dialog asks the question ONCE, for the buyer's own ticket, and is
+  // explicit that it may be skipped (#311, ADR 0044, ADR 0048): the second
+  // ticket is not mentioned, because its Holder answers for it, below. Left
+  // blank here, which is the premise of the whole feature.
+  await expect(dialog.getByText("Your ticket · General Admission")).toBeVisible();
+  await expect(dialog.getByLabel(QUESTION, { exact: false })).toHaveCount(1);
 
   await dialog.getByLabel("Email", { exact: true }).fill(buyer);
   await dialog.getByLabel("First name").fill("Ada");
@@ -130,15 +131,18 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   await page.getByRole("link", { name: "Approve payment" }).click();
   await expect(page.getByRole("heading", { name: "You're going!" })).toBeVisible();
 
-  // Step 2 — the buyer signs in and, on the purchase, gives the first ticket an
-  // address. The notice about what that discloses sits on the field; the state
-  // line above it is what tells two identical tickets apart once saved.
+  // Step 2 — the buyer signs in. The first ticket is already THEIRS (ADR
+  // 0048); the second is one collapsed row, opened to give it an address. The
+  // notice about what that discloses sits on the field; the row's state is
+  // what tells the two tickets apart once saved.
   await signInFromPasscode(page, buyer);
-  const addressFields = page.getByLabel("Email address for this ticket");
-  await expect(addressFields).toHaveCount(2);
-  await addressFields.first().fill(holder);
-  await page.getByRole("button", { name: "Save this address" }).first().click();
-  await expect(page.getByText(`This ticket is for ${holder}`)).toBeVisible();
+  await expect(page.getByText("Your ticket", { exact: true })).toBeVisible();
+  await page.getByText("Ticket 2 of 2").click();
+  const addressField = page.getByLabel("Email address of whoever will use this ticket");
+  await expect(addressField).toHaveCount(1);
+  await addressField.fill(holder);
+  await page.getByRole("button", { name: "Save address" }).click();
+  await expect(page.getByText(`For ${holder}`, { exact: true })).toBeVisible();
 
   // Step 3 — the Holder. A DIFFERENT PERSON: a fresh context with none of the
   // buyer's cookies, arriving from the mail with nothing but the link. The link
@@ -186,8 +190,7 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   // with nothing left outstanding — one row, one assertion; the roster's own
   // rules are integration-tested.
   await page.reload();
-  await expect(page.getByText(`${holder} has picked this ticket up`)).toBeVisible();
-  await expect(page.getByText("No address yet")).toBeVisible();
+  await expect(page.getByText(`${holder} has it`, { exact: true })).toBeVisible();
 
   const roster = await holderList(request, token, fixture.eventId);
   const accepted = roster.find((entry) => entry.holder_email === holder);

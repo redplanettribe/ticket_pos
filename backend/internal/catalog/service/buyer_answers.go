@@ -123,6 +123,13 @@ type BuyerTicketAnswersView struct {
 	// #324.
 	AssignedAt *time.Time `json:"assigned_at,omitempty"`
 	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	// SelfHeld is whether this Ticket's Holder is the buyer themself — the one
+	// Ticket an Online Sale hands the buyer at purchase (ADR 0048), or any
+	// Ticket they later assigned to their own address and accepted. The
+	// Storefront says "your ticket" on it and asks the buyer to answer it,
+	// where every other Ticket is its Holder's to answer. Absent while the
+	// assignment flag is closed, like the rest of this block.
+	SelfHeld bool `json:"self_held,omitempty"`
 	// Assignable is whether this Ticket may be assigned or reassigned right now,
 	// and AssignableRefusal names why not — a token and never a sentence, exactly
 	// as AnswerableRefusal is, because the Storefront owns the words in the
@@ -179,7 +186,7 @@ func (s *Service) ListBuyerTicketAnswers(
 	if len(tickets) == 0 {
 		return []BuyerTicketAnswersView{}, nil
 	}
-	return s.buyerTicketAnswersViews(ctx, tickets)
+	return s.buyerTicketAnswersViews(ctx, customerID, tickets)
 }
 
 // AnswerOwnTicketQuestion writes one Answer on a Ticket of the buyer's own
@@ -238,7 +245,7 @@ func (s *Service) AnswerOwnTicketQuestion(
 	// so returning one row would leave the surface holding a stale total beside a
 	// fresh row, which is the shape of bug nobody notices until an Organization
 	// asks why a buyer says they answered.
-	return s.buyerTicketAnswersViews(ctx, tickets)
+	return s.buyerTicketAnswersViews(ctx, customerID, tickets)
 }
 
 // findBuyerTicket picks one Ticket out of the buyer's own Sale.
@@ -271,6 +278,7 @@ func findBuyerTicket(tickets []repository.AnswerableTicket, ticketID string) *re
 // grow into each other.
 func (s *Service) buyerTicketAnswersViews(
 	ctx context.Context,
+	customerID string,
 	tickets []repository.AnswerableTicket,
 ) ([]BuyerTicketAnswersView, error) {
 	staffViews, err := s.ticketAnswersViews(ctx, tickets)
@@ -292,7 +300,7 @@ func (s *Service) buyerTicketAnswersViews(
 		// The Ticket Assignment, and NOTHING AT ALL while the flag is closed
 		// (#324). Every assignment field is omitempty, so a dark build's payload
 		// is the one a build without the feature sends — see the struct.
-		s.fillBuyerAssignment(&view, tickets[i])
+		s.fillBuyerAssignment(&view, customerID, tickets[i])
 		// A link is minted only while the Ticket can still be answered. Handing
 		// out a link that opens nothing would be worse than handing out none: the
 		// buyer forwards it, believes the job done, and nobody finds out.

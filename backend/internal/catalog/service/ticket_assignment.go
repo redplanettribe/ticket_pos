@@ -166,7 +166,7 @@ func (s *Service) AssignOwnTicket(
 	if err != nil {
 		return nil, err
 	}
-	return s.buyerTicketAnswersViews(ctx, fresh)
+	return s.buyerTicketAnswersViews(ctx, customerID, fresh)
 }
 
 // assignmentWindowOpen turns the domain's reading of the assignment window into
@@ -200,7 +200,7 @@ func (s *Service) assignmentWindowOpen(ticket *repository.AnswerableTicket) erro
 // an `assignable: false`. That is what makes ADR 0045's "no surface differs"
 // hold for this feature on the one page it touches, and it is what the flag test
 // asserts against the raw bytes.
-func (s *Service) fillBuyerAssignment(view *BuyerTicketAnswersView, ticket repository.AnswerableTicket) {
+func (s *Service) fillBuyerAssignment(view *BuyerTicketAnswersView, customerID string, ticket repository.AnswerableTicket) {
 	if !s.ticketAssignmentEnabled {
 		return
 	}
@@ -219,6 +219,9 @@ func (s *Service) fillBuyerAssignment(view *BuyerTicketAnswersView, ticket repos
 	view.HolderEmail = holderEmail
 	view.AssignedAt = assignedAt
 	view.AcceptedAt = acceptedAt
+	// By Customer identity and never by comparing addresses: the Holder column
+	// is the accepted Customer, and the session is that same Customer.
+	view.SelfHeld = ticket.HolderCustomerID.Valid && ticket.HolderCustomerID.String == customerID
 
 	refusal := catalog.AssignmentWindow(
 		ticket.Channel, ticket.SaleStatus, nullTimeOrNil(ticket.EventStartsAt), s.now(),

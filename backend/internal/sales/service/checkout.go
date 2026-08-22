@@ -813,6 +813,7 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		Now:             now,
 		UpsertCustomer:  s.customers.UpsertForSale,
 		CaptureConsent:  s.captureCheckoutConsent,
+		SelfHeld:        s.ticketAssignmentEnabled,
 	})
 	if err != nil {
 		// Nothing was collected, so there is no incident here — only a checkout
@@ -1018,6 +1019,7 @@ func (s *Service) ConfirmCheckout(ctx context.Context, clientTransactionID strin
 		ConfirmationRef:       ref,
 		Now:                   s.now(),
 		UpsertCustomer:        s.customers.UpsertForSale,
+		SelfHeld:              s.ticketAssignmentEnabled,
 		CaptureConsent:        s.captureCheckoutConsent,
 	})
 	if err != nil {

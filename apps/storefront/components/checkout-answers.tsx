@@ -11,34 +11,33 @@ import {
 } from "@/lib/checkout-answers";
 
 /**
- * The checkout dialog's answer section: for each ticket in the cart whose Ticket
- * Type asks something, that ticket's questions (#311, ADR 0044).
+ * The checkout dialog's answer section: the buyer's OWN ticket's questions, and
+ * nobody else's (#311, ADR 0044, ADR 0048).
+ *
+ * ONE SET, NOT ONE PER TICKET. The sale hands the buyer its first Ticket as
+ * their own, so these are questions about the buyer, which the buyer can
+ * answer. The cart's other tickets are not mentioned here at all: an Answer
+ * belongs to the Ticket (ADR 0043), and those Tickets' Holders give theirs
+ * after the purchase, through the links on the sale page.
  *
  * IT IS SKIPPABLE AND IT SAYS SO. There is no validation here, no required
  * marker that blocks, and nothing this component renders is wired to the pay
- * button's disabled state — deliberately, and the reason is the premise the
- * whole feature rests on: the buyer of four tickets is not assumed to know four
- * people's answers, so a form with three blanks is not a way to find out. What a
- * skipped question produces is an Outstanding Answer, which the holder can fill
- * in later through the Ticket's own Answer Link, and which the Organization can
- * see and chase. Anybody wiring a check in here is reversing ADR 0044.
- *
- * ONE SET PER TICKET, NEVER ONE PER LINE. Three of one Ticket Type is three
- * headings and three sets of fields, because an Answer belongs to the Ticket
- * (ADR 0043). The tickets are told apart by their number, which is all there is
- * to tell them apart by — they have no holder, no name and no seat.
+ * button's disabled state — deliberately. What a skipped question produces is
+ * an Outstanding Answer, which the buyer can fill in later from their sale page
+ * and which the Organization can see and chase. Anybody wiring a check in here
+ * is reversing ADR 0044.
  *
  * QUESTION LABELS AND OPTION LABELS ARE NOT TRANSLATED. They are the
  * Organization's own words, read as coined in every Locale exactly as a Custom
  * Tag is (ADR 0027); only the chrome around them follows the page's language.
  */
 export function CheckoutAnswers({
-  slots,
+  slot,
   values,
   onChange,
   labels,
 }: {
-  slots: AnswerSlot[];
+  slot: AnswerSlot;
   values: AnswerValues;
   onChange: (key: string, value: AnswerValue) => void;
   /**
@@ -49,12 +48,10 @@ export function CheckoutAnswers({
    * The same reasoning ConsentCheckbox states.
    */
   labels: {
-    /** The section heading. */
+    /** The section heading: "Your ticket · {ticketType}". */
     title: string;
     /** One line saying the whole section may be skipped. */
     hint: string;
-    /** "{ticketType} · ticket {index} of {total}", per ticket. */
-    ticketHeading: (ticketTypeName: string, index: number, total: number) => string;
     /** The chip on a question whose answer the Organization is hoping for. */
     optional: string;
     optionalLabel: (question: string) => string;
@@ -62,46 +59,22 @@ export function CheckoutAnswers({
     noAnswer: string;
   };
 }) {
-  if (slots.length === 0) return null;
-
-  // How many of each Ticket Type are in the cart, so a heading can read "ticket
-  // 2 of 3" rather than a bare number that means nothing on its own.
-  const totals: Record<string, number> = {};
-  for (const slot of slots) {
-    totals[slot.ticketTypeId] = (totals[slot.ticketTypeId] ?? 0) + 1;
-  }
-
   return (
     <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
-      <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <p className="text-sm font-medium">{labels.title}</p>
-        {/*
-          The hint is not decoration. A buyer looking at a required-looking field
-          for somebody else's t-shirt size needs to be told, in the dialog, that
-          leaving it is fine — otherwise the honest answer to "I do not know" is
-          to guess, and a guessed answer is worse than a missing one.
-        */}
-        <p className="text-sm text-muted-foreground">{labels.hint}</p>
+        {/* Said once, beside the heading: leaving a blank is fine. */}
+        <p className="text-xs text-muted-foreground">{labels.hint}</p>
       </div>
-      {slots.map((slot) => (
-        <div
-          key={`${slot.ticketTypeId}:${slot.index}`}
-          className="space-y-3 rounded-lg border bg-background p-3"
-        >
-          <p className="text-sm font-medium">
-            {labels.ticketHeading(slot.ticketTypeName, slot.index, totals[slot.ticketTypeId] ?? 1)}
-          </p>
-          {slot.questions.map((question) => (
-            <AnswerFieldRow
-              key={question.id}
-              question={question}
-              fieldKey={answerKey(slot.ticketTypeId, slot.index, question.id)}
-              values={values}
-              onChange={onChange}
-              labels={labels}
-            />
-          ))}
-        </div>
+      {slot.questions.map((question) => (
+        <AnswerFieldRow
+          key={question.id}
+          question={question}
+          fieldKey={answerKey(slot.ticketTypeId, slot.index, question.id)}
+          values={values}
+          onChange={onChange}
+          labels={labels}
+        />
       ))}
     </div>
   );

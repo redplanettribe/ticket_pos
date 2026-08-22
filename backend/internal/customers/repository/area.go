@@ -387,6 +387,10 @@ func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID 
 		JOIN organizations org ON org.id = ts.organization_id
 		WHERE tk.holder_customer_id = $1
 		  AND ts.status = 'active'
+		  -- Never the Customer's own Self-held Ticket (ADR 0048): "tickets
+		  -- someone gave you" is about other people's purchases, and their
+		  -- own sits on its Ticket Sale one section up.
+		  AND ts.customer_id <> $1
 		ORDER BY e.starts_at ASC NULLS LAST, tk.accepted_at DESC, tk.id ASC
 	`, customerID)
 	if err != nil {

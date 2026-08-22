@@ -92,6 +92,9 @@ export type BuyerTicket = {
   holder_email?: string;
   assigned_at?: string;
   accepted_at?: string;
+  /** Whether this Ticket's Holder is the buyer themself — the one the sale
+   * handed them at purchase (ADR 0048). The page says "your ticket" on it. */
+  self_held?: boolean;
   /** Whether an address may be given or changed right now, and the token saying
    * why not — a separate window from `answerable` above, because a door sale's
    * Answers are writable while its Tickets are not assignable. */

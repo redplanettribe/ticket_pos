@@ -146,6 +146,35 @@ export function answerSlots(
 }
 
 /**
+ * ownTicketSlot is the one ticket checkout asks about: the buyer's own, which
+ * the sale will hand them as a Self-held Ticket (ADR 0048). It is the FIRST
+ * ticket of the first Ticket Type in catalog order that the cart holds — the
+ * same choice the commit spine makes, so what the dialog calls "your ticket"
+ * is the Ticket the buyer will in fact hold.
+ *
+ * THE OTHER TICKETS ARE NOT ASKED ABOUT AT ALL, and are not mentioned. A buyer
+ * of four is not assumed to know four people's sizes; those Tickets are for
+ * their own Holders to answer, after the purchase, from the sale page's links.
+ *
+ * Null when the sale will hand the buyer nothing — the assignment feature is
+ * closed, the cart is empty — or when the buyer's own Ticket Type asks nothing:
+ * then there is no section, and the dialog is the one that existed before
+ * Ticket Questions did.
+ */
+export function ownTicketSlot(
+  ticketTypes: AnsweredTicketType[],
+  quantities: Record<string, number>,
+  buyerHoldsFirstTicket: boolean,
+): AnswerSlot | null {
+  if (!buyerHoldsFirstTicket) return null;
+  const first = ticketTypes.find((ticketType) => (quantities[ticketType.id] ?? 0) > 0);
+  if (first === undefined) return null;
+  const questions = first.ticket_questions ?? [];
+  if (questions.length === 0) return null;
+  return { ticketTypeId: first.id, ticketTypeName: first.name, index: 1, questions };
+}
+
+/**
  * hasCheckoutQuestions reports whether anything in the cart asks anything —
  * which is what decides whether the dialog draws an answer section's heading at
  * all. It is `answerSlots(...).length > 0` said cheaply and named for what the
