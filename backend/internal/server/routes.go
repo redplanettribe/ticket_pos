@@ -560,8 +560,6 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// see the handler, which defends the choice at length. Neither route takes an
 	// id in its address: the token names the Ticket, and a Ticket id in the path
 	// would be a second, unsigned way to say which Ticket this is.
-	mux.HandleFunc("POST /api/v1/public/answer-link", app.CatalogHandler.OpenAnswerLink)
-	mux.HandleFunc("PUT /api/v1/public/answer-link/questions/{questionId}", app.CatalogHandler.AnswerByAnswerLink)
 
 	// The Assignment Link's three routes (#325, parent #322, ADR 0046): accept,
 	// give the Holder's name, answer a Ticket Question as the Holder.

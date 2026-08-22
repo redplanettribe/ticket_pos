@@ -148,12 +148,12 @@ func TestReassigningAnAcceptedTicketTellsTheDisplacedHolderOnce(t *testing.T) {
 	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
 	carlasToken := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
 	acceptAssignmentOK(t, env, carlasToken)
-	if resp, body, _ := answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+	if resp, body, _ := publicLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
 		"token": carlasToken, "first_name": "Carla", "last_name": "Ruiz",
 	}); resp.StatusCode != http.StatusOK {
 		t.Fatalf("Carla could not give her name: status=%d error=%+v", resp.StatusCode, body.Error)
 	}
-	if resp, body, _ := answerLinkRequest(t, env, http.MethodPut,
+	if resp, body, _ := publicLinkRequest(t, env, http.MethodPut,
 		assignmentLinkQuestionPath+f.sizeQuestion.ID, map[string]any{"token": carlasToken, "text": "S"},
 	); resp.StatusCode != http.StatusOK {
 		t.Fatalf("Carla could not answer her own question: status=%d error=%+v", resp.StatusCode, body.Error)

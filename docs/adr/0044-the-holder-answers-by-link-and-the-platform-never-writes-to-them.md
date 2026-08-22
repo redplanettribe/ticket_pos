@@ -1,5 +1,7 @@
 # The holder answers by link, and the platform never writes to them
 
+**The Answer Link described here is retired by [ADR 0049](./0049-only-the-holder-answers-and-the-answer-link-is-retired.md), along with the rule that three parties may supply an Answer; its disclosure rule survives in the Assignment Link.**
+
 **Superseded in part by [ADR 0046](./0046-a-ticket-is-assigned-to-a-holder-who-accepts-by-mail.md).**
 Two things below no longer hold. The rule that *"the platform never emails a holder… asks for no
 holder addresses and stores none"* falls: a buyer may now assign a Ticket to a Holder by email

@@ -53,13 +53,13 @@ func acceptAsHolder(t *testing.T, env *testEnv, address, firstName, lastName, qu
 	token := assignmentTokenFrom(t, assignmentMailFor(t, env, address))
 	acceptAssignmentOK(t, env, token)
 
-	resp, body, _ := answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+	resp, body, _ := publicLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
 		"token": token, "first_name": firstName, "last_name": lastName,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%s naming themselves: status=%d error=%+v", address, resp.StatusCode, body.Error)
 	}
-	resp, body, _ = answerLinkRequest(t, env, http.MethodPut, assignmentLinkQuestionPath+questionID,
+	resp, body, _ = publicLinkRequest(t, env, http.MethodPut, assignmentLinkQuestionPath+questionID,
 		map[string]any{"token": token, "text": answer})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%s answering their own question: status=%d error=%+v", address, resp.StatusCode, body.Error)

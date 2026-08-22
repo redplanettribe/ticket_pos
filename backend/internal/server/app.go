@@ -318,25 +318,15 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// nothing else: nothing in checkout, the door or a Sale Import touches an
 	// assignment, and nothing about assignment may block or delay any of them.
 	catalogService = catalogService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
-	// The Answer Link's signing key and the origin its links point at (#312,
-	// ADR 0044).
-	//
-	// IT IS HANDED THE SAME DEPLOYMENT SECRET THE CONFIRMATION LINK USES, and
-	// derives its own key from it under a purpose label rather than signing with
-	// it — see catalog.NewAnswerLinkSigner. That is what keeps CONTEXT.md's
-	// promise that three signed links travel in one flow and none opens what the
-	// others do, without asking every deployment to configure a second secret it
-	// could forget and thereby ship a linkless feature.
-	catalogService = catalogService.WithAnswerLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
 	// The Assignment Link's signing key and the origin its links point at (#325,
 	// parent #322, ADR 0046).
 	//
-	// THE SAME DEPLOYMENT SECRET AGAIN, DERIVED UNDER ITS OWN PURPOSE LABEL, so
-	// that the fourth signed link cannot be opened by any of the other three and
-	// none of them can be accepted as this one. That is not housekeeping here: an
-	// Answer Link is copyable off the buyer's own sale page, so a build in which
-	// one verified as an Assignment Link would let a buyer accept on their
-	// friend's behalf and mint a Verified Customer nobody proved (ADR 0046).
+	// IT IS HANDED THE SAME DEPLOYMENT SECRET THE CONFIRMATION LINK USES, and
+	// derives its own key from it under a purpose label rather than signing with
+	// it — see catalog.NewAssignmentLinkSigner. That is what keeps CONTEXT.md's
+	// promise that the signed links travelling in one mail flow never open what
+	// the others do, without asking every deployment to configure a second
+	// secret it could forget and thereby ship a linkless feature (ADR 0046).
 	catalogService = catalogService.WithAssignmentLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
 	// The one mail an assignment sends. Handed the same split sender everything
 	// else uses, through a one-method seam so nothing in catalog can reach the
