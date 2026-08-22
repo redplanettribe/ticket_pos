@@ -176,6 +176,58 @@ func (r *Repository) ListAnswerableTicketsByTicketSale(ctx context.Context, orga
 	return tickets, rows.Err()
 }
 
+// ListAnswerableTicketsForBuyer returns every Ticket of one Ticket Sale, scoped
+// to the CUSTOMER who bought it (#315).
+//
+// THE SCOPE IS THE WHOLE SECURITY PROPERTY OF THIS READ, and it is a different
+// scope from every other read in this file. The staff reads narrow by
+// organization_id and event_id, because a staff credential names an
+// Organization. This one narrows by customer_id, because the credential behind
+// it is a Customer Session and what it names is a person. Neither an Event nor
+// an Organization appears here at all: a buyer does not know which Organization
+// sold them a ticket and has no business naming one, and asking them for an id
+// they would have to be told would be an invitation to try somebody else's.
+//
+// WHAT THIS READ FEEDS IS A LIST OF ANSWER LINKS, which is why the narrowing
+// matters more here than it looks. Each Ticket that comes back gets a signed,
+// unauthenticated Answer Link minted for it, so a Ticket returned to the wrong
+// person is not a disclosure of one row — it is handing them a durable
+// credential that answers for somebody else's ticket until the Event starts.
+// The customer_id clause is what stands between those two outcomes, and it is
+// written into the query rather than checked afterwards so that no caller can
+// reach the rows without it.
+//
+// REVERSED SALES COME BACK TOO, exactly as they do for staff, and their Tickets
+// with them. A reversed Sale keeps its place in the Customer Area (CONTEXT.md:
+// it "is never deleted"), and Tickets that vanished from it would read as data
+// destroyed rather than as a purchase undone. What a reversed Sale's Tickets
+// refuse is the write, and the service refuses to mint their Answer Links.
+//
+// The order matches the staff read's — line, then ordinal — so that "the second
+// of my four" means the same thing to a buyer on the phone as to the member of
+// staff they are talking to.
+func (r *Repository) ListAnswerableTicketsForBuyer(ctx context.Context, customerID, ticketSaleID string) ([]AnswerableTicket, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+answerableTicketColumns+answerableTicketFrom+`
+		WHERE s.id = $1 AND s.customer_id = $2
+		ORDER BY l.created_at ASC, l.id ASC, tk.ordinal ASC
+	`, ticketSaleID, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tickets := make([]AnswerableTicket, 0)
+	for rows.Next() {
+		ticket, scanErr := scanAnswerableTicket(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		tickets = append(tickets, *ticket)
+	}
+	return tickets, rows.Err()
+}
+
 // ListTicketAnswers returns the Answers of a set of Tickets, each with the
 // Options it chose.
 //
