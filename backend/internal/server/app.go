@@ -297,6 +297,16 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// deliberately opened it (#309, ADR 0045). Unset, misspelt or absent leaves
 	// it closed.
 	catalogService = catalogService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
+	// The Answer Link's signing key and the origin its links point at (#312,
+	// ADR 0044).
+	//
+	// IT IS HANDED THE SAME DEPLOYMENT SECRET THE CONFIRMATION LINK USES, and
+	// derives its own key from it under a purpose label rather than signing with
+	// it — see catalog.NewAnswerLinkSigner. That is what keeps CONTEXT.md's
+	// promise that three signed links travel in one flow and none opens what the
+	// others do, without asking every deployment to configure a second secret it
+	// could forget and thereby ship a linkless feature.
+	catalogService = catalogService.WithAnswerLinks(confirmationLinkSecret, cfg.StorefrontBaseURL)
 	catalogHandler := cataloghandler.New(catalogService)
 
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by

@@ -173,18 +173,51 @@ func (s *Service) AnswerTicketQuestion(
 		return nil, err
 	}
 
-	question, err := s.repo.GetTicketQuestionByID(ctx, ticket.TicketTypeID, questionID)
-	if err != nil {
+	if err := s.answerTicketQuestion(ctx, ticketID, ticket.TicketTypeID, questionID, input); err != nil {
 		return nil, err
 	}
+	return s.GetTicketAnswers(ctx, actor, eventID, ticketID)
+}
+
+// answerTicketQuestion is the WRITE ITSELF, with no opinion about who is
+// writing or how they came to be entitled to.
+//
+// EVERY ROUTE INTO AN ANSWER GOES THROUGH THIS ONE BODY: Event Staff above, and
+// whoever holds the Answer Link (#312). Each is a different surface asking the
+// same questions — does this question exist on this Ticket Type, is it retired,
+// does the value fit its kind, which Options does it offer, and did anything
+// actually change — and two answers to any of them would be two ways for a
+// NUMERIC column to end up holding something that is not a number, or for
+// updated_at to move when nothing did.
+//
+// WHAT IT DELIBERATELY DOES NOT DO is check the edit window or establish that
+// the caller may reach this Ticket. Both are the CALLER's to establish, because
+// the two callers establish them from entirely different evidence — a Staff
+// Session scoped to an Organization, or a signed token naming one Ticket — and
+// folding either in here would mean this function had to know which surface it
+// was serving.
+//
+// It returns no view. The two callers need DIFFERENT views of the same write:
+// staff get the whole Ticket including its Sale's reference, and the holder gets
+// AnswerLinkView, which shows none of that. Returning one of them here would put
+// the wider one within reach of the surface that must never render it.
+func (s *Service) answerTicketQuestion(
+	ctx context.Context,
+	ticketID, ticketTypeID, questionID string,
+	input AnswerInput,
+) error {
+	question, err := s.repo.GetTicketQuestionByID(ctx, ticketTypeID, questionID)
+	if err != nil {
+		return err
+	}
 	if question == nil {
-		return nil, catalog.ErrTicketQuestionNotFound()
+		return catalog.ErrTicketQuestionNotFound()
 	}
 	// A retired question is kept so that what has already been answered still
 	// reads; it is not something new can be said about. The Answers under it
 	// stay exactly where they are.
 	if question.RetiredAt.Valid {
-		return nil, catalog.ErrTicketQuestionRetired()
+		return catalog.ErrTicketQuestionRetired()
 	}
 
 	kind := catalog.TicketQuestionKind(question.Kind)
@@ -196,32 +229,34 @@ func (s *Service) AnswerTicketQuestion(
 		OptionIDs: input.OptionIDs,
 	})
 	if problem != catalog.AnswerOK {
-		return nil, invalidAnswerError(kind, problem)
+		return invalidAnswerError(kind, problem)
 	}
 
 	existing, err := s.repo.GetTicketAnswer(ctx, ticketID, questionID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	chosen, err := s.resolveAnswerOptions(ctx, questionID, value.OptionIDs, existing)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// A RE-SUBMISSION OF THE SAME ANSWER IS NOT A CHANGE, and updated_at means
 	// "when this Answer last changed". A form saved twice or a double-clicked
 	// button must not move the timestamp, because the timestamp is the only
 	// history this platform keeps and it should say something true.
+	//
+	// It is also what makes an Answer Link REPLACING a buyer's checkout guess
+	// honest: writing the same words the buyer already wrote leaves the
+	// timestamp where it was, and writing different ones moves it.
 	if !answerChanged(existing, value, chosen) {
-		return s.GetTicketAnswers(ctx, actor, eventID, ticketID)
+		return nil
 	}
 
-	if _, err := s.repo.UpsertTicketAnswer(ctx, ticketID, questionID,
-		upsertParams(value, chosen), s.now()); err != nil {
-		return nil, err
-	}
-	return s.GetTicketAnswers(ctx, actor, eventID, ticketID)
+	_, err = s.repo.UpsertTicketAnswer(ctx, ticketID, questionID,
+		upsertParams(value, chosen), s.now())
+	return err
 }
 
 // RemoveTicketAnswer takes one Ticket's Answer to one Ticket Question away,

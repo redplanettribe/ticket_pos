@@ -428,6 +428,31 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// It answers 202 to everything — see the handler.
 	mux.HandleFunc("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/registration-link/click",
 		app.CatalogHandler.RecordRegistrationClick)
+
+	// The Answer Link (#312, ADR 0044): a signed, stateless, per-Ticket link
+	// opening ONE Ticket's Ticket Questions and nothing else, for the buyer to
+	// pass to whoever will hold that ticket.
+	//
+	// PUBLIC AND UNAUTHENTICATED, and unlike every other public route here that
+	// is a deliberate refusal rather than an absence of anything to protect.
+	// These two carry a credential — the signed token — and still take no
+	// session, mint none, and create no Customer. ADR 0044: requiring proof of
+	// identity would mean collecting an address from somebody who never came to
+	// this platform, which is the third-party collection problem the whole
+	// feature was shaped to avoid.
+	//
+	// NOTE WHAT SITS UNDER /public HERE AND WHAT DOES NOT. The Confirmation Link
+	// redeems under /customer because it mints a Customer Session; this one is
+	// under /public because it mints nothing. The namespace is the honest
+	// statement of what holding this link makes somebody: nothing.
+	//
+	// THE TOKEN IS IN THE BODY ON BOTH VERBS, the read included, so it never
+	// reaches an access log or a Referer header. That is why the read is a POST —
+	// see the handler, which defends the choice at length. Neither route takes an
+	// id in its address: the token names the Ticket, and a Ticket id in the path
+	// would be a second, unsigned way to say which Ticket this is.
+	mux.HandleFunc("POST /api/v1/public/answer-link", app.CatalogHandler.OpenAnswerLink)
+	mux.HandleFunc("PUT /api/v1/public/answer-link/questions/{questionId}", app.CatalogHandler.AnswerByAnswerLink)
 }
 
 func registerAuthRoutes(mux *http.ServeMux, app *App) {

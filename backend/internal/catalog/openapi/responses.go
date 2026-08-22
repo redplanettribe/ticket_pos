@@ -101,6 +101,22 @@ type EnvelopeOutstandingAnswers struct {
 	RequestID string                         `json:"request_id"`
 }
 
+// EnvelopeAnswerLink documents both Answer Link responses — opening one and
+// answering through one (#312, ADR 0044).
+//
+// ITS DATA IS service.AnswerLinkView AND NOT TicketAnswersView, and the two must
+// never be conflated. This one is what an UNAUTHENTICATED holder sees, and it
+// carries the Event name, the Ticket Type name and the questions — never the
+// buyer, the price, the Tax ID, the Sale Confirmation reference, the Ticket
+// Sale's id, or anything about the Sale's other Tickets. Documenting it as the
+// staff shape would put every one of those into the generated client's types and
+// invite somebody to render them.
+type EnvelopeAnswerLink struct {
+	Data      service.AnswerLinkView `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
+}
+
 // EnvelopeTagList documents tag list success responses (search and event tags).
 type EnvelopeTagList struct {
 	Data      []service.TagView  `json:"data"`
