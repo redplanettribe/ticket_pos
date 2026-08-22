@@ -44,6 +44,11 @@ type answerLinkBody struct {
 // the same Ticket Question against the same catalog.ParseAnswer.
 type answerLinkAnswerBody struct {
 	answerBody
+	// Token is the signed Answer Link token, and it is the ONLY authority this
+	// write has. There is no session beside it and no Ticket id anywhere in the
+	// request: the token names which Ticket is being answered, which is what
+	// makes "one Ticket's link never opens another's" a property of the
+	// signature rather than of a check somebody has to remember.
 	Token string `json:"token"`
 }
 
