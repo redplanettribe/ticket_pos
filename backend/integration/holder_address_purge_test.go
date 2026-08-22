@@ -151,11 +151,7 @@ func TestAnUnacceptedHolderAddressIsPurgedWhenTheEventStarts(t *testing.T) {
 	// One Ticket is answered before it is assigned. A first assignment clears
 	// nothing (#324), so the Answer is still there when the purge arrives — and
 	// it is the row this test most needs to find intact afterwards.
-	resp, body := env.put(t, buyerAnswerPath(f.anaSaleID, f.anaTicketIDs[0], f.sizeQuestion.ID),
-		map[string]any{"text": "XL"}, authHeader(ana))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("answer status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	putAnswer(t, env, f.staffSession, f.eventID, f.anaTicketIDs[0], f.sizeQuestion.ID, map[string]any{"text": "XL"})
 
 	assignTicketOK(t, env, ana, f.anaSaleID, f.anaTicketIDs[0], "carla@example.com")
 	// The clock moves a minute between the two writes. On this suite's fixed
@@ -219,9 +215,8 @@ func TestAnUnacceptedHolderAddressIsPurgedWhenTheEventStarts(t *testing.T) {
 	if len(after) != 2 {
 		t.Fatalf("the buyer sees %d Tickets after the purge, want 2 — this is a purge of addresses, not of Tickets", len(after))
 	}
-	answered := findBuyerRow(t, after, f.anaTicketIDs[0])
-	if got := buyerAnswerFor(t, answered, f.sizeQuestion.ID); got == nil || got.Text == nil || *got.Text != "XL" {
-		t.Fatalf("the purged Ticket answers %+v, want \"XL\" — the Answers are the Organization's record of what it was told and are not this job's to take", got)
+	if got := staffAnswerText(t, env, f.staffSession, f.eventID, f.anaTicketIDs[0], f.sizeQuestion.ID); got == nil || *got != "XL" {
+		t.Fatalf("the purged Ticket answers %v, want \"XL\" — the Answers are the Organization's record of what it was told and are not this job's to take", got)
 	}
 	if countAnswersOfTicket(t, env, f.anaTicketIDs[0]) != 1 {
 		t.Error("the purge deleted the Ticket's Answer rows")

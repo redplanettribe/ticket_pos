@@ -19,7 +19,7 @@ not one page file. Surfaces, in the order a Customer meets them:
 | `myInfo`       | The Customer's own details                                         |
 | `privacySettings` | A Customer's own consents, at `/{locale}/privacy`               |
 | `privacy`      | The Privacy Policy page's chrome — never the policy itself         |
-| `answerLink`   | The Answer Link's page at `/{locale}/answer` — its chrome only     |
+| `answerLink`   | The retired Answer Link's landing page at `/{locale}/answer` (ADR 0049) |
 | `errors`       | Failures that belong to no single surface, keyed by the API's code |
 | `tags`         | Preset Tag names, which belong to no single surface either         |
 

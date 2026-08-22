@@ -181,6 +181,29 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
     await holderPage.getByRole("button", { name: "Save", exact: true }).click();
     // Two "Saved"s on the page now: the name's, and the answer's beside its button.
     await expect(holderPage.getByText("Saved", { exact: true })).toHaveCount(2);
+
+    // Step 3b — the Holder corrects themself from their OWN Customer Area
+    // (#345, ADR 0049), with no link and no buyer involved. The ticket is
+    // there because they hold it; its panel is the same one the buyer has.
+    // It owes nothing (the question was answered from the link), so it sits
+    // folded behind "Review or edit"; opened, the field holds what they said
+    // and saves on blur with no button to press. A save from a panel that
+    // owed nothing does NOT fold it — only the last owed Answer does.
+    await signInFromPasscode(holderPage, holder);
+    await expect(holderPage.getByText("Tickets someone gave you")).toBeVisible();
+    const reviewOrEdit = holderPage.getByText("Answered · Review or edit", { exact: true });
+    await expect(reviewOrEdit).toBeVisible();
+    await reviewOrEdit.click();
+    const correction = holderPage.getByLabel(QUESTION_LABEL);
+    await expect(correction).toHaveValue("Vegetarian");
+    await correction.fill("Vegan");
+    await correction.blur();
+    await expect(holderPage.getByText("Saved", { exact: true })).toBeVisible();
+    await expect(holderPage.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    // The correction stuck, and the panel the reader opened stayed open.
+    await holderPage.reload();
+    await holderPage.getByText("Answered · Review or edit", { exact: true }).click();
+    await expect(holderPage.getByLabel(QUESTION_LABEL)).toHaveValue("Vegan");
   } finally {
     await holderContext.close();
   }
@@ -191,6 +214,18 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   // rules are integration-tested.
   await page.reload();
   await expect(page.getByText(`${holder} has it`, { exact: true })).toBeVisible();
+
+  // Step 5 — the fold (#345). The buyer's OWN ticket is the same panel the
+  // Holder just used, and it still owes the question they left blank at
+  // checkout, so it is open on arrival with no button to press. Answering it
+  // is the last owed Answer, and the panel folds the moment it saves — the
+  // page now shows what remains to be done, which is nothing.
+  const own = page.getByLabel(QUESTION_LABEL);
+  await expect(own).toBeVisible();
+  await own.fill("Omnivore");
+  await own.blur();
+  await expect(page.getByText("Answered · Review or edit", { exact: true })).toBeVisible();
+  await expect(own).toBeHidden();
 
   const roster = await holderList(request, token, fixture.eventId);
   const accepted = roster.find((entry) => entry.holder_email === holder);

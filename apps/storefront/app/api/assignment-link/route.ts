@@ -13,8 +13,8 @@ export const dynamic = "force-dynamic";
  * A BFF hop like every other: the browser calls this, this calls the Go API, and
  * what the API said comes back intact (ADR 0008).
  *
- * IT SENDS NO SESSION TOKEN AND READS NO COOKIE, like the answer-link and
- * consent routes beside it — and for a reason that goes further than theirs. The
+ * IT SENDS NO SESSION TOKEN AND READS NO COOKIE, like the consent routes
+ * beside it — and for a reason that goes further than theirs. The
  * reader has no account YET: this call is what creates one. Asking them to sign
  * in first would be asking somebody to prove an address in order to be allowed
  * to prove an address.

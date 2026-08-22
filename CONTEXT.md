@@ -286,19 +286,14 @@ _Avoid_: Ticket, receipt, order confirmation
 
 **Answer**:
 What one Ticket says in reply to one Ticket Question.
-A property of the Ticket rather than of the buyer: a person buying four tickets is not assumed to know four people's sizes, and the Answer stands wherever it came from — the buyer at checkout, the holder through an Answer Link, or Event Staff typing it in afterwards.
+A property of the Ticket rather than of the buyer: a person buying four tickets is not assumed to know four people's sizes. Given only by the Ticket's Holder — the buyer for their Self-held Ticket, at checkout or after — or by Event Staff; the buyer cannot give, read or correct an Answer on a Ticket they do not hold, and sees of such a Ticket only its assignment state. Persisted the moment it is given rather than on a form's submit, and once a held Ticket owes nothing its Answers fold away behind a review-or-edit control rather than staying on display.
 Supplied by choice: nothing anywhere is refused for want of one. A choice Answer records which Option was picked together with the words that Option showed at the time.
 Changeable until the Event starts, read in the Event's timezone, and never on a reversed Ticket Sale. The platform keeps when it was last changed and not who changed it: which of four friends ordered the wrong size is not a dispute this product adjudicates.
 _Avoid_: Response, submission, field value, entry, reply
 
 **Answer Link**:
-A signed link opening one Ticket's Ticket Questions, for the buyer to pass to whoever will hold that ticket.
-Named for what it does and nothing more: it answers, it does not transfer. The Ticket Sale, the receipt and the Reversal Window stay with the buyer, and holding this link makes nobody a Customer.
-Shows the Event, the Ticket Type and the questions — never the buyer, the price, the Tax ID, the Sale Confirmation reference or the Sale's other Tickets, because a link forwarded into a group chat should disclose nothing about who paid.
-Asks for no proof of identity, which is the price of being forwardable to someone who never came to this platform; a wrong Answer is fixable by the buyer and by Event Staff. Expires when the Event starts and stops opening when its Ticket Sale is reversed.
-Stops opening for good once a Holder has accepted that Ticket: it is the door for a Ticket nobody has claimed, and the moment somebody proves the address it is retired in their favour, so a link still sitting in a group chat cannot overwrite what the Holder said. It goes on working while a Ticket is merely assigned and unaccepted, so a mistyped address bricks nothing.
-Distinct from the Confirmation Link, which opens a whole Ticket Sale, from the Consent Confirmation Link, which resolves a consent, and from the Assignment Link, which proves an address and mints a Customer — four tokens, four purposes, and none of them opens what the others do.
-_Avoid_: Claim link, ticket link, share link, invite, magic link, transfer
+Retired. The signed, proof-free link a buyer once forwarded so that whoever would hold a Ticket could answer its Ticket Questions (ADR 0044, retired by ADR 0049). A Ticket's questions are now reached only through the Ticket Assignment: the buyer names an address, the Holder accepts by Assignment Link and answers from their own Customer Area. No link that the buyer can see opens a Ticket's questions any more.
+_Avoid_: Claim link, ticket link, share link, invite, magic link, transfer, "copy this ticket's link"
 
 **Outstanding Answer**:
 A required Ticket Question that one Ticket has not answered yet — a debt, not a defect.
@@ -307,7 +302,7 @@ _Avoid_: Missing, incomplete, unanswered (as the term), pending, required field
 
 **Answer Reminder**:
 The mail telling somebody that Tickets still owe Answers, and pointing them at the surface where they can be given.
-Addressed to whoever can actually answer: the Holder for a Ticket that has been accepted, the buyer for every other Ticket on their Ticket Sale, so a sale of four with two accepted produces one mail to the buyer about the two still his to chase and one to each Holder about their own. A Ticket Question added after a sale reaches an unaccepted Ticket's holder only if the buyer forwards the Answer Link.
+Addressed to Holders and nobody else, each about their own Ticket only: a sale of four with two accepted produces one mail to the buyer about their Self-held Ticket if it owes anything, and one to each Holder about theirs. An unassigned or unaccepted Ticket is chased by nobody, because nobody can answer for it — the buyer's debt on such a Ticket is an assignment, not an Answer, and nudging that is not this mail's job.
 Swept rather than triggered, so an Organization drafting its questions cannot mail the same people four times in ten minutes; rationed per Ticket, so a four-Ticket sale can chase two people without mailing either twice, and silent once the Event has started. Transactional, so it is not gated by Marketing Consent, and written in the recipient's Mail Locale.
 _Avoid_: Nudge, chase, follow-up, notification, reminder email (unqualified)
 

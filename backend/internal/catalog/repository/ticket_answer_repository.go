@@ -506,93 +506,68 @@ func (r *Repository) DeleteTicketAnswer(ctx context.Context, ticketID, questionI
 	return affected > 0, nil
 }
 
-// AnswerLinkTicket is one Ticket as the Answer Link's page is allowed to see it
-// (#312, ADR 0044).
+// HeldTicket is one Ticket read through the person who HOLDS it (#343,
+// ADR 0049): an AnswerableTicket plus the two public facts about its Event the
+// Holder's own surface shows.
 //
-// A SEPARATE TYPE FROM AnswerableTicket, AND THE SEPARATION IS THE SECURITY
-// PROPERTY. An Answer Link is an unauthenticated URL that gets forwarded into
-// group chats, and ADR 0044 says its safety rests entirely on disclosing nothing
-// about the purchase. AnswerableTicket carries the Ticket Sale's id, its
-// Sale Confirmation reference and the Ticket's ordinal — every one of which is a
-// fact about the purchase — so reusing it here would put all three one
-// forgetful `json:` tag away from a stranger's screen.
-//
-// THE QUERY BELOW CANNOT LEAK WHAT IT DOES NOT SELECT. That is why this exists
-// as its own struct and its own SELECT rather than as a filter over the staff
-// read: a filter is a thing somebody can widen "for context" without noticing,
-// while a column that was never fetched is not there to widen.
-//
-// What it does carry is exactly the three things the page shows plus the two
-// facts the edit window is decided from:
-//   - EventName and TicketTypeName, which the page shows.
-//   - TicketTypeID, which is where the Ticket Questions live — never shown, and
-//     needed to read them.
-//   - SaleStatus and EventStartsAt, which catalog.AnswerWindow reads and which
-//     never reach the wire.
-//
-// Note what is absent and must stay absent: the buyer, the price, the Tax ID,
-// the Sale Confirmation reference, the Ticket Sale's id, and the ordinal that
-// would say how many Tickets the Sale has.
-type AnswerLinkTicket struct {
-	ID             string
-	TicketTypeID   string
-	TicketTypeName string
-	EventName      string
-	// SaleStatus is 'active' or 'reversed'. Read here rather than trusted from
-	// the token, because a Sale reversed after the link was minted must stop the
-	// link opening — which a baked-in fact never could.
-	SaleStatus string
-	// EventStartsAt is the instant the doors open, invalid on an Event that has
-	// not said when it starts. Read live for the same reason: an Organization
-	// that moves its Event moves every Answer Link's deadline with it.
-	EventStartsAt sql.NullTime
-	// AcceptedAt is when a Holder accepted this Ticket, invalid until one has
-	// (#325, ADR 0046).
-	//
-	// IT IS HERE TO CLOSE THIS DOOR. Once somebody has proved the address and
-	// accepted, the Answer Link stops opening for good: it is the door for a
-	// Ticket nobody has claimed, and a link still sitting in a group chat must
-	// not be able to overwrite what the Holder said about themselves. That is
-	// what makes the accept click mean something, and it is CONTEXT.md's own
-	// account of the Answer Link.
-	//
-	// It never reaches the wire. What the holder of a retired link is told is
-	// that the link is not valid — the same thing every other closed door says,
-	// and it discloses nothing about the person who now holds the Ticket.
-	AcceptedAt sql.NullTime
+// It carries the whole AnswerableTicket rather than a narrower row so that the
+// answer window (SaleStatus, EventStartsAt) and the write path (TicketTypeID)
+// come from the same read every other Answer write uses. What the HOLDER may
+// SEE of it is the service's decision, and deliberately less than is here:
+// ConfirmationRef and TicketSaleID ride along and never leave the process.
+type HeldTicket struct {
+	AnswerableTicket
+	EventName string
+	EventSlug string
 }
 
-// GetAnswerLinkTicket loads one Ticket by id, UNSCOPED BY ORGANIZATION.
+// ListHeldTicketsForCustomer returns every Ticket one Customer holds: the
+// Self-held Ticket of their own purchase and every Ticket they accepted by
+// Assignment Link, indistinguishably (#343, ADR 0049).
 //
-// THE ABSENCE OF A SCOPE IS DELIBERATE AND IS NOT A HOLE. Every other Ticket
-// read on this platform is scoped to the acting Organization because there is an
-// actor; here there is none by design (ADR 0044: no sign-in, no passcode, no
-// Customer and no session). The authorization is the signed token, checked in
-// catalog.AnswerLinkSigner.Parse BEFORE this is called, and it names exactly one
-// Ticket. Adding an Organization parameter would mean the caller had learned one
-// from somewhere, and the only place it could come from is this row.
+// THE SCOPE IS holder_customer_id AND NOTHING ELSE. Not the Sale's customer_id:
+// a buyer who assigned a Ticket away no longer holds it, and a Ticket on their
+// own Sale that somebody else accepted is not theirs to read here. The column is
+// written only by the accept flow and by checkout for the Self-held Ticket
+// (migration 080's CHECK refuses one without an acceptance), so what this lists
+// is what somebody proved or paid for — never what a buyer typed about them.
 //
-// It returns the Ticket whether or not it may still be answered, for the same
-// reason GetAnswerableTicketByID does: the window is a decision, taken in one
-// place, from SaleStatus and EventStartsAt. Deciding it in the WHERE clause here
-// would make "reversed" and "no such Ticket" the same row count and put a second
-// copy of catalog.AnswerWindow into SQL.
-func (r *Repository) GetAnswerLinkTicket(ctx context.Context, ticketID string) (*AnswerLinkTicket, error) {
-	row := r.db.Pool.QueryRowContext(ctx, `
-		SELECT tk.id, l.ticket_type_id, tt.name, e.name, s.status, e.starts_at, tk.accepted_at
+// A REVERSED SALE'S TICKET STAYS ONLY FOR ITS BUYER. This is the same split the
+// Customer Area makes (customers/repository.ListHeldTicketsForCustomer): the
+// buyer keeps the reversed Sale as their financial record and its Self-held
+// Ticket's Answers stay readable on it — a Reversal voids a purchase, it does
+// not erase what was said — while a Holder who is not the buyer simply stops
+// holding it. A Ticket the buyer reassigned needs no clause: reassignment
+// clears holder_customer_id with the address.
+//
+// Ordered soonest Event first, then by acceptance, so the Customer's list has a
+// stable order to draw.
+func (r *Repository) ListHeldTicketsForCustomer(ctx context.Context, customerID string) ([]HeldTicket, error) {
+	rows, err := r.db.Pool.QueryContext(ctx, `
+		SELECT `+answerableTicketColumns+`, e.name, e.slug
 		`+answerableTicketFrom+`
-		WHERE tk.id = $1
-	`, ticketID)
-
-	var t AnswerLinkTicket
-	if err := row.Scan(
-		&t.ID, &t.TicketTypeID, &t.TicketTypeName, &t.EventName, &t.SaleStatus, &t.EventStartsAt,
-		&t.AcceptedAt,
-	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
+		WHERE tk.holder_customer_id = $1
+		  AND tk.accepted_at IS NOT NULL
+		  AND (s.status = 'active' OR s.customer_id = $1)
+		ORDER BY e.starts_at ASC NULLS LAST, tk.accepted_at DESC, tk.id ASC
+	`, customerID)
+	if err != nil {
 		return nil, err
 	}
-	return &t, nil
+	defer rows.Close()
+
+	tickets := make([]HeldTicket, 0)
+	for rows.Next() {
+		var t HeldTicket
+		if err := rows.Scan(
+			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
+			&t.TicketSaleID, &t.ConfirmationRef, &t.SaleStatus, &t.Channel, &t.EventStartsAt,
+			&t.HolderEmail, &t.HolderCustomerID, &t.AssignedAt, &t.AcceptedAt,
+			&t.EventName, &t.EventSlug,
+		); err != nil {
+			return nil, err
+		}
+		tickets = append(tickets, t)
+	}
+	return tickets, rows.Err()
 }

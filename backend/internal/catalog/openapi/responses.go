@@ -102,22 +102,6 @@ type EnvelopeHolderList struct {
 	RequestID string                 `json:"request_id"`
 }
 
-// EnvelopeAnswerLink documents both Answer Link responses — opening one and
-// answering through one (#312, ADR 0044).
-//
-// ITS DATA IS service.AnswerLinkView AND NOT TicketAnswersView, and the two must
-// never be conflated. This one is what an UNAUTHENTICATED holder sees, and it
-// carries the Event name, the Ticket Type name and the questions — never the
-// buyer, the price, the Tax ID, the Sale Confirmation reference, the Ticket
-// Sale's id, or anything about the Sale's other Tickets. Documenting it as the
-// staff shape would put every one of those into the generated client's types and
-// invite somebody to render them.
-type EnvelopeAnswerLink struct {
-	Data      service.AnswerLinkView `json:"data"`
-	Error     *platform.APIError     `json:"error"`
-	RequestID string                 `json:"request_id"`
-}
-
 // EnvelopeAssignmentLink documents all three Assignment Link responses —
 // accepting one, naming the Holder, and answering through it (#325, ADR 0046).
 //
@@ -136,24 +120,43 @@ type EnvelopeAssignmentLink struct {
 	RequestID string                     `json:"request_id"`
 }
 
-// EnvelopeBuyerTicketAnswers documents both of the buyer's own responses — the
-// Tickets of their Ticket Sale, and the same list after one has been answered
-// (#315, ADR 0044).
+// EnvelopeBuyerTicketAnswers documents the buyer's own responses — the Tickets
+// of their Ticket Sale with their assignment state, and the same list after an
+// address has been given (#315, ADR 0044; narrowed by #344, ADR 0049).
 //
-// ITS DATA IS service.BuyerTicketAnswersView AND IS THE THIRD SHAPE THIS FEATURE
-// HAS, distinct from TicketAnswersView and from AnswerLinkView. The three exist
-// because each has a different reader and each may see a different amount, and
-// the generated client is where conflating them would do the damage: this is the
-// only one of the three carrying an ANSWER LINK, and the only one whose reader
-// has proved they own the purchase.
+// ITS DATA IS service.BuyerTicketAnswersView, distinct from TicketAnswersView
+// and from HeldTicketAnswersView because each has a different reader and each
+// may see a different amount. Despite its name it carries NO ANSWER: since
+// ADR 0049 a Ticket's questions travel only on the held-ticket routes, to the
+// Holder, and this payload says whose each Ticket is and nothing more.
 //
 // A BARE ARRAY and not a nested page. There is no count to carry beside it — a
-// Ticket Sale's Tickets are all of them, never a page — and the per-Ticket
-// outstanding count travels on each row, where it belongs.
+// Ticket Sale's Tickets are all of them, never a page.
 type EnvelopeBuyerTicketAnswers struct {
 	Data      []service.BuyerTicketAnswersView `json:"data"`
 	Error     *platform.APIError               `json:"error"`
 	RequestID string                           `json:"request_id"`
+}
+
+// EnvelopeHeldTickets documents the list of Tickets the signed-in Customer
+// HOLDS (#343, ADR 0049), and EnvelopeHeldTicket the one Ticket an Answer
+// write on it returns.
+//
+// ITS DATA IS service.HeldTicketAnswersView, a fourth shape distinct from the three
+// above and narrower than the buyer's: no Answer Link, no Holder address, no
+// assignment state, no ordinal, no Sale. The reader holds the Ticket and may
+// not be the party of record, so the generated client must not offer the
+// Storefront anything about the purchase to render.
+type EnvelopeHeldTickets struct {
+	Data      []service.HeldTicketAnswersView `json:"data"`
+	Error     *platform.APIError       `json:"error"`
+	RequestID string                   `json:"request_id"`
+}
+
+type EnvelopeHeldTicket struct {
+	Data      service.HeldTicketAnswersView `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
 }
 
 // EnvelopeTagList documents tag list success responses (search and event tags).

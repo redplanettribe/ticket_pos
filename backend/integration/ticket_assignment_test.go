@@ -124,7 +124,7 @@ type mailBaseline struct {
 func captureMailBaseline(env *testEnv) mailBaseline {
 	return mailBaseline{
 		confirmations: len(env.email.Confirmations()),
-		reminders:     len(env.email.AnswerRemindersSent()),
+		reminders:     len(env.email.HolderAnswerRemindersSent()),
 		passcodes:     env.email.OTPSendCount(),
 	}
 }
@@ -147,7 +147,7 @@ func assertNoAssignmentMailWasSent(t *testing.T, env *testEnv, before mailBaseli
 		t.Errorf("assigning sent %d new Sale Confirmation(s); #324 sends no mail at all",
 			got-before.confirmations)
 	}
-	if got := len(env.email.AnswerRemindersSent()); got != before.reminders {
+	if got := len(env.email.HolderAnswerRemindersSent()); got != before.reminders {
 		t.Errorf("assigning sent %d new Answer Reminder(s); nothing about assignment mails anybody in #324",
 			got-before.reminders)
 	}
@@ -263,23 +263,18 @@ func TestReassigningATicketClearsItsAnswersAndLeavesTheSalesOthersAlone(t *testi
 	enableTicketAssignment(t)
 	ana := customerSignIn(t, env, "ana@example.com")
 
-	// Both Tickets answered, and assigned to two different people.
+	// Both Tickets answered by Event Staff (the buyer has no route onto a
+	// Ticket they do not hold, ADR 0049), and assigned to two different people.
 	for _, ticketID := range f.anaTicketIDs {
-		resp, body := env.put(t, buyerAnswerPath(f.anaSaleID, ticketID, f.sizeQuestion.ID),
-			map[string]any{"text": "XL"}, authHeader(ana))
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("answer status=%d error=%+v", resp.StatusCode, body.Error)
-		}
+		putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "XL"})
 	}
 	assignTicketOK(t, env, ana, f.anaSaleID, f.anaTicketIDs[0], "carla@example.com")
 	assignTicketOK(t, env, ana, f.anaSaleID, f.anaTicketIDs[1], "diego@example.com")
 
-	// A FIRST assignment clears nothing: the buyer answered for the person they
-	// are about to name, and wiping the work they just did would be a loss with
-	// no explanation.
-	before := listBuyerTickets(t, env, ana, f.anaSaleID)
+	// A FIRST assignment clears nothing: the Answer was given for the person
+	// about to be named, and wiping it would be a loss with no explanation.
 	for _, ticketID := range f.anaTicketIDs {
-		if buyerAnswerFor(t, findBuyerRow(t, before, ticketID), f.sizeQuestion.ID) == nil {
+		if staffAnswerText(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID) == nil {
 			t.Fatalf("naming a Holder for the first time cleared Ticket %s's Answer", ticketID)
 		}
 	}
@@ -291,22 +286,21 @@ func TestReassigningATicketClearsItsAnswersAndLeavesTheSalesOthersAlone(t *testi
 	if reassigned.HolderEmail != "elena@example.com" {
 		t.Fatalf("reassigned holder_email = %q, want elena@example.com", reassigned.HolderEmail)
 	}
-	if answer := buyerAnswerFor(t, reassigned, f.sizeQuestion.ID); answer != nil {
-		t.Fatalf("the new Holder inherited the old one's answer (%+v).\n"+
+	if answer := staffAnswerText(t, env, f.staffSession, f.eventID, f.anaTicketIDs[0], f.sizeQuestion.ID); answer != nil {
+		t.Fatalf("the new Holder inherited the old one's answer (%q).\n"+
 			"An Answer is a fact about a person and must never survive a change of Holder.\n"+
-			"See repository.AssignTicketToHolder.", answer)
+			"See repository.AssignTicketToHolder.", *answer)
 	}
 	// BACK TO OUTSTANDING, and not merely blank: the required question is owed
 	// again, which is what puts this Ticket back on the Organization's chase
-	// list and on the buyer's.
-	if reassigned.OutstandingCount != 1 {
-		t.Errorf("reassigned Ticket outstanding_count = %d, want 1 — the required question is owed afresh",
-			reassigned.OutstandingCount)
+	// list.
+	if owed := labelsOwedBy(listOutstanding(t, env, f.staffSession, f.eventID), f.anaTicketIDs[0]); len(owed) != 1 {
+		t.Errorf("reassigned Ticket owes %v, want the one required question owed afresh", owed)
 	}
 
 	// Diego's ticket is untouched. The rule is per-Ticket.
 	untouched := findBuyerRow(t, returned, f.anaTicketIDs[1])
-	if answer := buyerAnswerFor(t, untouched, f.sizeQuestion.ID); answer == nil {
+	if staffAnswerText(t, env, f.staffSession, f.eventID, f.anaTicketIDs[1], f.sizeQuestion.ID) == nil {
 		t.Fatal("reassigning one Ticket cleared the Answers of another Ticket on the same Sale")
 	}
 	if untouched.HolderEmail != "diego@example.com" {
@@ -334,11 +328,7 @@ func TestReassigningToTheSameAddressIsANoOpAndKeepsTheAnswers(t *testing.T) {
 
 	ticketID := f.anaTicketIDs[0]
 	assignTicketOK(t, env, ana, f.anaSaleID, ticketID, "carla@example.com")
-	resp, body := env.put(t, buyerAnswerPath(f.anaSaleID, ticketID, f.sizeQuestion.ID),
-		map[string]any{"text": "M"}, authHeader(ana))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("answer status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "M"})
 	first := readTicketAssignment(t, env, ticketID)
 
 	// The clock is moved so that a rewritten assigned_at would be a DIFFERENT
@@ -361,7 +351,10 @@ func TestReassigningToTheSameAddressIsANoOpAndKeepsTheAnswers(t *testing.T) {
 			"Pressing save twice is not an event, and #325's per-Ticket mail cap reads this column.",
 			first.assignedAt.Time, row.assignedAt.Time)
 	}
-	if answer := buyerAnswerFor(t, findBuyerRow(t, returned, ticketID), f.sizeQuestion.ID); answer == nil {
+	if findBuyerRow(t, returned, ticketID).HolderEmail != "carla@example.com" {
+		t.Fatal("re-submitting the address changed what the buyer's row says")
+	}
+	if staffAnswerText(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID) == nil {
 		t.Fatal("re-submitting the address the Ticket already carried cleared its Answers")
 	}
 }
@@ -503,19 +496,12 @@ func TestInPersonTicketSalesRefuseAssignment(t *testing.T) {
 			t.Errorf("Ticket %s assignable_refusal = %q, want channel_unsupported",
 				ticket.TicketID, ticket.AssignableRefusal)
 		}
-		// AND THE ANSWERS ARE STILL WRITABLE. The two windows are separate rules:
-		// a door sale's Ticket Questions are answerable by the buyer and by Event
-		// Staff exactly as before. Collapsing assignment into the answer window
-		// would have closed this door too.
-		if !ticket.Answerable {
-			t.Errorf("Ticket %s stopped being answerable because its sale is `in_person`", ticket.TicketID)
-		}
 	}
-	resp, body = env.put(t, buyerAnswerPath(f.anaSaleID, f.anaTicketIDs[0], f.sizeQuestion.ID),
-		map[string]any{"text": "L"}, authHeader(ana))
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("answering a door sale's Ticket status=%d error=%+v", resp.StatusCode, body.Error)
-	}
+	// AND THE ANSWERS ARE STILL WRITABLE. The two windows are separate rules: a
+	// door sale's Ticket Questions are answerable by Event Staff exactly as
+	// before. Collapsing assignment into the answer window would have closed
+	// this door too.
+	putAnswer(t, env, f.staffSession, f.eventID, f.anaTicketIDs[0], f.sizeQuestion.ID, map[string]any{"text": "L"})
 }
 
 // AN `online` TICKET SALE ASSIGNS, driven through a real Storefront checkout.
@@ -702,15 +688,11 @@ func TestTicketAssignmentShipsClosedAndDoesNotTakeTicketQuestionsWithIt(t *testi
 		}
 	}
 	tickets := decodeBuyerTickets(t, listBody.Data)
-	if len(tickets) != 2 || tickets[0].AnswerLink == "" {
-		t.Fatalf("Ticket Questions went dark with assignment: %+v", tickets)
+	if len(tickets) != 2 {
+		t.Fatalf("the buyer's list went dark with assignment: %+v", tickets)
 	}
-	answerResp, answerBody := env.put(t, buyerAnswerPath(f.anaSaleID, f.anaTicketIDs[0], f.sizeQuestion.ID),
-		map[string]any{"text": "XL"}, authHeader(ana))
-	if answerResp.StatusCode != http.StatusOK {
-		t.Fatalf("answering broke while assignment was closed: status=%d error=%+v",
-			answerResp.StatusCode, answerBody.Error)
-	}
+	assertNoAnswerOnTheBuyersRows(t, listBody.Data)
+	putAnswer(t, env, f.staffSession, f.eventID, f.anaTicketIDs[0], f.sizeQuestion.ID, map[string]any{"text": "XL"})
 
 	// And now the same deployment with assignment opened, which is what makes
 	// every refusal above the FLAG rather than the feature being absent.

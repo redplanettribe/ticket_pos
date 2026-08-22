@@ -11,12 +11,11 @@ export const dynamic = "force-dynamic";
  * Answering one Ticket Question as the Holder who accepted the ticket (#325,
  * ADR 0044, ADR 0046).
  *
- * THE SAME HOP AS /api/answer-link/questions/[questionId] WITH A DIFFERENT
- * TOKEN, and the difference is the whole feature. That one is opened by a link
- * the buyer copied off their own page and forwarded by hand; this one by a link
- * the platform mailed to the person themselves, whose press proved the address.
- * Once a Ticket is accepted the other door stops opening, so an answer given
- * here cannot be overwritten by somebody still holding a forwarded link.
+ * THE TOKEN IS THE ONLY CREDENTIAL, and it is one the platform mailed to the
+ * person themselves, whose press proved the address. There is no other door
+ * onto a Ticket's questions for anybody but Event Staff — the forwarded Answer
+ * Link is retired (ADR 0049) — so an answer given here is the Holder's own and
+ * nobody holding a copied link can overwrite it.
  *
  * THE BODY IS RELAYED AS IT ARRIVED, and nothing about the Answer is validated
  * here: every rule needs the Ticket Question's KIND, which this hop does not

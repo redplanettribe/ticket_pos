@@ -37,48 +37,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "handler.answerLinkAnswerBody": {
-                "properties": {
-                    "checked": {
-                        "description": "Checked answers checkbox.",
-                        "type": "boolean"
-                    },
-                    "date": {
-                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
-                        "type": "string"
-                    },
-                    "number": {
-                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
-                        "type": "string"
-                    },
-                    "option_ids": {
-                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "text": {
-                        "description": "Text answers short_text and long_text.",
-                        "type": "string"
-                    },
-                    "token": {
-                        "description": "Token is the signed Answer Link token, and it is the ONLY authority this\nwrite has. There is no session beside it and no Ticket id anywhere in the\nrequest: the token names which Ticket is being answered, which is what\nmakes \"one Ticket's link never opens another's\" a property of the\nsignature rather than of a check somebody has to remember.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "handler.answerLinkBody": {
-                "properties": {
-                    "token": {
-                        "description": "Token is the signed Answer Link token, exactly as it arrived in the\naddress. The Storefront reads it out of its own URL and relays it here;\nnothing else about the caller is asked for, or would be believed.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "handler.assignmentLinkAnswerBody": {
                 "properties": {
                     "checked": {
@@ -206,35 +164,6 @@ const docTemplate = `{
                     "policy_acceptance": {
                         "description": "The three consent boxes on the checkout dialog (#253, parent #249), named\nidentically to the sign-in consent submission's: one vocabulary for one set\nof answers, so a client that learned the shape on one surface knows it on\nthe other.\n\nPOINTERS, AND THE NIL IS LOAD-BEARING. Absent means THE BOX WAS NOT SHOWN,\nwhich is a different fact from ` + "`" + `false` + "`" + `; false means it was shown and left\nunticked, which is an explicit No and is recorded as ` + "`" + `denied` + "`" + ` (ADR 0034).\nA guest checkout always shows all three and therefore always sends all\nthree; a signed-in Customer is shown only what they have not answered\n(#254), and reading their absent boxes as refusals would turn their\npurchase into a marketing opt-out.\n\nPolicyAcceptance is REQUIRED to be present and true of everybody who is\nstill owed it — every guest, and every signed-in Customer without an\nacceptance of the current Policy Version. It is not a field error but a\ndomain refusal — POLICY_ACCEPTANCE_REQUIRED from the service — because what\nis wrong is not the shape of the request but that the platform may not act\non it (ADR 0035, consent.ErrPolicyAcceptanceRequired).\n\nWHICH BOXES WERE OWED IS THE SERVICE'S FINDING, not this body's assertion:\nan answer for a box the buyer was not owed is dropped rather than applied\n(service.owedConsentAnswers).",
                         "type": "boolean"
-                    }
-                },
-                "type": "object"
-            },
-            "handler.buyerAnswerBody": {
-                "properties": {
-                    "checked": {
-                        "description": "Checked answers checkbox.",
-                        "type": "boolean"
-                    },
-                    "date": {
-                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
-                        "type": "string"
-                    },
-                    "number": {
-                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
-                        "type": "string"
-                    },
-                    "option_ids": {
-                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "text": {
-                        "description": "Text answers short_text and long_text.",
-                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -485,6 +414,35 @@ const docTemplate = `{
                 "properties": {
                     "status": {
                         "example": "ok",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "handler.heldAnswerBody": {
+                "properties": {
+                    "checked": {
+                        "description": "Checked answers checkbox.",
+                        "type": "boolean"
+                    },
+                    "date": {
+                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
+                        "type": "string"
+                    },
+                    "option_ids": {
+                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "text": {
+                        "description": "Text answers short_text and long_text.",
                         "type": "string"
                     }
                 },
@@ -1098,20 +1056,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "openapi.EnvelopeAnswerLink": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.AnswerLinkView"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "openapi.EnvelopeAnswerPurge": {
                 "properties": {
                     "data": {
@@ -1530,6 +1474,38 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.EnqueueResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeHeldTicket": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HeldTicketAnswersView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeHeldTickets": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.HeldTicketAnswersView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2277,27 +2253,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "service.AnswerLinkView": {
-                "properties": {
-                    "event_name": {
-                        "description": "EventName is one of the three things the page shows. The Event is public —\nit has a Storefront page anybody can read — so naming it discloses nothing\nthat was not already published.",
-                        "type": "string"
-                    },
-                    "questions": {
-                        "description": "Questions is the third: this Ticket Type's Ticket Questions with whatever\nthis Ticket has already said. Labels read AS COINED in every Locale, like\na Custom Tag — only the page's chrome follows the reader's Locale.\n\nThe Answers are shown because THE HOLDER IS ENTITLED TO SEE WHAT WAS SAID\nABOUT THEM. An Answer given here replaces one the buyer guessed at\ncheckout, and somebody cannot correct a guess they cannot see. This is\ndata about the holder, not about the purchase.",
-                        "items": {
-                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "ticket_type_name": {
-                        "description": "TicketTypeName is the second. Also public, for the same reason: it is a\nrow on that same Event page, with its price beside it. What is NOT here is\nthe price this particular buyer paid, which a Promotion or an Affiliate\nLink may have made different from the published one.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
             "service.AnswerOptionView": {
                 "properties": {
                     "current_label": {
@@ -2462,59 +2417,35 @@ const docTemplate = `{
                     "accepted_at": {
                         "type": "string"
                     },
-                    "answer_link": {
-                        "description": "AnswerLink is the per-Ticket link this page exists to hand out, and is\nEMPTY once the Ticket can no longer be answered.\n\nEmpty rather than present-but-dead, because the copy button is a promise:\na buyer who copies a link into a group chat has finished the task as far as\nthey know, and will not find out for weeks that what they sent opened\nnothing. Better to have no button than a button that forwards a dead end.\nThe same reasoning applies to a link the deployment could not sign at all,\nwhich is a misconfiguration rather than anything about this Sale, and which\nmust not take the rest of the page down with it.\n\nAND EMPTY ONCE A HOLDER HAS ACCEPTED THIS TICKET (#325, ADR 0046). The\nAnswer Link stops opening at that moment — retired in favour of the person\nwho proved the address, so that a copy still sitting in a group chat cannot\noverwrite what they said about themselves — and a page that kept offering\nit would be offering the buyer a dead end. It is NOT replaced by the\nAssignment Link: that token is delivered only to the address and must never\nappear in a response to the buyer, which is the property the whole feature\nrests on.",
-                        "type": "string"
-                    },
-                    "answerable": {
-                        "description": "Answerable is whether this Ticket's Answers may still be written — false\nonce the Event has started and false on a reversed Sale. Never a reason to\nhide anything below it: a reversed Sale keeps its place in the Customer\nArea, and Answers that vanished with it would read as data destroyed.",
-                        "type": "boolean"
-                    },
-                    "answerable_refusal": {
-                        "description": "AnswerableRefusal names WHY not, or is empty while it is answerable, so the\npage can say what happened rather than leaving somebody pressing a form\nthat will not take.",
-                        "type": "string"
-                    },
                     "assignable": {
-                        "description": "Assignable is whether this Ticket may be assigned or reassigned right now,\nand AssignableRefusal names why not — a token and never a sentence, exactly\nas AnswerableRefusal is, because the Storefront owns the words in the\nreader's language.\n\nA SEPARATE PAIR FROM Answerable ABOVE and not a reuse of it, because the\ntwo windows genuinely differ: a door sale's Answers are writable and its\nTickets are not assignable. Collapsing them would make one of those two\nwrong on every ` + "`" + `in_person` + "`" + ` sale.",
+                        "description": "Assignable is whether this Ticket may be assigned or reassigned right now,\nand AssignableRefusal names why not — a token and never a sentence,\nbecause the Storefront owns the words in the reader's language.",
                         "type": "boolean"
                     },
                     "assignable_refusal": {
                         "type": "string"
                     },
                     "assigned_at": {
-                        "description": "AssignedAt is when this address was named, and AcceptedAt when the Holder\nclicked. Both nil when they have not happened; AcceptedAt is always nil in\n#324.",
+                        "description": "AssignedAt is when this address was named, and AcceptedAt when the Holder\nclicked. Both nil when they have not happened.",
                         "type": "string"
                     },
                     "assignment_state": {
-                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored. Absent while the flag is closed.\n\n` + "`" + `accepted` + "`" + ` IS UNREACHABLE IN #324: no mail is sent, so there is no\nAssignment Link to click. #325 makes it reachable.",
+                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored. Absent while the flag is closed.",
                         "type": "string"
                     },
                     "holder_email": {
-                        "description": "HolderEmail is the address this Ticket was assigned to, shown back to the\nbuyer who typed it. Empty while unassigned.\n\nSHOWN TO THE BUYER AND TO NOBODY ELSE ON THIS SURFACE. It is on the payload\nbecause the buyer typed it and telling their four Tickets apart is the\nwhole point of the feature; it is on no public or Answer Link payload,\nwhere a third party's address would be a disclosure.",
+                        "description": "HolderEmail is the address this Ticket was assigned to, shown back to the\nbuyer who typed it. Empty while unassigned.\n\nSHOWN TO THE BUYER AND TO NOBODY ELSE ON THIS SURFACE. It is on the payload\nbecause the buyer typed it and telling their four Tickets apart is the\nwhole point of the feature; it is on no public payload, where a third\nparty's address would be a disclosure.",
                         "type": "string"
                     },
                     "ordinal": {
-                        "description": "Ordinal is which of its line's units this is, 1..quantity. It is what lets\nthe page say \"ticket 2 of 4\" — the only thing telling two Tickets of one\nline apart, and the buyer's only handle on which link they are copying.",
+                        "description": "Ordinal is which of its line's units this is, 1..quantity. It is what lets\nthe page say \"ticket 2 of 4\" — the only thing telling two Tickets of one\nline apart until an address is given.",
                         "type": "integer"
-                    },
-                    "outstanding_count": {
-                        "description": "OutstandingCount is how many required Ticket Questions this Ticket still\nowes, from catalog.IsOutstandingAnswer — the ONE definition of the debt\n(#313), shared with the Organization's chase list and the SQL behind it.\nCounted rather than restated so that what the buyer is asked to chase and\nwhat the Organization sees outstanding can never be two different numbers.",
-                        "type": "integer"
-                    },
-                    "questions": {
-                        "description": "Questions carries the Ticket Type's questions in the order they are asked,\nretired ones last, each with this Ticket's Answer or null. The labels read\nAS THE ORGANIZATION COINED THEM in every Locale, like a Custom Tag\n(ADR 0027) — only the page's chrome follows the reader's language.",
-                        "items": {
-                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
                     },
                     "self_held": {
-                        "description": "SelfHeld is whether this Ticket's Holder is the buyer themself — the one\nTicket an Online Sale hands the buyer at purchase (ADR 0048), or any\nTicket they later assigned to their own address and accepted. The\nStorefront says \"your ticket\" on it and asks the buyer to answer it,\nwhere every other Ticket is its Holder's to answer. Absent while the\nassignment flag is closed, like the rest of this block.",
+                        "description": "SelfHeld is whether this Ticket's Holder is the buyer themself — the one\nTicket an Online Sale hands the buyer at purchase (ADR 0048), or any\nTicket they later assigned to their own address and accepted. The\nStorefront says \"your ticket\" on it and draws its questions from the\nheld-ticket list; every other Ticket is its Holder's to answer. Absent\nwhile the assignment flag is closed, like the rest of this block.",
                         "type": "boolean"
                     },
                     "ticket_id": {
-                        "description": "TicketID names which Ticket this is, so the buyer's own form can post back\nagainst it. Safe here and absent from AnswerLinkView, and the difference is\nthe credential: this reader proved they own the Sale, so an id they could\ntry somewhere else is an id for their own Ticket.",
+                        "description": "TicketID names which Ticket this is, so the buyer's page can post an\naddress back against it and match it to the held-ticket row when the\nTicket is their own. Safe: this reader proved they own the Sale.",
                         "type": "string"
                     },
                     "ticket_type_name": {
@@ -3033,6 +2964,45 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "service.HeldTicketAnswersView": {
+                "properties": {
+                    "answerable": {
+                        "description": "Answerable and AnswerableRefusal are the write window, exactly as on the\nstaff and buyer views: false once the Event has started and on a\nreversed Sale, with the refusal as a token the Storefront translates.\nThe READ is never gated by it.",
+                        "type": "boolean"
+                    },
+                    "answerable_refusal": {
+                        "type": "string"
+                    },
+                    "event_name": {
+                        "description": "EventName and EventSlug are the two public facts about the Event — both\nalready readable on the Storefront — that let the panel say which Event\nthis Ticket is for and link there.",
+                        "type": "string"
+                    },
+                    "event_slug": {
+                        "type": "string"
+                    },
+                    "outstanding_count": {
+                        "description": "OutstandingCount is how many required questions this Ticket has not yet\nanswered — what keeps the panel open (ADR 0049).",
+                        "type": "integer"
+                    },
+                    "questions": {
+                        "description": "Questions carries the Ticket Type's questions in the order they are\nasked, retired ones last, each with this Ticket's Answer or null.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ticket_id": {
+                        "description": "TicketID names which Ticket this is, so the panel can write back against\nit and the buyer's sale page can match it to its row. Safe: the reader\nholds it.",
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "description": "TicketTypeName is the only thing telling two held Tickets on one Event\napart that this reader is entitled to. NOT the ordinal: \"2 of 4\" is a\nfact about the Sale's other Tickets.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -6198,6 +6168,178 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/customer/held-tickets": {
+            "get": {
+                "description": "Returns every Ticket the signed-in Customer holds — the Self-held Ticket of their own purchase and every Ticket they accepted by Assignment Link, indistinguishably (ADR 0049) — each with the Ticket Questions its Ticket Type asks, whatever has been answered so far and its Outstanding Answer count. Authorization is the Customer Session and nothing else: a Ticket is listed because this Customer holds it, never because they bought the Sale it is on. A Confirmation Link session is narrowed to the Sale it names and sees only that Sale's Self-held Ticket. A Holder's row shows the Event, the Ticket Type and their own questions — never the buyer, the price, the Tax ID, the Sale Confirmation reference or the Sale's other Tickets. A reversed Sale's Ticket stays listed only for its buyer, read-only; a Holder who is not the buyer stops holding it, as they do when the buyer reassigns it. Answers 404 while the Ticket Question feature flag is off.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHeldTickets"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List the tickets you hold",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/held-tickets/{ticketId}/answers/{questionId}": {
+            "put": {
+                "description": "Writes the Answer to one Ticket Question on one Ticket the signed-in Customer holds, creating it or correcting what was there, and returns that Ticket with its questions, Answers and Outstanding Answer count. Only the Holder answers (ADR 0049): the buyer for their Self-held Ticket, a Holder for the Ticket they accepted, both through this route. A Ticket the caller does not hold — one on their own Sale that somebody else holds included — is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED) or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while the Ticket Question feature flag is off.",
+                "parameters": [
+                    {
+                        "description": "Ticket id",
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket question ID",
+                        "in": "path",
+                        "name": "questionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.heldAnswerBody",
+                                        "summary": "body",
+                                        "description": "The answer, in the shape its question's kind takes"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The answer, in the shape its question's kind takes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHeldTicket"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Answer a ticket question on a ticket you hold",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
         "/api/v1/customer/privacy": {
             "get": {
                 "description": "Reports what the signed-in Customer has authorized: the Policy Version they accepted and when, read-only, and the current state of each optional consent. THIS READ WRITES NOTHING — rendering a settings page must leave the platform exactly as it was, because a page that recorded a refusal when somebody merely looked at it would turn \"never asked\" into \"denied\" for everyone who opened it and did nothing. Each optional consent is one of four values, and they mean four different things: ` + "`" + `granted` + "`" + `, ` + "`" + `denied` + "`" + `, ` + "`" + `pending_confirmation` + "`" + ` (somebody who had not proven this address ticked the box, so it stands unresolved and is not the owner's answer) and ` + "`" + `unanswered` + "`" + ` (never asked, which is not a refusal). ` + "`" + `unanswered` + "`" + ` exists on the wire only; the platform stores NULL, because the absence of an answer is not a fourth kind of answer. The Policy Version named is the edition THIS CUSTOMER ACCEPTED and not necessarily the one in effect, so a Customer who accepted a superseded edition is told what they actually agreed to; both policy fields are null where no acceptance was ever recorded. Policy Acceptance carries no control anywhere: it is not withdrawable, being absent from counsel's withdrawal form and resting on a basis other than consent. Requires a full Customer Session; a Confirmation Link session is refused with CUSTOMER_SESSION_SCOPE_INSUFFICIENT, because a forwarded receipt is not authority to read somebody's standing privacy settings.",
@@ -6788,7 +6930,7 @@ const docTemplate = `{
         },
         "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets": {
             "get": {
-                "description": "Returns every Ticket of one of the signed-in Customer's own Ticket Sales, with the Ticket Questions its Ticket Type asks, whatever has been answered so far, and a per-Ticket **Answer Link** to pass to whoever will be using that ticket (ADR 0044). This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. An Answer Link is minted only while the Ticket can still be answered: it is absent once the Event has started and on a reversed Ticket Sale, because a copy button that forwards a dead link is worse than no button. A reversed sale's Tickets are still listed and still readable — a Sale Reversal voids a purchase, it does not erase what its Tickets answered. Ticket Question labels and Option labels read as the Organization coined them in every Locale (ADR 0027). Answers 404 while the Ticket Question feature flag is off.",
+                "description": "Returns every Ticket of one of the signed-in Customer's own Ticket Sales — its position, its Ticket Type and its Ticket Assignment state (unassigned, assigned, accepted) with the address the buyer gave it. It carries NO Ticket Questions, Answers, outstanding counts or Answer Links for any Ticket (ADR 0049): an Answer is given only by a Ticket's Holder, and the buyer reads and answers the one Ticket they hold through ` + "`" + `/api/v1/customer/held-tickets` + "`" + `. This is the page behind the Confirmation Link and the Customer Area, which are one surface: a Confirmation Link session is narrowed to the single Ticket Sale it names and sees only that one. Authorization is the Customer Session and nothing else — the Ticket Sale id in the path names which of the caller's OWN sales, and a sale belonging to somebody else returns an empty list rather than a refusal, so that ids cannot be probed. A reversed sale's Tickets are still listed. Answers 404 while the Ticket Question feature flag is off.",
                 "parameters": [
                     {
                         "description": "Ticket Sale id",
@@ -6847,132 +6989,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "summary": "List a Ticket Sale's tickets and their answers",
-                "tags": [
-                    "customer"
-                ]
-            }
-        },
-        "/api/v1/customer/ticket-sales/{ticketSaleId}/tickets/{ticketId}/answers/{questionId}": {
-            "put": {
-                "description": "Writes the Answer to one Ticket Question on one Ticket of the signed-in Customer's own Ticket Sale, creating it or correcting what was there. The buyer may answer ANY Ticket of their sale, not only one of them: an Answer belongs to the Ticket and the buyer, the holder of its Answer Link and Event Staff may all supply it (ADR 0044). An Answer written here replaces one given at checkout, and may itself be replaced later by whoever holds the Ticket's Answer Link — nothing records which of them wrote it. Authorization is the Customer Session; a Ticket that is not on one of the caller's own sales is refused with 404 TICKET_NOT_FOUND, indistinguishably from one that does not exist. The whole sale's tickets come back, not just the one that changed, so the page's outstanding counts cannot go stale against the row beside them. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, with 409 once the Event has started (EVENT_STARTED_ANSWERS_CLOSED) or the Ticket Sale has been reversed (TICKET_SALE_REVERSED). Answers 404 while the Ticket Question feature flag is off.",
-                "parameters": [
-                    {
-                        "description": "Ticket Sale id",
-                        "in": "path",
-                        "name": "ticketSaleId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Ticket id",
-                        "in": "path",
-                        "name": "ticketId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Ticket question ID",
-                        "in": "path",
-                        "name": "questionId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.buyerAnswerBody",
-                                        "summary": "body",
-                                        "description": "The answer, in the shape its question's kind takes"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "The answer, in the shape its question's kind takes",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeBuyerTicketAnswers"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    },
-                    "409": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Conflict"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "summary": "Answer a ticket question on your own Ticket Sale",
+                "summary": "List a Ticket Sale's tickets and whose they are",
                 "tags": [
                     "customer"
                 ]
@@ -8564,189 +8581,6 @@ const docTemplate = `{
                 "summary": "Get platform revenue and what the platform owes",
                 "tags": [
                     "operator"
-                ]
-            }
-        },
-        "/api/v1/public/answer-link": {
-            "post": {
-                "description": "Opens the Ticket Questions of the one Ticket a signed Answer Link names, for whoever holds the link. Requires no sign-in, creates no Customer and mints no session. **It discloses nothing about the purchase** — the Event name, the Ticket Type name and the questions with this Ticket's answers, and never the buyer's name or email, the price, the Tax ID, the Sale Confirmation reference, or the Sale's other Tickets — because this link is meant to be forwarded (ADR 0044). Refused with 401 ANSWER_LINK_INVALID when the token was tampered with, truncated, signed by another deployment, names a Ticket that no longer exists, or names one whose Ticket Sale has been reversed; those causes are deliberately indistinguishable, because telling them apart would disclose a fact about somebody else's purchase. Refused with 401 ANSWER_LINK_EXPIRED once the Event has started, which is told apart only because an Event's start is already published. Answers 404 while the Ticket Question feature flag is off.",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.answerLinkBody",
-                                        "summary": "body",
-                                        "description": "The signed answer link token"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "The signed answer link token",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeAnswerLink"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Open an answer link",
-                "tags": [
-                    "public"
-                ]
-            }
-        },
-        "/api/v1/public/answer-link/questions/{questionId}": {
-            "put": {
-                "description": "Writes the Answer to one Ticket Question on the Ticket a signed Answer Link names, creating it or replacing what the buyer entered at checkout. Requires no sign-in, creates no Customer and mints no session (ADR 0044). The response is the same disclosure-limited payload the open returns. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, with 401 ANSWER_LINK_INVALID for a tampered, truncated or reversed-sale link, and with 401 ANSWER_LINK_EXPIRED once the Event has started. Answers 404 while the Ticket Question feature flag is off.",
-                "parameters": [
-                    {
-                        "description": "Ticket question ID",
-                        "in": "path",
-                        "name": "questionId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/handler.answerLinkAnswerBody",
-                                        "summary": "body",
-                                        "description": "The signed token, and the answer in the shape its question's kind takes"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "The signed token, and the answer in the shape its question's kind takes",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeAnswerLink"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Unauthorized"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    },
-                    "409": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Conflict"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/platform.Envelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Answer a ticket question through an answer link",
-                "tags": [
-                    "public"
                 ]
             }
         },

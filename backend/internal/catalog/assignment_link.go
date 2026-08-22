@@ -3,6 +3,7 @@ package catalog
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"strconv"
 	"strings"
 	"time"
@@ -52,7 +53,7 @@ const (
 
 // AssignmentLinkSigner mints and verifies Assignment Links.
 //
-// A value and not a service, like AnswerLinkSigner: signing is a pure function
+// A value and not a service (as the retired Answer Link signer was): signing is a pure function
 // of the secret, the Ticket and the moment the address was named, which is what
 // lets the whole format be tested with no database, no clock and no wiring.
 type AssignmentLinkSigner struct {
@@ -119,8 +120,8 @@ func (s AssignmentLinkSigner) Sign(ticketID string, assignedAt time.Time, holder
 	payload := assignmentLinkPayloadPrefix + ticketID + ":" +
 		strconv.FormatInt(assignedAt.UnixMicro(), 10) + ":" +
 		s.Fingerprint(holderEmail)
-	return encodeAnswerLinkSegment([]byte(payload)) + "." +
-		encodeAnswerLinkSegment(s.mac(payload)), true
+	return encodeLinkSegment([]byte(payload)) + "." +
+		encodeLinkSegment(s.mac(payload)), true
 }
 
 // Fingerprint is the unforgeable, non-disclosing stand-in for one address.
@@ -136,7 +137,7 @@ func (s AssignmentLinkSigner) Sign(ticketID string, assignedAt time.Time, holder
 func (s AssignmentLinkSigner) Fingerprint(holderEmail string) string {
 	mac := hmac.New(sha256.New, s.key)
 	mac.Write([]byte("holder:" + holderEmail))
-	return encodeAnswerLinkSegment(mac.Sum(nil)[:12])
+	return encodeLinkSegment(mac.Sum(nil)[:12])
 }
 
 // Parse verifies a token and returns what it names: the Ticket, the assignment
@@ -156,11 +157,11 @@ func (s AssignmentLinkSigner) Parse(token string) (ticketID string, assignedAtMi
 	if !found {
 		return "", 0, "", false
 	}
-	payload, err := decodeAnswerLinkSegment(encodedPayload)
+	payload, err := decodeLinkSegment(encodedPayload)
 	if err != nil {
 		return "", 0, "", false
 	}
-	mac, err := decodeAnswerLinkSegment(encodedMAC)
+	mac, err := decodeLinkSegment(encodedMAC)
 	if err != nil {
 		return "", 0, "", false
 	}
@@ -252,4 +253,45 @@ func ParseHolderName(firstName, lastName string) (string, string, bool) {
 		return "", "", false
 	}
 	return first, last, true
+}
+
+// IsUUID checks the shape of an id carried inside a signed payload before it
+// reaches a uuid-typed column.
+//
+// The signature has already been verified by the time this runs, so it guards
+// against our own malformed payload rather than against an attacker — a database
+// type error is a worse answer than "this link is not valid".
+func IsUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// encodeLinkSegment/decodeLinkSegment keep a signed token URL-safe and
+// unpadded, so it survives a query string, a mail client and a copy-paste
+// intact.
+//
+// Strict decoding refuses encodings with non-zero trailing bits, so one token
+// string maps to one credential and a byte-identical payload cannot be spelled
+// two ways.
+func encodeLinkSegment(b []byte) string {
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeLinkSegment(s string) ([]byte, error) {
+	return base64.RawURLEncoding.Strict().DecodeString(s)
 }

@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   answerBodyFor,
-  answerLinkFailure,
   chosenOptionIds,
   initialChecked,
   initialFieldValue,
@@ -11,12 +10,11 @@ import {
   selectableOptions,
   toggleOption,
   visibleQuestions,
-  type AnswerLinkView,
   type Question,
   type QuestionAnswer,
   type QuestionKind,
   type QuestionOption,
-} from "./answer-link.ts";
+} from "./ticket-questions.ts";
 
 function option(id: string, label: string, retired = false): QuestionOption {
   return { id, label, sort_order: 0, retired };
@@ -178,7 +176,7 @@ test("a retired question is shown only if it was answered, and never editable", 
   const live = question("short_text");
   live.id = "q2";
 
-  const view: AnswerLinkView = {
+  const view = {
     event_name: "Fest",
     ticket_type_name: "GA",
     questions: [pair(retired), pair(live)],
@@ -188,7 +186,7 @@ test("a retired question is shown only if it was answered, and never editable", 
     ["q2"],
   );
 
-  const withAnswer: AnswerLinkView = {
+  const withAnswer = {
     ...view,
     questions: [pair(retired, answered({ text: "S" })), pair(live)],
   };
@@ -198,19 +196,4 @@ test("a retired question is shown only if it was answered, and never editable", 
   );
   assert.equal(isReadOnly(pair(retired, answered({ text: "S" }))), true);
   assert.equal(isReadOnly(pair(live)), false);
-});
-
-// Expired and invalid get different copy because the recovery differs: an
-// expired link has no replacement, and a broken one might. A code this app has
-// not heard of falls through to "invalid", which is the honest floor — the
-// reader could not open their link and there is nothing truer to tell them.
-test("each failure code picks its own copy, with invalid as the floor", () => {
-  assert.equal(answerLinkFailure("ANSWER_LINK_EXPIRED"), "expired");
-  assert.equal(answerLinkFailure("ANSWER_LINK_INVALID"), "invalid");
-  assert.equal(answerLinkFailure("ANSWER_LINK_UNAVAILABLE"), "unavailable");
-  // The feature flag being off answers exactly as a build without the feature
-  // does (ADR 0045), and the reader is told the link is not valid.
-  assert.equal(answerLinkFailure("TICKET_QUESTIONS_UNAVAILABLE"), "invalid");
-  assert.equal(answerLinkFailure("SOMETHING_NEW"), "invalid");
-  assert.equal(answerLinkFailure(undefined), "invalid");
 });

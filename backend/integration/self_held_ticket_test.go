@@ -41,11 +41,6 @@ func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
 				t.Errorf("the buyer's own Ticket reads state=%q holder=%q accepted=%v; want accepted by the buyer",
 					ticket.AssignmentState, ticket.HolderEmail, ticket.AcceptedAt)
 			}
-			// Accepted, so its Answer Link is retired in the Holder's favour —
-			// and the Holder is the buyer, who answers from this very page.
-			if ticket.AnswerLink != "" {
-				t.Error("the buyer's own Ticket still offers an Answer Link")
-			}
 			if !ticket.SelfHeld {
 				t.Error("the buyer's own Ticket is not reported self_held")
 			}

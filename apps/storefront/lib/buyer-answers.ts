@@ -1,6 +1,6 @@
 /**
- * The buyer's own view of their Tickets' Ticket Questions (#315, ADR 0044), as
- * rules rather than as markup.
+ * The buyer's own view of the Tickets of their Sale (#315, ADR 0044; narrowed
+ * by #344, ADR 0049), as rules rather than as markup.
  *
  * THE SURFACE THIS SPEAKS FOR IS ONE PAGE AND NOT TWO. The Confirmation Link
  * does not open a page of its own — it redeems into a Customer Session narrowed
@@ -9,14 +9,22 @@
  * Customer Area" differ only in how many sales are on them, and both render
  * from this.
  *
- * WHAT THE BUYER DOES HERE that nobody else can: distribute. A buyer who bought
- * four tickets knows one t-shirt size and not the other three, and the platform
- * holds no address for the other three people and asks for none (ADR 0044). So
- * they answer what they know and copy the rest of the links into whatever they
- * already use. Every Ticket carries its own link, and the link opens that Ticket
- * and nothing else.
+ * WHAT THE BUYER DOES HERE, since ADR 0049: says whose each Ticket is, and
+ * answers the ONE Ticket they hold. An Answer is given only by a Ticket's
+ * Holder — the buyer for their Self-held Ticket (ADR 0048) — or by Event
+ * Staff. Of a Ticket they do not hold the buyer sees its position, its Ticket
+ * Type and its assignment state, and nothing else: no question rows, no
+ * Answered/Outstanding badge, no link. The Answer Link is retired.
  *
- * IT REUSES lib/answer-link.ts RATHER THAN RESTATING IT. A Ticket Question, an
+ * TWO PAYLOADS, ONE PANEL. The sale-scoped list (`BuyerTicket`) carries every
+ * Ticket of the Sale with its assignment fields and NO answer fields; the
+ * held-ticket list (`HeldTicket`) carries the Tickets this Customer holds with
+ * their questions and Answers and NOTHING about the Sale. The buyer's page
+ * draws one row per sale-scoped Ticket and, for the row that is self-held,
+ * finds its questions in the held list by `ticket_id`. The rules below are the
+ * joins between the two and the two "draw nothing at all" decisions.
+ *
+ * IT REUSES lib/ticket-questions.ts RATHER THAN RESTATING IT. A Ticket Question, an
  * Answer and the body that writes one are the same shapes on every surface that
  * touches them, and the rules for turning a form into a payload are the same
  * rules — a second copy would be a second opinion about what `checked: false`
@@ -32,37 +40,66 @@
  * explicit that a question's words must never enter the catalog.
  */
 
-import type { QuestionAnswer } from "@/lib/answer-link";
+import type { QuestionAnswer } from "@/lib/ticket-questions";
 
-export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from "@/lib/answer-link";
+export type { Answer, AnswerBody, Question, QuestionAnswer, QuestionKind } from "@/lib/ticket-questions";
 
 /**
- * One Ticket of the buyer's own Ticket Sale.
+ * One Ticket of the buyer's own Ticket Sale, as the sale-scoped list sends it:
+ * which one it is, and whose it is.
  *
- * IT CARRIES AN ANSWER LINK AND THE ANSWER LINK'S OWN VIEW DOES NOT, which is
- * the whole difference between this type and `AnswerLinkView`. That one is what
- * a forwarded stranger sees and is deliberately three fields wide; this one is
- * what the person who paid sees, and the link is the field they came for.
+ * IT CARRIES NO QUESTION, NO ANSWER, NO OUTSTANDING COUNT AND NO LINK, for any
+ * row — the Self-held one included. The API dropped them (ADR 0049), and this
+ * type dropping them too is what keeps a row the buyer does not hold from ever
+ * being asked to render a question it was never sent.
  */
 export type BuyerTicket = {
   ticket_id: string;
   /**
-   * Which of its line's units this is, 1..quantity. The buyer's ONLY handle on
-   * which of four identical tickets they are copying a link for — there are no
-   * seat numbers and no holder names, so "ticket 2 of 4" is the whole of what
-   * can be said to tell them apart.
+   * Which of its line's units this is, 1..quantity. The buyer's handle on
+   * which of four identical tickets is which until an address is given —
+   * there are no seat numbers and no holder names, so "ticket 2 of 4" is the
+   * whole of what can be said to tell them apart.
    */
   ordinal: number;
   ticket_type_name: string;
   /**
-   * The link to pass to whoever will use this ticket.
+   * THE TICKET ASSIGNMENT (#324), and every one of these is OPTIONAL for one
+   * reason: the API omits the lot while TICKET_ASSIGNMENT_ENABLED is closed, so
+   * the payload a dark deployment sends is byte-identical to the one a build
+   * without the feature sends. `assignment_state === undefined` is therefore how
+   * this app reads the flag, and it is the only place it reads it — see
+   * lib/ticket-assignment.ts, which owns every rule about these fields.
    *
-   * EMPTY MEANS THERE IS NO LINK TO GIVE, never "not loaded yet". The API
-   * withholds it once the Ticket can no longer be answered, because a copy
-   * button is a promise: somebody who pastes a dead link into a group chat has
-   * finished the task as far as they know and will never find out otherwise.
+   * They are declared HERE, on the row they arrive on, and interpreted THERE.
    */
-  answer_link: string;
+  assignment_state?: string;
+  /** The address this Ticket was assigned to, shown back to the buyer who typed
+   * it and to nobody else on any surface. Absent while unassigned. */
+  holder_email?: string;
+  assigned_at?: string;
+  accepted_at?: string;
+  /** Whether this Ticket's Holder is the buyer themself — the one the sale
+   * handed them at purchase (ADR 0048). The page says "your ticket" on it and
+   * draws its questions from the held list. */
+  self_held?: boolean;
+  /** Whether an address may be given or changed right now, and the token saying
+   * why not. */
+  assignable?: boolean;
+  assignable_refusal?: string;
+};
+
+/**
+ * One Ticket the Customer HOLDS, as `/api/customer/held-tickets` sends it
+ * (#343, ADR 0049): its questions, its Answers and what it still owes — and
+ * nothing about the Sale, because the same payload serves a Holder who was
+ * given the Ticket and is entitled to nothing about the purchase.
+ */
+export type HeldTicket = {
+  ticket_id: string;
+  event_name: string;
+  event_slug: string;
+  ticket_type_name: string;
   /** Whether Answers may still be written. False after the Event starts and on
    * a reversed Ticket Sale — and never a reason to hide what was said. */
   answerable: boolean;
@@ -75,83 +112,68 @@ export type BuyerTicket = {
    * a debt that already, deliberately, has two.
    */
   outstanding_count: number;
-  /**
-   * THE TICKET ASSIGNMENT (#324), and every one of these six is OPTIONAL for one
-   * reason: the API omits the lot while TICKET_ASSIGNMENT_ENABLED is closed, so
-   * the payload a dark deployment sends is byte-identical to the one a build
-   * without the feature sends. `assignment_state === undefined` is therefore how
-   * this app reads the flag, and it is the only place it reads it — see
-   * lib/ticket-assignment.ts, which owns every rule about these fields.
-   *
-   * They are declared HERE, on the row they arrive on, and interpreted THERE.
-   * One payload has one type; two features read it.
-   */
-  assignment_state?: string;
-  /** The address this Ticket was assigned to, shown back to the buyer who typed
-   * it and to nobody else on any surface. Absent while unassigned. */
-  holder_email?: string;
-  assigned_at?: string;
-  accepted_at?: string;
-  /** Whether this Ticket's Holder is the buyer themself — the one the sale
-   * handed them at purchase (ADR 0048). The page says "your ticket" on it. */
-  self_held?: boolean;
-  /** Whether an address may be given or changed right now, and the token saying
-   * why not — a separate window from `answerable` above, because a door sale's
-   * Answers are writable while its Tickets are not assignable. */
-  assignable?: boolean;
-  assignable_refusal?: string;
   questions: QuestionAnswer[];
 };
 
 /**
- * Whether this Ticket Sale has anything outstanding at all.
+ * The held-ticket row behind one of the buyer's sale-scoped rows, or null.
  *
- * The page leads with this, and the Sale Confirmation's one conditional sentence
- * is the same fact decided on the server. They are allowed to disagree for as
- * long as it takes somebody to answer a question after opening their email —
- * which is exactly why the mail names no number and this page does.
+ * NULL FOR EVERY TICKET THE BUYER DOES NOT HOLD, which is most of them, and
+ * null for a Self-held Ticket whose held row has not arrived or was refused.
+ * Either way the row draws as an assignment row and nothing more: a question
+ * this page has not been sent is a question it has no business drawing.
+ *
+ * Joined on `ticket_id` and NOT on `self_held`: the flag says the buyer holds
+ * it, the held list says what it asks, and a Ticket on one side and not the
+ * other — the buyer gave it away between the two fetches — is drawn as an
+ * ordinary assignable row rather than as a panel with no questions.
  */
-export function saleHasOutstandingAnswers(tickets: BuyerTicket[]): boolean {
-  return tickets.some((ticket) => ticket.outstanding_count > 0);
+export function heldRowFor(ticket: BuyerTicket, held: HeldTicket[]): HeldTicket | null {
+  if (ticket.self_held !== true) return null;
+  return held.find((row) => row.ticket_id === ticket.ticket_id) ?? null;
 }
 
 /**
- * How many Outstanding Answers the whole Ticket Sale carries — DEBTS AND NOT
- * TICKETS, so a Ticket owing three counts three. The same unit the
- * Organization's own headline figure uses, so a buyer on the phone and the
- * member of staff they are talking to are counting the same things.
- */
-export function saleOutstandingCount(tickets: BuyerTicket[]): number {
-  return tickets.reduce((total, ticket) => total + ticket.outstanding_count, 0);
-}
-
-/**
- * Whether this Ticket has a link worth offering a copy button for.
+ * Whether the buyer's one answerable row has anything to answer — i.e. whether
+ * this sale has a question half at all.
  *
- * Two conditions and not one: there must BE a link, and there must be something
- * to use it for. A Ticket whose questions are all answered still has a valid
- * link — the holder may correct what the buyer guessed — so this does not check
- * the outstanding count. What it checks is that the API gave us a link at all.
- */
-export function hasAnswerLink(ticket: BuyerTicket): boolean {
-  return ticket.answer_link !== "";
-}
-
-/**
- * Whether a Ticket Sale is worth drawing this section for at all.
- *
- * A SALE WHOSE TICKET TYPES ASK NOTHING GETS NO SECTION, not an empty one. Most
- * Organizations have never written a Ticket Question, so most Customer Areas
- * must look exactly as they did before this feature — an empty "Ticket
- * questions" heading on every purchase anybody ever made would be the feature
- * announcing itself to the people it has nothing to say to.
+ * A SALE WHOSE TICKET TYPES ASK NOTHING GETS NO QUESTION HALF, not an empty
+ * one. Most Organizations have never written a Ticket Question, so most
+ * Customer Areas must look exactly as they did before this feature — and a
+ * buyer who holds no Ticket of the Sale (gave theirs away, or bought at the
+ * door) has no questions here however many the Ticket Type asks: those are
+ * their Holders' to answer.
  *
  * IT SPEAKS FOR TICKET QUESTIONS ONLY, and deliberately says nothing about
  * Ticket Assignment (#324), which is behind its own flag and can be the sole
  * reason to draw the section. The caller asks both — see `saleOffersAssignment`
- * in lib/ticket-assignment.ts — because a sale whose Ticket Types ask nothing
- * and whose Tickets can be assigned still has something to show.
+ * in lib/ticket-assignment.ts.
  */
-export function hasAnythingToShow(tickets: BuyerTicket[]): boolean {
-  return tickets.some((ticket) => ticket.questions.length > 0);
+export function hasAnythingToShow(tickets: BuyerTicket[], held: HeldTicket[]): boolean {
+  return tickets.some((ticket) => {
+    const row = heldRowFor(ticket, held);
+    return row !== null && row.questions.length > 0;
+  });
+}
+
+/**
+ * How many Outstanding Answers the buyer owes on this sale — DEBTS AND NOT
+ * TICKETS, on the one Ticket they hold. The same unit the Organization's own
+ * headline figure uses, so a buyer on the phone and the member of staff they
+ * are talking to are counting the same things. Zero when they hold nothing.
+ */
+export function saleOutstandingCount(tickets: BuyerTicket[], held: HeldTicket[]): number {
+  return tickets.reduce((total, ticket) => total + (heldRowFor(ticket, held)?.outstanding_count ?? 0), 0);
+}
+
+/**
+ * The held list with one row replaced by what the API just sent back from a
+ * write. The held write returns ONE Ticket, not the list — each held Ticket's
+ * panel stands alone — so the page patches it in by id rather than refetching.
+ * A Ticket not already in the list is appended, so a write never loses a row.
+ */
+export function withHeldRow(held: HeldTicket[], updated: HeldTicket): HeldTicket[] {
+  const index = held.findIndex((row) => row.ticket_id === updated.ticket_id);
+  if (index === -1) return [...held, updated];
+  return held.map((row, i) => (i === index ? updated : row));
 }

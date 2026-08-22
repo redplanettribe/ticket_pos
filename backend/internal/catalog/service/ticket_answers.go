@@ -199,7 +199,7 @@ func (s *Service) AnswerTicketQuestion(
 //
 // It returns no view. The two callers need DIFFERENT views of the same write:
 // staff get the whole Ticket including its Sale's reference, and the holder gets
-// AnswerLinkView, which shows none of that. Returning one of them here would put
+// the Holder's own view (HeldTicketAnswersView), which shows none of that. Returning one of them here would put
 // the wider one within reach of the surface that must never render it.
 func (s *Service) answerTicketQuestion(
 	ctx context.Context,

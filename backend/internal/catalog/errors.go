@@ -435,54 +435,6 @@ func ErrAnswerNotFound() apperror.DomainError {
 	return apperror.New("ANSWER_NOT_FOUND", "Answer not found.", nil)
 }
 
-// ErrAnswerLinkInvalid is returned when an Answer Link does not open (#312,
-// ADR 0044).
-//
-// ONE ERROR COVERING EVERY REASON IT DID NOT, and the breadth is the point. A
-// forged token, one truncated by a chat app, one naming a Ticket that no longer
-// exists, and one whose Ticket Sale has been REVERSED all answer identically.
-//
-// The reversed case is the one worth defending. It looks like information the
-// holder deserves — "this was refunded" — and it is a fact about somebody else's
-// purchase, which is the one category of thing this page exists to disclose
-// nothing about. A link forwarded into a group chat that reported a refund would
-// be telling six people something about the buyer's money.
-//
-// The Event having started is told apart from this, and only that, because an
-// Event's start is already published on the Storefront and saying so lets the
-// page explain a deadline rather than imply a forgery.
-func ErrAnswerLinkInvalid() apperror.DomainError {
-	return apperror.New("ANSWER_LINK_INVALID", "This link is not valid.", nil)
-}
-
-// ErrAnswerLinkExpired is returned when an Answer Link is opened after its Event
-// has started.
-//
-// A SEPARATE OUTCOME FROM INVALID, so the page can say "the event has started"
-// rather than "this link is broken" — the first sends nobody looking for a
-// replacement that would fail identically. It discloses nothing: the Event's
-// start is published on the Storefront, and the page already names the Event.
-//
-// The window is catalog.AnswerWindow, the same one Event Staff and the checkout
-// capture are held to, read against the Event as it stands now.
-func ErrAnswerLinkExpired() apperror.DomainError {
-	return apperror.New(
-		"ANSWER_LINK_EXPIRED",
-		"This event has started, so its questions can no longer be answered.",
-		nil,
-	)
-}
-
-// ErrAnswerLinkUnavailable is returned when no link secret is configured.
-//
-// A DEPLOYMENT FAULT AND NOT THE HOLDER'S, so it is a 500 rather than "your link
-// is invalid" — telling somebody their link is broken when it is the server that
-// is broken sends them back to the buyer for a replacement that would fail in
-// exactly the same way. Its Confirmation Link neighbour answers the same.
-func ErrAnswerLinkUnavailable() apperror.DomainError {
-	return apperror.New("ANSWER_LINK_UNAVAILABLE", "Answer links are unavailable.", nil)
-}
-
 // ErrTicketAssignmentUnavailable is returned when any Ticket Assignment surface
 // is asked for while TICKET_ASSIGNMENT_ENABLED is off (#324, parent #322).
 //

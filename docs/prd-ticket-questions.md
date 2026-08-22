@@ -6,6 +6,12 @@ Design records: [ADR 0043](./adr/0043-a-ticket-becomes-a-row-and-quantities-stay
 [ADR 0044](./adr/0044-the-holder-answers-by-link-and-the-platform-never-writes-to-them.md),
 [ADR 0045](./adr/0045-ticket-questions-ship-dark-until-the-privacy-policy-describes-them.md).
 
+> **Status note.** The Answer Link this spec describes is retired by
+> [ADR 0049](./adr/0049-only-the-holder-answers-and-the-answer-link-is-retired.md): an Answer is given only by a Ticket's Holder — the buyer
+> for their Self-held Ticket — or by Event Staff, and a Ticket's questions are reached through the
+> Ticket Assignment (see [prd-ticket-assignment.md](./prd-ticket-assignment.md)). References to the
+> Answer Link below are kept as the record of what was decided at the time.
+
 ## Problem Statement
 
 An Organization often needs to know something about the people coming, and the platform gives it

@@ -5,129 +5,22 @@ import (
 	"testing"
 )
 
-// What an Answer Reminder actually says (#317, ADR 0044).
+// What an Answer Reminder actually says (#317, ADR 0044; #328, ADR 0046; #347,
+// ADR 0049).
 //
 // These assert on the RENDERED words, on email_saleconfirmation_test.go's terms:
 // a test that only checked a Locale was carried would pass just as happily
 // against a message that was never translated. This mail is sent by a job
 // nobody is watching, weeks after the sale, so the rendered text is the only
-// place its wording is ever inspected.
-
-func answerReminder() AnswerReminder {
-	return AnswerReminder{
-		To:               "ana@example.com",
-		CustomerName:     "Ana",
-		EventName:        "Noche de Jazz",
-		Reference:        "TP-ABC123",
-		ConfirmationLink: "https://storefront.test/tickets/confirm?token=x",
-	}
-}
-
-// The zero Locale is English, which is what a box office sale, an import and
-// every Online Sale that predates the Sale Locale column is written in.
-func TestAnswerReminderIsWrittenInEnglishWhenNothingNamedALanguage(t *testing.T) {
-	reminder := answerReminder()
-
-	if got := reminder.Subject(); got != "Some tickets for Noche de Jazz still need answers" {
-		t.Fatalf("subject = %q, want the English subject", got)
-	}
-	text := reminder.Text()
-	for _, want := range []string{
-		"Hi Ana,",
-		"Some of the tickets on your purchase for Noche de Jazz still need answers.",
-		"Reference: TP-ABC123",
-		"or to copy and pass each ticket's own link to whoever will be using it:",
-		"https://storefront.test/tickets/confirm?token=x",
-		"Answering is optional and your tickets are valid either way.",
-		"at most one more reminder about this purchase",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("text = %q, want it to contain %q", text, want)
-		}
-	}
-}
-
-// Written in the recipient's Mail Locale, which is an acceptance criterion of
-// #317 and the reason ADR 0033 exists at all.
+// place its wording is ever inspected — and it carries one extra burden: this
+// reader is entitled to almost nothing about the purchase, so what is ABSENT
+// is as much under test as what is present.
 //
-// It pins the REGISTER as well as the language: usted, matching the receipt's
-// Spanish and the Storefront's own ("Sus entradas"), because a tú-form rewrite
-// would pass any test that only checked the language had branched.
-func TestAnswerReminderIsWrittenInSpanish(t *testing.T) {
-	reminder := answerReminder()
-	reminder.Locale = LocaleES
+// THERE IS ONE REMINDER SINCE ADR 0049. The buyer-addressed message with its
+// Sale Confirmation reference and Confirmation Link is gone; the buyer reads
+// this one, about their own Self-held Ticket, exactly as any Holder does.
 
-	if got := reminder.Subject(); got != "Algunas entradas para Noche de Jazz aún necesitan respuestas" {
-		t.Fatalf("subject = %q, want the Spanish subject", got)
-	}
-	text := reminder.Text()
-	for _, want := range []string{
-		"Hola Ana:",
-		"Algunas de las entradas de su compra de Noche de Jazz aún necesitan respuestas.",
-		"Referencia: TP-ABC123",
-		"o para copiar y enviar el enlace de cada entrada a quien vaya a usarla:",
-		"https://storefront.test/tickets/confirm?token=x",
-		"Responder es opcional y sus entradas son válidas igualmente.",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("text = %q, want it to contain %q", text, want)
-		}
-	}
-	// No English may survive into the Spanish message. "still need answers" is
-	// the phrase that would leak first if a line were ever added in one language
-	// only, since it is the sentence the mail is about.
-	if strings.Contains(text, "still need answers") {
-		t.Fatalf("text = %q, want no English left in it", text)
-	}
-}
-
-// THE MAIL CARRIES ONE URL AND ONLY ONE. The link is the Confirmation Link, and
-// an Answer Link must never appear in this body: an Answer Link is built to be
-// forwarded into a group chat, and this mail names the buyer and their purchase.
-// Putting one inside the other would make "send my friend the t-shirt question"
-// and "send my friend my receipt" the same gesture, which is the failure ADR
-// 0044 names. Distribution happens on the page.
-func TestAnswerReminderCarriesTheConfirmationLinkAndNoOther(t *testing.T) {
-	reminder := answerReminder()
-
-	if links := strings.Count(reminder.Text(), "https://"); links != 1 {
-		t.Fatalf("the reminder carries %d links, want exactly one — the Confirmation Link, and never an Answer Link", links)
-	}
-}
-
-// It names no figure. The debt is derived live and a count baked into an inbox
-// is wrong the moment the buyer answers one — the same reason the receipt's
-// sentence names none and SaleConfirmation.HasOutstandingAnswers is a bool.
-func TestAnswerReminderNamesNoNumberOfOutstandingAnswers(t *testing.T) {
-	text := answerReminder().Text()
-	for _, digit := range []string{"1 ticket", "2 tickets", "3 tickets"} {
-		if strings.Contains(text, digit) {
-			t.Fatalf("text = %q, want no count of what is owed in it", text)
-		}
-	}
-}
-
-// It offers no way to unsubscribe, and that is correct rather than an omission:
-// this is transactional mail, the Follow Digest is the only mail a Customer can
-// turn off (ADR 0034), and what bounds this one is catalog.MayRemind's cap. An
-// unsubscribe here would be the platform offering to stop sending something it
-// is going to stop sending anyway.
-func TestAnswerReminderCarriesNoUnsubscribe(t *testing.T) {
-	text := strings.ToLower(answerReminder().Text())
-	for _, forbidden := range []string{"unsubscribe", "darse de baja", "cancelar la suscripción"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("text = %q, want no unsubscribe in a transactional mail", text)
-		}
-	}
-}
-
-// What the HOLDER'S Answer Reminder actually says (#328, parent #322, ADR 0046).
-//
-// SAME DISCIPLINE, DIFFERENT READER. These assert on the rendered words for the
-// reason the buyer's do — a job nobody is watching sends this, so the text is
-// the only place its wording is ever inspected — and they carry one extra
-// burden: this reader is entitled to almost nothing about the purchase, so what
-// is ABSENT is as much under test as what is present.
+const customerAreaURL = "https://storefront.test/tickets"
 
 func holderAnswerReminder() HolderAnswerReminder {
 	return HolderAnswerReminder{
@@ -135,32 +28,22 @@ func holderAnswerReminder() HolderAnswerReminder {
 		Tickets: []HolderAnswerReminderTicket{{
 			EventName:      "Noche de Jazz",
 			TicketTypeName: "General",
-			AnswerURL:      "https://storefront.test/accept?token=x",
 		}},
+		CustomerAreaURL: customerAreaURL,
 	}
 }
 
 // holderAnswerReminderForTwo is the mail #335 ruled into existence: one Holder,
-// one sweep, two accepted Tickets, ONE message listing each with its own
-// Assignment Link. The buyer's side already fans a Sale's Tickets into one
-// mail; per-Ticket envelopes to a Holder were an inconsistency as well as a
-// volume problem, and mailing one address twice in one sweep is the shape spam
-// filters punish.
+// one sweep, two owed Tickets, ONE message listing both. Mailing one address
+// twice in one sweep is the shape spam filters punish.
 func holderAnswerReminderForTwo() HolderAnswerReminder {
 	return HolderAnswerReminder{
 		To: "carla@example.com",
 		Tickets: []HolderAnswerReminderTicket{
-			{
-				EventName:      "Noche de Jazz",
-				TicketTypeName: "General",
-				AnswerURL:      "https://storefront.test/accept?token=x",
-			},
-			{
-				EventName:      "Noche de Jazz",
-				TicketTypeName: "VIP",
-				AnswerURL:      "https://storefront.test/accept?token=y",
-			},
+			{EventName: "Noche de Jazz", TicketTypeName: "General"},
+			{EventName: "Noche de Jazz", TicketTypeName: "VIP"},
 		},
+		CustomerAreaURL: customerAreaURL,
 	}
 }
 
@@ -174,11 +57,12 @@ func TestHolderAnswerReminderIsWrittenInEnglishWhenNothingNamedALanguage(t *test
 	}
 	text := reminder.Text()
 	for _, want := range []string{
-		"The ticket you accepted still needs an answer",
+		"Your ticket still needs an answer",
 		"Event: Noche de Jazz",
 		"Ticket: General",
-		"https://storefront.test/accept?token=x",
-		"This link opens your ticket only",
+		"Answer from your tickets page:\n" + customerAreaURL,
+		"Sign in there with this email address",
+		"until the event starts",
 		"Answering is optional and your ticket is valid either way.",
 		"at most one more reminder",
 	} {
@@ -205,11 +89,11 @@ func TestHolderAnswerReminderIsWrittenInSpanish(t *testing.T) {
 	}
 	text := reminder.Text()
 	for _, want := range []string{
-		"La entrada que aceptó aún necesita respuesta",
+		"Su entrada aún necesita respuesta",
 		"Evento: Noche de Jazz",
 		"Entrada: General",
-		"https://storefront.test/accept?token=x",
-		"Este enlace abre solo su entrada",
+		"Responda desde su página de entradas:\n" + customerAreaURL,
+		"Inicie sesión allí con esta dirección de correo",
 		"Responder es opcional y su entrada es válida igualmente.",
 	} {
 		if !strings.Contains(text, want) {
@@ -219,7 +103,7 @@ func TestHolderAnswerReminderIsWrittenInSpanish(t *testing.T) {
 	// No English may survive into the Spanish message. "still needs an answer" is
 	// the phrase that would leak first if a line were ever added in one language
 	// only, since it is the sentence the mail is about.
-	if strings.Contains(text, "still needs an answer") {
+	if strings.Contains(text, "still needs an answer") || strings.Contains(text, "Sign in") {
 		t.Fatalf("text = %q, want no English left in it", text)
 	}
 }
@@ -230,44 +114,49 @@ func TestHolderAnswerReminderIsWrittenInSpanish(t *testing.T) {
 // reference, which is the real enforcement — but a template is edited by hand
 // and a greeting or a "bought for you by" line would be a one-line change. ADR
 // 0044's disclosure rule, carried over unchanged by ADR 0046 and applied to an
-// inbox: a Holder sees the Event, the Ticket Type and their own link. Being a
+// inbox: a Holder sees the Event, the Ticket Type and where to sign in. Being a
 // Verified Customer of this platform buys nobody a fact about somebody else's
 // purchase.
+//
+// "ACCEPTED" IS FORBIDDEN TOO, since ADR 0049: the buyer reads this about a
+// Self-held Ticket they accepted nothing for, and a sentence that was true
+// only for one of the two readers would be wrong in somebody's inbox.
 func TestHolderAnswerReminderNamesNothingAboutThePurchase(t *testing.T) {
 	rendered := holderAnswerReminder().Subject() + "\n" + holderAnswerReminder().Text()
 	for _, forbidden := range []string{
-		"bought", "purchase", "reference", "Reference",
-		"compró", "compra", "referencia", "Referencia",
+		"bought", "purchase", "reference", "Reference", "accepted",
+		"compró", "compra", "referencia", "Referencia", "aceptó",
 		"$", "Tax ID", "RUC",
 	} {
 		if strings.Contains(rendered, forbidden) {
-			t.Fatalf("the Holder's reminder contains %q:\n%s\n"+
-				"It names the Event, the Ticket Type and their own link and nothing else (ADR 0044, ADR 0046).", forbidden, rendered)
+			t.Fatalf("the Answer Reminder contains %q:\n%s\n"+
+				"It names the Event, the Ticket Type and the Customer Area and nothing else (ADR 0044, ADR 0046, ADR 0049).", forbidden, rendered)
 		}
 	}
 }
 
-// ONE URL AND ONLY ONE, and it is the Assignment Link.
+// ONE URL AND ONLY ONE, and it is the Customer Area (ADR 0049).
 //
-// Sharper here than for the buyer's mail, which carries one link for the same
-// tidiness reason. This one is a credential that MINTS AN IDENTITY, so a second
-// URL beside it — an Answer Link, a Confirmation Link, a tracking wrapper —
-// would put a token that proves nothing next to a token that proves everything,
-// in one message, for a reader who cannot tell them apart.
-func TestHolderAnswerReminderCarriesTheAssignmentLinkAndNoOther(t *testing.T) {
+// Not an Assignment Link, which is a credential that mints an identity and
+// belongs in the Assignment mail where accepting is the point of clicking; not
+// an Answer Link, which is retired; not a Confirmation Link, which opens a
+// whole Ticket Sale this reader may never see. The one address here signs
+// nothing: a forwarded copy opens nothing.
+func TestHolderAnswerReminderCarriesTheCustomerAreaLinkAndNoOther(t *testing.T) {
 	text := holderAnswerReminder().Text()
 	if links := strings.Count(text, "https://"); links != 1 {
-		t.Fatalf("the Holder's reminder carries %d links, want exactly one — their own Assignment Link and nothing else", links)
+		t.Fatalf("the Answer Reminder carries %d links, want exactly one — the Customer Area and nothing else", links)
 	}
-	if strings.Contains(text, "/confirm") {
-		t.Fatalf("the Holder's reminder carries a Confirmation Link: that opens a whole Ticket Sale, which this reader may never see.\n%s", text)
+	for _, forbidden := range []string{"/confirm", "/accept", "token="} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("the Answer Reminder carries %q: the only address in it is the Customer Area, which is not a credential.\n%s", forbidden, text)
+		}
 	}
 }
 
-// It names no figure, for the reason the buyer's does not: the debt is derived
-// live and a count baked into an inbox is wrong the moment somebody answers one.
-// A Holder holds exactly one Ticket anyway, so the copy speaks of "an answer"
-// and never of how many.
+// It names no figure: the debt is derived live and a count baked into an inbox
+// is wrong the moment somebody answers one. The copy speaks of "an answer" and
+// never of how many.
 func TestHolderAnswerReminderNamesNoNumberOfOutstandingAnswers(t *testing.T) {
 	text := holderAnswerReminder().Text()
 	for _, digit := range []string{"1 question", "2 questions", "3 questions", "1 pregunta", "2 preguntas"} {
@@ -292,11 +181,11 @@ func TestHolderAnswerReminderCarriesNoUnsubscribe(t *testing.T) {
 	}
 }
 
-// ONE MAIL, EVERY OWED TICKET, EACH WITH ITS OWN LINK (#335). The ruling: one
-// mail per Holder per sweep, listing each owed Ticket with its own Assignment
-// Link. The single-ticket mail above reads as it always did; this is the shape
-// the envelope takes when one person accepted two.
-func TestHolderAnswerReminderListsEachTicketWithItsOwnLink(t *testing.T) {
+// ONE MAIL, EVERY OWED TICKET, ONE ADDRESS (#335, ADR 0049). The ruling: one
+// mail per Holder per sweep, listing each owed Ticket. Since the reader
+// answers from a panel that shows everything they hold, the list is followed
+// by the one Customer Area address rather than a link per Ticket.
+func TestHolderAnswerReminderListsEachTicketAndOneAddress(t *testing.T) {
 	reminder := holderAnswerReminderForTwo()
 
 	if got := reminder.Subject(); got != "Your tickets for Noche de Jazz still need answers" {
@@ -304,11 +193,10 @@ func TestHolderAnswerReminderListsEachTicketWithItsOwnLink(t *testing.T) {
 	}
 	text := reminder.Text()
 	for _, want := range []string{
-		"The tickets you accepted still need answers",
+		"Your tickets still need answers",
 		"Ticket: General",
 		"Ticket: VIP",
-		"https://storefront.test/accept?token=x",
-		"https://storefront.test/accept?token=y",
+		"Answer from your tickets page:\n" + customerAreaURL,
 		"Answering is optional and your tickets are valid either way.",
 		"at most one more reminder",
 	} {
@@ -316,17 +204,14 @@ func TestHolderAnswerReminderListsEachTicketWithItsOwnLink(t *testing.T) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
 		}
 	}
-	// EXACTLY ONE LINK PER TICKET AND NO OTHER. Each Assignment Link opens
-	// exactly one Ticket; a mail about two carries two, never a third.
-	if links := strings.Count(text, "https://"); links != 2 {
-		t.Fatalf("the two-ticket reminder carries %d links, want exactly two — one Assignment Link per listed Ticket", links)
+	if links := strings.Count(text, "https://"); links != 1 {
+		t.Fatalf("the two-ticket reminder carries %d links, want exactly one — the Customer Area shows every Ticket the reader holds", links)
 	}
-	// Each link must sit in the ticket's own block, after its Ticket line, so a
-	// reader cannot answer the VIP question through the General ticket's link.
-	if strings.Index(text, "Ticket: General") > strings.Index(text, "token=x") ||
-		strings.Index(text, "token=x") > strings.Index(text, "Ticket: VIP") ||
-		strings.Index(text, "Ticket: VIP") > strings.Index(text, "token=y") {
-		t.Fatalf("text = %q, want each Assignment Link listed under its own Ticket", text)
+	// The address follows the list, so a reader finds what is owed before where
+	// to go.
+	if strings.Index(text, "Ticket: General") > strings.Index(text, "Ticket: VIP") ||
+		strings.Index(text, "Ticket: VIP") > strings.Index(text, customerAreaURL) {
+		t.Fatalf("text = %q, want both Tickets listed before the Customer Area address", text)
 	}
 }
 
@@ -340,49 +225,49 @@ func TestHolderAnswerReminderListsEachTicketInSpanish(t *testing.T) {
 	}
 	text := reminder.Text()
 	for _, want := range []string{
-		"Las entradas que aceptó aún necesitan respuesta",
+		"Sus entradas aún necesitan respuesta",
 		"Entrada: General",
 		"Entrada: VIP",
-		"https://storefront.test/accept?token=x",
-		"https://storefront.test/accept?token=y",
+		"Responda desde su página de entradas:\n" + customerAreaURL,
 		"Responder es opcional y sus entradas son válidas igualmente.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text = %q, want it to contain %q", text, want)
 		}
 	}
-	if strings.Contains(text, "still need answers") || strings.Contains(text, "Ticket:") {
+	if strings.Contains(text, "still need answers") || strings.Contains(text, "Ticket:") || strings.Contains(text, "Sign in") {
 		t.Fatalf("text = %q, want no English left in it", text)
 	}
 }
 
+// Listed Tickets spanning two Events cannot share a subject that names one, so
+// the subject names none and each block names its own.
+func TestHolderAnswerReminderAcrossTwoEventsHeadlinesNeither(t *testing.T) {
+	reminder := holderAnswerReminderForTwo()
+	reminder.Tickets[1].EventName = "Feria del Libro"
+
+	if got := reminder.Subject(); got != "Your tickets still need answers" {
+		t.Fatalf("subject = %q, want the Event-less plural subject", got)
+	}
+	text := reminder.Text()
+	if !strings.Contains(text, "Event: Noche de Jazz") || !strings.Contains(text, "Event: Feria del Libro") {
+		t.Fatalf("text = %q, want each Ticket's own Event named", text)
+	}
+}
+
 // The disclosure rule does not loosen because the mail became a list: a Holder
-// of two Tickets is still told the Events, the Ticket Types and their own links
+// of two Tickets is still told the Events, the Ticket Types and where to sign in
 // and NOTHING about the purchase (ADR 0044, ADR 0046).
 func TestHolderAnswerReminderForTwoNamesNothingAboutThePurchase(t *testing.T) {
 	reminder := holderAnswerReminderForTwo()
 	rendered := reminder.Subject() + "\n" + reminder.Text()
 	for _, forbidden := range []string{
-		"bought", "purchase", "reference", "Reference",
-		"compró", "compra", "referencia", "Referencia",
+		"bought", "purchase", "reference", "Reference", "accepted",
+		"compró", "compra", "referencia", "Referencia", "aceptó",
 		"$", "Tax ID", "RUC",
 	} {
 		if strings.Contains(rendered, forbidden) {
-			t.Fatalf("the two-ticket Holder's reminder contains %q:\n%s", forbidden, rendered)
+			t.Fatalf("the two-ticket Answer Reminder contains %q:\n%s", forbidden, rendered)
 		}
-	}
-}
-
-// A single-Ticket mail reads exactly as it did before #335: the envelope only
-// grew for the Holder who accepted several, and the ordinary case is untouched.
-func TestHolderAnswerReminderForOneTicketReadsAsBefore(t *testing.T) {
-	reminder := holderAnswerReminder()
-	if got := reminder.Subject(); got != "Your ticket for Noche de Jazz still needs an answer" {
-		t.Fatalf("subject = %q, want the singular subject unchanged", got)
-	}
-	text := reminder.Text()
-	if !strings.Contains(text, "The ticket you accepted still needs an answer") ||
-		!strings.Contains(text, "This link opens your ticket only") {
-		t.Fatalf("text = %q, want the single-ticket wording unchanged", text)
 	}
 }
