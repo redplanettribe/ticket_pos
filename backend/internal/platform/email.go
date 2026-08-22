@@ -246,6 +246,41 @@ type AnswerReminder struct {
 	Locale Locale
 }
 
+// HolderAnswerReminderTicket is one owed Ticket as a Holder's Answer Reminder
+// lists it: what the reader recognises it by, and the link they answer through.
+//
+// EventName and TicketTypeName are already public — rows on a Storefront page
+// anybody can read — and are the whole of what the mail says about the
+// purchase. EventName travels PER TICKET because the envelope is per Holder
+// per sweep (#335) and nothing guarantees every Ticket one person accepted
+// belongs to one Event.
+//
+// AnswerURL is the Assignment Link: the same address their Assignment mail
+// carried, minted fresh, where they give their name and answer their own
+// Ticket Questions (#326).
+//
+// IT IS THE WHOLE MESSAGE, like the Answer Reminder's Confirmation Link and
+// the Assignment mail's AcceptURL. A reminder with no link is an instruction
+// its reader cannot follow, so the sweep drops a Ticket whose link could not
+// be signed rather than listing it linkless.
+//
+// IT IS A CREDENTIAL THAT MINTS AN IDENTITY, and everything ADR 0046 says
+// about TicketAssignment.AcceptURL applies here word for word: it must never
+// appear on a buyer surface or in any API response to the buyer, because the
+// Answer Link is copyable off the buyer's own sale page and a token the buyer
+// can see proves nothing about who clicked it. Anything that widens where
+// this type's values travel widens where that credential travels.
+//
+// EACH LINK OPENS EXACTLY ONE TICKET, which is why a mail about two Tickets
+// carries two of these rather than one URL for both: there is no single
+// address that would open both, and inventing one would be inventing a
+// surface that discloses a Sale to somebody entitled to see one Ticket.
+type HolderAnswerReminderTicket struct {
+	EventName      string
+	TicketTypeName string
+	AnswerURL      string
+}
+
 // HolderAnswerReminder is the mail telling a Holder that the Ticket THEY
 // accepted still owes an Answer, and carrying the link they answer through
 // (#328, parent #322, ADR 0046).
@@ -279,6 +314,13 @@ type AnswerReminder struct {
 // What bounds it instead is catalog.MayRemind, per TICKET: at most one a week,
 // at most two ever, silence once the Event has started.
 //
+// ONE PER HOLDER PER SWEEP SINCE #335. A person who accepted two Tickets of
+// one sale used to get two of these, one per Assignment Link; the ruling on
+// #335 folded them into one message listing each owed Ticket with its own
+// link, matching the shape the buyer's reminder always had. The per-Ticket
+// caps did not move: each listed Ticket burns its own allowance, only the
+// envelope is shared.
+//
 // IT IS SWEPT RATHER THAN TRIGGERED, like its buyer-addressed sibling. Nothing
 // composes one when a question is authored — an Organization drafting four
 // questions in ten minutes would otherwise mail every Holder four times — so the
@@ -293,34 +335,18 @@ type HolderAnswerReminder struct {
 	// this is a message about their own ticket. That is also why the Holder
 	// Address Purge never reaches it: the purge takes addresses nobody accepted.
 	To string
-	// EventName and TicketTypeName are what the reader recognises this by, and
-	// both are already public — rows on a Storefront page anybody can read. They
-	// are the whole of what this mail says about the purchase, and the whole of
-	// what a Holder's own page shows them.
-	EventName      string
-	TicketTypeName string
-	// AnswerURL is the Assignment Link: the same address their Assignment mail
-	// carried, minted fresh, where they give their name and answer their own
-	// Ticket Questions (#326).
+	// Tickets are the owed Tickets this ONE mail lists, each with its own
+	// Assignment Link — at least one, usually exactly one.
 	//
-	// IT IS THE WHOLE MESSAGE, like the Answer Reminder's Confirmation Link and
-	// the Assignment mail's AcceptURL. A reminder with no link is an instruction
-	// its reader cannot follow, so the sweep refuses to compose one rather than
-	// sending it linkless.
-	//
-	// IT IS A CREDENTIAL THAT MINTS AN IDENTITY, and everything ADR 0046 says
-	// about TicketAssignment.AcceptURL applies here word for word: it must never
-	// appear on a buyer surface or in any API response to the buyer, because the
-	// Answer Link is copyable off the buyer's own sale page and a token the buyer
-	// can see proves nothing about who clicked it. Anything that widens where
-	// this type's values travel widens where that credential travels.
-	//
-	// IT OPENS EXACTLY ONE TICKET, which is why there is no plural here and why
-	// a person who accepted two Tickets of one sale gets two of these. There is
-	// no single address that would open both, and inventing one would be
-	// inventing a surface that discloses a Sale to somebody entitled to see one
-	// Ticket.
-	AnswerURL string
+	// A LIST SINCE #335, and the ruling it records: ONE mail per Holder per
+	// sweep. The buyer's reminder already fans a Sale's Tickets into one
+	// message, so per-Ticket envelopes to a Holder were an inconsistency as
+	// well as a volume problem, and mailing one address twice in one sweep is
+	// the shape spam filters punish. Only the ENVELOPE is shared: each listed
+	// Ticket still burns its own reminder allowance, and each keeps its own
+	// link, because an Assignment Link opens exactly one Ticket by design and
+	// there is still no single URL that opens two.
+	Tickets []HolderAnswerReminderTicket
 	// Locale is the language this is written in, ALREADY RESOLVED by the caller
 	// (ADR 0033).
 	//
@@ -991,7 +1017,7 @@ func (s *LoggingEmailSender) SendAnswerReminder(_ context.Context, r AnswerRemin
 // reader has already accepted; what a local developer needs to see here is that
 // a HOLDER rather than a buyer was chased, which is the change #328 made.
 func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
-	s.Logger.Info("holder answer reminder sent", "email", r.To, "event", r.EventName, "locale", string(r.Locale))
+	s.Logger.Info("holder answer reminder sent", "email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale))
 	return nil
 }
 

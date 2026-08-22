@@ -26,13 +26,15 @@ import (
 // resolve as SILENCE. A candidate refused here costs one wasted row; a candidate
 // that slipped through would be a mail somebody was rationed out of receiving.
 //
-// AND ONE PIECE OF ASSEMBLY, WHICH IS NEW IN #328. The query returns TICKETS and
-// the sweep sends MAILS, and the fan-in between them is here: every
-// buyer-addressed Ticket of one Sale becomes one message, and every accepted
-// Ticket becomes its own. It is done in Go rather than in SQL because it is a
-// product rule about inboxes — "a buyer with four unanswered Tickets is one
-// person with one inbox, and a Holder's surface is one Ticket" — and a rule
-// expressed as an array_agg over a CASE is a rule no unit test can reach.
+// AND ONE PIECE OF ASSEMBLY, WHICH IS NEW IN #328 AND FINISHED BY #335. The
+// query returns TICKETS and the sweep sends MAILS, and the fan-in between them
+// is here: every buyer-addressed Ticket of one Sale becomes one message, and
+// every Ticket one HOLDER accepted becomes one message to that Holder — one
+// mail per Holder per sweep, listing each owed Ticket with its own Assignment
+// Link. It is done in Go rather than in SQL because it is a product rule about
+// inboxes — "whoever is chased is one person with one inbox, however many
+// Tickets are owed" — and a rule expressed as an array_agg over a CASE is a
+// rule no unit test can reach.
 
 // AnswerRemindersDue returns the MAILS that may be sent now, oldest sale first,
 // built from at most limit candidate Tickets.
@@ -109,7 +111,14 @@ func (s *Service) AnswerRemindersDue(ctx context.Context, limit int) ([]catalog.
 // still owed and never chased — mails the same person again. Two messages in two
 // days, from a job whose whole promise is one a week. The rationing cannot catch
 // it, because per-Ticket rationing is exactly what makes the second mail
-// legitimate.
+// legitimate. SINCE #335 THE SAME SHAPE THREATENS A HOLDER — their mail covers
+// every owed Ticket they accepted, so a boundary between two of them inside one
+// Sale would split their envelope in two — which is why the deferral now holds
+// for both recipients rather than only the buyer's half. A Holder whose Tickets
+// span two SALES, one beyond the batch, can still be written to on two runs;
+// that split is invisible from inside one batch, each mail respects every
+// per-Ticket cap, and a rarity is the right price for a bound the query can
+// actually promise.
 //
 // SO THE TRAILING SALE WAITS A DAY, which costs nothing: nothing about the
 // rationing depends on a Ticket being reached on any particular day, and the
@@ -123,8 +132,7 @@ func (s *Service) AnswerRemindersDue(ctx context.Context, limit int) ([]catalog.
 // AND IT REFUSES TO STARVE. A Sale with more Tickets than the whole batch would
 // be deferred by every run forever, so when the batch holds only one Sale it is
 // mailed as it stands — a duplicate on a 50-Ticket order being the lesser fault
-// against never chasing it at all. Holders are unaffected either way: their
-// mails are per Ticket, so a boundary between two of them splits nothing.
+// against never chasing it at all.
 //
 // It returns "" when there is nothing to defer, which is the ordinary case.
 func trailingSaleToDefer(candidates []catalog.AnswerReminderCandidate, limit int) string {
@@ -143,19 +151,31 @@ func trailingSaleToDefer(candidates []catalog.AnswerReminderCandidate, limit int
 }
 
 // groupAnswerReminders turns candidate Tickets into the messages the sweep will
-// send: one per Sale for the buyer's, one per Ticket for each Holder's.
+// send: one per Sale for each buyer, one per HOLDER for the accepted (#335).
+//
+// ONE MAIL PER HOLDER PER SWEEP is the ruling #335 recorded, and Story 48's own
+// clause — "chase two of us without mailing either twice" — stated as code. The
+// buyer's side already fanned a Sale's Tickets into one message, so per-Ticket
+// envelopes to a Holder were an inconsistency as well as a volume problem, and
+// mailing one address twice in one sweep is the shape spam filters punish. The
+// grouping key is the HOLDER'S ADDRESS and nothing else: a person who accepted
+// Tickets on two Sales in one batch still gets ONE mail, because the promise is
+// about their inbox and not about any Sale. Each listed Ticket keeps its own
+// Assignment Link — a link still opens exactly one Ticket — and burns its own
+// allowance; only the envelope is shared.
 //
 // THE ORDER OF THE OUTPUT IS THE ORDER THE TICKETS ARRIVED IN, which is oldest
 // sale first. Under a batch smaller than the backlog that is what decides who
 // waits, and the buyer who paid in January and has said nothing since is the one
 // whose silence has run longest.
 //
-// A HOLDER'S MAIL IS COMPOSED HERE AND NOWHERE ELSE, because it carries an
-// Assignment Link and this module is the only one that may mint one (ADR 0046).
-// A Ticket whose link cannot be signed is DROPPED rather than handed on
-// linkless: nothing is recorded, so it is due again as soon as the deployment
-// has a link secret. The only way to reach that is a service NewApp refuses to
-// build in production.
+// A HOLDER'S MAIL IS COMPOSED HERE AND NOWHERE ELSE, because it carries
+// Assignment Links and this module is the only one that may mint them (ADR
+// 0046). A Ticket whose link cannot be signed is DROPPED rather than listed
+// linkless — the rest of that Holder's mail still goes — and nothing is
+// recorded for it, so it is due again as soon as the deployment has a link
+// secret. The only way to reach that is a service NewApp refuses to build in
+// production.
 //
 // A BUYER'S MAIL CARRIES NO HOLDER FACT AND A HOLDER'S CARRIES NO BUYER FACT,
 // and the fields are assigned in two separate literals rather than one shared
@@ -167,24 +187,49 @@ func (s *Service) groupAnswerReminders(
 	deferSale string,
 ) []catalog.DueAnswerReminder {
 	due := make([]catalog.DueAnswerReminder, 0, len(candidates))
-	// bySale indexes into `due` rather than holding values, so a Sale's second
-	// Ticket appends to the message its first one created instead of building a
-	// copy that is then thrown away.
+	// bySale and byHolder index into `due` rather than holding values, so a
+	// Sale's — or a Holder's — second Ticket appends to the message its first
+	// one created instead of building a copy that is then thrown away.
 	bySale := make(map[string]int, len(candidates))
+	byHolder := make(map[string]int, len(candidates))
 
 	for _, candidate := range candidates {
+		// A Sale the batch cut in half waits for the next run rather than having
+		// anybody on it mailed twice in two days — see trailingSaleToDefer. It
+		// holds for BOTH recipients since #335: a Holder whose two Tickets
+		// straddled the boundary would otherwise get this sweep's mail about one
+		// and tomorrow's about the other.
+		if candidate.TicketSaleID == deferSale {
+			continue
+		}
+
 		if candidate.Recipient == catalog.RemindTheHolder {
 			link := s.assignmentLinkURL(candidate.TicketID, candidate.AssignedAt, candidate.HolderEmail)
 			if link == "" {
 				if s.logger != nil {
-					s.logger.Warn("could not sign the Assignment Link for a Holder's Answer Reminder; nobody was written to and the Ticket stays due",
+					s.logger.Warn("could not sign the Assignment Link for a Holder's Answer Reminder; the Ticket was left off the mail and stays due",
 						"ticket_sale_id", candidate.TicketSaleID)
 				}
 				continue
 			}
+			ticket := catalog.HolderReminderTicket{
+				EventName:      candidate.EventName,
+				TicketTypeName: candidate.TicketTypeName,
+				AssignmentLink: link,
+			}
+			if at, found := byHolder[candidate.HolderEmail]; found {
+				due[at].TicketIDs = append(due[at].TicketIDs, candidate.TicketID)
+				due[at].HolderTickets = append(due[at].HolderTickets, ticket)
+				continue
+			}
+			byHolder[candidate.HolderEmail] = len(due)
 			due = append(due, catalog.DueAnswerReminder{
-				Recipient:     catalog.RemindTheHolder,
-				TicketIDs:     []string{candidate.TicketID},
+				Recipient: catalog.RemindTheHolder,
+				TicketIDs: []string{candidate.TicketID},
+				// The Sale facts below are the FIRST listed Ticket's, and they are
+				// carried for the log line and the locale fallback only: a mail
+				// grouped per Holder may span Sales, and no Sale fact ever reaches
+				// the message itself.
 				TicketSaleID:  candidate.TicketSaleID,
 				SaleStatus:    candidate.SaleStatus,
 				EventStartsAt: candidate.EventStartsAt,
@@ -193,19 +238,14 @@ func (s *Service) groupAnswerReminders(
 				// this reader: a Holder did not buy anything and was never on the
 				// page that recorded it, so their own remembered Mail Locale
 				// outranks it (#325's inversion, ADR 0033).
-				SaleLocale:     candidate.SaleLocale,
-				HolderEmail:    candidate.HolderEmail,
-				TicketTypeName: candidate.TicketTypeName,
-				AssignmentLink: link,
+				SaleLocale:    candidate.SaleLocale,
+				HolderEmail:   candidate.HolderEmail,
+				HolderTickets: []catalog.HolderReminderTicket{ticket},
 			})
 			continue
 		}
 
-		// The buyer's half. A Sale the batch cut in half waits for the next run
-		// rather than being mailed twice in two days — see trailingSaleToDefer.
-		if candidate.TicketSaleID == deferSale {
-			continue
-		}
+		// The buyer's half.
 		if at, found := bySale[candidate.TicketSaleID]; found {
 			due[at].TicketIDs = append(due[at].TicketIDs, candidate.TicketID)
 			continue

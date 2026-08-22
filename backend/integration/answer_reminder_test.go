@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -637,17 +638,20 @@ func TestAnswerReminderChasesTheHolderOfAnAcceptedTicket(t *testing.T) {
 	carla := holderReminderFor(t, "carla@example.com")
 	holderReminderFor(t, "diego@example.com")
 
-	if carla.EventName != "Answer Fest" || carla.TicketTypeName != "GA" {
-		t.Errorf("the Holder's reminder names event=%q ticket type=%q, want Answer Fest / GA", carla.EventName, carla.TicketTypeName)
+	if len(carla.Tickets) != 1 {
+		t.Fatalf("the Holder's reminder lists %d tickets, want exactly the one she accepted", len(carla.Tickets))
+	}
+	if carla.Tickets[0].EventName != "Answer Fest" || carla.Tickets[0].TicketTypeName != "GA" {
+		t.Errorf("the Holder's reminder names event=%q ticket type=%q, want Answer Fest / GA", carla.Tickets[0].EventName, carla.Tickets[0].TicketTypeName)
 	}
 	// THE LINK IS THE MESSAGE, and it is the Holder's OWN Assignment Link — the
 	// surface where they answer their own questions (#326) — never the buyer's
 	// Confirmation Link, which opens a whole purchase.
-	if carla.AnswerURL == "" {
+	if carla.Tickets[0].AnswerURL == "" {
 		t.Fatal("the Holder's reminder carries no link: a reminder with nothing to open is an instruction its reader cannot follow")
 	}
-	if !strings.Contains(carla.AnswerURL, "/accept?token=") {
-		t.Fatalf("the Holder's reminder points at %q, want the Storefront's /accept page with a token", carla.AnswerURL)
+	if !strings.Contains(carla.Tickets[0].AnswerURL, "/accept?token=") {
+		t.Fatalf("the Holder's reminder points at %q, want the Storefront's /accept page with a token", carla.Tickets[0].AnswerURL)
 	}
 
 	// AND IT NAMES NOTHING ABOUT THE PURCHASE — asserted on the words the
@@ -672,6 +676,82 @@ func TestAnswerReminderChasesTheHolderOfAnAcceptedTicket(t *testing.T) {
 		if got := remindersForTicket(t, env, ticketID); got != 1 {
 			t.Errorf("Ticket %s has %d ledger rows, want 1", ticketID, got)
 		}
+	}
+}
+
+// ONE MAIL PER HOLDER PER SWEEP (#335). A Holder who accepted BOTH Tickets of
+// one Sale gets ONE Answer Reminder listing each owed Ticket with its own
+// Assignment Link — never two envelopes in one sweep, which is Story 48's own
+// clause ("chase two of us without mailing either twice") and the shape spam
+// filters punish. The buyer's side always fanned a Sale's Tickets into one
+// message; this is the Holder's side brought level with it.
+//
+// PER-TICKET RATIONING IS UNCHANGED: each listed Ticket burns its own
+// allowance, so the one mail writes two ledger rows. Only the envelope is
+// shared.
+func TestAnswerReminderMailsAHolderOnceAboutBothTheirTickets(t *testing.T) {
+	env := setupTest(t)
+	f := newHolderReminderFixture(t, env)
+
+	// Carla accepts BOTH of Ana's Tickets.
+	acceptTicketAs(t, env, f.ana, f.saleID, f.ticketIDs[0], "carla@example.com")
+	acceptTicketAs(t, env, f.ana, f.saleID, f.ticketIDs[1], "carla@example.com")
+
+	// The backlog agrees with the fan-in BEFORE anything is sent: two owed
+	// Tickets, one Holder, ONE mail due — the count an operator compares
+	// against `sent` must count what will actually go out.
+	if backlog, err := sharedApp.CatalogService.CountAnswerRemindersDue(context.Background()); err != nil {
+		t.Fatalf("count the backlog: %v", err)
+	} else if backlog != 1 {
+		t.Fatalf("backlog = %d, want 1: two Tickets accepted by one Holder are one mail (#335)", backlog)
+	}
+
+	result := sweepAnswerReminders(t, env)
+	if result.Due != 1 || result.Sent != 1 {
+		t.Fatalf("sweep = %+v, want ONE mail due and ONE sent: one Holder, one envelope, however many Tickets (#335)", result)
+	}
+
+	// NOT THE BUYER, and not a second envelope to Carla either.
+	if got := len(sharedEmail.AnswerRemindersSent()); got != 0 {
+		t.Fatalf("the buyer received %d reminders about Tickets somebody else accepted, want 0", got)
+	}
+	carla := holderReminderFor(t, "carla@example.com")
+
+	// EACH OWED TICKET IS LISTED WITH ITS OWN ASSIGNMENT LINK. An Assignment
+	// Link opens exactly one Ticket, so a mail about two carries two distinct
+	// links — sharing one would leave a Ticket unanswerable, and a third URL
+	// has no business beside a credential that mints an identity.
+	if len(carla.Tickets) != 2 {
+		t.Fatalf("the Holder's one reminder lists %d tickets, want both of the ones she accepted", len(carla.Tickets))
+	}
+	links := map[string]bool{}
+	for _, ticket := range carla.Tickets {
+		if ticket.EventName != "Answer Fest" || ticket.TicketTypeName != "GA" {
+			t.Errorf("a listed ticket names event=%q type=%q, want Answer Fest / GA", ticket.EventName, ticket.TicketTypeName)
+		}
+		if !strings.Contains(ticket.AnswerURL, "/accept?token=") {
+			t.Fatalf("a listed ticket points at %q, want its own Assignment Link", ticket.AnswerURL)
+		}
+		links[ticket.AnswerURL] = true
+	}
+	if len(links) != 2 {
+		t.Fatalf("the two listed tickets share an Assignment Link: each link opens exactly one Ticket, so each must carry its own")
+	}
+	if got := strings.Count(carla.Text(), "/accept?token="); got != 2 {
+		t.Fatalf("the rendered mail carries %d Assignment Links, want exactly 2 — one per listed Ticket", got)
+	}
+
+	// ONE ENVELOPE, TWO ALLOWANCES: the caps stayed per Ticket, so the single
+	// mail spends one ledger row for each Ticket it covered.
+	for _, ticketID := range f.ticketIDs {
+		if got := remindersForTicket(t, env, ticketID); got != 1 {
+			t.Errorf("Ticket %s has %d ledger rows, want 1: each listed Ticket burns its own allowance", ticketID, got)
+		}
+	}
+
+	// And the second sweep is silent: both Tickets are inside their week.
+	if second := sweepAnswerReminders(t, env); second.Sent != 0 {
+		t.Fatalf("second sweep = %+v, want silence — the envelope was shared, the cooldown was not lifted", second)
 	}
 }
 
