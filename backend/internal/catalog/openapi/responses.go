@@ -182,3 +182,16 @@ type EnvelopePublicEventDetail struct {
 	Error     *platform.APIError        `json:"error"`
 	RequestID string                    `json:"request_id"`
 }
+
+// EnvelopeHolderAddressPurge documents POST
+// /api/v1/internal/holder-addresses/purge success responses (#331).
+//
+// The payload is counts and one timestamp, and it names no address, Ticket,
+// buyer or Event — see catalog/handler.PurgeUnacceptedHolderAddresses for why a
+// response listing what had just been deleted would publish precisely the thing
+// the deletion exists to remove.
+type EnvelopeHolderAddressPurge struct {
+	Data      service.HolderAddressPurgeResult `json:"data"`
+	Error     *platform.APIError               `json:"error"`
+	RequestID string                           `json:"request_id"`
+}

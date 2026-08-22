@@ -96,6 +96,23 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// the clock, and a caller able to name the clock could lift the seven-day
 	// silence and mail the platform's whole outstanding backlog on demand.
 	mux.HandleFunc("POST /api/v1/internal/answer-reminders/sweep", app.SalesHandler.SweepAnswerReminders)
+
+	// The Holder Address Purge (#331, parent #322, ADR 0046): the address a
+	// buyer typed for a friend who never accepted it, taken once the Event has
+	// started. Served by the CATALOG handler, unlike the purge above it, because
+	// the columns are on `tickets` (migration 080) and a Ticket is the catalog's
+	// — sales owns what a checkout collected, the catalog owns the Ticket and
+	// everything said about it.
+	//
+	// It is the second route in this namespace that DELETES, and the only one
+	// that deletes data belonging to somebody who never came to this platform.
+	// The rule that a caller cannot aim a route is therefore at its sharpest
+	// here: nothing names an Event, an Organization, a Ticket or — the parameter
+	// that would matter most — a moment. WHICH addresses go is a property of the
+	// database and the backend's own clock, and a caller able to name that clock
+	// could take the holder address off every future Event on the platform in
+	// one request.
+	mux.HandleFunc("POST /api/v1/internal/holder-addresses/purge", app.CatalogHandler.PurgeUnacceptedHolderAddresses)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.

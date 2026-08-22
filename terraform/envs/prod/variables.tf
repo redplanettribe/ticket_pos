@@ -253,6 +253,24 @@ variable "answer_reminder_attempt_deadline_seconds" {
   default     = 120
 }
 
+variable "holder_address_purge_enabled" {
+  description = "Whether the production Holder Address Purge tick fires (#331, parent #322, ADR 0046). STARTS FALSE and stays false until ticket_assignment_enabled below has been open long enough for Tickets to be carrying holder addresses — before that it is a daily UPDATE matching no rows. This is the second scheduled job in production that deletes anything, and the only one that deletes personal data belonging to somebody who never came to this platform. It is the flag to set false first, and apply second, if the purge is ever suspected of taking more than an unaccepted address at a started Event — the backend does not gate this job on the feature flag, on purpose, so this is the only switch there is. It is equally the flag somebody must remember to set TRUE when assignment opens: leaving it false then is the platform holding third-party contact details with no scheduled end, which is the specific failure ADR 0046 priced this job against."
+  type        = bool
+  default     = false
+}
+
+variable "holder_address_purge_schedule" {
+  description = "Unix cron for the production holder address purge tick. Daily in the small hours, twenty minutes after the Abandoned Answer Purge so the two deletions are separate lines in the log; the module variable of the same name says why it is not per-minute and why its timezone changes nothing about which Events qualify."
+  type        = string
+  default     = "40 3 * * *"
+}
+
+variable "holder_address_purge_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production holder address purge. It must stay below api_request_timeout_seconds; the module variable of the same name says why."
+  type        = number
+  default     = 120
+}
+
 variable "ticket_questions_enabled" {
   description = "Whether an Organization may define Ticket Questions in the staff app (#309). STARTS FALSE. The prerequisite is a published Policy Version describing this collection (ADR 0045) — flipping it before that puts the platform in the position of deliberately collecting, through a mechanism it built, data its own policy says it does not collect. Read the ADR before changing this."
   type        = bool
