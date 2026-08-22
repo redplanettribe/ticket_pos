@@ -2362,6 +2362,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/holder-addresses/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge unaccepted holder addresses at Event start
+         * @description Deletes the holder email address from every Ticket still in `assigned` — an address was given and nobody has accepted it — whose Event has started (ADR 0046). Read as an instant: `events.starts_at` is fixed in the Event's own timezone, so the comparison already carries it. The purge takes the ADDRESS ONLY: the Ticket, its Ticket Question Answers, its Ticket Sale and the fact that the Ticket was assigned all survive, the last of them as a purge timestamp on the Ticket, because the platform is entitled to remember that it sold a ticket and that somebody was named for it and is not entitled to keep the name. An `accepted` Ticket loses nothing at any age: its Holder proved the address from their own inbox and is an ordinary Customer under ordinary Customer retention. An Event that has never said when it starts is never purged, matching the reading the assignment window gives a missing start. A reversed Ticket Sale is purged like any other. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. The moment cannot be named by the caller; it is taken from the clock, and the instant actually used is echoed back. Not gated on the Ticket Assignment feature flag, deliberately — the switch that turns a deletion off must never be the switch that turns collection off. Safe to call by hand at any time and idempotent: a second run purges nothing and reports zeros. The response reports how many addresses went, how many Events they came off, the instant used, and how many unaccepted addresses are still held across the platform, so two runs a day apart say whether anybody is assigning at all. It names no address, no Ticket, no buyer and no Event, because the address is the data this job exists to remove.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeHolderAddressPurge"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/reversals/drain": {
         parameters: {
             query?: never;
@@ -5422,7 +5470,7 @@ export interface paths {
         };
         /**
          * List an event's outstanding answers
-         * @description A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because "twelve people never told us" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.
+         * @description A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because "twelve people never told us" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off. EACH ROW IS ALSO A GUEST LIST ENTRY: it carries the Ticket's `assignment_state` — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED, that Holder's own name and email address beside the Answers they owe (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as `assigned` and never named, and a Ticket whose unaccepted address the retention purge has taken reads `unassigned` like any other. All four fields are ABSENT while the Ticket Assignment feature flag is off, which is a separate flag from the Ticket Question one.
          */
         get: {
             parameters: {
@@ -9768,6 +9816,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeHolderAddressPurge": {
+            data?: components["schemas"]["service.HolderAddressPurgeResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeLogout": {
             data?: components["schemas"]["internal_identity_openapi.MessageData"];
             error?: components["schemas"]["platform.APIError"];
@@ -10774,6 +10827,43 @@ export interface components {
              *     and which is the buyer's business either way.
              */
             ticket_type_name?: string;
+        };
+        "service.HolderAddressPurgeResult": {
+            /**
+             * @description AddressesHeld is how many unaccepted holder addresses are sitting on
+             *     Tickets across the platform once this run finished — the standing backlog,
+             *     in the Reconciler's sense.
+             *
+             *     IT IS WHAT MAKES A RUN THAT DELETED NOTHING LEGIBLE. Zero purged and a
+             *     rising held figure is a healthy job on a platform whose Events have not
+             *     started yet; zero purged and zero held is a platform where nobody is
+             *     assigning anything. Neither is the same as a scheduler that is paused, and
+             *     the log line below is where that distinction is actually recorded.
+             */
+            addresses_held?: number;
+            /**
+             * @description AddressesPurged is how many holder addresses this run took. Zero is the
+             *     ordinary answer, and while TICKET_ASSIGNMENT_ENABLED is closed it is the
+             *     only answer.
+             */
+            addresses_purged?: number;
+            /**
+             * @description EventsPurged is how many Events those addresses came off, which is the
+             *     figure that means something in human terms: forty addresses off one Event
+             *     is a festival that has just happened, and forty off forty Events is a
+             *     month of ordinary attrition.
+             */
+            events_purged?: number;
+            /**
+             * @description PurgedAt is the instant this run read the clock at (RFC3339, UTC): every
+             *     Event that had started by it lost the addresses nobody had accepted.
+             *
+             *     Echoed back because the moment is the whole correctness argument, exactly
+             *     as the Abandoned Answer Purge echoes its cutoff. An operator staring at an
+             *     unexpected count should be able to see, without a deploy or a database
+             *     session, which instant the job actually compared Event starts against.
+             */
+            purged_at?: string;
         };
         "service.MembershipView": {
             member_id?: string;
@@ -11903,6 +11993,22 @@ export interface components {
         };
         "service.TicketOwingAnswersView": {
             /**
+             * @description AssignmentState is `unassigned`, `assigned` or `accepted`, derived by
+             *     catalog.AssignmentState and never stored.
+             *
+             *     IT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the
+             *     wire at all: a name arrives only with acceptance, so without the state an
+             *     `assigned` Ticket whose Holder never clicked would be indistinguishable
+             *     from one nobody was ever named for — and those are opposite facts to an
+             *     Organizer deciding whether to chase.
+             *
+             *     THREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the
+             *     retention purge has taken (migration 081) reads `unassigned` here, like
+             *     every other surface: nobody holds it, which is the truth. What happened to
+             *     it is a fact for the platform's records, not a state of the assignment.
+             */
+            assignment_state?: string;
+            /**
              * @description Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row
              *     rather than filtering it. A door sale and a Sale Import start out owing
              *     every question because nobody ever put the questions to those buyers —
@@ -11913,9 +12019,11 @@ export interface components {
             confirmation_ref?: string;
             customer_email?: string;
             /**
-             * @description The buyer, who is the ONLY person there is to chase: the platform holds no
-             *     address for a Ticket's holder and does not ask for one, so a question added
-             *     after a sale reaches its holder only if the buyer forwards it.
+             * @description The buyer: the party of record for the Sale, and the person to chase for
+             *     any Ticket nobody has accepted. They are no longer the only one — an
+             *     accepted Ticket names its Holder below — but they remain here on every row,
+             *     because a Holder is the named person a Ticket was handed to and never its
+             *     owner, and the Sale stays whole with the buyer either way.
              *
              *     The two name parts stay APART, as they are on the Sales list and in the
              *     column they are read from. Joining them here would mean choosing an order
@@ -11924,6 +12032,20 @@ export interface components {
              */
             customer_first_name?: string;
             customer_last_name?: string;
+            holder_email?: string;
+            /**
+             * @description HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was
+             *     handed to, and they are filled ONLY once that person has ACCEPTED.
+             *
+             *     THE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see
+             *     fillGuestListEntry, which is the one place to change if it is ever
+             *     revisited. The address is disclosed deliberately and at a stated cost (ADR
+             *     0047): an Organizer needs a way to reach the people attending its Event,
+             *     and a name it cannot write to leaves it routing through buyers by hand,
+             *     which is the problem assignment was built to end.
+             */
+            holder_first_name?: string;
+            holder_last_name?: string;
             /**
              * @description Ordinal is which of its Ticket Sale Line's units this Ticket is,
              *     1..quantity. Internal and not a seat number, but the only thing telling

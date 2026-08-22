@@ -44,7 +44,13 @@ func outstandingPageSizeParam(raw string) int {
 }
 
 // ListOutstandingAnswers returns the Event's Tickets that still owe required
-// Answers.
+// Answers, and — since #329 — who is coming on each of them.
+//
+// ONE ROUTE AND NOT TWO. The guest list rides on this read rather than on a
+// second staff endpoint, because this one already walks the Event's Tickets and
+// an Organizer asking "who is coming" is looking at the same list as an Organizer
+// asking "who has not told me their size". The handler is unchanged by it: the
+// widening is entirely in what a row says.
 //
 // A READ AND NOTHING ELSE. There is no act on this route and there is no state
 // behind it: an Outstanding Answer is DERIVED on every read from what the Ticket
@@ -54,7 +60,7 @@ func outstandingPageSizeParam(raw string) int {
 // it whole.
 //
 // @Summary      List an event's outstanding answers
-// @Description  A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because "twelve people never told us" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off.
+// @Description  A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of `in_person` and `import` sales appear beside the `online` ones and start out owing everything, because those buyers were never asked — each row carries its `channel` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because "twelve people never told us" is what a reader after the fact came to find out. `outstanding_count` is the Event's total number of debts, while `pagination.total` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off. EACH ROW IS ALSO A GUEST LIST ENTRY: it carries the Ticket's `assignment_state` — `unassigned`, `assigned` or `accepted` — and, once a Holder has ACCEPTED, that Holder's own name and email address beside the Answers they owe (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as `assigned` and never named, and a Ticket whose unaccepted address the retention purge has taken reads `unassigned` like any other. All four fields are ABSENT while the Ticket Assignment feature flag is off, which is a separate flag from the Ticket Question one.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth

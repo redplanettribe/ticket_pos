@@ -67,6 +67,28 @@ export type TicketOwingAnswers = {
   sold_at: string;
   /** Never empty — a Ticket owing nothing is not on this list at all. */
   outstanding: OutstandingQuestion[];
+  /*
+    THE GUEST LIST (#329, ADR 0047). Who is coming on this Ticket, beside what
+    they still owe — the answer this Organization could previously give only as
+    the buyer's name repeated once per Ticket.
+
+    EVERY FIELD IS OPTIONAL, AND THAT IS THE FLAG. With
+    `TICKET_ASSIGNMENT_ENABLED` closed the API omits all four, so their absence
+    IS the closed flag and this app holds no second copy of it (ADR 0045).
+  */
+  assignment_state?: TicketAssignmentState;
+  /*
+    The Holder, filled by the API only once that person has ACCEPTED.
+
+    An address a buyer typed and its owner never clicked is reported as
+    `assigned` and never named: it has no consent moment behind it, and the
+    person may not know a ticket was bought for them (ADR 0047). So a row can
+    carry a state and no Holder, and drawing the state is the only way to tell
+    that row from one nobody was ever named for.
+  */
+  holder_first_name?: string;
+  holder_last_name?: string;
+  holder_email?: string;
 };
 
 export type OutstandingAnswersPage = {
@@ -136,4 +158,82 @@ export function buyerName(ticket: TicketOwingAnswers): string {
     .map((part) => part.trim())
     .filter(Boolean)
     .join(" ");
+}
+
+/**
+ * Which of the three states one Ticket's assignment is in (#329, ADR 0046).
+ *
+ * DERIVED BY THE API AND NEVER HERE. It is read off three columns by
+ * `catalog.AssignmentState`, so the buyer's page, this list and the Sales Export
+ * cannot mean different things by the word `assigned`. A second derivation on
+ * this side would be a fourth opinion and the first one to drift.
+ *
+ * THREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the retention
+ * purge has taken arrives here as `unassigned` — nobody holds it, which is the
+ * truth; what happened to it is the platform's own record and not a state.
+ */
+export type TicketAssignmentState = "unassigned" | "assigned" | "accepted";
+
+/**
+ * The `outstandingAnswers` catalog key each assignment state is named with.
+ *
+ * Total over the three states, so a state added to the API could not reach this
+ * screen as a blank cell.
+ */
+export const ASSIGNMENT_STATE_KEYS = {
+  unassigned: "guestUnassigned",
+  assigned: "guestAssigned",
+  accepted: "guestAccepted",
+} as const satisfies Record<TicketAssignmentState, string>;
+
+/**
+ * The Badge variant a state is drawn in, following `promotionStateBadgeVariant`
+ * beside it: the state decides the colour in one place, and the table only draws.
+ *
+ * `accepted` is the finished state and reads as success. `assigned` is waiting on
+ * somebody and reads as warning — it is the row an Organizer can still do
+ * something about. `unassigned` is the ordinary case and is drawn quietly,
+ * because most Tickets are unassigned and a list shouting at every one of them
+ * says nothing.
+ */
+export function assignmentStateBadgeVariant(
+  state: TicketAssignmentState,
+): "success" | "warning" | "outline" {
+  switch (state) {
+    case "accepted":
+      return "success";
+    case "assigned":
+      return "warning";
+    default:
+      return "outline";
+  }
+}
+
+/**
+ * The Holder's name for display, from the two halves the API keeps apart.
+ *
+ * Joined here for `buyerName`'s reason: the surface that shows a name is where
+ * the choice of which part leads belongs, not the payload.
+ *
+ * EMPTY UNTIL SOMEBODY HAS ACCEPTED, because a name arrives only with acceptance
+ * — which is exactly why the state travels beside it.
+ */
+export function holderName(ticket: TicketOwingAnswers): string {
+  return [ticket.holder_first_name ?? "", ticket.holder_last_name ?? ""]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Whether the guest list has anything to draw at all.
+ *
+ * THE FLAG IS READ OFF THE PAYLOAD'S ABSENCE AND NOWHERE ELSE, exactly as the
+ * Storefront reads it (ADR 0045). With `TICKET_ASSIGNMENT_ENABLED` closed the API
+ * omits `assignment_state` from every row, so this app needs no second copy of a
+ * deployment flag it cannot see — and the column disappears rather than filling a
+ * screen with a word nobody can act on.
+ */
+export function guestListVisible(rows: readonly TicketOwingAnswers[]): boolean {
+  return rows.some((ticket) => Boolean(ticket.assignment_state));
 }
