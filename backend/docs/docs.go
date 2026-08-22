@@ -1554,6 +1554,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeHolderList": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.HolderListPage"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeLogout": {
                 "properties": {
                     "data": {
@@ -1758,20 +1772,6 @@ const docTemplate = `{
                 "properties": {
                     "data": {
                         "$ref": "#/components/schemas/service.SaleReversal"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/platform.APIError"
-                    },
-                    "request_id": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "openapi.EnvelopeOutstandingAnswers": {
-                "properties": {
-                    "data": {
-                        "$ref": "#/components/schemas/service.OutstandingAnswersPage"
                     },
                     "error": {
                         "$ref": "#/components/schemas/platform.APIError"
@@ -2878,6 +2878,10 @@ const docTemplate = `{
                     "status": {
                         "type": "string"
                     },
+                    "ticket_assignment_enabled": {
+                        "description": "TicketAssignmentEnabled is the platform's Ticket Assignment feature flag\n(ADR 0045), riding here for TicketQuestionsEnabled's reason: the staff\napp decides from this payload whether to offer the Holder List entry —\nwhich the API serves while EITHER flag is open (#333) — and a frontend\nenvironment variable would be a second copy of the answer, free to\ndisagree with the one that matters.",
+                        "type": "boolean"
+                    },
                     "ticket_questions_enabled": {
                         "description": "TicketQuestionsEnabled is the platform's Ticket Question feature flag\n(ADR 0045), not a property of this Event — it rides here for the reason\nFeeBasisPoints above does: the Ticket Type editor is composed from this\npayload, and the flag decides whether that editor offers a Ticket Question\nsurface at all. Surfacing it lets the staff app hide the section rather\nthan render one whose every request would 404, and it keeps the answer in\nONE place: a second environment variable on the frontend could disagree\nwith the backend about whether the feature is on.",
                         "type": "boolean"
@@ -3068,6 +3072,93 @@ const docTemplate = `{
                     },
                     "purged_at": {
                         "description": "PurgedAt is the instant this run read the clock at (RFC3339, UTC): every\nEvent that had started by it lost the addresses nobody had accepted.\n\nEchoed back because the moment is the whole correctness argument, exactly\nas the Abandoned Answer Purge echoes its cutoff. An operator staring at an\nunexpected count should be able to see, without a deploy or a database\nsession, which instant the job actually compared Event starts against.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HolderListPage": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.HolderTicketView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "outstanding_count": {
+                        "description": "OutstandingCount is how many Outstanding Answers the Event carries in ALL\n— debts, not Tickets, so a Ticket owing three counts three. It is the\nwhole Event and never the page, because \"how much don't I know yet\" is a\nquestion about the Event. It is unaffected by the owingOnly filter, for\nthe same reason.\n\nA POINTER, ABSENT WHILE TICKET_QUESTIONS_ENABLED IS CLOSED. This list is\nreadable on assignment alone (#333), and a build in that state must not\nspeak of debts a dark feature cannot define (ADR 0045).",
+                        "type": "integer"
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/service.OutstandingPagination"
+                    }
+                },
+                "type": "object"
+            },
+            "service.HolderTicketView": {
+                "properties": {
+                    "assignment_state": {
+                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored.\n\nIT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the\nwire at all: a name arrives only with acceptance, so without the state an\n` + "`" + `assigned` + "`" + ` Ticket whose Holder never clicked would be indistinguishable\nfrom one nobody was ever named for — and those are opposite facts to an\nOrganizer deciding whether to chase.\n\nTHREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the\nretention purge has taken (migration 081) reads ` + "`" + `assigned` + "`" + ` here, with\nNeverAccepted set beside it — see fillHolderListEntry.",
+                        "type": "string"
+                    },
+                    "channel": {
+                        "description": "Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row\nrather than filtering it. A door sale and a Sale Import start out owing\nevery question because nobody ever put the questions to those buyers —\nthere is no checkout form on either. They stand here beside the online\nones, and the channel is what stops that reading as lost data.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "type": "string"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_first_name": {
+                        "description": "The buyer: the party of record for the Sale, and the person to chase for\nany Ticket nobody has accepted. They are no longer the only one — an\naccepted Ticket names its Holder below — but they remain here on every row,\nbecause a Holder is the named person a Ticket was handed to and never its\nowner, and the Sale stays whole with the buyer either way.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "holder_email": {
+                        "type": "string"
+                    },
+                    "holder_first_name": {
+                        "description": "HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was\nhanded to, and they are filled ONLY once that person has ACCEPTED.\n\nTHE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see\nfillHolderListEntry, which is the one place to change if it is ever\nrevisited. The address is disclosed deliberately and at a stated cost (ADR\n0047): an Organizer needs a way to reach the people attending its Event,\nand a name it cannot write to leaves it routing through buyers by hand,\nwhich is the problem assignment was built to end.",
+                        "type": "string"
+                    },
+                    "holder_last_name": {
+                        "type": "string"
+                    },
+                    "never_accepted": {
+                        "description": "NeverAccepted marks a Ticket whose assignment the retention purge closed:\nsomebody was named, nobody ever accepted, and the address is gone by\ndefinition (#334, migration 081).\n\nA PRESENTATION-LEVEL INDICATOR DERIVED AT READ TIME from\nholder_address_purged_at — deliberately NOT a fourth value in\ncatalog.AssignmentState, which #331 rightly rejected. It exists because\nafter the Event starts every unaccepted assignment otherwise reads\n` + "`" + `unassigned` + "`" + `, and the morning-after sheet could not distinguish \"nobody\nwas named\" from \"named and never claimed\". It discloses nothing personal.",
+                        "type": "boolean"
+                    },
+                    "ordinal": {
+                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is,\n1..quantity. Internal and not a seat number, but the only thing telling\ntwo Tickets of one line apart — which is what lets staff say \"the second\nof Ana's four\".",
+                        "type": "integer"
+                    },
+                    "outstanding": {
+                        "description": "Outstanding names the required questions this Ticket has not answered, in\nthe order they are asked. Empty on a Ticket that owes nothing — which\nsince #333 is an ordinary row of this list, not an absent one.\n\nA POINTER, ABSENT WHILE TICKET_QUESTIONS_ENABLED IS CLOSED, for\nOutstandingCount's reason — and a pointer to a slice rather than an\n` + "`" + `omitempty` + "`" + ` slice so that \"owes nothing\" still reads as ` + "`" + `[]` + "`" + ` on the wire:\na typed reader that has to check for null before iterating is a reader\nthat will one day forget.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_id": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "description": "TicketSaleID and ConfirmationRef are how this row is ACTED ON. The staff\nAnswers dialog is keyed on a Ticket Sale and names itself after the\nbuyer's reference, so a row carrying neither would be a complaint nobody\ncould act on. This is the jump from the list to answering the Ticket.",
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
                         "type": "string"
                     }
                 },
@@ -3431,25 +3522,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "service.OutstandingAnswersPage": {
-                "properties": {
-                    "data": {
-                        "items": {
-                            "$ref": "#/components/schemas/service.TicketOwingAnswersView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "outstanding_count": {
-                        "description": "OutstandingCount is how many Outstanding Answers the Event carries in ALL\n— debts, not Tickets, so a Ticket owing three counts three. It is the\nwhole Event and never the page, because \"how much don't I know yet\" is a\nquestion about the Event.\n\nIt is a SECOND number beside Pagination.Total on purpose: the two answer\ndifferent questions — \"nine Tickets are waiting on me\" and \"twenty-two\nthings are unknown\" — and a surface with only one of them either\nunderstates the work or overstates the number of people to write to.",
-                        "type": "integer"
-                    },
-                    "pagination": {
-                        "$ref": "#/components/schemas/service.OutstandingPagination"
-                    }
-                },
-                "type": "object"
-            },
             "service.OutstandingPagination": {
                 "properties": {
                     "page": {
@@ -3459,7 +3531,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "total": {
-                        "description": "Total is how many TICKETS owe something, across the whole Event. A page\npast the last still reports it truthfully, so a surface can say how many\nthere are rather than appearing to have emptied.",
+                        "description": "Total is how many Tickets the current view holds across the whole Event —\nthe roster, or the Tickets that owe when the filter is on. A page past\nthe last still reports it truthfully, so a surface can say how many there\nare rather than appearing to have emptied.",
                         "type": "integer"
                     },
                     "total_pages": {
@@ -4584,70 +4656,6 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "ticket_sale_id": {
-                        "type": "string"
-                    },
-                    "ticket_type_id": {
-                        "type": "string"
-                    },
-                    "ticket_type_name": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "service.TicketOwingAnswersView": {
-                "properties": {
-                    "assignment_state": {
-                        "description": "AssignmentState is ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + `, derived by\ncatalog.AssignmentState and never stored.\n\nIT IS THE FIELD THAT MAKES THE REST READABLE, and the reason it is on the\nwire at all: a name arrives only with acceptance, so without the state an\n` + "`" + `assigned` + "`" + ` Ticket whose Holder never clicked would be indistinguishable\nfrom one nobody was ever named for — and those are opposite facts to an\nOrganizer deciding whether to chase.\n\nTHREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the\nretention purge has taken (migration 081) reads ` + "`" + `unassigned` + "`" + ` here, like\nevery other surface: nobody holds it, which is the truth. What happened to\nit is a fact for the platform's records, not a state of the assignment.",
-                        "type": "string"
-                    },
-                    "channel": {
-                        "description": "Channel is 'online', 'in_person' or 'import', and it EXPLAINS the row\nrather than filtering it. A door sale and a Sale Import start out owing\nevery question because nobody ever put the questions to those buyers —\nthere is no checkout form on either. They stand here beside the online\nones, and the channel is what stops that reading as lost data.",
-                        "type": "string"
-                    },
-                    "confirmation_ref": {
-                        "type": "string"
-                    },
-                    "customer_email": {
-                        "type": "string"
-                    },
-                    "customer_first_name": {
-                        "description": "The buyer: the party of record for the Sale, and the person to chase for\nany Ticket nobody has accepted. They are no longer the only one — an\naccepted Ticket names its Holder below — but they remain here on every row,\nbecause a Holder is the named person a Ticket was handed to and never its\nowner, and the Sale stays whole with the buyer either way.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
-                        "type": "string"
-                    },
-                    "customer_last_name": {
-                        "type": "string"
-                    },
-                    "holder_email": {
-                        "type": "string"
-                    },
-                    "holder_first_name": {
-                        "description": "HolderFirstName, HolderLastName and HolderEmail are the person a Ticket was\nhanded to, and they are filled ONLY once that person has ACCEPTED.\n\nTHE DISCLOSURE RULE IS DECIDED HERE AND NOWHERE ELSE — see\nfillGuestListEntry, which is the one place to change if it is ever\nrevisited. The address is disclosed deliberately and at a stated cost (ADR\n0047): an Organizer needs a way to reach the people attending its Event,\nand a name it cannot write to leaves it routing through buyers by hand,\nwhich is the problem assignment was built to end.",
-                        "type": "string"
-                    },
-                    "holder_last_name": {
-                        "type": "string"
-                    },
-                    "ordinal": {
-                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is,\n1..quantity. Internal and not a seat number, but the only thing telling\ntwo Tickets of one line apart — which is what lets staff say \"the second\nof Ana's four\".",
-                        "type": "integer"
-                    },
-                    "outstanding": {
-                        "description": "Outstanding names the required questions this Ticket has not answered, in\nthe order they are asked. Never empty: a Ticket with nothing outstanding\nis not on this list at all.",
-                        "items": {
-                            "$ref": "#/components/schemas/service.OutstandingQuestionView"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "sold_at": {
-                        "type": "string"
-                    },
-                    "ticket_id": {
-                        "type": "string"
-                    },
-                    "ticket_sale_id": {
-                        "description": "TicketSaleID and ConfirmationRef are how this row is ACTED ON. The staff\nAnswers dialog is keyed on a Ticket Sale and names itself after the\nbuyer's reference, so a row carrying neither would be a complaint nobody\ncould act on. This is the jump from the list to answering the Ticket.",
                         "type": "string"
                     },
                     "ticket_type_id": {
@@ -10576,7 +10584,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/outstanding-answers": {
             "get": {
-                "description": "A page of the Event's Tickets that still owe required Ticket Questions an Answer, oldest sale first, each naming the questions it owes. An Outstanding Answer is a debt and never a defect: nothing was refused for want of one, on any channel. ONLY REQUIRED questions produce one — an unanswered optional question is not a debt. A RETIRED question produces none either, because every write path into an Answer refuses a retired question, so a debt under one could never be discharged; the Answers already given to a retired question are untouched and still read on the Ticket. Tickets of ` + "`" + `in_person` + "`" + ` and ` + "`" + `import` + "`" + ` sales appear beside the ` + "`" + `online` + "`" + ` ones and start out owing everything, because those buyers were never asked — each row carries its ` + "`" + `channel` + "`" + ` so that reads as history rather than as loss. Tickets of a REVERSED Ticket Sale never appear. Started Events still report their outstanding answers, even though nothing may be written any more, because \"twelve people never told us\" is what a reader after the fact came to find out. ` + "`" + `outstanding_count` + "`" + ` is the Event's total number of debts, while ` + "`" + `pagination.total` + "`" + ` counts the Tickets carrying them. Answers 404 while the Ticket Question feature flag is off. EACH ROW IS ALSO A GUEST LIST ENTRY: it carries the Ticket's ` + "`" + `assignment_state` + "`" + ` — ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + ` — and, once a Holder has ACCEPTED, that Holder's own name and email address beside the Answers they owe (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as ` + "`" + `assigned` + "`" + ` and never named, and a Ticket whose unaccepted address the retention purge has taken reads ` + "`" + `unassigned` + "`" + ` like any other. All four fields are ABSENT while the Ticket Assignment feature flag is off, which is a separate flag from the Ticket Question one.",
+                "description": "A page of the Event's Holder List: EVERY Ticket of every live Ticket Sale, oldest sale first — the Organization's answer to \"who is coming\". Available while EITHER the Ticket Assignment or the Ticket Question feature flag is open, and 404 only when both are dark. Each row carries the Ticket's ` + "`" + `assignment_state` + "`" + ` — ` + "`" + `unassigned` + "`" + `, ` + "`" + `assigned` + "`" + ` or ` + "`" + `accepted` + "`" + ` — and, once a Holder has ACCEPTED, that Holder's own name and email address (ADR 0047). Nothing about a Holder is disclosed before acceptance: an address a buyer typed and its owner never accepted is reported as ` + "`" + `assigned` + "`" + ` and never named. A Ticket whose unaccepted address the retention purge took reads ` + "`" + `assigned` + "`" + ` with ` + "`" + `never_accepted` + "`" + ` beside it, derived at read time from the purge marker — somebody was named and never claimed the Ticket, which after the Event has started is a different fact from nobody having been named; no address travels with it, because the address is gone by definition. All assignment fields are ABSENT while the Ticket Assignment flag is off. Where the Ticket Question feature is open, each row also names the required questions it has not answered, in ` + "`" + `outstanding` + "`" + ` — an empty array is a Ticket that owes nothing, and stays on the list, because the roster is the point and the questions are a column on it. ` + "`" + `outstanding=true` + "`" + ` filters the list to the Tickets that still owe — Outstanding Answers is a filter of this list, not its definition. ` + "`" + `outstanding_count` + "`" + ` is the Event's total number of debts across the whole roster, unaffected by the filter, while ` + "`" + `pagination.total` + "`" + ` counts the Tickets of the current view. Both ` + "`" + `outstanding` + "`" + ` and ` + "`" + `outstanding_count` + "`" + ` are absent while the Ticket Question flag is off. Tickets of ` + "`" + `in_person` + "`" + ` and ` + "`" + `import` + "`" + ` sales appear beside the ` + "`" + `online` + "`" + ` ones and start out owing everything, because those buyers were never asked — each row carries its ` + "`" + `channel` + "`" + ` so that reads as history rather than as loss. Started Events still report the whole roster and its debts, because \"who came and who never told us\" is what a reader after the fact came to find out.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -10602,6 +10610,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "description": "Only the Tickets that still owe a required Answer",
+                        "in": "query",
+                        "name": "outstanding",
+                        "schema": {
+                            "type": "boolean"
+                        }
                     }
                 ],
                 "responses": {
@@ -10609,7 +10625,7 @@ const docTemplate = `{
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/openapi.EnvelopeOutstandingAnswers"
+                                    "$ref": "#/components/schemas/openapi.EnvelopeHolderList"
                                 }
                             }
                         },
@@ -10651,7 +10667,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "summary": "List an event's outstanding answers",
+                "summary": "List an event's holder list",
                 "tags": [
                     "staff"
                 ]

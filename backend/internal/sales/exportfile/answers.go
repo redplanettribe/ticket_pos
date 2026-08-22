@@ -252,9 +252,17 @@ type Answers struct {
 	Tickets []TicketRow
 }
 
-// asked reports whether the Event has any Ticket Question, which is the whole of
-// the test for whether this sheet exists.
+// asked reports whether the Event has any Ticket Question — the test for
+// whether the sheet carries question columns.
 func (a Answers) asked() bool { return len(a.Questions) > 0 }
+
+// present reports whether the sheet exists at all: something is asked, or
+// Ticket Assignment is open (#333). An Event that asks nothing still gets the
+// sheet once assignment is on, because its Holder columns are the file's answer
+// to "who is coming" and that answer must not depend on anything having been
+// asked — the Holder columns appear whenever assignment is on, regardless of
+// questions, exactly as they do on the Holder List.
+func (a Answers) present() bool { return a.asked() || a.Assignment }
 
 // answerDateFormat is how a date Answer renders: a calendar date, with no time
 // beside it. Deliberately narrower than the data sheet's dateFormat, which

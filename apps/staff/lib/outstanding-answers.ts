@@ -1,18 +1,22 @@
 /**
- * The Event's Outstanding Answers as the staff surface reads them (#313).
+ * The Event's Holder List as the staff surface reads it (#333; the Outstanding
+ * Answers module of #313, widened to the roster).
+ *
+ * THE HOLDER LIST IS EVERY TICKET OF THE EVENT: who is coming on each, and —
+ * where the Event asks Ticket Questions — which required questions each still
+ * owes. A fully answered Ticket stays on it, and an Event that asks nothing
+ * still has one, because the roster is the point and the questions are a column
+ * on it. OUTSTANDING ANSWERS IS A FILTER of this list, never its definition —
+ * the `outstandingOnly` parameter below.
  *
  * An OUTSTANDING ANSWER is a required Ticket Question that one Ticket has not
  * answered yet — a debt, not a defect, and the whole meaning of "required" on
- * this platform. Nothing anywhere was refused for want of one, on any channel,
- * so the only thing an Organization can do about a missing size is see that it
- * is missing and chase it before it orders the shirts.
+ * this platform. Nothing anywhere was refused for want of one, on any channel.
  *
  * NOTHING HERE DECIDES WHAT IS OUTSTANDING. The definition lives once, in the
  * API — `catalog.IsOutstandingAnswer` and the SQL beside it — and this module
  * only reads what came back. A copy of the rule on this side would be a third
- * statement of it, and the one most likely to drift: it would have to guess at
- * `required`, at retirement and at the Ticket Sale's status from a payload that
- * has already applied all three.
+ * statement of it, and the one most likely to drift.
  *
  * Pure and dependency-free apart from the shared fetch helper, so the shaping is
  * unit-testable under the fast runner.
@@ -43,8 +47,8 @@ export type OutstandingQuestion = {
   sort_order: number;
 };
 
-/** One Ticket that still owes, and everything a chase or a jump needs. */
-export type TicketOwingAnswers = {
+/** One Ticket of the Event: its assignment, its buyer, and what it owes. */
+export type HolderTicket = {
   ticket_id: string;
   /**
    * Which of its Ticket Sale Line's units this Ticket is, 1..quantity. Internal
@@ -65,18 +69,34 @@ export type TicketOwingAnswers = {
   customer_last_name: string;
   customer_email: string;
   sold_at: string;
-  /** Never empty — a Ticket owing nothing is not on this list at all. */
-  outstanding: OutstandingQuestion[];
+  /**
+   * The required questions this Ticket has not answered. An empty array is a
+   * Ticket that owes nothing and stays on the roster; the field is ABSENT
+   * entirely while `TICKET_QUESTIONS_ENABLED` is closed, so its absence IS that
+   * flag (ADR 0045) — the same arrangement the assignment fields have with
+   * theirs.
+   */
+  outstanding?: OutstandingQuestion[];
   /*
-    THE HOLDER LIST (#329, ADR 0047). Who is coming on this Ticket, beside what
-    they still owe — the answer this Organization could previously give only as
-    the buyer's name repeated once per Ticket.
+    THE HOLDER (#329, ADR 0047). Who is coming on this Ticket — the answer this
+    Organization could previously give only as the buyer's name repeated once
+    per Ticket.
 
     EVERY FIELD IS OPTIONAL, AND THAT IS THE FLAG. With
-    `TICKET_ASSIGNMENT_ENABLED` closed the API omits all four, so their absence
-    IS the closed flag and this app holds no second copy of it (ADR 0045).
+    `TICKET_ASSIGNMENT_ENABLED` closed the API omits all of them, so their
+    absence IS the closed flag and this app holds no second copy of it (ADR
+    0045).
   */
   assignment_state?: TicketAssignmentState;
+  /*
+    The purge's marker, presentation-level and derived by the API at read time
+    (#334): somebody was named on this Ticket, nobody ever accepted, and the
+    retention purge has taken the address. The row arrives as `assigned` with
+    this beside it, so the morning-after sheet can tell "nobody was named" from
+    "named and never claimed" — and it discloses nothing, because the address
+    is gone by definition.
+  */
+  never_accepted?: boolean;
   /*
     The Holder, filled by the API only once that person has ACCEPTED.
 
@@ -91,43 +111,48 @@ export type TicketOwingAnswers = {
   holder_email?: string;
 };
 
-export type OutstandingAnswersPage = {
-  data: TicketOwingAnswers[];
+export type HolderListPage = {
+  data: HolderTicket[];
   pagination: {
     page: number;
     page_size: number;
-    /** How many TICKETS owe something, across the whole Event. */
+    /** How many Tickets the current view holds — the roster, or the owing. */
     total: number;
     total_pages: number;
   };
   /**
    * How many Outstanding Answers the Event carries in ALL — debts, not Tickets,
-   * so a Ticket owing three counts three. A second number beside `total` because
-   * the two answer different questions: how many people are waiting on the
-   * Organization, and how many things it does not yet know.
+   * so a Ticket owing three counts three, and unmoved by the filter because it
+   * is a fact about the Event. ABSENT while `TICKET_QUESTIONS_ENABLED` is
+   * closed, exactly as each row's `outstanding` is.
    */
-  outstanding_count: number;
+  outstanding_count?: number;
 };
 
 /** The default page size, matching the API's own. */
 export const OUTSTANDING_PAGE_SIZE = 50;
 
 /**
- * Reads a page of the Event's Outstanding Answers.
+ * Reads a page of the Event's Holder List.
  *
- * The page is a parameter and not a filter set: this list deliberately offers
- * nothing to narrow it by. Every row on it is a thing the Organization does not
- * know, and a filter would only ever be a way to look at fewer of them.
+ * `outstandingOnly` is the one filter this list offers, and it is the old list:
+ * only the Tickets that still owe a required Answer. The API ignores it while
+ * Ticket Questions are dark, so this module does not have to know a flag it
+ * cannot see.
  */
-export async function fetchOutstandingAnswers(
+export async function fetchHolderList(
   eventId: string,
   page: number,
-): Promise<OutstandingAnswersPage> {
+  outstandingOnly = false,
+): Promise<HolderListPage> {
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(OUTSTANDING_PAGE_SIZE),
   });
-  return fetchEventsJSON<OutstandingAnswersPage>(
+  if (outstandingOnly) {
+    query.set("outstanding", "true");
+  }
+  return fetchEventsJSON<HolderListPage>(
     `/api/events/${eventId}/outstanding-answers?${query.toString()}`,
   );
 }
@@ -153,7 +178,7 @@ export const SALES_CHANNEL_KEYS = {
  * that choice belongs. Falls back to whichever half is present rather than
  * rendering a stray space.
  */
-export function buyerName(ticket: TicketOwingAnswers): string {
+export function buyerName(ticket: HolderTicket): string {
   return [ticket.customer_first_name, ticket.customer_last_name]
     .map((part) => part.trim())
     .filter(Boolean)
@@ -169,8 +194,9 @@ export function buyerName(ticket: TicketOwingAnswers): string {
  * this side would be a fourth opinion and the first one to drift.
  *
  * THREE VALUES AND NEVER FOUR. A Ticket whose unaccepted address the retention
- * purge has taken arrives here as `unassigned` — nobody holds it, which is the
- * truth; what happened to it is the platform's own record and not a state.
+ * purge has taken arrives as `assigned` with `never_accepted` beside it (#334)
+ * — a presentation the API derives at read time from the purge marker, not a
+ * fourth state.
  */
 export type TicketAssignmentState = "unassigned" | "assigned" | "accepted";
 
@@ -178,13 +204,32 @@ export type TicketAssignmentState = "unassigned" | "assigned" | "accepted";
  * The `outstandingAnswers` catalog key each assignment state is named with.
  *
  * Total over the three states, so a state added to the API could not reach this
- * screen as a blank cell.
+ * screen as a blank cell. A purged row is the one departure, and it is decided
+ * in `holderStateKey` below rather than here, because it is a fact beside the
+ * state and not a fourth one.
  */
 export const ASSIGNMENT_STATE_KEYS = {
   unassigned: "holderUnassigned",
   assigned: "holderAssigned",
   accepted: "holderAccepted",
 } as const satisfies Record<TicketAssignmentState, string>;
+
+/**
+ * The catalog key one row's assignment is named with: its state's, except that
+ * a purged row reads as "assigned, never accepted" (#334) — after the Event
+ * every other unaccepted assignment has been overtaken by events, and this one
+ * ended without its person. The ONE place the marker changes a word.
+ */
+export type HolderStateKey =
+  | (typeof ASSIGNMENT_STATE_KEYS)[TicketAssignmentState]
+  | "holderNeverAccepted";
+
+export function holderStateKey(ticket: HolderTicket): HolderStateKey {
+  if (ticket.never_accepted) {
+    return "holderNeverAccepted";
+  }
+  return ASSIGNMENT_STATE_KEYS[ticket.assignment_state ?? "unassigned"];
+}
 
 /**
  * The Badge variant a state is drawn in, following `promotionStateBadgeVariant`
@@ -194,7 +239,8 @@ export const ASSIGNMENT_STATE_KEYS = {
  * somebody and reads as warning — it is the row an Organizer can still do
  * something about. `unassigned` is the ordinary case and is drawn quietly,
  * because most Tickets are unassigned and a list shouting at every one of them
- * says nothing.
+ * says nothing. A NEVER-ACCEPTED row is drawn quietly too: it is history, not a
+ * chase — nothing anybody does now brings that person.
  */
 export function assignmentStateBadgeVariant(
   state: TicketAssignmentState,
@@ -209,6 +255,14 @@ export function assignmentStateBadgeVariant(
   }
 }
 
+/** The variant for one row, `never_accepted` folded in — see `holderStateKey`. */
+export function holderBadgeVariant(ticket: HolderTicket): "success" | "warning" | "outline" {
+  if (ticket.never_accepted) {
+    return "outline";
+  }
+  return assignmentStateBadgeVariant(ticket.assignment_state ?? "unassigned");
+}
+
 /**
  * The Holder's name for display, from the two halves the API keeps apart.
  *
@@ -218,7 +272,7 @@ export function assignmentStateBadgeVariant(
  * EMPTY UNTIL SOMEBODY HAS ACCEPTED, because a name arrives only with acceptance
  * — which is exactly why the state travels beside it.
  */
-export function holderName(ticket: TicketOwingAnswers): string {
+export function holderName(ticket: HolderTicket): string {
   return [ticket.holder_first_name ?? "", ticket.holder_last_name ?? ""]
     .map((part) => part.trim())
     .filter(Boolean)
@@ -226,7 +280,7 @@ export function holderName(ticket: TicketOwingAnswers): string {
 }
 
 /**
- * Whether the Holder list has anything to draw at all.
+ * Whether the Holder column has anything to draw at all.
  *
  * THE FLAG IS READ OFF THE PAYLOAD'S ABSENCE AND NOWHERE ELSE, exactly as the
  * Storefront reads it (ADR 0045). With `TICKET_ASSIGNMENT_ENABLED` closed the API
@@ -234,6 +288,18 @@ export function holderName(ticket: TicketOwingAnswers): string {
  * deployment flag it cannot see — and the column disappears rather than filling a
  * screen with a word nobody can act on.
  */
-export function holderListVisible(rows: readonly TicketOwingAnswers[]): boolean {
+export function holderListVisible(rows: readonly HolderTicket[]): boolean {
   return rows.some((ticket) => Boolean(ticket.assignment_state));
+}
+
+/**
+ * Whether the questions side of the list exists: the Owes column, the debt
+ * summary and the Outstanding Answers filter.
+ *
+ * The same reading, off the OTHER flag's absence: with
+ * `TICKET_QUESTIONS_ENABLED` closed the API omits `outstanding` from every row
+ * and `outstanding_count` from the page, and this list is a plain roster.
+ */
+export function questionsVisible(page: HolderListPage): boolean {
+  return page.outstanding_count !== undefined;
 }

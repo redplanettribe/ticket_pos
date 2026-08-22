@@ -102,21 +102,64 @@ const outstandingAnswerScope = `
 	AND s.event_id = $1 AND s.organization_id = $2
 `
 
-// outstandingAnswerHolderJoin reaches the Customer an accepted Holder proved
+// holderRosterFrom is the join that produces ONE ROW PER TICKET of an Event —
+// the Holder List's rows (#333, rulings of 2026-08-22).
+//
+// EVERY TICKET, NOT EVERY TICKET THAT OWES. This is the roster: a fully
+// answered Ticket stays on it, and an Event that asks no questions still has
+// one, because the roster is the point and the questions are a column on it.
+// It deliberately does NOT join ticket_questions — the debt is somebody else's
+// derivation (outstandingAnswerFrom above), reused where it is needed and never
+// folded into what a Ticket IS.
+//
+// LIVENESS IS THE ONE FILTER, applied in holderRosterWhere: a reversed Ticket
+// Sale's Tickets have ceased to exist and are on nobody's roster, exactly as
+// they are in nobody's debt (ADR 0043).
+const holderRosterFrom = `
+	FROM tickets tk
+	JOIN ticket_sale_lines l ON l.id = tk.ticket_sale_line_id
+	JOIN ticket_sales s ON s.id = l.ticket_sale_id
+	JOIN ticket_types tt ON tt.id = l.ticket_type_id
+`
+
+// holderRosterWhere scopes the roster to the live Tickets of one Event of one
+// Organization. Both scopes and never only the Event, for
+// outstandingAnswerScope's reason: an Event id alone would let one
+// Organization's guess at an id resolve.
+const holderRosterWhere = `
+	s.status = 'active'
+	AND s.event_id = $1 AND s.organization_id = $2
+`
+
+// holderRosterOwingOnly narrows the roster to the Tickets that still owe a
+// required Answer — the Outstanding Answers FILTER, which is what Outstanding
+// Answers now is: a filter on the Holder List, not its definition (#333).
+//
+// IT REUSES THE DEBT'S OWN SQL, outstandingAnswerFrom and outstandingAnswerWhere
+// verbatim, inside an IN whose aliases shadow the roster's. Restating the four
+// clauses here would be a third statement of the rule, and the first to drift.
+const holderRosterOwingOnly = `
+	AND tk.id IN (
+		SELECT tk.id
+	` + outstandingAnswerFrom + `
+		WHERE ` + outstandingAnswerWhere + `
+		AND s.event_id = $1 AND s.organization_id = $2
+	)
+`
+
+// holderRosterHolderJoin reaches the Customer an accepted Holder proved
 // themselves to be, so that a row on this list can say WHO is coming and not
 // only which Ticket owes what (#329, ADR 0047).
 //
 // A SEPARATE CONST, ADDED BY ONE CALLER, and deliberately not folded into
-// outstandingAnswerFrom. The other three callers of that join — the whole-Event
-// count, the per-Ticket question listing and the Sale's EXISTS — decide the DEBT,
-// and the debt has no opinion about who holds a Ticket. A join in the shared FROM
-// would put the Holder into three queries that must never select them and would
-// make a disclosure decision by accident.
+// holderRosterFrom. The roster's COUNT has no business joining a person, and
+// the debt derivation above must never select one — a join in a shared FROM
+// would make a disclosure decision by accident.
 //
 // LEFT, AND ON THE PRIMARY KEY, so it can neither drop a row nor multiply one: a
 // Ticket has at most one holder_customer_id, and that column is NULL on every
 // Ticket that was never accepted — which is all of them while the flag is closed.
-const outstandingAnswerHolderJoin = `
+const holderRosterHolderJoin = `
 	LEFT JOIN customers hc ON hc.id = tk.holder_customer_id
 `
 
@@ -157,15 +200,16 @@ func (r *Repository) TicketSaleHasOutstandingAnswers(ctx context.Context, ticket
 	return exists, err
 }
 
-// TicketOwingAnswers is one Ticket that still owes at least one required Ticket
-// Question an Answer, with everything needed to chase it and to open it.
+// HolderTicket is one Ticket of the Event on the Holder List — the roster —
+// with everything needed to say who is coming on it, to chase it and to open
+// it (#333).
 //
 // IT CARRIES THE TICKET SALE'S IDENTITY AND REFERENCE because that is how staff
 // reach the Answers at all: the Answers dialog is keyed on a Ticket Sale, and a
 // list that named only the Ticket would be a list nobody could act on. The
 // buyer's name and email travel for the same reason — chasing means writing to
 // somebody, and this list exists to be chased from.
-type TicketOwingAnswers struct {
+type HolderTicket struct {
 	ID string
 	// Ordinal is which of its Ticket Sale Line's units this Ticket is,
 	// 1..quantity, and the only thing telling two Tickets on one line apart —
@@ -186,12 +230,8 @@ type TicketOwingAnswers struct {
 	CustomerLastName  string
 	CustomerEmail     string
 	SoldAt            time.Time
-	// OutstandingCount is how many required questions this Ticket owes. It is
-	// counted in the same GROUP BY that found the Ticket, so it can never
-	// disagree with the questions listed beside it.
-	OutstandingCount int
 
-	// THE GUEST LIST (#329, parent #322, ADR 0047). Who this Ticket was handed
+	// THE HOLDER (#329, parent #322, ADR 0047). Who this Ticket was handed
 	// to, beside what it owes, so that "who is coming and what size are they" is
 	// one read rather than two — which is the whole reason this surface was
 	// extended instead of a second one being built.
@@ -203,8 +243,8 @@ type TicketOwingAnswers struct {
 
 	// HolderEmail is the address the buyer named, and AssignedAt when they named
 	// it. Invalid on an `unassigned` Ticket — and equally invalid on one whose
-	// address the retention purge has taken (migration 081), which is why a
-	// purged Ticket reads `unassigned` here as it does everywhere else.
+	// address the retention purge has taken (migration 081), whose record of
+	// having been assigned survives only as HolderAddressPurgedAt below.
 	//
 	// WHAT THE ORGANIZATION IS SHOWN IS NOT DECIDED HERE. This is the repository
 	// reporting the row; the disclosure rule — nothing before acceptance — is
@@ -224,6 +264,14 @@ type TicketOwingAnswers struct {
 	// name is the reader's question and not this row's.
 	HolderFirstName sql.NullString
 	HolderLastName  sql.NullString
+	// HolderAddressPurgedAt is migration 081's marker: when the retention purge
+	// took an address nobody accepted, or NULL if it never took one. It is NOT a
+	// state and catalog.AssignmentState never reads it — but the Holder List
+	// derives its assigned-but-never-accepted PRESENTATION from it at read time
+	// (#334), so the morning-after sheet can tell "nobody was named" from "named
+	// and never claimed". It carries no address; the address is gone by
+	// definition.
+	HolderAddressPurgedAt sql.NullTime
 }
 
 // OutstandingQuestion is one required Ticket Question one Ticket has not
@@ -239,34 +287,41 @@ type OutstandingQuestion struct {
 	SortOrder  int
 }
 
-// ListTicketsOwingAnswers returns a page of the Event's Tickets that still owe
-// required Answers, oldest sale first, together with how many there are in all.
+// ListHolderTickets returns a page of the Event's ROSTER — every Ticket of
+// every live Ticket Sale — oldest sale first, together with how many Tickets
+// the whole roster carries (#333).
 //
-// OLDEST SALE FIRST, and not newest as the Sales list is. This is a chase list:
-// the buyer who paid in January and has said nothing since is the one whose
-// silence has run longest and whose shirt is least likely to arrive, so they
-// belong at the top. The Sales list is a ledger and reads newest-first for the
-// opposite and equally good reason.
+// EVERY TICKET AND NOT EVERY TICKET THAT OWES, which is the ruling on #333:
+// the Holder List is the Organization's answer to "who is coming", a fully
+// answered Ticket stays on it, and an Event that asks no questions still has
+// one. What a Ticket owes hangs off the row, from
+// ListOutstandingQuestionsForTickets, and owingOnly narrows the roster to the
+// Tickets that owe — Outstanding Answers as a FILTER of this list, never its
+// definition.
 //
-// ONE TICKET IS ONE ROW however many questions it owes, because the unit of
-// chasing is the Ticket — the thing staff open, and the thing a size gets
-// ordered for. The individual debts hang off it, from
-// ListOutstandingQuestionsForTickets.
+// OLDEST SALE FIRST, and not newest as the Sales list is. When the filter is
+// on this is a chase list — the buyer who paid in January and has said nothing
+// since belongs at the top — and the roster keeps the same order so switching
+// the filter reorders nobody.
 //
-// The total counts DISTINCT TICKETS and not debts, so it agrees with the rows
-// being paged. "Nine Tickets owe something" is the sentence this list is; the
-// number of individual questions owed is per-row and already in
-// OutstandingCount.
-func (r *Repository) ListTicketsOwingAnswers(
+// The total counts the TICKETS the current view holds, so it agrees with the
+// rows being paged, whichever way the filter is set.
+func (r *Repository) ListHolderTickets(
 	ctx context.Context,
 	organizationID, eventID string,
+	owingOnly bool,
 	limit, offset int,
-) ([]TicketOwingAnswers, int, error) {
+) ([]HolderTicket, int, error) {
+	filter := ""
+	if owingOnly {
+		filter = holderRosterOwingOnly
+	}
+
 	var total int
 	if err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT tk.id)
-	`+outstandingAnswerFrom+`
-		WHERE `+outstandingAnswerWhere+outstandingAnswerScope,
+		SELECT COUNT(*)
+	`+holderRosterFrom+`
+		WHERE `+holderRosterWhere+filter,
 		eventID, organizationID,
 	).Scan(&total); err != nil {
 		return nil, 0, err
@@ -275,23 +330,17 @@ func (r *Repository) ListTicketsOwingAnswers(
 	// many there are rather than appearing to have emptied. Same arrangement the
 	// Sales list has.
 	if total == 0 {
-		return []TicketOwingAnswers{}, 0, nil
+		return []HolderTicket{}, 0, nil
 	}
 
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
 		       s.id, s.confirmation_ref, s.channel,
 		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
-		       COUNT(*) AS outstanding_count,
-		       tk.holder_email, tk.assigned_at, tk.accepted_at,
+		       tk.holder_email, tk.assigned_at, tk.accepted_at, tk.holder_address_purged_at,
 		       hc.first_name, hc.last_name
-	`+outstandingAnswerFrom+outstandingAnswerHolderJoin+`
-		WHERE `+outstandingAnswerWhere+outstandingAnswerScope+`
-		GROUP BY tk.id, tk.ordinal, l.ticket_type_id, tt.name,
-		         s.id, s.confirmation_ref, s.channel,
-		         s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
-		         tk.holder_email, tk.assigned_at, tk.accepted_at,
-		         hc.first_name, hc.last_name
+	`+holderRosterFrom+holderRosterHolderJoin+`
+		WHERE `+holderRosterWhere+filter+`
 		ORDER BY s.sold_at ASC, s.id ASC, tk.ordinal ASC
 		LIMIT $3 OFFSET $4
 	`, eventID, organizationID, limit, offset)
@@ -300,15 +349,14 @@ func (r *Repository) ListTicketsOwingAnswers(
 	}
 	defer rows.Close()
 
-	tickets := make([]TicketOwingAnswers, 0)
+	tickets := make([]HolderTicket, 0)
 	for rows.Next() {
-		var t TicketOwingAnswers
+		var t HolderTicket
 		if err := rows.Scan(
 			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
 			&t.TicketSaleID, &t.ConfirmationRef, &t.Channel,
 			&t.CustomerFirstName, &t.CustomerLastName, &t.CustomerEmail, &t.SoldAt,
-			&t.OutstandingCount,
-			&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt,
+			&t.HolderEmail, &t.AssignedAt, &t.AcceptedAt, &t.HolderAddressPurgedAt,
 			&t.HolderFirstName, &t.HolderLastName,
 		); err != nil {
 			return nil, 0, err

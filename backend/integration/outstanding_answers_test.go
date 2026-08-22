@@ -8,10 +8,12 @@ import (
 	"time"
 )
 
-// The Outstanding Answers surface (#313): which of an Event's Tickets still owe
-// required Answers, and which questions they owe.
+// The Holder List (#333; the Outstanding Answers surface of #313, widened to
+// the roster): every Ticket of an Event, who is coming on each, and — where the
+// Event asks Ticket Questions — which questions each still owes. Outstanding
+// Answers is the `outstanding=true` FILTER on this list, never its definition.
 //
-// THESE TESTS ARE WHERE THE DEFINITION IS HELD TOGETHER. The rule lives twice —
+// THESE TESTS ARE WHERE THE DEBT'S DEFINITION IS HELD TOGETHER. The rule lives twice —
 // in Go as catalog.IsOutstandingAnswer and in SQL as
 // repository.outstandingAnswerWhere — because an Event's whole ticket roll
 // cannot be filtered in Go. The unit tests beside the Go one prove the four
@@ -33,10 +35,13 @@ type outstandingAnswers struct {
 		CustomerLastName  string    `json:"customer_last_name"`
 		CustomerEmail     string    `json:"customer_email"`
 		SoldAt            time.Time `json:"sold_at"`
-		// The guest list (#329). Every one of these is ABSENT while
-		// TICKET_ASSIGNMENT_ENABLED is closed, which is a separate flag from the
-		// one that opens this whole surface — see the flag test below.
+		// The Holder (#329). Every one of these is ABSENT while
+		// TICKET_ASSIGNMENT_ENABLED is closed, which is one of the two flags
+		// that open this surface — see the flag tests below.
 		AssignmentState string `json:"assignment_state"`
+		// NeverAccepted marks a Ticket whose unaccepted address the retention
+		// purge took: assigned, never claimed, address gone (#334).
+		NeverAccepted   bool   `json:"never_accepted"`
 		HolderFirstName string `json:"holder_first_name"`
 		HolderLastName  string `json:"holder_last_name"`
 		HolderEmail     string `json:"holder_email"`
@@ -96,29 +101,87 @@ func labelsOwedBy(page outstandingAnswers, ticketID string) []string {
 	return nil
 }
 
-func owesNothing(page outstandingAnswers, ticketID string) bool {
+// owesNothing reports that a Ticket is ON the roster and owes nothing — since
+// #333 a fully answered Ticket STAYS on the Holder List with an empty
+// `outstanding`, so "answered" and "absent" are opposite facts and this helper
+// refuses to conflate them.
+func owesNothing(t *testing.T, page outstandingAnswers, ticketID string) bool {
+	t.Helper()
 	for _, row := range page.Data {
 		if row.TicketID == ticketID {
-			return false
+			return len(row.Outstanding) == 0
 		}
 	}
-	return true
+	t.Fatalf("Ticket %s is not on the Holder List at all — the roster lost a Ticket", ticketID)
+	return false
 }
 
-// Nothing about the Outstanding Answers surface is reachable while the flag is
-// off — the same 404 a build without the feature gives, on the same terms as
-// every other Answer route (ADR 0045).
-func TestOutstandingAnswersAreInvisibleWhileTheFlagIsOff(t *testing.T) {
+// Nothing about the Holder List is reachable while BOTH flags are off — the
+// same 404 a build without either feature gives, on the same terms as every
+// other Answer route (ADR 0045). One flag suffices to open it (#333); that is
+// the next test's subject.
+func TestTheHolderListIsInvisibleWhileBothFlagsAreOff(t *testing.T) {
 	env := setupTest(t)
-	// Deliberately NOT calling enableTicketQuestions: this is the shipped state.
+	// Deliberately calling neither enableTicketQuestions nor
+	// enableTicketAssignment: this is the shipped state.
 	sessionID, eventID, _, _, _, _ := answeredFixture(t, env)
 
 	resp, body := env.get(t, outstandingPath(eventID), authHeader(sessionID))
 	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("status=%d, want 404 while the feature is dark; error=%+v", resp.StatusCode, body.Error)
+		t.Fatalf("status=%d, want 404 while both features are dark; error=%+v", resp.StatusCode, body.Error)
 	}
 	if body.Error == nil || body.Error.Code != "TICKET_QUESTIONS_UNAVAILABLE" {
 		t.Fatalf("error=%+v, want TICKET_QUESTIONS_UNAVAILABLE", body.Error)
+	}
+}
+
+// THE HOLDER LIST OPENS ON ASSIGNMENT ALONE (#333). An Organization that
+// assigns 80 tickets and asks nothing came here for "who is coming", and that
+// is the headline value of Ticket Assignment — so the read is gated on EITHER
+// flag, and an Event with no Ticket Questions still has a roster.
+//
+// AND IT SAYS NOTHING ABOUT DEBTS, because with TICKET_QUESTIONS_ENABLED
+// closed there is no such thing as one: `outstanding` and `outstanding_count`
+// are ABSENT — not empty, absent — so this payload admits nothing about a
+// feature that is not shipping (ADR 0045). Asserted on the raw body, because a
+// decoded struct cannot tell absent from empty.
+func TestTheHolderListOpensOnAssignmentAlone(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	// Questions stay CLOSED, and no question exists: the fixture's Event asks
+	// nothing at all.
+	sessionID, eventID, _, _, _, ticketIDs := answeredFixture(t, env)
+
+	resp, body := env.get(t, outstandingPath(eventID), authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d error=%+v — an Organization that asks nothing still has a Holder List",
+			resp.StatusCode, body.Error)
+	}
+	page := decodeOutstanding(t, body.Data)
+	if page.Pagination.Total != 2 || len(page.Data) != 2 {
+		t.Fatalf("tickets = %d (total %d), want the Event's two — the roster is every Ticket",
+			len(page.Data), page.Pagination.Total)
+	}
+	for _, ticketID := range ticketIDs {
+		if got := guestRow(t, page, ticketID); got.state != "unassigned" {
+			t.Errorf("Ticket %s reads state=%q, want `unassigned` with the roster visible", ticketID, got.state)
+		}
+	}
+	if strings.Contains(string(body.Data), "outstanding") {
+		t.Error("the response speaks of `outstanding` while TICKET_QUESTIONS_ENABLED is closed.\n" +
+			"A build with questions dark must send the bytes a build without the feature sends (ADR 0045).")
+	}
+
+	// The Outstanding Answers filter belongs to the questions feature and is
+	// IGNORED while it is dark, rather than becoming a side channel that
+	// filters by a debt the platform says does not exist.
+	resp, body = env.get(t, outstandingPath(eventID)+"?outstanding=true", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("filtered status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	if page := decodeOutstanding(t, body.Data); page.Pagination.Total != 2 {
+		t.Fatalf("filtered total = %d, want the whole roster — the filter is dark with the questions feature",
+			page.Pagination.Total)
 	}
 }
 
@@ -191,12 +254,31 @@ func TestOutstandingAnswersEmptyAsAnswersArrive(t *testing.T) {
 	putAnswer(t, env, sessionID, eventID, ticketIDs[0], dinner.ID, map[string]any{"checked": false})
 
 	page = listOutstanding(t, env, sessionID, eventID)
-	if !owesNothing(page, ticketIDs[0]) {
-		t.Fatalf("a fully answered Ticket is still on the list: %v", labelsOwedBy(page, ticketIDs[0]))
+	if !owesNothing(t, page, ticketIDs[0]) {
+		t.Fatalf("a fully answered Ticket still owes: %v", labelsOwedBy(page, ticketIDs[0]))
 	}
-	if page.Pagination.Total != 1 || page.OutstandingCount != 2 {
-		t.Fatalf("tickets=%d outstanding=%d, want the second Ticket's two debts alone",
+	// THE ROSTER KEEPS THE ANSWERED TICKET (#333). Both Tickets stay listed —
+	// the list is every Ticket of the Event, and answering leaves it with an
+	// empty debt rather than off the sheet. Only the debt count moves.
+	if page.Pagination.Total != 2 || page.OutstandingCount != 2 {
+		t.Fatalf("tickets=%d outstanding=%d, want both Tickets on the roster with the second's two debts alone",
 			page.Pagination.Total, page.OutstandingCount)
+	}
+
+	// And the Outstanding Answers FILTER is where the old list went: only the
+	// Ticket that still owes.
+	resp2, body2 := env.get(t, outstandingPath(eventID)+"?outstanding=true", authHeader(sessionID))
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("filtered status=%d error=%+v", resp2.StatusCode, body2.Error)
+	}
+	filtered := decodeOutstanding(t, body2.Data)
+	if filtered.Pagination.Total != 1 || len(filtered.Data) != 1 || filtered.Data[0].TicketID != ticketIDs[1] {
+		t.Fatalf("filtered rows=%d total=%d, want only the owing Ticket — Outstanding Answers is a filter of the roster",
+			len(filtered.Data), filtered.Pagination.Total)
+	}
+	// The Event's debt count is the Event's, unmoved by the filter.
+	if filtered.OutstandingCount != 2 {
+		t.Fatalf("filtered outstanding_count=%d, want the Event's 2", filtered.OutstandingCount)
 	}
 
 	// Removing an Answer is the way back to "not said", and it restores the
@@ -425,7 +507,7 @@ func TestOutstandingAnswersCarryTheJumpToTheTicket(t *testing.T) {
 	// surface exists to make: read the list, open the Ticket, answer it, and the
 	// row is gone.
 	putAnswer(t, env, sessionID, eventID, row.TicketID, question.ID, map[string]any{"text": "L"})
-	if !owesNothing(listOutstanding(t, env, sessionID, eventID), row.TicketID) {
+	if !owesNothing(t, listOutstanding(t, env, sessionID, eventID), row.TicketID) {
 		t.Fatal("the Ticket is still owing after being answered through the jump")
 	}
 	_ = ticketIDs
@@ -498,14 +580,36 @@ func TestOutstandingAnswersFollowTheTicketType(t *testing.T) {
 		"label": "Dietary requirements", "kind": "short_text", "required": true,
 	})
 
+	// The ROSTER holds both Tickets — the list is the Event's Tickets, not its
+	// debtors — and only the VIP one owes anything.
 	page := listOutstanding(t, env, sessionID, eventID)
-	if page.Pagination.Total != 1 || page.OutstandingCount != 1 {
-		t.Fatalf("tickets=%d outstanding=%d, want only the VIP Ticket owing",
+	if page.Pagination.Total != 2 || page.OutstandingCount != 1 {
+		t.Fatalf("tickets=%d outstanding=%d, want both Tickets on the roster and one debt",
 			page.Pagination.Total, page.OutstandingCount)
 	}
-	if page.Data[0].TicketTypeName != "VIP" {
-		t.Fatalf("owing Ticket Type = %q, want VIP — a General Ticket owes nothing the VIP type asks",
-			page.Data[0].TicketTypeName)
+	for _, row := range page.Data {
+		switch row.TicketTypeName {
+		case "VIP":
+			if len(row.Outstanding) != 1 || row.Outstanding[0].Label != "Dietary requirements" {
+				t.Fatalf("the VIP Ticket owes %v, want its own one question", labelsOwedBy(page, row.TicketID))
+			}
+		case "General":
+			if len(row.Outstanding) != 0 {
+				t.Fatalf("the General Ticket owes %v — a General Ticket owes nothing the VIP type asks",
+					labelsOwedBy(page, row.TicketID))
+			}
+		}
+	}
+
+	// The Outstanding Answers filter is where "only the owing" lives now.
+	resp, body := env.get(t, outstandingPath(eventID)+"?outstanding=true", authHeader(sessionID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("filtered status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	filtered := decodeOutstanding(t, body.Data)
+	if filtered.Pagination.Total != 1 || filtered.Data[0].TicketTypeName != "VIP" {
+		t.Fatalf("filtered total=%d type=%q, want the VIP Ticket alone",
+			filtered.Pagination.Total, filtered.Data[0].TicketTypeName)
 	}
 }
 
@@ -541,21 +645,23 @@ func TestOutstandingAnswersAreScopedAndGated(t *testing.T) {
 	}
 }
 
-// THE GUEST LIST (#329, parent #322, ADR 0047).
+// THE HOLDER LIST'S PEOPLE (#329, parent #322, ADR 0047; roster per #333).
 //
 // The same read, widened rather than duplicated. An Organization asked "who is
 // coming to my Event" could previously answer only with the buyer's name
 // repeated once per Ticket; these tests are what makes it answer with people.
 //
-// THE ROWS ARE THE SAME ROWS. Nothing below adds a Ticket to this list or takes
-// one off it: the list is still the Event's Tickets that owe required Answers,
-// and the guest is a fact carried BY a row. That is the whole reason there is no
-// second staff endpoint — and it is also the coupling it leaves behind, which
-// TestTheGuestListOnlyReachesTicketsThatOweAnAnswer records.
+// THE ROWS ARE THE EVENT'S TICKETS. Since #333 the list is the roster — every
+// Ticket of every live sale — and assignment neither adds a row nor takes one
+// off; what a Ticket owes is a column on it. That is the whole reason there is
+// no second staff endpoint.
 
 // guestEntry is what the Organization is shown about the person on one row.
 type guestEntry struct {
 	state, firstName, lastName, email string
+	// neverAccepted is the purge's presentation-level marker (#334): somebody
+	// was named and never claimed the Ticket, and the address is gone.
+	neverAccepted bool
 }
 
 // guestRow picks one Ticket's row off the Organization's list, failing if the
@@ -565,7 +671,10 @@ func guestRow(t *testing.T, page outstandingAnswers, ticketID string) guestEntry
 	t.Helper()
 	for _, row := range page.Data {
 		if row.TicketID == ticketID {
-			return guestEntry{row.AssignmentState, row.HolderFirstName, row.HolderLastName, row.HolderEmail}
+			return guestEntry{
+				row.AssignmentState, row.HolderFirstName, row.HolderLastName, row.HolderEmail,
+				row.NeverAccepted,
+			}
 		}
 	}
 	t.Fatalf("Ticket %s is not on the Organization's list", ticketID)
@@ -665,23 +774,29 @@ func TestTheGuestListNamesAcceptedHoldersAndNobodyElse(t *testing.T) {
 	}
 }
 
-// A PURGED TICKET READS `unassigned` TO THE ORGANIZATION, AND THERE IS NO FOURTH
-// STATE.
+// A PURGED TICKET READS `assigned, never accepted` ON THE HOLDER LIST — AND
+// THERE IS STILL NO FOURTH STATE (#334, ruling of 2026-08-22).
 //
 // An address nobody accepted is taken when the Event starts (#331, migration
 // 081), which takes `assigned_at` with it and leaves only the platform's own
-// marker that this Ticket once carried one. That marker is not a state and
-// nothing derives one from it: nobody holds the Ticket, which is the truth, and
-// a `purged` on the wire would be a fourth value on a feature whose three states
-// are its whole vocabulary.
-func TestAPurgedHolderAddressReadsAsUnassignedOnTheGuestList(t *testing.T) {
+// marker that this Ticket once carried one. After the Event starts every
+// unaccepted assignment would otherwise read `unassigned`, and the
+// morning-after sheet could not distinguish "nobody was named" from "named and
+// never claimed" — opposite facts to the person reading it. So the Holder List
+// derives `assigned` with `never_accepted` beside it AT READ TIME from the
+// marker, and catalog.AssignmentState keeps its three values: the buyer's page
+// and the export still read such a Ticket as `unassigned`, which #331's
+// rejection of a fourth state protects. Nothing personal is disclosed — the
+// address is gone by definition.
+func TestAPurgedTicketReadsAssignedNeverAcceptedOnTheHolderList(t *testing.T) {
 	env := setupTest(t)
 	f := newAssignmentFixture(t, env)
 	ticketID := f.anaTicketIDs[0]
 
 	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "diego@example.com")
-	if got := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID); got.state != "assigned" {
-		t.Fatalf("state before the purge = %q, want `assigned`", got.state)
+	got := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID)
+	if got.state != "assigned" || got.neverAccepted {
+		t.Fatalf("row before the purge = %+v, want plain `assigned` — the marker is the purge's alone", got)
 	}
 
 	// The doors open — the fixture's Event starts 30 days out — and the purge
@@ -691,15 +806,22 @@ func TestAPurgedHolderAddressReadsAsUnassignedOnTheGuestList(t *testing.T) {
 		t.Fatalf("purge = %+v, want the one unaccepted address taken", result)
 	}
 
-	// The Event has started, and this list still reports its debts — "twelve
-	// people never told us" is what a reader after the fact came to find out.
-	got := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID)
-	if got.state != "unassigned" {
-		t.Errorf("a purged Ticket reads state=%q to the Organization, want `unassigned` — "+
-			"three states and never four (migration 081)", got.state)
+	// The Event has started, and this list still reports what happened —
+	// "somebody was named and never claimed it" is what a reader after the fact
+	// came to find out, and `unassigned` would rewrite it as "nobody was named".
+	got = guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID)
+	if got.state != "assigned" || !got.neverAccepted {
+		t.Errorf("a purged Ticket reads %+v to the Organization, want `assigned` with never_accepted — "+
+			"the morning-after sheet must not rewrite what happened (#334)", got)
 	}
-	if got.email != "" || got.firstName != "" {
-		t.Errorf("a purged Ticket still discloses %+v", got)
+	if got.email != "" || got.firstName != "" || got.lastName != "" {
+		t.Errorf("a purged Ticket still discloses %+v — the address is gone by definition", got)
+	}
+
+	// And the Ticket nobody was ever named for stays a plain `unassigned`
+	// beside it, which is the distinction the marker exists to draw.
+	if other := guestRow(t, listOutstanding(t, env, f.staffSession, f.eventID), f.anaTicketIDs[1]); other.state != "unassigned" || other.neverAccepted {
+		t.Errorf("the never-assigned Ticket reads %+v, want plain `unassigned`", other)
 	}
 }
 
@@ -729,7 +851,7 @@ func TestStaffStillAnswerForAnAcceptedHolder(t *testing.T) {
 
 	// The row is acted on exactly as any other is: through the jump it carries.
 	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "S"})
-	if !owesNothing(listOutstanding(t, env, f.staffSession, f.eventID), ticketID) {
+	if !owesNothing(t, listOutstanding(t, env, f.staffSession, f.eventID), ticketID) {
 		t.Error("the Ticket still owes after Event Staff answered it — an unreachable Holder is a dead end")
 	}
 }
@@ -758,7 +880,7 @@ func TestTheGuestListIsAbsentWhileTheAssignmentFlagIsClosed(t *testing.T) {
 	if page.Pagination.Total != 3 {
 		t.Fatalf("tickets = %d, want the Event's three still listed", page.Pagination.Total)
 	}
-	for _, forbidden := range []string{"assignment_state", "holder_first_name", "holder_last_name", "holder_email"} {
+	for _, forbidden := range []string{"assignment_state", "never_accepted", "holder_first_name", "holder_last_name", "holder_email"} {
 		if strings.Contains(string(body.Data), forbidden) {
 			t.Errorf("the response carries %q while TICKET_ASSIGNMENT_ENABLED is closed.\n"+
 				"A closed build must send the bytes a build without the feature sends (ADR 0045).", forbidden)
@@ -766,23 +888,18 @@ func TestTheGuestListIsAbsentWhileTheAssignmentFlagIsClosed(t *testing.T) {
 	}
 }
 
-// THE GUEST LIST REACHES ONLY TICKETS THAT OWE AN ANSWER, AND THIS TEST EXISTS
-// TO RECORD THAT RATHER THAN TO BLESS IT.
+// THE HOLDER LIST REACHES EVERY TICKET, AND A FULLY ANSWERED ONE STAYS ON IT
+// WITH ITS HOLDER'S NAME.
 //
-// The guest rides on the Outstanding Answers read — one surface and not two,
-// which is #329's decision — and that read's rows are the Tickets still owing a
-// required Ticket Question. So a Ticket whose Answers are all in DROPS OFF the
-// guest list at the moment it is fully answered, and a Ticket Type that asks
-// nothing never appears on it at all. An Organization that asks no Ticket
-// Questions therefore has no guest list, and the whole route 404s while
-// TICKET_QUESTIONS_ENABLED is closed however open assignment is.
-//
-// That is a real gap between "who is coming" and what this surface can answer,
-// and closing it is a decision about what this list IS — every Ticket, or every
-// Ticket that owes — which is beyond the ticket that widened the row. It is
-// asserted here so the gap is a known property with a test naming it, and so
-// that whoever closes it has something that fails when they do.
-func TestTheGuestListOnlyReachesTicketsThatOweAnAnswer(t *testing.T) {
+// This test is the INVERSION TestTheGuestListOnlyReachesTicketsThatOweAnAnswer
+// predicted (#333, ruling of 2026-08-22): that test recorded, without blessing
+// it, that a Ticket dropped off the guest list the moment its Answers were all
+// in — Carla answered her one question and left the list with her name. The
+// ruling made the list the roster: answering discharges the DEBT and touches
+// nothing else, because who is coming and what they still owe are different
+// columns of one list, and the Outstanding Answers filter is where the old
+// behaviour lives.
+func TestTheHolderListKeepsAFullyAnsweredTicket(t *testing.T) {
 	env := setupTest(t)
 	f := newAssignmentFixture(t, env)
 	ticketID := f.anaTicketIDs[0]
@@ -793,9 +910,33 @@ func TestTheGuestListOnlyReachesTicketsThatOweAnAnswer(t *testing.T) {
 		t.Fatal("the accepted Holder is not on the list to begin with")
 	}
 
-	// Carla answers the one required question, and leaves the list with her name.
+	// Carla answers the one required question — and STAYS, owing nothing.
 	putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID, map[string]any{"text": "S"})
-	if !owesNothing(listOutstanding(t, env, f.staffSession, f.eventID), ticketID) {
-		t.Fatal("a fully answered Ticket is still on the Outstanding Answers list")
+	page := listOutstanding(t, env, f.staffSession, f.eventID)
+	if page.Pagination.Total != 3 {
+		t.Fatalf("tickets = %d after answering, want the Event's three — answering discharges a debt, not a person",
+			page.Pagination.Total)
+	}
+	if !owesNothing(t, page, ticketID) {
+		t.Fatalf("the answered Ticket still owes %v", labelsOwedBy(page, ticketID))
+	}
+	if got := guestRow(t, page, ticketID); got.state != "accepted" || got.email != "carla@example.com" {
+		t.Errorf("the answered Ticket reads %+v — a fully answered Holder must not vanish from \"who is coming\"", got)
+	}
+
+	// The Outstanding Answers filter is the view that narrows: Carla's Ticket
+	// leaves IT, and only it.
+	resp, body := env.get(t, outstandingPath(f.eventID)+"?outstanding=true", authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("filtered status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+	filtered := decodeOutstanding(t, body.Data)
+	if filtered.Pagination.Total != 2 {
+		t.Fatalf("filtered total = %d, want the two Tickets still owing", filtered.Pagination.Total)
+	}
+	for _, row := range filtered.Data {
+		if row.TicketID == ticketID {
+			t.Error("the fully answered Ticket is still on the Outstanding Answers filter")
+		}
 	}
 }

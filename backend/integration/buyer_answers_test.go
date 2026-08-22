@@ -790,7 +790,7 @@ func TestBuyerOutstandingCountsAgreeWithTheOrganizationsChaseList(t *testing.T) 
 		t.Fatalf("the sibling owes %d after the retirement, want only the dinner question",
 			retired[1].OutstandingCount)
 	}
-	if !owesNothing(listOutstanding(t, env, f.staffSession, f.eventID), f.anaTicketIDs[0]) {
+	if !owesNothing(t, listOutstanding(t, env, f.staffSession, f.eventID), f.anaTicketIDs[0]) {
 		t.Fatal("the Organization's chase list still names a Ticket the buyer's page says owes nothing")
 	}
 	// The retired question is still LISTED and still readable — retiring takes

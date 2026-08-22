@@ -67,6 +67,11 @@ export type EventDetail = {
    * Type editor is composed from this payload (#309, ADR 0045). False is the
    * shipped state, and with it false no surface offers Ticket Questions. */
   ticket_questions_enabled: boolean;
+  /** The platform's Ticket Assignment feature flag, riding here for the same
+   * reason: the Holder List entry is offered while EITHER this or the questions
+   * flag is on (#333), and the staff app reads both off this payload rather
+   * than off an env var of its own. False is the shipped state. */
+  ticket_assignment_enabled: boolean;
   created_at: string;
 };
 

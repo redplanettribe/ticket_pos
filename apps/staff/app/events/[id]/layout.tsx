@@ -70,17 +70,21 @@ export default async function EventLayout({ params, children }: EventLayoutProps
   const fullAccess = role === "org_admin" || role === "event_owner";
 
   /*
-    The Outstanding Answers entry, which is offered only when BOTH halves hold.
+    The Holder List entry, which is offered only when BOTH halves hold.
 
-    The feature ships dark (ADR 0045), so the flag is read off the Event payload
-    — the one answer to whether Ticket Questions are on, which is why the staff
-    app never reads an env var of its own — and its route is gated to Org Admins
-    alone, narrower than `fullAccess`. Offering a tab that answers 404 or 403
-    would be worse than not offering it, and while the feature is dark the tab
-    must not exist at all: a nav entry is exactly the kind of thing that admits a
-    feature is there before the Privacy Policy describes it.
+    Both features ship dark (ADR 0045), so the flags are read off the Event
+    payload — the one answer to whether they are on, which is why the staff app
+    never reads an env var of its own — and the API serves the list while
+    EITHER Ticket Assignment or Ticket Questions is open (#333), so the entry
+    follows the same OR. Its route is gated to Org Admins alone, narrower than
+    `fullAccess`. Offering a tab that answers 404 or 403 would be worse than
+    not offering it, and while both features are dark the tab must not exist at
+    all: a nav entry is exactly the kind of thing that admits a feature is
+    there before the Privacy Policy describes it.
   */
-  const outstandingAnswers = Boolean(event.ticket_questions_enabled) && role === "org_admin";
+  const holderList =
+    Boolean(event.ticket_assignment_enabled || event.ticket_questions_enabled) &&
+    role === "org_admin";
 
   /*
     The Event panel's words, resolved here and handed down. @ticket-pos/ui
@@ -95,7 +99,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
       ticketTypes: t("navTicketTypes"),
       affiliateLinks: t("navAffiliateLinks"),
       sales: t("navSales"),
-      outstandingAnswers: t("navOutstandingAnswers"),
+      holderList: t("navHolderList"),
       trends: t("navTrends"),
     },
     sidebar: {
@@ -118,7 +122,7 @@ export default async function EventLayout({ params, children }: EventLayoutProps
       labels={labels}
       eventId={id}
       fullAccess={fullAccess}
-      outstandingAnswers={outstandingAnswers}
+      holderList={holderList}
       eventName={event.name || t("fallbackName")}
       status={event.status}
       statusLabel={statusLabel}

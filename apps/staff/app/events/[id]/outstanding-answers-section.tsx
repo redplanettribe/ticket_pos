@@ -21,53 +21,65 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { ApiError } from "@/lib/events-api";
 import { formatDate, formatNumber } from "@/lib/format";
 import {
-  ASSIGNMENT_STATE_KEYS,
   SALES_CHANNEL_KEYS,
-  assignmentStateBadgeVariant,
   buyerName,
-  fetchOutstandingAnswers,
+  fetchHolderList,
+  holderBadgeVariant,
   holderListVisible,
   holderName,
-  type OutstandingAnswersPage,
-  type TicketOwingAnswers,
+  holderStateKey,
+  questionsVisible,
+  type HolderListPage,
+  type HolderTicket,
 } from "@/lib/outstanding-answers";
 
 import { TicketAnswersDialog } from "./ticket-answers-dialog";
 
-type OutstandingAnswersSectionProps = {
+type HolderListSectionProps = {
   eventId: string;
   /** The Event's timezone, so a sale date reads where the Event is. */
   timezone: string | null;
 };
 
 /**
- * The Event's Outstanding Answers: which Tickets still owe required Answers, and
- * which questions they owe (#313).
+ * The Event's Holder List (#333; the Outstanding Answers screen of #313,
+ * widened to the roster): every Ticket of the Event, who is coming on each,
+ * and — where the Event asks Ticket Questions — what each still owes.
  *
- * WHAT THIS SCREEN IS. An Outstanding Answer is a debt, not a defect — the whole
- * meaning of "required" on this platform. Nothing was ever refused for want of
- * one, on any channel, so seeing the debt IS the feature: this is where an
- * Organization finds out how many sizes it still does not know before it orders
- * the shirts.
+ * WHAT THIS SCREEN IS. The Organization's answer to "who is coming": a roster,
+ * one row per Ticket of every live sale. A fully answered Ticket stays on it
+ * and an Event that asks nothing still has one, because the roster is the
+ * point and the questions are a column on it. OUTSTANDING ANSWERS IS THE ONE
+ * FILTER this list offers — the debt view it used to be — never its
+ * definition.
  *
- * IT HIDES NOTHING AND FILTERS NOTHING. Door sales and Sale Imports stand here
- * beside online ones and start out owing everything, because nobody ever put the
- * questions to those buyers — so every row names its Sales Channel, which is what
- * turns "this import owes six answers" from an alarm into a fact. There is no
- * filter control either: every row is something the Organization does not know,
- * and a filter over this list would only be a way of looking at fewer of them.
+ * IT HIDES NOTHING. Door sales and Sale Imports stand here beside online ones
+ * and start out owing everything, because nobody ever put the questions to
+ * those buyers — so every row names its Sales Channel, which is what turns
+ * "this import owes six answers" from an alarm into a fact.
  *
- * NOTHING HERE DECIDES WHAT IS OUTSTANDING. The definition lives once, in the
- * API. This component reads a page of the answer and draws it.
+ * NOTHING HERE DECIDES A STATE OR A DEBT. Both definitions live once, in the
+ * API. This component reads a page of the answer and draws it — including
+ * which halves of the screen exist at all, read off the payload's absences
+ * rather than off any flag of its own (ADR 0045): no `assignment_state`
+ * anywhere means no Holder column, and no `outstanding_count` means no Owes
+ * column, no debt summary and no filter.
  */
-export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnswersSectionProps) {
+export function OutstandingAnswersSection({ eventId, timezone }: HolderListSectionProps) {
   const t = useTranslations("outstandingAnswers");
   const sales = useTranslations("sales");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
 
   const [page, setPage] = useState(1);
-  const [result, setResult] = useState<OutstandingAnswersPage | null>(null);
+  /*
+    The Outstanding Answers filter: the roster narrowed to the Tickets that
+    still owe. Held here rather than in the URL because it is a working view of
+    one sitting — the chase — and the page resets with it, since page 3 of the
+    roster names nothing about page 3 of the owing.
+  */
+  const [outstandingOnly, setOutstandingOnly] = useState(false);
+  const [result, setResult] = useState<HolderListPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,7 +98,7 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setResult(await fetchOutstandingAnswers(eventId, page));
+      setResult(await fetchHolderList(eventId, page, outstandingOnly));
       setError(null);
     } catch (failure) {
       setResult(null);
@@ -96,7 +108,7 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
     } finally {
       setLoading(false);
     }
-  }, [eventId, page, errorCopy, t]);
+  }, [eventId, page, outstandingOnly, errorCopy, t]);
 
   useEffect(() => {
     void load();
@@ -105,11 +117,11 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
   /*
     Re-read when the dialog closes.
 
-    The list is DERIVED on every read, so an Answer given in the dialog has
-    already discharged its debt on the server — this is only the screen catching
+    The debts are DERIVED on every read, so an Answer given in the dialog has
+    already been discharged on the server — this is only the screen catching
     up. Re-reading on close rather than watching the dialog's writes keeps the
-    two surfaces from having to agree about anything: whatever happened in there,
-    including nothing, the next read is the truth.
+    two surfaces from having to agree about anything: whatever happened in
+    there, including nothing, the next read is the truth.
   */
   const closeDialog = useCallback(
     (open: boolean) => {
@@ -124,14 +136,13 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
   const rows = result?.data ?? [];
   const pagination = result?.pagination;
   /*
-    Whether to draw the Holder list at all.
-
-    THE FEATURE FLAG IS READ OFF THE PAYLOAD'S ABSENCE and nowhere else, exactly
-    as the Storefront reads it: with `TICKET_ASSIGNMENT_ENABLED` closed the API
-    omits every assignment field, so this app needs no second copy of a
-    deployment flag it cannot see (ADR 0045).
+    Which halves of the list exist, read off the payload's absences and nowhere
+    else, exactly as the Storefront reads its flags (ADR 0045): with
+    `TICKET_ASSIGNMENT_ENABLED` closed the API omits every assignment field,
+    and with `TICKET_QUESTIONS_ENABLED` closed it omits everything about debts.
   */
   const showHolders = holderListVisible(rows);
+  const showQuestions = result ? questionsVisible(result) : false;
 
   return (
     <Card>
@@ -146,6 +157,25 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
           </Alert>
         ) : null}
 
+        {/* The one filter, offered only while the Event HAS debts to filter by
+            — an Event whose questions feature is dark gets a plain roster and
+            no control promising a view that cannot differ. It stays visible
+            while its own filtered view is empty, because unticking it is the
+            way back. */}
+        {showQuestions && !error && (rows.length > 0 || outstandingOnly) ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={outstandingOnly}
+              onChange={(event) => {
+                setOutstandingOnly(event.target.checked);
+                setPage(1);
+              }}
+            />
+            {t("filterOutstanding")}
+          </label>
+        ) : null}
+
         {loading ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -156,26 +186,30 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
 
         {!loading && !error && rows.length === 0 ? (
           /*
-            The empty state is a CONGRATULATION and not a shrug. An Event with
-            nothing outstanding is one where every required question has been
-            answered on every live Ticket, which is the state the whole feature
-            exists to reach — and it reads identically on an Event that has asked
-            no required questions at all, which is correct: neither owes anything.
+            Two different empty states for two different facts. The filtered
+            view emptying is a CONGRATULATION — every required question has
+            been answered on every live Ticket. The roster emptying just means
+            nothing has been sold yet, which is no achievement and no failure.
           */
-          <p className="text-sm text-muted-foreground">{t("nothingOutstanding")}</p>
+          <p className="text-sm text-muted-foreground">
+            {outstandingOnly ? t("nothingOutstanding") : t("noTickets")}
+          </p>
         ) : null}
 
         {!loading && !error && rows.length > 0 ? (
           <>
             {/* One message rather than two numbers glued together: which of the
                 two counts leads the sentence, and both of their plurals, are the
-                translator's to decide. */}
-            <p className="text-sm text-muted-foreground">
-              {t("summary", {
-                answers: result?.outstanding_count ?? 0,
-                tickets: pagination?.total ?? 0,
-              })}
-            </p>
+                translator's to decide. Only drawn where debts exist as a concept
+                — a roster without questions has nothing to summarise. */}
+            {showQuestions ? (
+              <p className="text-sm text-muted-foreground">
+                {t("summary", {
+                  answers: result?.outstanding_count ?? 0,
+                  tickets: pagination?.total ?? 0,
+                })}
+              </p>
+            ) : null}
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -189,7 +223,9 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                     {showHolders ? <th className="py-2 pr-4 font-medium">{t("colHolder")}</th> : null}
                     <th className="py-2 pr-4 font-medium">{t("colTicket")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colSold")}</th>
-                    <th className="py-2 pr-4 font-medium">{t("colOwes")}</th>
+                    {/* And the Owes column only where debts exist as a concept,
+                        for the same reason on the other flag. */}
+                    {showQuestions ? <th className="py-2 pr-4 font-medium">{t("colOwes")}</th> : null}
                     <th className="py-2 font-medium">
                       <span className="sr-only">{t("colActions")}</span>
                     </th>
@@ -197,7 +233,7 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                 </thead>
                 <tbody>
                   {rows.map((ticket) => (
-                    <OutstandingRow
+                    <HolderRow
                       key={ticket.ticket_id}
                       ticket={ticket}
                       timezone={timezone}
@@ -207,6 +243,7 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                       answersLabel={sales("ticketAnswers")}
                       channelLabel={sales(SALES_CHANNEL_KEYS[ticket.channel])}
                       showHolder={showHolders}
+                      showQuestions={showQuestions}
                     />
                   ))}
                 </tbody>
@@ -265,25 +302,28 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
   );
 }
 
-type OutstandingRowProps = {
-  ticket: TicketOwingAnswers;
+type HolderRowProps = {
+  ticket: HolderTicket;
   timezone: string | null;
   onOpen: () => void;
   answersLabel: string;
   channelLabel: string;
   /** Whether this Event's rows carry a Holder at all; see `holderListVisible`. */
   showHolder: boolean;
+  /** Whether the questions side of the list exists; see `questionsVisible`. */
+  showQuestions: boolean;
 };
 
-/** One Ticket that owes, and the questions it owes. */
-function OutstandingRow({
+/** One Ticket of the Event: its buyer, its Holder, and what it owes. */
+function HolderRow({
   ticket,
   timezone,
   onOpen,
   answersLabel,
   channelLabel,
   showHolder,
-}: OutstandingRowProps) {
+  showQuestions,
+}: HolderRowProps) {
   const t = useTranslations("outstandingAnswers");
   const locale = toAppLocale(useLocale());
 
@@ -293,6 +333,8 @@ function OutstandingRow({
   const sold = timezone
     ? formatDate(ticket.sold_at, timezone, locale)
     : formatDate(ticket.sold_at, Intl.DateTimeFormat().resolvedOptions().timeZone, locale);
+
+  const outstanding = ticket.outstanding ?? [];
 
   return (
     <tr className="border-b align-top last:border-0">
@@ -317,16 +359,24 @@ function OutstandingRow({
           {channelLabel}
         </Badge>
       </td>
-      <td className="py-3 pr-4">
-        <ul className="space-y-1">
-          {ticket.outstanding.map((question) => (
-            // The label is the Organization's own words, rendered AS COINED in
-            // both languages exactly as a Ticket Type name is (ADR 0027). Only
-            // the chrome around it follows the reader's Staff Locale.
-            <li key={question.question_id}>{question.label}</li>
-          ))}
-        </ul>
-      </td>
+      {showQuestions ? (
+        <td className="py-3 pr-4">
+          {outstanding.length > 0 ? (
+            <ul className="space-y-1">
+              {outstanding.map((question) => (
+                // The label is the Organization's own words, rendered AS COINED
+                // in both languages exactly as a Ticket Type name is (ADR 0027).
+                // Only the chrome around it follows the reader's Staff Locale.
+                <li key={question.question_id}>{question.label}</li>
+              ))}
+            </ul>
+          ) : (
+            /* Owing nothing is an ordinary state of a roster row, said out
+               loud rather than left as a blank a reader must interpret. */
+            <span className="text-muted-foreground">{t("owesNothing")}</span>
+          )}
+        </td>
+      ) : null}
       <td className="py-3">
         <Button type="button" variant="outline" size="sm" onClick={onOpen}>
           {answersLabel}
@@ -336,7 +386,7 @@ function OutstandingRow({
   );
 }
 
-type HolderCellProps = { ticket: TicketOwingAnswers };
+type HolderCellProps = { ticket: HolderTicket };
 
 /**
  * Who is coming on one Ticket (#329, ADR 0047).
@@ -352,13 +402,18 @@ type HolderCellProps = { ticket: TicketOwingAnswers };
  * buyer typed and its owner never accepted has no consent moment behind it, and
  * the person may not know a ticket was bought for them.
  *
+ * A PURGED ROW READS "ASSIGNED, NEVER ACCEPTED" (#334): the API sends
+ * `assigned` with `never_accepted` beside it, and `holderStateKey` picks the
+ * word — somebody was named and never claimed the Ticket, which after the
+ * Event is a different fact from nobody having been named. It too names
+ * nobody: the address is gone by definition.
+ *
  * The address of an ACCEPTED Holder is shown, deliberately and at a stated cost
  * (ADR 0047) — an Organizer needs a way to reach the people attending its Event,
  * and this platform builds no surface for it to mail them.
  */
 function HolderCell({ ticket }: HolderCellProps) {
   const t = useTranslations("outstandingAnswers");
-  const state = ticket.assignment_state ?? "unassigned";
   const name = holderName(ticket);
 
   return (
@@ -367,8 +422,8 @@ function HolderCell({ ticket }: HolderCellProps) {
       {ticket.holder_email ? (
         <div className="text-muted-foreground">{ticket.holder_email}</div>
       ) : null}
-      <Badge variant={assignmentStateBadgeVariant(state)} className={name ? "mt-1" : undefined}>
-        {t(ASSIGNMENT_STATE_KEYS[state])}
+      <Badge variant={holderBadgeVariant(ticket)} className={name ? "mt-1" : undefined}>
+        {t(holderStateKey(ticket))}
       </Badge>
     </td>
   );

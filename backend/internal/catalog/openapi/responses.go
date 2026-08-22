@@ -88,17 +88,18 @@ type EnvelopeTicketAnswersDetail struct {
 	RequestID string                    `json:"request_id"`
 }
 
-// EnvelopeOutstandingAnswers documents the Event's Outstanding Answers response
-// (#313): a page of the Tickets that still owe required Answers, each naming the
-// questions it owes, with the Event's total debt count beside the page.
+// EnvelopeHolderList documents the Event's Holder List response (#333; the
+// Outstanding Answers response of #313, widened to the roster): a page of
+// EVERY Ticket of the Event, each with its assignment and — where the Event
+// asks Ticket Questions — the questions it still owes.
 //
 // The payload is NESTED rather than a bare array, because a list of rows alone
-// could not carry the two counts that make it readable — how many Tickets are
-// waiting on the Organization, and how many things are unknown in all.
-type EnvelopeOutstandingAnswers struct {
-	Data      service.OutstandingAnswersPage `json:"data"`
-	Error     *platform.APIError             `json:"error"`
-	RequestID string                         `json:"request_id"`
+// could not carry the two counts that make it readable — how many Tickets the
+// current view holds, and how many things are unknown in all.
+type EnvelopeHolderList struct {
+	Data      service.HolderListPage `json:"data"`
+	Error     *platform.APIError     `json:"error"`
+	RequestID string                 `json:"request_id"`
 }
 
 // EnvelopeAnswerLink documents both Answer Link responses — opening one and

@@ -1202,7 +1202,7 @@ func TestTheHolderOverwritesWhatTheBuyerGuessedAndResolvesTheOutstandingAnswer(t
 	// ANSWERING RESOLVES THAT TICKET'S OUTSTANDING ANSWERS. The debt is computed
 	// from whether a row exists, so the Holder's route pays it down exactly as
 	// the other three do — the Organization stops chasing this Ticket.
-	if owed := labelsOwedBy(listOutstanding(t, env, f.staffSession, f.eventID), ticketID); owed != nil {
+	if owed := labelsOwedBy(listOutstanding(t, env, f.staffSession, f.eventID), ticketID); len(owed) != 0 {
 		t.Fatalf("owed=%v, want nothing outstanding once the Holder has answered", owed)
 	}
 }

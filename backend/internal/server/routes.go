@@ -774,8 +774,9 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// never deleted": an Answer points at nothing, so removing one restores the
 	// state the Ticket was in before anybody answered.
 	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
-	// The Outstanding Answers list (#313): which of this Event's Tickets still
-	// owe required Answers, and which questions they owe.
+	// The Holder List (#333; the Outstanding Answers list of #313, widened to
+	// the roster): every Ticket of this Event, who is coming on each, and —
+	// where the Event asks Ticket Questions — what each still owes.
 	//
 	// HUNG OFF THE EVENT and not off a Ticket Sale, because that is the question
 	// being asked. The per-sale route above is how staff reach ONE Ticket when
@@ -783,15 +784,23 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// the whole Event before it orders the shirts, and the two cannot be the
 	// same address because they are aggregated over different things.
 	//
+	// THE PATH KEEPS ITS HISTORICAL NAME. The read was built as Outstanding
+	// Answers and every bookmark and BFF route points here; what #333 changed
+	// is what the list IS, and `outstanding=true` is where its old definition
+	// went — a filter of the roster, never its definition.
+	//
 	// A READ WITH NO STATE BEHIND IT. There is no outstanding_answers table:
 	// the debt is derived on every request from what the Ticket Type asks and
-	// what the Ticket has said, which is exactly why this list empties by itself
-	// as Answers arrive from any of the three routes and why a Sale Reversal
-	// drops a whole sale out of it without anything having to sweep.
+	// what the Ticket has said, which is exactly why the debts clear by
+	// themselves as Answers arrive from any of the three routes and why a Sale
+	// Reversal drops a whole sale out of the roster without anything having to
+	// sweep.
 	//
-	// Same `orgAdmin` gate and the same 404-while-dark as every route above, for
-	// the same reasons.
-	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListOutstandingAnswers)))
+	// Same `orgAdmin` gate as every route above. Its 404-while-dark is its own:
+	// the service answers only when EITHER TICKET_ASSIGNMENT_ENABLED or
+	// TICKET_QUESTIONS_ENABLED is open (#333), because an Organization that
+	// assigns tickets and asks nothing still has a Holder List.
+	mux.Handle("GET /api/v1/staff/events/{id}/outstanding-answers", orgAdmin(http.HandlerFunc(ch.ListHolderList)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

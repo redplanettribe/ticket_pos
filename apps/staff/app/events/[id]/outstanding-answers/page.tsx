@@ -41,12 +41,13 @@ export default async function EventOutstandingAnswersPage({ params }: Outstandin
     redirect(`/events/${id}/sales`);
   }
 
-  // The feature flag is DELIBERATELY NOT READ HERE. The layout already reads it
-  // off the Event payload to decide the nav entry, and the API answers 404 to
-  // the endpoint while the feature is dark regardless (ADR 0045). A second copy
-  // of that decision on this page could only ever disagree with one of them, and
-  // somebody who reached this URL with the feature off sees the surface's load
-  // failure — which is the correct amount of information: none.
+  // The feature flags are DELIBERATELY NOT READ HERE. The layout already reads
+  // both off the Event payload to decide the nav entry — the Holder List exists
+  // while EITHER is on (#333) — and the API answers 404 to the endpoint while
+  // both are dark regardless (ADR 0045). A second copy of that decision on this
+  // page could only ever disagree with one of them, and somebody who reached
+  // this URL with both features off sees the surface's load failure — which is
+  // the correct amount of information: none.
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   const timezone = token ? await fetchEventTimezone(id, token) : null;

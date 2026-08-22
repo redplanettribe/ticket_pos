@@ -354,3 +354,68 @@ func TestSalesExportNeverShowsAPurgedAddress(t *testing.T) {
 			f.sizeQuestion.Label)
 	}
 }
+
+// AN EVENT THAT ASKS NOTHING STILL GETS ITS HOLDER COLUMNS (#333).
+//
+// The Holder columns exist whenever assignment is open, REGARDLESS of
+// questions — the same ruling that made the Holder List the roster. Before it,
+// `exportAnswers` returned zero rows when the Event asked nothing, so an
+// Organization that assigns 80 tickets and asks nothing had no "who is coming"
+// in its file either. Here Ticket Questions stay entirely DARK — the flag is
+// never opened — and the per-Ticket sheet appears anyway, carrying the fixed
+// columns and the four Holder columns and nothing else.
+func TestSalesExportCarriesHolderColumnsWithoutAnyTicketQuestion(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	// Deliberately NOT calling enableTicketQuestions: the questions feature is
+	// in its shipped state, and there is no question anywhere on this Event.
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Asked Nothing Fest", "asked-nothing-holders")
+	ticketTypeID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "GA", 2000, 50)
+	commitBatch(t, env, sessionID, eventID, "asked-nothing-holders-batch", []map[string]any{{
+		"customer_email":      "ana@example.com",
+		"customer_first_name": "Ana",
+		"customer_last_name":  "Lopez",
+		"ticket_type_id":      ticketTypeID,
+		"quantity":            2,
+		"payment_method":      "cash",
+		"sold_at":             "2026-07-01T10:00:00Z",
+	}})
+
+	// Ana names a friend on one of her two Tickets, so the sheet has one
+	// `assigned` and one `unassigned` to tell apart.
+	var saleID string
+	if err := env.db.QueryRow(
+		`SELECT id FROM ticket_sales WHERE event_id = $1`, eventID,
+	).Scan(&saleID); err != nil {
+		t.Fatalf("read Ticket Sale: %v", err)
+	}
+	ticketIDs := ticketsOfEvent(t, env, eventID)
+	ana := customerSignIn(t, env, "ana@example.com")
+	assignTicketOK(t, env, ana, saleID, ticketIDs[0], "diego@example.com")
+
+	data := downloadOK(t, env, sessionID, eventID, "")
+	sheet := openSalesExportAnswers(t, data)
+	want := []string{"confirmation_ref", "ticket_type",
+		"assignment_state", "holder_first_name", "holder_last_name", "holder_email"}
+	if !equalStrings(sheet.header, want) {
+		t.Fatalf("header = %v, want %v — the Holder columns and no question columns", sheet.header, want)
+	}
+	if len(sheet.rows) != 2 {
+		t.Fatalf("rows = %d, want Ana's two Tickets", len(sheet.rows))
+	}
+	if got := sheet.rowInState(t, "assigned"); got < 0 {
+		t.Fatal("no row reads `assigned` — the assignment did not reach the file")
+	}
+	if got := sheet.rowInState(t, "unassigned"); got < 0 {
+		t.Fatal("no row reads `unassigned`")
+	}
+	// The disclosure rule travels with the columns: an address nobody accepted
+	// is not in the file, on any sheet.
+	assertWorkbookNeverSays(t, data, "diego@example.com",
+		"An address a buyer typed and its owner never accepted is never exported (ADR 0047),\n"+
+			"and giving the sheet to question-less Events must not widen that.")
+	// And the Info sheet announces the sheet, so a reader who wonders why it
+	// carries no question columns is told rather than left hunting.
+	openSalesExportInfo(t, data).says(t, salesExportAnswersSheet)
+}

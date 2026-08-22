@@ -96,8 +96,15 @@ type EventDetail struct {
 	// than render one whose every request would 404, and it keeps the answer in
 	// ONE place: a second environment variable on the frontend could disagree
 	// with the backend about whether the feature is on.
-	TicketQuestionsEnabled bool      `json:"ticket_questions_enabled"`
-	CreatedAt              time.Time `json:"created_at"`
+	TicketQuestionsEnabled bool `json:"ticket_questions_enabled"`
+	// TicketAssignmentEnabled is the platform's Ticket Assignment feature flag
+	// (ADR 0045), riding here for TicketQuestionsEnabled's reason: the staff
+	// app decides from this payload whether to offer the Holder List entry —
+	// which the API serves while EITHER flag is open (#333) — and a frontend
+	// environment variable would be a second copy of the answer, free to
+	// disagree with the one that matters.
+	TicketAssignmentEnabled bool      `json:"ticket_assignment_enabled"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 // ActorContext is the acting member for catalog operations.
@@ -1150,10 +1157,11 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		FeeBasisPoints:    s.fees.FeeBasisPoints,
 		FeeIVABasisPoints: s.fees.FeeIVABasisPoints,
 		// A row written before migration 048 reads as an ordinary ticketed Event.
-		RegistrationMode:       string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
-		RegistrationClickCount: e.RegistrationClickCount,
-		TicketQuestionsEnabled: s.ticketQuestionsEnabled,
-		CreatedAt:              e.CreatedAt,
+		RegistrationMode:        string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
+		RegistrationClickCount:  e.RegistrationClickCount,
+		TicketQuestionsEnabled:  s.ticketQuestionsEnabled,
+		TicketAssignmentEnabled: s.ticketAssignmentEnabled,
+		CreatedAt:               e.CreatedAt,
 	}
 	if e.RegistrationURL.Valid {
 		v := e.RegistrationURL.String

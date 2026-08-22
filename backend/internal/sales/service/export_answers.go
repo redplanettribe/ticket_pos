@@ -27,21 +27,27 @@ import (
 // re-ran itself could re-run it differently, and two sheets in one workbook
 // disagreeing about which sales it is about is worse than no sheet.
 //
-// It returns the zero value in two cases, and they mean different things. The
-// flag being off is the feature not shipping at all (ADR 0045). The Event having
-// no Ticket Question is the ordinary state of almost every Event, and a workbook
-// with an empty extra sheet in it would be a workbook whose reader wonders what
-// they were supposed to find there.
+// It returns the zero value when NEITHER feature gives the sheet a reason to
+// exist, and the two reasons are separate on purpose (#333). Ticket Questions
+// asked give it its question columns; Ticket Assignment being open gives it its
+// Holder columns, on every Event and regardless of questions — an Organization
+// that assigns 80 tickets and asks nothing came to this file for "who is
+// coming", and a workbook that answered only when something was asked would be
+// the Holder List's gap (#333) written into a spreadsheet. A flag being off is
+// that feature not shipping at all (ADR 0045); an Event asking nothing while
+// assignment is also closed is the ordinary state of almost every Event, and a
+// workbook with an empty extra sheet in it would be a workbook whose reader
+// wonders what they were supposed to find there.
 func (s *Service) exportAnswers(ctx context.Context, orgID, eventID string, rows []repository.SaleRow) (exportfile.Answers, error) {
-	if !s.ticketQuestionsEnabled {
-		return exportfile.Answers{}, nil
+	var questions []repository.EventTicketQuestion
+	if s.ticketQuestionsEnabled {
+		var err error
+		questions, err = s.repo.ListEventTicketQuestions(ctx, orgID, eventID)
+		if err != nil {
+			return exportfile.Answers{}, err
+		}
 	}
-
-	questions, err := s.repo.ListEventTicketQuestions(ctx, orgID, eventID)
-	if err != nil {
-		return exportfile.Answers{}, err
-	}
-	if len(questions) == 0 {
+	if len(questions) == 0 && !s.ticketAssignmentEnabled {
 		return exportfile.Answers{}, nil
 	}
 
