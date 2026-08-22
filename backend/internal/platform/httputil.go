@@ -158,8 +158,26 @@ func domainHTTPStatus(code string) int {
 		return http.StatusNotFound
 	case "ORGANIZATION_SLUG_TAKEN", "EVENT_SLUG_TAKEN", "MEMBER_ALREADY_EXISTS", "LAST_ORG_ADMIN", "CANNOT_REMOVE_SELF", "CAPACITY_EXCEEDED", "PURCHASE_LIMIT_EXCEEDED", "IMPORT_BATCH_FAILED", "IMPORT_NOT_LATEST_BATCH", "IMPORT_ALREADY_REVERSED", "EVENT_NOT_DRAFT", "EVENT_DELETE_FORBIDDEN", "EVENT_PUBLISH_REQUIREMENTS_NOT_MET", "EVENT_ALREADY_PUBLISHED", "EVENT_ALREADY_CANCELLED", "EVENT_NOT_PUBLISHED", "TICKET_TYPE_DELETE_FORBIDDEN", "CURRENCY_LOCKED":
 		return http.StatusConflict
-	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND":
+	case "ASSIGNMENT_NOT_FOUND", "TICKET_TYPE_NOT_FOUND", "IMPORT_BATCH_NOT_FOUND", "PAYMENT_NOT_FOUND", "TICKET_SALE_NOT_FOUND", "PROMOTION_NOT_FOUND", "AFFILIATE_LINK_NOT_FOUND", "PAYOUT_REQUEST_NOT_FOUND", "TAG_NOT_FOUND", "TICKET_QUESTION_NOT_FOUND", "TICKET_QUESTION_OPTION_NOT_FOUND":
 		return http.StatusNotFound
+	// Ticket Question authoring asked for while the feature flag is off (#309,
+	// ADR 0045). 404 and pointedly not 403: while the flag is off there is
+	// nothing here to be forbidden from, and the staff API must answer exactly as
+	// a build without the feature would. See catalog.ErrTicketQuestionsUnavailable.
+	case "TICKET_QUESTIONS_UNAVAILABLE":
+		return http.StatusNotFound
+	// The Ticket Question authoring refusals (#309). All 409 for the reason their
+	// Promotion neighbours are: the request was well formed and the Org Admin was
+	// entitled to make it, and what stands in the way is a fact about the question
+	// — it has been answered, it has been retired, its kind does not take Options,
+	// it would be left with none, or it already has twenty. None becomes the
+	// answer by being retried with the same body.
+	case "TICKET_QUESTION_KIND_FROZEN",
+		"TICKET_QUESTION_RETIRED",
+		"TICKET_QUESTION_KIND_TAKES_NO_OPTIONS",
+		"TICKET_QUESTION_OPTIONS_REQUIRED",
+		"TOO_MANY_TICKET_QUESTION_OPTIONS":
+		return http.StatusConflict
 	// The Privacy Policy asked for in a language it is not published in (#250).
 	// 404 rather than a 400 about a bad parameter: the address named a document,
 	// and that document does not exist. Never a fallback to English — see

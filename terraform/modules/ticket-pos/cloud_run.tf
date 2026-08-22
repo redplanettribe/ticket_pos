@@ -279,6 +279,16 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.otp_global_ceiling != null ? tostring(var.otp_global_ceiling) : ""
       }
 
+      # The Ticket Question authoring flag (#309, ADR 0045). A plain env var
+      # rather than a secret: it is a product decision, and the interesting
+      # thing about it is that changing it is reviewable in a diff. The API
+      # reads anything it cannot parse as true as false, so a typo here leaves
+      # the surface dark rather than opening it.
+      env {
+        name  = "TICKET_QUESTIONS_ENABLED"
+        value = var.ticket_questions_enabled ? "true" : "false"
+      }
+
       # Required, not optional: without it the API refuses to start in production
       # rather than sign Confirmation Links with a default (confirmation_link.tf).
       env {

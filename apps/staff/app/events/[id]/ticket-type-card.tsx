@@ -32,6 +32,13 @@ type TicketTypeCardProps = {
   onMoveDown: () => void;
   onEdit: () => void;
   onPromotion: () => void;
+  /**
+   * Opens the Ticket Question authoring surface, or undefined where the feature
+   * flag is off — in which case the card draws no button for it at all (#309,
+   * ADR 0045). Undefined rather than a boolean beside a handler so that "there
+   * is nowhere to go" and "there is a button" cannot disagree.
+   */
+  onQuestions?: () => void;
   onDelete: () => void;
 };
 
@@ -68,6 +75,7 @@ export function TicketTypeCard({
   onMoveDown,
   onEdit,
   onPromotion,
+  onQuestions,
   onDelete,
 }: TicketTypeCardProps) {
   const t = useTranslations("ticketTypes");
@@ -218,6 +226,11 @@ export function TicketTypeCard({
         <Button type="button" variant="ghost" size="sm" onClick={onPromotion}>
           {promotion === null ? t("addPromotion") : t("promotion")}
         </Button>
+        {onQuestions ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onQuestions}>
+            {t("questions")}
+          </Button>
+        ) : null}
         {canDelete ? (
           <Button
             type="button"

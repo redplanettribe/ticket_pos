@@ -55,7 +55,7 @@ instead of scattering it.
 | `login`   | The sign-in page, the one surface reachable without a session                     |
 | `events`  | The events list, the create-event page, and the **Event status** vocabulary — every surface that draws a status badge reads it from here rather than coining a second word for "Published" |
 | `event`   | One Event: its own side panel, the header bar, and the Details form — venue, registration, service fee, description, cover image and cover video |
-| `ticketTypes` | An Event's Ticket Types: the list, the cards, the add and edit dialogs, and the Promotion dialog |
+| `ticketTypes` | An Event's Ticket Types: the list, the cards, the add and edit dialogs, the Promotion dialog, and the **Ticket Question** editor. **A question's own words are not here** — a Ticket Question and its Options are coined by an Organization and read as coined in every Locale, like a Custom Tag; what the catalog holds is the chrome around them and the seven **kind** names |
 | `tags`    | The Tag editor inside Details. **Tag names are not here** — a Preset Tag's copy is the Storefront's, keyed on canonical key, and a Custom Tag reads as coined in every Locale (ADR 0027) |
 | `affiliateLinks` | An Event's Affiliate Links: the list, the create form, and the rename and delete dialogs |
 | `pos`     | The point of sale: selling at the door, on a phone, often by Event Staff          |
@@ -67,6 +67,17 @@ instead of scattering it.
 | `payouts` | Getting paid: both balances, the Payout Profile, the ask, the request history, and the **Payout Request status** vocabulary — one key per state, read by every screen that draws one |
 | `operator` | The Operator Dashboard: the platform-revenue overview, the organizations roll and one Organization's detail, the Payout Request queue and one request, the sale lookup and one sale, and the Consent Withdrawal surface |
 | `errors`  | Failures, keyed on the API's error code — belongs to no single surface            |
+
+`ticketTypes` covers the **Ticket Question** editor for the same reason `sales`
+covers Sale Import below: authoring questions is a dialog hanging off a Ticket
+Type card rather than a screen of its own, a Member opening it is still looking
+at the Ticket Types surface, and its keys are prefixed `question…` inside the one
+namespace. The seven kind names live there and nowhere else, read through
+`TICKET_QUESTION_KIND_KEYS` in `lib/ticket-questions.ts` the way roles are read
+through `useRoleName` — a kind translated per screen is how there come to be two
+Spanish words for "multiple choice". The editor's **warning** (ADR 0045) is
+`questionsWarningTitle` and `questionsWarningBody`: it is a required part of the
+surface rather than decoration, so neither may be emptied.
 
 `sales` covers the **Sale Import** tool as well as the list, and there is
 deliberately no `imports` namespace: importing is a section of the Sales tab

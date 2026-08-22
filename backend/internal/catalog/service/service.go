@@ -87,7 +87,16 @@ type EventDetail struct {
 	// Link has been made. It counts clicks, never registrations or people: the
 	// platform loses sight of the buyer at the link and never learns what happened
 	// next. Read-only here — the redirect owns it, no Event form may write it.
-	RegistrationClickCount int64     `json:"registration_click_count"`
+	RegistrationClickCount int64 `json:"registration_click_count"`
+	// TicketQuestionsEnabled is the platform's Ticket Question feature flag
+	// (ADR 0045), not a property of this Event — it rides here for the reason
+	// FeeBasisPoints above does: the Ticket Type editor is composed from this
+	// payload, and the flag decides whether that editor offers a Ticket Question
+	// surface at all. Surfacing it lets the staff app hide the section rather
+	// than render one whose every request would 404, and it keeps the answer in
+	// ONE place: a second environment variable on the frontend could disagree
+	// with the backend about whether the feature is on.
+	TicketQuestionsEnabled bool      `json:"ticket_questions_enabled"`
 	CreatedAt              time.Time `json:"created_at"`
 }
 
@@ -203,6 +212,17 @@ type Service struct {
 	// never hears about it (ADR 0020), so the log line is the only record that
 	// an object outlived the Event that referenced it.
 	logger platform.Logger
+	// ticketQuestionsEnabled is the Ticket Question feature flag (ADR 0045).
+	//
+	// FALSE IS THE ZERO VALUE, and that is the reason it is a plain field set by
+	// a WithX rather than a constructor argument: every construction of this
+	// service that has not been taught about the flag — a test, a tool, a future
+	// caller — gets the dark build. A constructor argument would make an
+	// unwired call site a compile error, which sounds stricter but is worse
+	// here: the failure mode this flag exists to prevent is the surface being
+	// OPEN when nobody decided it should be, and no arrangement of arguments
+	// makes "off" easier to reach by accident than the zero value does.
+	ticketQuestionsEnabled bool
 }
 
 // New returns a catalog service. The fee rates are the platform's configured
@@ -230,6 +250,16 @@ func New(repo *repository.Repository, objectStorage storage.ObjectStorage, fees 
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithTicketQuestions opens or closes the Ticket Question authoring surface
+// (#309, ADR 0045). NewApp calls it with platform.Config.TicketQuestionsEnabled;
+// the integration suite calls it to exercise both sides of the flag, which is
+// the only way the "with the flag off, nothing differs" property can be a test
+// rather than a claim.
+func (s *Service) WithTicketQuestions(enabled bool) *Service {
+	s.ticketQuestionsEnabled = enabled
 	return s
 }
 
@@ -925,6 +955,7 @@ func (s *Service) toEventDetail(e *repository.Event) EventDetail {
 		// A row written before migration 048 reads as an ordinary ticketed Event.
 		RegistrationMode:       string(catalog.RegistrationModeOrDefault(e.RegistrationMode)),
 		RegistrationClickCount: e.RegistrationClickCount,
+		TicketQuestionsEnabled: s.ticketQuestionsEnabled,
 		CreatedAt:              e.CreatedAt,
 	}
 	if e.RegistrationURL.Valid {

@@ -80,6 +80,13 @@ services:
       DIGEST_RESEND_API_KEY: ${DIGEST_RESEND_API_KEY:-}
       DIGEST_EMAIL_FROM: ${DIGEST_EMAIL_FROM:-}
       DIGEST_EMAIL_ALLOW_SHARED_DOMAIN: ${DIGEST_EMAIL_ALLOW_SHARED_DOMAIN:-}
+      # Ticket Question authoring (#309, ADR 0045). Empty by default, which
+      # leaves the staff surface hidden and every one of its endpoints answering
+      # 404 — the shipped state. Set TICKET_QUESTIONS_ENABLED=true in the root
+      # .env to work on the feature locally. Doing the same in production is a
+      # decision ADR 0045 was written to prevent being taken casually: it must
+      # wait for a Policy Version that describes the collection.
+      TICKET_QUESTIONS_ENABLED: ${TICKET_QUESTIONS_ENABLED:-}
       # The `development` Google OAuth client, also from the root .env. Empty (the
       # default) leaves Google Sign-In off and the button hidden; passcode
       # sign-in is unaffected either way. GOOGLE_TOKEN_ENDPOINT is deliberately

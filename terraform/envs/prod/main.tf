@@ -93,4 +93,11 @@ module "ticket_pos" {
   follow_digest_drain_enabled                    = var.follow_digest_drain_enabled
   follow_digest_drain_schedule                   = var.follow_digest_drain_schedule
   follow_digest_drain_attempt_deadline_seconds   = var.follow_digest_drain_attempt_deadline_seconds
+
+  # Ticket Question authoring (#309, ADR 0045). Threaded through the root for a
+  # different reason than the two above: this one is not an incident lever but a
+  # gate somebody must deliberately open, and declaring it here is what makes
+  # opening it a reviewable diff in this file rather than a module default
+  # nobody reads.
+  ticket_questions_enabled = var.ticket_questions_enabled
 }

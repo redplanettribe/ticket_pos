@@ -245,3 +245,95 @@ func ErrTooManyTags(max int) apperror.DomainError {
 		map[string]any{"max": max},
 	)
 }
+
+// ErrTicketQuestionsUnavailable is returned when the Ticket Question authoring
+// surface is asked for while the feature flag is off (ADR 0045).
+//
+// It maps to 404 and not 403, deliberately. 403 would say "this exists and you
+// may not have it", which invites an Organization to ask why and a support agent
+// to answer. While the flag is off there is nothing here: these endpoints answer
+// exactly as an unrouted path does today, which is the whole point of shipping
+// dark — no Storefront surface and no export differs from a build without the
+// feature, and neither does the staff API.
+func ErrTicketQuestionsUnavailable() apperror.DomainError {
+	return apperror.New("TICKET_QUESTIONS_UNAVAILABLE", "Not found.", nil)
+}
+
+// ErrInvalidTicketQuestionLabel is returned when a label is blank once trimmed,
+// or longer than the cap. It names which label so an editor holding a question
+// and twenty Options can point at the offending field rather than the form.
+func ErrInvalidTicketQuestionLabel(field string, maxLength int) apperror.DomainError {
+	return apperror.New(
+		"INVALID_TICKET_QUESTION_LABEL",
+		"Label must not be empty and must be within the length limit.",
+		map[string]any{"field": field, "max_length": maxLength},
+	)
+}
+
+// ErrTicketQuestionNotFound is returned when a Ticket Question does not exist on
+// the Ticket Type.
+func ErrTicketQuestionNotFound() apperror.DomainError {
+	return apperror.New("TICKET_QUESTION_NOT_FOUND", "Ticket question not found.", nil)
+}
+
+// ErrTicketQuestionOptionNotFound is returned when an Option does not exist on
+// the Ticket Question.
+func ErrTicketQuestionOptionNotFound() apperror.DomainError {
+	return apperror.New("TICKET_QUESTION_OPTION_NOT_FOUND", "Ticket question option not found.", nil)
+}
+
+// ErrTicketQuestionKindFrozen is returned when a kind change is attempted on a
+// Ticket Question that some Ticket has already answered.
+//
+// The message names the way out rather than only the refusal, because there is
+// one: retire this question and add another. Nothing can answer yet, so this
+// error has never been returned in production — see catalog.TicketQuestionKindFrozen.
+func ErrTicketQuestionKindFrozen() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_KIND_FROZEN",
+		"This question has been answered, so its type can no longer change. Retire it and add a new question instead.",
+		nil,
+	)
+}
+
+// ErrTicketQuestionRetired is returned when an edit reaches a retired Ticket
+// Question or a retired Option. A retired thing is kept so that what has already
+// been answered still reads; it is not an authoring surface.
+func ErrTicketQuestionRetired() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_RETIRED",
+		"This question has been retired and can no longer be edited.",
+		nil,
+	)
+}
+
+// ErrTicketQuestionKindTakesNoOptions is returned when Options are offered to a
+// Ticket Question whose kind is not answered by choosing.
+func ErrTicketQuestionKindTakesNoOptions() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_KIND_TAKES_NO_OPTIONS",
+		"Only single choice and multiple choice questions have options.",
+		nil,
+	)
+}
+
+// ErrTicketQuestionOptionsRequired is returned when a choice Ticket Question
+// would be left with no live Option — either created without one, or by retiring
+// its last. A choice question nobody can answer is not a question.
+func ErrTicketQuestionOptionsRequired() apperror.DomainError {
+	return apperror.New(
+		"TICKET_QUESTION_OPTIONS_REQUIRED",
+		"A choice question needs at least one option.",
+		nil,
+	)
+}
+
+// ErrTooManyTicketQuestionOptions is returned when a Ticket Question would carry
+// more live Options than the cap allows.
+func ErrTooManyTicketQuestionOptions(max int) apperror.DomainError {
+	return apperror.New(
+		"TOO_MANY_TICKET_QUESTION_OPTIONS",
+		"A question has too many options.",
+		map[string]any{"max": max},
+	)
+}
