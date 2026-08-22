@@ -57,7 +57,7 @@ const (
 	// TWO, WHICH IS A PRODUCT DECISION AND NOT A ROUND NUMBER. The first reminder
 	// is information: an Organization added a question after the sale, or the
 	// buyer skipped the checkout form, and they may genuinely not know their
-	// tickets are waiting on them. The second is a nudge before the doors. A
+	// tickets are waiting on them. The second is a last word before the doors. A
 	// third would be nagging somebody about a t-shirt size they have decided not
 	// to give, on a mail they cannot turn off — this is transactional and carries
 	// no unsubscribe (ADR 0034 keeps that footer for the one message it belongs

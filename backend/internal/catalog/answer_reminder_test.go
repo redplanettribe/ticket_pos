@@ -49,7 +49,7 @@ func TestMayRemindNothingOutstandingIsNothingToSay(t *testing.T) {
 // money has gone back: there is no shirt to order and nobody to order it for,
 // and a mail asking that buyer to answer questions about tickets they no longer
 // hold is the worst message this feature could send.
-func TestMayRemindAReversedSaleIsNeverChased(t *testing.T) {
+func TestMayRemindAReversedSaleIsNeverReminded(t *testing.T) {
 	in := remindNow()
 	in.SaleStatus = "reversed"
 	if MayRemind(in) {

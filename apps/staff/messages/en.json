@@ -334,7 +334,7 @@
   },
   "ticketAnswers": {
     "title": "Tickets on {reference}",
-    "description": "Each ticket on this sale, and what it says in reply to your questions. Answerable until the event starts, and never on a reversed sale.",
+    "description": "Each ticket on this sale, and the Answer it gives to your questions. Answerable until the event starts, and never on a reversed sale.",
     "loadFailed": "Could not load this sale's tickets.",
     "saveFailed": "Could not save that answer.",
     "noTickets": "This sale has no tickets.",
