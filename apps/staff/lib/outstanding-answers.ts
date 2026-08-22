@@ -68,7 +68,7 @@ export type TicketOwingAnswers = {
   /** Never empty — a Ticket owing nothing is not on this list at all. */
   outstanding: OutstandingQuestion[];
   /*
-    THE GUEST LIST (#329, ADR 0047). Who is coming on this Ticket, beside what
+    THE HOLDER LIST (#329, ADR 0047). Who is coming on this Ticket, beside what
     they still owe — the answer this Organization could previously give only as
     the buyer's name repeated once per Ticket.
 
@@ -181,9 +181,9 @@ export type TicketAssignmentState = "unassigned" | "assigned" | "accepted";
  * screen as a blank cell.
  */
 export const ASSIGNMENT_STATE_KEYS = {
-  unassigned: "guestUnassigned",
-  assigned: "guestAssigned",
-  accepted: "guestAccepted",
+  unassigned: "holderUnassigned",
+  assigned: "holderAssigned",
+  accepted: "holderAccepted",
 } as const satisfies Record<TicketAssignmentState, string>;
 
 /**
@@ -226,7 +226,7 @@ export function holderName(ticket: TicketOwingAnswers): string {
 }
 
 /**
- * Whether the guest list has anything to draw at all.
+ * Whether the Holder list has anything to draw at all.
  *
  * THE FLAG IS READ OFF THE PAYLOAD'S ABSENCE AND NOWHERE ELSE, exactly as the
  * Storefront reads it (ADR 0045). With `TICKET_ASSIGNMENT_ENABLED` closed the API
@@ -234,6 +234,6 @@ export function holderName(ticket: TicketOwingAnswers): string {
  * deployment flag it cannot see — and the column disappears rather than filling a
  * screen with a word nobody can act on.
  */
-export function guestListVisible(rows: readonly TicketOwingAnswers[]): boolean {
+export function holderListVisible(rows: readonly TicketOwingAnswers[]): boolean {
   return rows.some((ticket) => Boolean(ticket.assignment_state));
 }

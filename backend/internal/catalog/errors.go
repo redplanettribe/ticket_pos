@@ -603,7 +603,7 @@ func ErrAssignmentMailCapReached() apperror.DomainError {
 func ErrAssignmentRateLimited() apperror.DomainError {
 	return apperror.New(
 		"ASSIGNMENT_RATE_LIMITED",
-		"You have sent a lot of ticket invitations recently. Please try again later.",
+		"You have named a lot of new addresses recently. Please try again later.",
 		nil,
 	)
 }

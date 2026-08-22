@@ -26,7 +26,7 @@ import {
   assignmentStateBadgeVariant,
   buyerName,
   fetchOutstandingAnswers,
-  guestListVisible,
+  holderListVisible,
   holderName,
   type OutstandingAnswersPage,
   type TicketOwingAnswers,
@@ -124,14 +124,14 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
   const rows = result?.data ?? [];
   const pagination = result?.pagination;
   /*
-    Whether to draw the guest list at all.
+    Whether to draw the Holder list at all.
 
     THE FEATURE FLAG IS READ OFF THE PAYLOAD'S ABSENCE and nowhere else, exactly
     as the Storefront reads it: with `TICKET_ASSIGNMENT_ENABLED` closed the API
     omits every assignment field, so this app needs no second copy of a
     deployment flag it cannot see (ADR 0045).
   */
-  const showGuests = guestListVisible(rows);
+  const showHolders = holderListVisible(rows);
 
   return (
     <Card>
@@ -182,11 +182,11 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
                     <th className="py-2 pr-4 font-medium">{t("colBuyer")}</th>
-                    {/* The guest column appears only when the API sent an
-                        assignment at all — see `guestListVisible`. A column of
+                    {/* The Holder column appears only when the API sent an
+                        assignment at all — see `holderListVisible`. A column of
                         blanks on a deployment where assignment is closed would
                         be a promise this platform is not yet making. */}
-                    {showGuests ? <th className="py-2 pr-4 font-medium">{t("colGuest")}</th> : null}
+                    {showHolders ? <th className="py-2 pr-4 font-medium">{t("colHolder")}</th> : null}
                     <th className="py-2 pr-4 font-medium">{t("colTicket")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colSold")}</th>
                     <th className="py-2 pr-4 font-medium">{t("colOwes")}</th>
@@ -206,7 +206,7 @@ export function OutstandingAnswersSection({ eventId, timezone }: OutstandingAnsw
                       }
                       answersLabel={sales("ticketAnswers")}
                       channelLabel={sales(SALES_CHANNEL_KEYS[ticket.channel])}
-                      showGuest={showGuests}
+                      showHolder={showHolders}
                     />
                   ))}
                 </tbody>
@@ -271,8 +271,8 @@ type OutstandingRowProps = {
   onOpen: () => void;
   answersLabel: string;
   channelLabel: string;
-  /** Whether this Event's rows carry a guest at all; see `guestListVisible`. */
-  showGuest: boolean;
+  /** Whether this Event's rows carry a Holder at all; see `holderListVisible`. */
+  showHolder: boolean;
 };
 
 /** One Ticket that owes, and the questions it owes. */
@@ -282,7 +282,7 @@ function OutstandingRow({
   onOpen,
   answersLabel,
   channelLabel,
-  showGuest,
+  showHolder,
 }: OutstandingRowProps) {
   const t = useTranslations("outstandingAnswers");
   const locale = toAppLocale(useLocale());
@@ -300,7 +300,7 @@ function OutstandingRow({
         <div className="font-medium">{buyerName(ticket)}</div>
         <div className="text-muted-foreground">{ticket.customer_email}</div>
       </td>
-      {showGuest ? <GuestCell ticket={ticket} /> : null}
+      {showHolder ? <HolderCell ticket={ticket} /> : null}
       <td className="py-3 pr-4">
         {/* The Ticket Type as the Organization named it, with the ordinal that
             tells two Tickets of one line apart, and the buyer's own reference,
@@ -336,7 +336,7 @@ function OutstandingRow({
   );
 }
 
-type GuestCellProps = { ticket: TicketOwingAnswers };
+type HolderCellProps = { ticket: TicketOwingAnswers };
 
 /**
  * Who is coming on one Ticket (#329, ADR 0047).
@@ -356,7 +356,7 @@ type GuestCellProps = { ticket: TicketOwingAnswers };
  * (ADR 0047) — an Organizer needs a way to reach the people attending its Event,
  * and this platform builds no surface for it to mail them.
  */
-function GuestCell({ ticket }: GuestCellProps) {
+function HolderCell({ ticket }: HolderCellProps) {
   const t = useTranslations("outstandingAnswers");
   const state = ticket.assignment_state ?? "unassigned";
   const name = holderName(ticket);
