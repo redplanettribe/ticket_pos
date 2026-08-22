@@ -426,14 +426,22 @@ func (r *Repository) RetireTicketQuestionOption(
 // TicketQuestionHasAnswers reports whether any Ticket has answered this Ticket
 // Question — the fact the kind freeze is read against.
 //
-// IT ALWAYS ANSWERS false TODAY, AND THAT IS NOT A STUB SHORTCUT. There is no
-// Answer table in migration 072 and nothing on the platform can produce one, so
-// false is the true answer to the question as asked. It is a method rather than
-// a `false` inlined at the call site so that the ticket which lands Answers has
-// one place to change, and so the service's guard is written against a fact it
-// asks for rather than one it assumes.
+// It answered `false` unconditionally until #310 landed the Answer, which was
+// the true answer while there was no table for one to live in. It is a real read
+// now, and the guard in catalog.TicketQuestionKindFrozen has teeth for the first
+// time: a `single_choice` whose Answers are Option identities does not become a
+// `date` by relabelling, so once a Ticket has replied the kind is frozen and the
+// way to change it is to retire the question and add another.
+//
+// EXISTS AND NOT COUNT: nothing here wants to know how many, and one is enough
+// to freeze the kind. It reads every Answer including those on REVERSED Ticket
+// Sales, deliberately — a reversed sale keeps its Tickets and their Answers, and
+// they are still stored in this question's kind, so changing the kind under them
+// would misread them exactly as it would misread a live one.
 func (r *Repository) TicketQuestionHasAnswers(ctx context.Context, questionID string) (bool, error) {
-	_ = ctx
-	_ = questionID
-	return false, nil
+	var exists bool
+	err := r.db.Pool.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM ticket_answers WHERE ticket_question_id = $1)
+	`, questionID).Scan(&exists)
+	return exists, err
 }

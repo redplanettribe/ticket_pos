@@ -69,6 +69,25 @@ type EnvelopeTicketQuestionDetail struct {
 	RequestID string                     `json:"request_id"`
 }
 
+// EnvelopeTicketAnswersList documents the Tickets-of-a-Ticket-Sale response:
+// one entry per Ticket, each carrying its Ticket Type's Ticket Questions and
+// what that Ticket has answered (#310).
+type EnvelopeTicketAnswersList struct {
+	Data      []service.TicketAnswersView `json:"data"`
+	Error     *platform.APIError          `json:"error"`
+	RequestID string                      `json:"request_id"`
+}
+
+// EnvelopeTicketAnswersDetail documents the single-Ticket responses. Every
+// Answer write answers with the WHOLE Ticket rather than the one Answer, so a
+// form redraws from one payload instead of reassembling the Ticket from a
+// fragment — the same arrangement the Option endpoints have with their question.
+type EnvelopeTicketAnswersDetail struct {
+	Data      service.TicketAnswersView `json:"data"`
+	Error     *platform.APIError        `json:"error"`
+	RequestID string                    `json:"request_id"`
+}
+
 // EnvelopeTagList documents tag list success responses (search and event tags).
 type EnvelopeTagList struct {
 	Data      []service.TagView  `json:"data"`

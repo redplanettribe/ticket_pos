@@ -588,6 +588,42 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	mux.Handle("POST /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options", orgAdmin(http.HandlerFunc(ch.AddTicketQuestionOption)))
 	mux.Handle("PATCH /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RenameTicketQuestionOption)))
 	mux.Handle("DELETE /api/v1/staff/events/{id}/ticket-types/{ticketTypeId}/questions/{questionId}/options/{optionId}", orgAdmin(http.HandlerFunc(ch.RetireTicketQuestionOption)))
+	// The Answer: what one Ticket says in reply to one Ticket Question (#310).
+	//
+	// GATED `orgAdmin`, EXACTLY AS THE QUESTION-AUTHORING ROUTES ABOVE ARE, and
+	// the choice is worth stating because the ticket is titled for Event Staff.
+	// It is the same gate for two reasons. It is the one the sibling Ticket
+	// Question routes already use, and a surface that decided its own would be a
+	// second answer to a question already answered here. And `event_staff` is
+	// refused every catalog verb today — `canManageEventSales`, which is named
+	// for the door and is where this would widen to, resolves to `orgAdmin`
+	// itself until Event assignments land (V7). So `orgAdmin` is what "Event
+	// Staff" can be given on this platform at this moment, and widening it later
+	// is one word in one place.
+	//
+	// THE READS ARE UNGATED BY THE EDIT WINDOW, deliberately. A reversed Ticket
+	// Sale's Tickets and a started Event's Answers stay listable and readable:
+	// a Sale Reversal voids a sale, it does not erase what its Tickets answered,
+	// and hiding them would make it look as though it had. Only the writes are
+	// refused — see catalog.AnswerWindow.
+	//
+	// Registered in every build and answering 404 while the flag is off, on the
+	// same terms as the questions above (ADR 0045).
+	//
+	// The Ticket Sale's Tickets register under `ticket-sales` and not under the
+	// sales handler's `/sales`, because what this returns is a Ticket and its
+	// questions rather than anything about the sale — the Ticket Sale is only
+	// how staff reach a Ticket at all.
+	mux.Handle("GET /api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets", orgAdmin(http.HandlerFunc(ch.ListTicketSaleAnswers)))
+	mux.Handle("GET /api/v1/staff/events/{id}/tickets/{ticketId}", orgAdmin(http.HandlerFunc(ch.GetTicketAnswers)))
+	// PUT and not POST: there is exactly one Answer per (Ticket, question) and
+	// the address names it, so answering and correcting are the same request
+	// with a different body.
+	mux.Handle("PUT /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.AnswerTicketQuestion)))
+	// The one real DELETE in this feature, and not an exception to "retired,
+	// never deleted": an Answer points at nothing, so removing one restores the
+	// state the Ticket was in before anybody answered.
+	mux.Handle("DELETE /api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}", orgAdmin(http.HandlerFunc(ch.RemoveTicketAnswer)))
 	mux.Handle("GET /api/v1/staff/tags", member(http.HandlerFunc(ch.SearchTags)))
 	mux.Handle("GET /api/v1/staff/tags/popular", member(http.HandlerFunc(ch.ListPopularTags)))
 	mux.Handle("GET /api/v1/staff/events/{id}/tags", member(http.HandlerFunc(ch.ListEventTags)))

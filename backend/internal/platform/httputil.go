@@ -178,6 +178,27 @@ func domainHTTPStatus(code string) int {
 		"TICKET_QUESTION_OPTIONS_REQUIRED",
 		"TOO_MANY_TICKET_QUESTION_OPTIONS":
 		return http.StatusConflict
+	// A Ticket, or the Answer on one, that this Event does not have (#310). 404
+	// beside TICKET_QUESTION_NOT_FOUND above and for the same reason: the
+	// address named a thing and there is no such thing here, whether because it
+	// never existed or because it belongs to another Organization — which are
+	// deliberately the same answer.
+	case "TICKET_NOT_FOUND", "ANSWER_NOT_FOUND":
+		return http.StatusNotFound
+	// The two edit-window refusals (#310). 409: the request was well formed and
+	// the caller was entitled to make it, and what stands in the way is a fact
+	// about the Ticket — its Sale was reversed, or the doors have opened.
+	// Neither becomes the answer by being retried with the same body, and both
+	// leave everything already answered readable.
+	case "TICKET_SALE_REVERSED", "EVENT_STARTED_ANSWERS_CLOSED":
+		return http.StatusConflict
+	// An Answer that does not fit its Ticket Question (#310). 400 and not 409,
+	// which is the line between these and the two above: the body itself is
+	// wrong — text sent to a number question, an Option the question does not
+	// offer — and restating it correctly is exactly what fixes it. The details
+	// carry the kind and the problem token so the form can point at the field.
+	case "INVALID_ANSWER", "ANSWER_OPTION_NOT_OFFERED":
+		return http.StatusBadRequest
 	// The Privacy Policy asked for in a language it is not published in (#250).
 	// 404 rather than a 400 about a bad parameter: the address named a document,
 	// and that document does not exist. Never a fallback to English — see

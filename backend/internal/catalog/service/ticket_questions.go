@@ -171,10 +171,10 @@ func (s *Service) CreateTicketQuestion(
 // UpdateTicketQuestion renames a Ticket Question and restates its flags.
 //
 // The kind is the one field with a rule behind it: it is frozen once any Ticket
-// has answered this question, because the stored Answers ARE that kind. Nothing
-// can answer yet, so TicketQuestionHasAnswers is false for every row on the
-// platform and this has never refused anything — the guard is written now so the
-// ticket that lands Answers only has to make that method tell the truth.
+// has answered this question, because the stored Answers ARE that kind. Since
+// #310 landed the Answer, TicketQuestionHasAnswers is a real read and this
+// refusal is reachable — the guard was written one ticket ahead of the data it
+// governs, and that ticket only had to make the method tell the truth.
 func (s *Service) UpdateTicketQuestion(
 	ctx context.Context,
 	actor ActorContext,

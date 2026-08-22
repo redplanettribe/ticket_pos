@@ -286,8 +286,8 @@ func ErrTicketQuestionOptionNotFound() apperror.DomainError {
 // Ticket Question that some Ticket has already answered.
 //
 // The message names the way out rather than only the refusal, because there is
-// one: retire this question and add another. Nothing can answer yet, so this
-// error has never been returned in production — see catalog.TicketQuestionKindFrozen.
+// one: retire this question and add another. Reachable since #310 landed the
+// Answer — see catalog.TicketQuestionKindFrozen.
 func ErrTicketQuestionKindFrozen() apperror.DomainError {
 	return apperror.New(
 		"TICKET_QUESTION_KIND_FROZEN",
@@ -352,4 +352,85 @@ func ErrTooManyTicketQuestionOptions(max int) apperror.DomainError {
 		"A question has too many options.",
 		map[string]any{"max": max},
 	)
+}
+
+// ErrTicketNotFound is returned when a Ticket does not exist on the Event, or
+// belongs to another Organization's Event.
+//
+// One error for both, as every scoped lookup on this platform answers: telling
+// "no such Ticket" apart from "not yours" would let one Organization confirm
+// that another's id exists.
+func ErrTicketNotFound() apperror.DomainError {
+	return apperror.New("TICKET_NOT_FOUND", "Ticket not found.", nil)
+}
+
+// ErrTicketSaleReversed is returned when an Answer is written on a Ticket whose
+// Ticket Sale has been reversed (#310).
+//
+// The Ticket and its Answers are still there and still readable — a Sale
+// Reversal voids a sale, it does not unmint or erase anything. What it takes
+// away is the point of writing: nobody is coming on a ticket that was refunded,
+// so there is nothing left for an Organization to act on.
+func ErrTicketSaleReversed() apperror.DomainError {
+	return apperror.New(
+		"TICKET_SALE_REVERSED",
+		"This ticket's sale has been reversed, so its answers can no longer be changed.",
+		nil,
+	)
+}
+
+// ErrEventStartedAnswersClosed is returned when an Answer is written after the
+// Event has started (#310).
+//
+// The window closes at the doors rather than at the Event's end, because the
+// questions exist so an Organization can act on the replies — order the shirts,
+// count the vegetarians — and the last moment that is any use is the moment the
+// doors open. Read as an instant; the Event's timezone is already baked into its
+// start. See catalog.AnswerWindow.
+func ErrEventStartedAnswersClosed() apperror.DomainError {
+	return apperror.New(
+		"EVENT_STARTED_ANSWERS_CLOSED",
+		"This event has started, so its answers can no longer be changed.",
+		nil,
+	)
+}
+
+// ErrInvalidAnswer is returned when a submitted Answer is not one its Ticket
+// Question's kind can take.
+//
+// It carries the kind and a machine-readable problem token so a form can say
+// WHICH question and WHAT about it, rather than leaving the reader to guess
+// which of a Ticket's eight fields was refused. The token is catalog's own name
+// for the refusal — see catalog.AnswerProblem — and the staff app maps it to a
+// sentence in the reader's language, the same arrangement ADR 0023 puts under
+// every other error code.
+func ErrInvalidAnswer(kind, problem string, extra map[string]any) apperror.DomainError {
+	details := map[string]any{"kind": kind, "problem": problem}
+	for key, value := range extra {
+		details[key] = value
+	}
+	return apperror.New("INVALID_ANSWER", "That answer does not fit this question.", details)
+}
+
+// ErrAnswerOptionNotOffered is returned when a choice Answer names an Option its
+// Ticket Question does not offer.
+//
+// It covers two cases that look different and are the same refusal: an id
+// belonging to another question entirely, and a RETIRED Option this Answer had
+// not already chosen. A retired Option has left every new list, so choosing one
+// afresh is choosing something that is not on offer — while KEEPING one that was
+// already chosen is exactly what "kept on the Tickets that chose it" means, and
+// that case is allowed through.
+func ErrAnswerOptionNotOffered() apperror.DomainError {
+	return apperror.New(
+		"ANSWER_OPTION_NOT_OFFERED",
+		"That option is not one this question offers.",
+		nil,
+	)
+}
+
+// ErrAnswerNotFound is returned when a Ticket has no Answer to this Ticket
+// Question to remove.
+func ErrAnswerNotFound() apperror.DomainError {
+	return apperror.New("ANSWER_NOT_FOUND", "Answer not found.", nil)
 }

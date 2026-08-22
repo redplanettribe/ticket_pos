@@ -191,10 +191,10 @@ func normalizeCoinedLabel(raw string, maxLength int) (string, bool) {
 // refused for sending the kind it was shown.
 //
 // answersExist is a fact this package cannot establish for itself; the service
-// asks whatever can answer it. Today nothing can answer at all, so it is always
-// false in production and this guard has never yet refused anything. It is
-// written and tested now so that the ticket which lands Answers only has to wire
-// the fact in, rather than discover the rule.
+// asks whatever can answer it. Since #310 that is a real read over the Answers
+// (repository.TicketQuestionHasAnswers), so this guard now refuses: it was
+// written and tested one ticket ahead of the data it governs, and the ticket
+// that landed Answers only had to wire the fact in.
 func TicketQuestionKindFrozen(current, requested TicketQuestionKind, answersExist bool) bool {
 	return answersExist && current != requested
 }
