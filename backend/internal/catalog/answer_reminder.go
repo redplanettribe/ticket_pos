@@ -187,7 +187,12 @@ type DueAnswerReminder struct {
 	// — and is handed to platform.ResolveMailLocale raw. This mail is about a
 	// sale, so the language the buyer bought in outranks whatever their record
 	// remembers, however long afterwards it is sent (ADR 0033).
-	SaleLocale        string
+	SaleLocale string
+	// ConfirmationRef is the buyer's own Sale Confirmation reference, printed in
+	// the mail so somebody holding two sales for one Event can tell which of them
+	// is being chased. It is their reference for their purchase, in a message
+	// already addressed to them — never a fact the Answer Link page may show.
+	ConfirmationRef   string
 	CustomerEmail     string
 	CustomerFirstName string
 	CustomerLastName  string

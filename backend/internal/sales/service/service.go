@@ -286,6 +286,11 @@ type Service struct {
 	// extra sentence (#315). Optional, and nil on any deployment that has not
 	// wired it — which sends the receipt this platform always sent.
 	outstandingAnswers OutstandingAnswerReporter
+	// answerReminders is who is due an Answer Reminder and the ledger of who has
+	// had one (#317). Optional and nil on any deployment that has not wired it,
+	// which sweeps nothing and mails nobody — the failure mode of an unwired mail
+	// job has to be silence.
+	answerReminders AnswerReminderSource
 	// ticketQuestionsEnabled decides whether the checkout collects Answers at
 	// all (ADR 0045). It is the SAME environment variable the catalog service
 	// reads for the authoring surface, and one variable rather than two on
@@ -369,6 +374,24 @@ func (s *Service) WithTicketQuestions(enabled bool) *Service {
 // afterwards by whoever wires the application.
 func (s *Service) WithOutstandingAnswers(reporter OutstandingAnswerReporter) *Service {
 	s.outstandingAnswers = reporter
+	return s
+}
+
+// WithAnswerReminders wires the seam the Answer Reminder sweep runs on: who is
+// due one, and the ledger recording that one was sent (#317, ADR 0044).
+//
+// A SETTER, on WithOutstandingAnswers' terms and for the same reason — the
+// catalog service does not exist yet when this one is constructed, and a
+// deployment that forgets this seam mails nobody, which is the safe direction
+// for a mail job to fail in.
+//
+// It is a SECOND seam rather than two more methods on OutstandingAnswerReporter,
+// because the two serve different callers with different failure rules. That one
+// decides a single sentence on a receipt already earned by a committed sale and
+// answers false to everything it cannot resolve; this one drives a job whose read
+// failing is a run that did nothing and must say so.
+func (s *Service) WithAnswerReminders(source AnswerReminderSource) *Service {
+	s.answerReminders = source
 	return s
 }
 

@@ -133,13 +133,14 @@ func (r *Repository) ListTicketSalesDueAnswerReminder(
 ) ([]catalog.DueAnswerReminder, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT s.id, s.status, e.starts_at, COALESCE(e.ends_at, e.starts_at), e.name,
-		       COALESCE(s.locale, ''), s.customer_email,
+		       COALESCE(s.locale, ''), s.confirmation_ref, s.customer_email,
 		       s.customer_first_name, s.customer_last_name,
 		       r.sent_count, r.last_sent_at
 	`+answerReminderFrom+`
 		WHERE `+outstandingAnswerWhere+answerReminderRation+`
 		GROUP BY s.id, s.status, e.starts_at, e.ends_at, e.name, s.locale,
-		         s.customer_email, s.customer_first_name, s.customer_last_name,
+		         s.confirmation_ref, s.customer_email,
+		         s.customer_first_name, s.customer_last_name,
 		         s.sold_at, r.sent_count, r.last_sent_at
 		ORDER BY s.sold_at ASC, s.id ASC
 		LIMIT $4
@@ -158,7 +159,7 @@ func (r *Repository) ListTicketSalesDueAnswerReminder(
 		var lastSent sql.NullTime
 		if err := rows.Scan(
 			&d.TicketSaleID, &d.SaleStatus, &d.EventStartsAt, &d.EventEnd, &d.EventName,
-			&d.SaleLocale, &d.CustomerEmail,
+			&d.SaleLocale, &d.ConfirmationRef, &d.CustomerEmail,
 			&d.CustomerFirstName, &d.CustomerLastName,
 			&d.RemindersSent, &lastSent,
 		); err != nil {

@@ -328,6 +328,21 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// renders exactly as it did before this feature existed (ADR 0045).
 	salesService = salesService.WithOutstandingAnswers(catalogService)
 
+	// The Answer Reminder sweep's seam (#317, ADR 0044), tied on here for the
+	// same reason and at the same moment as the one above it.
+	//
+	// It points the same way — sales asks catalog — and divides the work on the
+	// same line: catalog owns the debt, the rationing and the ledger of who has
+	// been written to, and sales owns the mail, because the Confirmation Link it
+	// points at, the Mail Locale it is written in and the transactional sender it
+	// goes out on are all already here for the Sale Confirmation.
+	//
+	// The far side reads TICKET_QUESTIONS_ENABLED, so a dark deployment sweeps
+	// nothing and mails nobody however often the endpoint is called (ADR 0045) —
+	// which is the inner of the two switches this job ships behind. The outer one
+	// is Terraform's: the Cloud Scheduler job is created paused.
+	salesService = salesService.WithAnswerReminders(catalogService)
+
 	// A Follow of a Tag is stored against a Tag id, and the Customer names one by
 	// the canonical key the Storefront's chips already carry (#218). Turning the
 	// one into the other is catalog's rule — including canonicalizing the key the

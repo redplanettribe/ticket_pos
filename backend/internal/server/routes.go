@@ -82,6 +82,20 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// way to delete every Answer on the platform on demand, which is the same
 	// shape of mistake as letting a caller name a Digest week.
 	mux.HandleFunc("POST /api/v1/internal/checkout-answers/purge", app.SalesHandler.PurgeAbandonedAnswers)
+
+	// The Answer Reminder sweep (#317, ADR 0044): one mail to each buyer whose
+	// Ticket Sale still owes Answers and whose rationing allows it. Served by the
+	// SALES handler because the message is about a Ticket Sale and is addressed
+	// to its buyer — the catalog decides WHO is owed one, this module writes to
+	// them.
+	//
+	// It is the one route in this namespace whose effect is somebody's INBOX, so
+	// the rule that a caller cannot aim a route is at its sharpest here: nothing
+	// names an Event, an Organization, a Sale or — the parameter that would
+	// matter most — a moment. WHO is written to is a property of the database and
+	// the clock, and a caller able to name the clock could lift the seven-day
+	// silence and mail the platform's whole outstanding backlog on demand.
+	mux.HandleFunc("POST /api/v1/internal/answer-reminders/sweep", app.SalesHandler.SweepAnswerReminders)
 }
 
 // registerOperatorRoutes wires the Platform Operator's namespace.
