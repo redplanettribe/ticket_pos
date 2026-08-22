@@ -22,10 +22,12 @@ import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 
+import { CheckoutAnswers } from "@/components/checkout-answers";
 import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType } from "@/lib/api";
+import { answerSlots, checkoutAnswerBodies, type AnswerValues } from "@/lib/checkout-answers";
 import {
   apiErrorMessage,
   fieldCodeMessage,
@@ -274,6 +276,16 @@ export function TicketSelection({
   // so it draws neither rather than drawing all three boxes and pulling them
   // away a moment later.
   const [sessionChecked, setSessionChecked] = useState(false);
+  // What the buyer has typed into the answer section, keyed by (Ticket Type,
+  // ticket number, question) (#311).
+  //
+  // IT IS KEPT WHEN THE DIALOG CLOSES AND CLEARED WHEN THE CART DOES. A buyer
+  // who steps back to change a quantity and returns should not have to retype
+  // three t-shirt sizes; a buyer whose cart was refused starts over, and
+  // backToTickets empties this beside the quantities. Values whose ticket is no
+  // longer in the cart never travel anyway — the slots decide that, not this map
+  // (checkoutAnswerBodies).
+  const [answers, setAnswers] = useState<AnswerValues>({});
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<CheckoutError | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -287,6 +299,12 @@ export function TicketSelection({
   // moment the two diverge (lib/checkout-consent.ts).
   const consentBoxes = checkoutConsentBoxes(consentSession, email);
   const showConsent = anyConsentBox(consentBoxes);
+
+  // One set of questions per ticket in the cart, and none at all when nothing in
+  // it asks anything — which, while the Ticket Question flag is closed, is every
+  // cart on the platform (ADR 0045). Recomputed with the quantities, so removing
+  // a ticket removes its section.
+  const slots = answerSlots(ticketTypes, quantities);
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -412,6 +430,11 @@ export function TicketSelection({
     // one condition under which the field is sent at all.
     const canonicalPhone = phone === "" ? null : normalizePhone(phone);
 
+    // The answer section, reduced to what the buyer actually said. Computed
+    // AFTER the two mirror checks above and never gating them: it cannot fail,
+    // and there is no third check here for it to be part of.
+    const answerBodies = checkoutAnswerBodies(slots, answers);
+
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
@@ -445,6 +468,16 @@ export function TicketSelection({
           ...(consentBoxes.policy_acceptance ? { policy_acceptance: policyAccepted } : {}),
           ...(consentBoxes.marketing_consent ? { marketing_consent: marketingConsent } : {}),
           ...(consentBoxes.networking_consent ? { networking_consent: networkingConsent } : {}),
+          // The answer section, as far as the buyer filled it in. The key is
+          // dropped entirely when they skipped it — which is the ordinary case
+          // and an explicitly supported way to check out — so a cart with
+          // nothing to say posts the body it posted before this feature existed.
+          //
+          // NOTHING IS CHECKED BEFORE SENDING and nothing above this line can
+          // stop the send over an answer: the two mirror checks in this handler
+          // are the Tax ID and the phone, and an answer deliberately joins
+          // neither of them (ADR 0044).
+          ...(answerBodies.length > 0 ? { answers: answerBodies } : {}),
           lines: selectionLines(quantities),
           // The language this page is being read in, stated rather than left to
           // be inferred. It is written into the checkout context cookie so the
@@ -502,6 +535,11 @@ export function TicketSelection({
   function backToTickets() {
     setCheckoutOpen(false);
     setQuantities({});
+    // The answers go with the cart they were about. Kept, they would be replies
+    // for tickets nobody is buying any more — harmless on the wire, since the
+    // slots decide what travels, and confusing on screen the moment the buyer
+    // picks the same Ticket Type again and finds somebody else's size in it.
+    setAnswers({});
     router.refresh();
   }
 
@@ -876,6 +914,31 @@ export function TicketSelection({
                   />
                 </FormField>
               </div>
+              {/*
+                The answer section (#311), drawn ABOVE the consent section and
+                below the buyer's own details, which is where it belongs on both
+                counts: these are facts about other people, so they come after
+                the buyer has said who they are, and consent stays adjacent to
+                the pay button it gates.
+
+                It gates nothing. There is no required check anywhere in it, and
+                the submit button below deliberately does not mention it.
+              */}
+              <CheckoutAnswers
+                slots={slots}
+                values={answers}
+                onChange={(key, value) =>
+                  setAnswers((current) => ({ ...current, [key]: value }))
+                }
+                labels={{
+                  title: t("answers.title"),
+                  hint: t("answers.hint"),
+                  ticketHeading: (ticketType, index, total) =>
+                    t("answers.ticketHeading", { ticketType, index, total }),
+                  optional: t("answers.optional"),
+                  noAnswer: t("answers.noAnswer"),
+                }}
+              />
               {/*
                 The consent section: the Short Notice and the three boxes, in
                 the dialog the purchase happens in, because the guidance

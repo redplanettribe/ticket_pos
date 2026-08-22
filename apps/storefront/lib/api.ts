@@ -1,3 +1,4 @@
+import type { CheckoutAnswerBody, CheckoutQuestion } from "./checkout-answers";
 import type { ReversalOffer } from "./undo-window";
 
 export type APIEnvelope<T> = {
@@ -334,6 +335,20 @@ export type PublicTicketType = {
   // it may legitimately exceed max_per_customer, because lowering a Purchase
   // Limit is not retroactive.
   already_held: number | null;
+  // What this Ticket Type asks the person who will hold one of its tickets, in
+  // the order it asks them (#311).
+  //
+  // OPTIONAL BECAUSE THE API OMITS THE KEY while the Ticket Question flag is
+  // closed, which is how the feature ships (ADR 0045). That absence is the whole
+  // of this app's knowledge of the flag: there is no second environment variable
+  // on this side that could disagree with the backend about whether the feature
+  // exists. Absent and empty mean the same thing here — no answer section — and
+  // the checkout is exactly the one that existed before this feature.
+  //
+  // Only LIVE questions and LIVE Options arrive. A retired one is not in a new
+  // list; "retired, never deleted" is a promise about the Answers that already
+  // chose it.
+  ticket_questions?: CheckoutQuestion[];
 };
 
 export type PublicEventDetail = {
@@ -612,6 +627,28 @@ export type BeginCheckoutRequest = {
   policy_acceptance?: boolean;
   marketing_consent?: boolean;
   networking_consent?: boolean;
+  /**
+   * What the buyer filled in on the checkout's skippable answer section (#311,
+   * ADR 0044): one entry per (Ticket Type, ticket index, Ticket Question) they
+   * actually replied to.
+   *
+   * THE ONE FIELD ON THIS REQUEST THAT CANNOT REFUSE THE CHECKOUT. An entry
+   * naming a Ticket Type not in the cart, a question that Ticket Type does not
+   * ask, an index past its quantity, or a reply of the wrong shape is DROPPED by
+   * the API — silently — and the Ticket carries an Outstanding Answer instead.
+   * Nothing on this side validates for that reason: a second copy of the rules
+   * here would be a second place for them to be enforced differently, and this
+   * is the side where a refusal is easy to write by accident.
+   *
+   * Omitted entirely when the buyer skipped the section, which is the ordinary
+   * case and is explicitly a supported way to check out.
+   *
+   * The answers ride the Payment across the Payment Provider redirect, exactly
+   * as the Tax ID, phone, locale and consent answers do, and land on the minted
+   * Tickets in order only when the sale commits: a Payment that fails or expires
+   * produces no Tickets and no Answers on any Ticket.
+   */
+  answers?: CheckoutAnswerBody[];
   lines: { ticket_type_id: string; quantity: number }[];
 };
 

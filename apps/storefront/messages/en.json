@@ -220,6 +220,13 @@
     "phoneLabel": "Phone (optional)",
     "submit": "Continue to payment",
     "submitting": "Starting payment…",
+    "answers": {
+      "title": "About each ticket",
+      "hint": "Optional \u2014 skip anything you don't know.",
+      "ticketHeading": "{ticketType} \u00b7 ticket {index} of {total}",
+      "optional": "Optional",
+      "noAnswer": "No answer"
+    },
     "consent": {
       "notice": "How we handle your data",
       "readPolicy": "Read the full Privacy Policy",

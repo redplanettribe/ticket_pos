@@ -220,6 +220,13 @@
     "phoneLabel": "Teléfono (opcional)",
     "submit": "Continuar al pago",
     "submitting": "Iniciando el pago…",
+    "answers": {
+      "title": "Sobre cada entrada",
+      "hint": "Opcional: omita lo que no sepa.",
+      "ticketHeading": "{ticketType} \u00b7 entrada {index} de {total}",
+      "optional": "Opcional",
+      "noAnswer": "Sin respuesta"
+    },
     "consent": {
       "notice": "Cómo tratamos sus datos",
       "readPolicy": "Leer la Política de Privacidad completa",
