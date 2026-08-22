@@ -71,13 +71,18 @@ type TicketOwingAnswersView struct {
 	// there is no checkout form on either. They stand here beside the online
 	// ones, and the channel is what stops that reading as lost data.
 	Channel string `json:"channel"`
-	// CustomerName and CustomerEmail are the buyer, who is the only person there
-	// is to chase: the platform holds no address for a Ticket's holder and does
-	// not ask for one, so a question added after a sale reaches its holder only
-	// if the buyer forwards it.
-	CustomerName  string    `json:"customer_name"`
-	CustomerEmail string    `json:"customer_email"`
-	SoldAt        time.Time `json:"sold_at"`
+	// The buyer, who is the ONLY person there is to chase: the platform holds no
+	// address for a Ticket's holder and does not ask for one, so a question added
+	// after a sale reaches its holder only if the buyer forwards it.
+	//
+	// The two name parts stay APART, as they are on the Sales list and in the
+	// column they are read from. Joining them here would mean choosing an order
+	// for them, and which part leads a person's name is the reader's question and
+	// not this payload's.
+	CustomerFirstName string    `json:"customer_first_name"`
+	CustomerLastName  string    `json:"customer_last_name"`
+	CustomerEmail     string    `json:"customer_email"`
+	SoldAt            time.Time `json:"sold_at"`
 	// Outstanding names the required questions this Ticket has not answered, in
 	// the order they are asked. Never empty: a Ticket with nothing outstanding
 	// is not on this list at all.
@@ -175,17 +180,18 @@ func (s *Service) ListOutstandingAnswers(
 
 	for _, ticket := range tickets {
 		result.Data = append(result.Data, TicketOwingAnswersView{
-			TicketID:        ticket.ID,
-			Ordinal:         ticket.Ordinal,
-			TicketTypeID:    ticket.TicketTypeID,
-			TicketTypeName:  ticket.TicketTypeName,
-			TicketSaleID:    ticket.TicketSaleID,
-			ConfirmationRef: ticket.ConfirmationRef,
-			Channel:         ticket.Channel,
-			CustomerName:    ticket.CustomerName,
-			CustomerEmail:   ticket.CustomerEmail,
-			SoldAt:          ticket.SoldAt,
-			Outstanding:     outstandingOrEmpty(byTicket[ticket.ID]),
+			TicketID:          ticket.ID,
+			Ordinal:           ticket.Ordinal,
+			TicketTypeID:      ticket.TicketTypeID,
+			TicketTypeName:    ticket.TicketTypeName,
+			TicketSaleID:      ticket.TicketSaleID,
+			ConfirmationRef:   ticket.ConfirmationRef,
+			Channel:           ticket.Channel,
+			CustomerFirstName: ticket.CustomerFirstName,
+			CustomerLastName:  ticket.CustomerLastName,
+			CustomerEmail:     ticket.CustomerEmail,
+			SoldAt:            ticket.SoldAt,
+			Outstanding:       outstandingOrEmpty(byTicket[ticket.ID]),
 		})
 	}
 	return result, nil

@@ -10609,12 +10609,17 @@ export interface components {
             confirmation_ref?: string;
             customer_email?: string;
             /**
-             * @description CustomerName and CustomerEmail are the buyer, who is the only person there
-             *     is to chase: the platform holds no address for a Ticket's holder and does
-             *     not ask for one, so a question added after a sale reaches its holder only
-             *     if the buyer forwards it.
+             * @description The buyer, who is the ONLY person there is to chase: the platform holds no
+             *     address for a Ticket's holder and does not ask for one, so a question added
+             *     after a sale reaches its holder only if the buyer forwards it.
+             *
+             *     The two name parts stay APART, as they are on the Sales list and in the
+             *     column they are read from. Joining them here would mean choosing an order
+             *     for them, and which part leads a person's name is the reader's question and
+             *     not this payload's.
              */
-            customer_name?: string;
+            customer_first_name?: string;
+            customer_last_name?: string;
             /**
              * @description Ordinal is which of its Ticket Sale Line's units this Ticket is,
              *     1..quantity. Internal and not a seat number, but the only thing telling

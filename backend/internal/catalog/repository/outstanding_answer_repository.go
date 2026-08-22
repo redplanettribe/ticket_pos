@@ -125,10 +125,11 @@ type TicketOwingAnswers struct {
 	// row rather than to filter it: a door sale or an import owing every
 	// question is a buyer who was never asked, and a surface that could not say
 	// so would look like it had lost their Answers.
-	Channel       string
-	CustomerName  string
-	CustomerEmail string
-	SoldAt        time.Time
+	Channel           string
+	CustomerFirstName string
+	CustomerLastName  string
+	CustomerEmail     string
+	SoldAt            time.Time
 	// OutstandingCount is how many required questions this Ticket owes. It is
 	// counted in the same GROUP BY that found the Ticket, so it can never
 	// disagree with the questions listed beside it.
@@ -190,13 +191,13 @@ func (r *Repository) ListTicketsOwingAnswers(
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT tk.id, tk.ordinal, l.ticket_type_id, tt.name,
 		       s.id, s.confirmation_ref, s.channel,
-		       s.customer_name, s.customer_email, s.sold_at,
+		       s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at,
 		       COUNT(*) AS outstanding_count
 	`+outstandingAnswerFrom+`
 		WHERE `+outstandingAnswerWhere+outstandingAnswerScope+`
 		GROUP BY tk.id, tk.ordinal, l.ticket_type_id, tt.name,
 		         s.id, s.confirmation_ref, s.channel,
-		         s.customer_name, s.customer_email, s.sold_at
+		         s.customer_first_name, s.customer_last_name, s.customer_email, s.sold_at
 		ORDER BY s.sold_at ASC, s.id ASC, tk.ordinal ASC
 		LIMIT $3 OFFSET $4
 	`, eventID, organizationID, limit, offset)
@@ -211,7 +212,7 @@ func (r *Repository) ListTicketsOwingAnswers(
 		if err := rows.Scan(
 			&t.ID, &t.Ordinal, &t.TicketTypeID, &t.TicketTypeName,
 			&t.TicketSaleID, &t.ConfirmationRef, &t.Channel,
-			&t.CustomerName, &t.CustomerEmail, &t.SoldAt,
+			&t.CustomerFirstName, &t.CustomerLastName, &t.CustomerEmail, &t.SoldAt,
 			&t.OutstandingCount,
 		); err != nil {
 			return nil, 0, err

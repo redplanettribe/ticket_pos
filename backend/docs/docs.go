@@ -4080,8 +4080,11 @@ const docTemplate = `{
                     "customer_email": {
                         "type": "string"
                     },
-                    "customer_name": {
-                        "description": "CustomerName and CustomerEmail are the buyer, who is the only person there\nis to chase: the platform holds no address for a Ticket's holder and does\nnot ask for one, so a question added after a sale reaches its holder only\nif the buyer forwards it.",
+                    "customer_first_name": {
+                        "description": "The buyer, who is the ONLY person there is to chase: the platform holds no\naddress for a Ticket's holder and does not ask for one, so a question added\nafter a sale reaches its holder only if the buyer forwards it.\n\nThe two name parts stay APART, as they are on the Sales list and in the\ncolumn they are read from. Joining them here would mean choosing an order\nfor them, and which part leads a person's name is the reader's question and\nnot this payload's.",
+                        "type": "string"
+                    },
+                    "customer_last_name": {
                         "type": "string"
                     },
                     "ordinal": {
