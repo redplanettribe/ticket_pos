@@ -340,6 +340,12 @@ The moment things change hands: from here the Answer Reminder is addressed to th
 Not accepting is how a person declines. Ignoring the mail costs them nothing, leaves the Ticket working exactly as it did before, and the address is purged when the Event starts; there is no explicit decline and no page to do it on.
 _Avoid_: Confirm — the glossary already carries four confirmations and this is the only token that mints an identity — claim, redeem, activate, register, RSVP, verify, opt in
 
+**Holder List**:
+The Organization's answer to "who is coming": every Ticket of an Event, each with its assignment state, its Holder's name and email address once accepted, and — where the Event asks Ticket Questions — that Ticket's Answers and what it still owes.
+Every Ticket, not every Ticket that owes: a fully answered Ticket stays on it, and an Event that asks no questions still has one, because the roster is the point and the questions are a column on it. Outstanding Answers is a filter of this list, not its definition.
+A Ticket whose assignment was never accepted reads `assigned` with no name and no address — nothing is disclosed before acceptance — and once the Event has started and the address is purged, it reads as assigned-but-never-accepted rather than as if nobody had been named, so the morning-after sheet does not rewrite what happened.
+_Avoid_: Guest list, attendee list, invitees, RSVP list, outstanding answers (as the name of this list)
+
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
 Reachable by three routes, and the sale records which one voided it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.

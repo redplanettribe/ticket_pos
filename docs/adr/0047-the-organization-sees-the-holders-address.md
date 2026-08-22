@@ -87,7 +87,8 @@ outside the platform, and this ADR says so rather than pretending otherwise.
   protection and would guarantee somebody re-types the addresses into a spreadsheet by hand.
 - **Disclose assigned-but-not-accepted addresses too.** Rejected outright. Those addresses have no
   consent moment behind them at all; the person may not even know a ticket was bought for them. This
-  is the line the whole design is drawn around.
+  is the line the whole design is drawn around. Put to the product owner explicitly on 2026-08-22 and
+  confirmed: the Organization sees that such a Ticket is `assigned`, and nothing more.
 
 ## Consequences
 
