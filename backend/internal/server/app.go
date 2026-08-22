@@ -285,6 +285,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// will not ask — or the reverse — is a deployment collecting or discarding
 	// personal data by accident.
 	salesService = salesService.WithTicketQuestions(cfg.TicketQuestionsEnabled)
+	// And the SECOND flag, for the Holder columns on that same sheet (#330,
+	// ADR 0047). Sales is handed it for the export and for nothing else: no
+	// checkout, no door sale and no Sale Import consults it, because nothing
+	// about assignment may block or delay any of them.
+	salesService = salesService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
 	salesHandler := saleshandler.New(salesService)
 
 	// Catalog is built AFTER sales because the public Event page reports a
@@ -307,10 +312,11 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// exists to buy is that assignment can be killed without taking Ticket
 	// Questions dark.
 	//
-	// Only the catalog service is handed it, because only the catalog owns a
-	// Ticket. Sales is not taught about it — nothing in checkout, the door or a
-	// Sale Import touches an assignment, and nothing about assignment may block
-	// or delay any of them.
+	// The catalog service owns the Ticket and every write behind this flag.
+	// Sales is handed the same value above for ONE READ — whether the Sales
+	// Export's per-Ticket sheet carries its Holder columns (#330) — and for
+	// nothing else: nothing in checkout, the door or a Sale Import touches an
+	// assignment, and nothing about assignment may block or delay any of them.
 	catalogService = catalogService.WithTicketAssignment(cfg.TicketAssignmentEnabled)
 	// The Answer Link's signing key and the origin its links point at (#312,
 	// ADR 0044).
