@@ -13,10 +13,10 @@ func answerPtr[T any](v T) *T { return &v }
 // short_text question, with three units bought.
 func askedGA() ([]AskedQuestion, map[string]int) {
 	return []AskedQuestion{{
-			ID:           "q-size",
-			TicketTypeID: "tt-ga",
-			Kind:         TicketQuestionKindShortText,
-		}}, map[string]int{"tt-ga": 3}
+		ID:           "q-size",
+		TicketTypeID: "tt-ga",
+		Kind:         TicketQuestionKindShortText,
+	}}, map[string]int{"tt-ga": 3}
 }
 
 func TestHoldableCheckoutAnswersKeepsAWellFormedAnswer(t *testing.T) {
