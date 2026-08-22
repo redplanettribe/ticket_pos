@@ -108,6 +108,25 @@ components:
             type: string
           type: array
           uniqueItems: false
+        answers:
+          description: |-
+            Answers are what the buyer filled in on the checkout's answer section
+            (#311, ADR 0044).
+
+            THE ONLY FIELD ON THIS BODY THAT CANNOT PRODUCE A FIELD ERROR, and the
+            asymmetry with everything above it is the point. A malformed email is a
+            form the buyer must fix; a malformed answer is a t-shirt size, and refusing
+            a purchase over one is the thing ADR 0044 exists to forbid. Anything
+            unusable here is DROPPED — quietly, by the service — and the Ticket carries
+            an Outstanding Answer instead.
+
+            OPTIONAL AND USUALLY ABSENT. A cart whose Ticket Types ask nothing sends no
+            such key, and neither does a buyer who skipped the whole section, which is
+            explicitly a supported way to check out.
+          items:
+            $ref: '#/components/schemas/handler.checkoutAnswerBody'
+          type: array
+          uniqueItems: false
         customer_email:
           type: string
         customer_first_name:
@@ -181,6 +200,33 @@ components:
             an answer for a box the buyer was not owed is dropped rather than applied
             (service.owedConsentAnswers).
           type: boolean
+      type: object
+    handler.checkoutAnswerBody:
+      properties:
+        checked:
+          type: boolean
+        date:
+          type: string
+        number:
+          type: string
+        option_ids:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        text:
+          type: string
+        ticket_index:
+          description: |-
+            TicketIndex is which of that Ticket Type's tickets this Answer is about,
+            ONE-BASED: 1..quantity, counted across the whole cart's holding of that
+            Ticket Type. It becomes the minted Ticket's `ordinal` when the sale
+            commits, which is what makes "in order" mean anything (ADR 0043).
+          type: integer
+        ticket_question_id:
+          type: string
+        ticket_type_id:
+          type: string
       type: object
     handler.checkoutLineBody:
       properties:
@@ -3176,6 +3222,45 @@ components:
         promotional_price_cents:
           type: integer
       type: object
+    service.PublicTicketQuestion:
+      properties:
+        id:
+          type: string
+        kind:
+          description: |-
+            Kind is which of the seven field shapes to draw: short_text, long_text,
+            single_choice, multi_choice, number, date, checkbox.
+          type: string
+        label:
+          description: |-
+            Label is the question AS COINED — the Organization's own words, read
+            identically on an `en` and an `es` page exactly as a Custom Tag is
+            (ADR 0027). Only the page chrome around it follows the Locale.
+          type: string
+        options:
+          description: |-
+            Options is empty for the five kinds that are not answered by choosing, and
+            carries only LIVE Options for the two that are.
+          items:
+            $ref: '#/components/schemas/service.PublicTicketQuestionOption'
+          type: array
+          uniqueItems: false
+        required:
+          description: |-
+            Required MARKS A FIELD AND GATES NOTHING. Its only effect anywhere on this
+            platform is producing an Outstanding Answer the Organization can chase, and
+            a Storefront that turned it into a disabled pay button would be reversing
+            ADR 0044 — the buyer is not assumed to know the answers, which is the
+            premise the whole feature rests on.
+          type: boolean
+      type: object
+    service.PublicTicketQuestionOption:
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+      type: object
     service.PublicTicketType:
       properties:
         already_held:
@@ -3229,6 +3314,27 @@ components:
           type: integer
         sold_out:
           type: boolean
+        ticket_questions:
+          description: |-
+            TicketQuestions are what this Ticket Type asks the person who will hold one
+            of its tickets, in the order they are asked (#311).
+
+            PRESENT ONLY WHERE THE FEATURE FLAG IS OPEN, and empty on every Ticket Type
+            that asks nothing — which, on the shipped deployment, is all of them
+            (ADR 0045). The Storefront draws its answer section from this and from
+            nothing else, so a closed flag is a checkout with no answer section at all
+            rather than one hidden by a second flag on the frontend that could disagree.
+
+            IT IS A NARROWER VIEW THAN THE STAFF ONE, deliberately. No `retired` — a
+            retired question or Option is simply absent, because this is a new list and
+            nobody is being asked one. No timestamps, no `timing` — the timing decided
+            whether the question is here at all, and restating it would invite a client
+            to filter on it a second time. What a public payload does not say cannot be
+            read wrong.
+          items:
+            $ref: '#/components/schemas/service.PublicTicketQuestion'
+          type: array
+          uniqueItems: false
       type: object
     service.ReversalDrainResult:
       properties:
@@ -7002,7 +7108,34 @@ paths:
         a proven Customer Session (ADR 0035). The technical proof stored with the
         record (IP, user agent, origin URL) is taken from the request, never from
         this body. The Policy Version accepted is resolved server-side and is never
-        accepted from a client.'
+        accepted from a client. answers is optional and carries what the buyer filled
+        in on the checkout''s skippable Ticket Question section: one entry per (ticket_type_id,
+        ticket_index, ticket_question_id), where ticket_index is ONE-BASED and names
+        one of that Ticket Type''s tickets, 1..quantity counted across the whole cart''s
+        holding of it. Exactly one reply slot is filled per entry and WHICH one is
+        decided by the question''s kind: text for short_text and long_text, number
+        (a STRING, so the digits reach a NUMERIC column exactly as typed) for number,
+        date for date, checked for checkbox, option_ids for single_choice and multi_choice.
+        `checked: false` is an answer — somebody read the box and left it unticked
+        — while an absent checked is somebody who was never asked. NOTHING ABOUT AN
+        ANSWER CAN EVER REFUSE OR DELAY A CHECKOUT (ADR 0044): it is the only field
+        on this body that produces no field error and no refusal of any kind. An entry
+        naming a Ticket Type not in the cart, a question that Ticket Type does not
+        ask, an index past its quantity, a reply of the wrong shape for the kind,
+        or an Option the question does not currently offer is DROPPED SILENTLY, and
+        the Ticket it was meant for simply carries an Outstanding Answer — which is
+        the whole of what `required` means on a Ticket Question. A choice answer is
+        kept whole or not at all, because dropping one unresolvable Option would rewrite
+        what somebody said. At most 500 entries are read. The answers are held on
+        the Payment keyed by (payment line, index) across the Payment Provider redirect,
+        exactly as the Tax ID, phone, locale and consent answers are, and are written
+        onto the minted Tickets in order — index n becomes ordinal n — only when the
+        sale commits: a Payment that fails or expires produces no Tickets and no Answers
+        on any Ticket. A free checkout, which settles inside this request, carries
+        them through by the same path. The whole section is behind the Ticket Question
+        feature flag: with it closed the field is ignored entirely and nothing is
+        captured, and the public Event page carries no ticket_questions for a client
+        to draw a form from (ADR 0045).'
       parameters:
       - description: Organization slug
         in: path
