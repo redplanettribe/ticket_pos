@@ -16,7 +16,10 @@ import {
 } from "@/lib/buyer-answers";
 import {
   assignmentOffered,
+  assignmentStateOf,
   assignmentTally,
+  holderEmailOf,
+  isOwnTicket,
   saleOffersAssignment,
   type AssignmentBody,
 } from "@/lib/ticket-assignment";
@@ -123,7 +126,7 @@ export function BuyerTicketAnswers({ ticketSaleId }: BuyerTicketAnswersProps) {
   const tally = assignmentTally(tickets);
 
   return (
-    <section className="mt-6 space-y-6 border-t pt-6">
+    <section className="mt-6 space-y-3 border-t pt-6">
       <div className="space-y-1">
         {/* The heading follows what the section is FOR. Once addresses can be
             given, "questions about these tickets" is no longer the half of it a
@@ -131,41 +134,47 @@ export function BuyerTicketAnswers({ ticketSaleId }: BuyerTicketAnswersProps) {
         <h3 className="font-medium">
           {assignment ? t("assignment.title") : t("answers.title")}
         </h3>
-        {/* The count is stated HERE and never in the Sale Confirmation. This
-            page reads it live at the moment somebody looks, which is the only
-            moment it is true; a number baked into an inbox is wrong as soon as
-            one question is answered. */}
-        {questions ?
-          <p className="text-muted-foreground text-sm">
-            {outstanding > 0 ?
-              t("answers.outstanding", { count: outstanding })
-            : t("answers.allDone")}
-          </p>
-        : null}
-        {/* PARTIAL ASSIGNMENT COUNTS AND NEVER WARNS. A sale of four with two
-            addresses is finished as far as the buyer is concerned, and a page
-            that nagged about the other two would be nagging about people who do
-            not exist. */}
-        {assignment && tally.total > 0 ?
-          <p className="text-muted-foreground text-sm">
-            {t("assignment.tally", { assigned: tally.assigned, total: tally.total })}
-          </p>
+        {/* ONE LINE OF TALLY, never a paragraph per Ticket. The counts are read
+            live at the moment somebody looks, which is the only moment they are
+            true; and partial assignment counts and never warns — a sale of four
+            with two addresses is finished as far as the buyer is concerned. */}
+        <p className="text-muted-foreground text-sm">
+          {[
+            questions ?
+              outstanding > 0 ?
+                t("answers.outstanding", { count: outstanding })
+              : t("answers.allDone")
+            : null,
+            assignment && tally.total > 0 ?
+              t("assignment.tally", { assigned: tally.assigned, total: tally.total })
+            : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        </p>
+        {/* Said ONCE, for the whole sale, rather than once per Ticket: the
+            other Tickets are their Holders' to answer, and the buyer's job
+            here is to pass each one on. */}
+        {questions && tickets.some((ticket) => !isOwnTicket(ticket)) ?
+          <p className="text-muted-foreground text-sm">{t("answers.copyHint")}</p>
         : null}
       </div>
 
-      {tickets.map((ticket, index) => (
-        <TicketBlock
-          key={ticket.ticket_id}
-          ticketSaleId={ticketSaleId}
-          ticket={ticket}
-          // "Ticket 2 of 4" is the whole of what can be said to tell two
-          // identical tickets apart: there are no seat numbers and no holder
-          // names, and the platform is never going to ask for either.
-          position={index + 1}
-          total={tickets.length}
-          onSaved={setTickets}
-        />
-      ))}
+      <div className="divide-y rounded-md border">
+        {tickets.map((ticket, index) => (
+          <TicketBlock
+            key={ticket.ticket_id}
+            ticketSaleId={ticketSaleId}
+            ticket={ticket}
+            // "Ticket 2 of 4" is the whole of what can be said to tell two
+            // identical tickets apart until an address is given: there are no
+            // seat numbers, and the platform is never going to ask for them.
+            position={index + 1}
+            total={tickets.length}
+            onSaved={setTickets}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -259,58 +268,110 @@ function TicketBlock({ ticketSaleId, ticket, position, total, onSaved }: TicketB
     }
   }
 
+  const own = isOwnTicket(ticket);
+  const state = assignmentStateOf(ticket);
+  const holder = holderEmailOf(ticket);
+  const outstanding = ticket.outstanding_count;
+
+  // ONE COLLAPSED ROW PER TICKET, opened on demand. A buyer of three usually
+  // answers for themself and passes the other two on, so the row's default
+  // reading is what they need to do that — who it is for, whether it still owes
+  // anything, and the link to forward — and the fields wait behind the row.
+  // The buyer's own Ticket starts OPEN: its questions are theirs to answer.
   return (
-    <div className="space-y-4 rounded-md border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-medium">{t("answers.ticketHeading", { position, total })}</p>
-          {/* The Ticket Type's name as the Organization wrote it. */}
-          <p className="text-muted-foreground text-sm">{ticket.ticket_type_name}</p>
-        </div>
-        {questions.length > 0 && hasAnswerLink(ticket) ?
+    // `open` is set only on the buyer's own row and left UNDEFINED on the rest:
+    // a `false` here would be re-applied by React on every redraw, snapping a
+    // row shut the moment a save inside it came back.
+    <details className="group" open={own ? true : undefined}>
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
+        <span
+          aria-hidden
+          className="text-muted-foreground transition-transform group-open:rotate-90"
+        >
+          ▸
+        </span>
+        <span className="font-medium">
+          {own ?
+            t("answers.ownTicket")
+          : t("answers.ticketHeading", { position, total })}
+        </span>
+        <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
+        <span className="text-muted-foreground min-w-0 flex-1 whitespace-nowrap">
+          {own ? null
+          : state === "accepted" ?
+            t("assignment.rowAccepted", { email: holder })
+          : state === "assigned" ?
+            t("assignment.rowAssigned", { email: holder })
+          : assignable ?
+            t("assignment.rowUnassigned")
+          : null}
+        </span>
+        {questions.length > 0 ?
+          <span
+            className={
+              outstanding > 0 ?
+                "ml-auto whitespace-nowrap text-sm font-medium"
+              : "text-muted-foreground ml-auto whitespace-nowrap text-sm"
+            }
+          >
+            {outstanding > 0 ?
+              t("answers.rowOutstanding", { count: outstanding })
+            : t("answers.rowAnswered")}
+          </span>
+        : null}
+        {/* The link is about the QUESTIONS, so a Ticket asked nothing is offered
+            none; and the buyer's own Ticket is offered none either — there is
+            nobody to forward it to. */}
+        {!own && questions.length > 0 && hasAnswerLink(ticket) ?
           <CopyAnswerLink link={ticket.answer_link} />
         : null}
+      </summary>
+
+      <div className="space-y-4 px-3 pb-4 pt-1">
+        {/* ABOVE THE QUESTIONS, because it is what tells this Ticket from the
+            other three. NOT remounted when the sale redraws: the field holds
+            what the buyer typed, and a remount would take the "saved"
+            confirmation off the screen at the moment it was earned. */}
+        {/* The buyer's own Ticket: the address is theirs, so the field is
+            offered only as "give it to someone else" rather than drawn open
+            with their own email in it. */}
+        {assignable && own ?
+          <details className="text-sm">
+            <summary className="text-muted-foreground cursor-pointer">
+              {t("assignment.giveAway")}
+            </summary>
+            <div className="pt-3">
+              <TicketAssignmentRow ticket={ticket} save={assign} />
+            </div>
+          </details>
+        : assignable ?
+          <TicketAssignmentRow ticket={ticket} save={assign} />
+        : null}
+
+        {questions.length > 0 && !hasAnswerLink(ticket) && !own && state !== "accepted" ?
+          // No link to give. Either the Event has started or the purchase was
+          // undone, and in both cases nothing anybody forwards would open.
+          <p className="text-muted-foreground text-sm">{t("answers.linkClosed")}</p>
+        : null}
+
+        <div className="space-y-5">
+          {questions.map((pair) => (
+            <TicketQuestionRow
+              key={pair.question.id}
+              pair={pair}
+              copy={{
+                requiredMark: (question: string) => t("answers.requiredMark", { question }),
+                save: t("answers.save"),
+                saved: t("answers.saved"),
+                nothingToSave: t("answers.nothingToSave"),
+                retiredQuestion: t("answers.retiredQuestion"),
+              }}
+              save={(body) => save(pair.question.id, body)}
+            />
+          ))}
+        </div>
       </div>
-
-      {/* The link is about the QUESTIONS, so a Ticket that is asked nothing is
-          offered no link and told nothing about one — there would be nothing
-          behind it. */}
-      {questions.length === 0 ?
-        null
-      : hasAnswerLink(ticket) ?
-        <p className="text-muted-foreground text-sm">{t("answers.copyHint")}</p>
-      : // No link to give. Either the Event has started or the purchase was
-        // undone, and in both cases nothing anybody forwards would open. Said
-        // plainly, because a missing button with no explanation reads as a fault.
-        <p className="text-muted-foreground text-sm">{t("answers.linkClosed")}</p>
-      }
-
-      {/* ABOVE THE QUESTIONS, because it is what tells this Ticket from the
-          other three. NOT remounted when the sale redraws: the field holds what
-          the buyer typed, the address sent is the normalised form of exactly
-          that, and a remount here would take the "saved" confirmation off the
-          screen at the moment it was earned. */}
-      {assignable ?
-        <TicketAssignmentRow ticket={ticket} save={assign} />
-      : null}
-
-      <div className="space-y-6">
-        {questions.map((pair) => (
-          <TicketQuestionRow
-            key={pair.question.id}
-            pair={pair}
-            copy={{
-              requiredMark: (question: string) => t("answers.requiredMark", { question }),
-              save: t("answers.save"),
-              saved: t("answers.saved"),
-              nothingToSave: t("answers.nothingToSave"),
-              retiredQuestion: t("answers.retiredQuestion"),
-            }}
-            save={(body) => save(pair.question.id, body)}
-          />
-        ))}
-      </div>
-    </div>
+    </details>
   );
 }
 
@@ -347,7 +408,11 @@ function CopyAnswerLink({ link }: { link: string }) {
   }
 
   return (
-    <div className="space-y-2 text-right">
+    <div
+      className="space-y-2 text-right"
+      // A press on the button must copy, not toggle the row it sits in.
+      onClick={(event) => event.preventDefault()}
+    >
       <Button size="sm" variant="outline" onClick={copy}>
         {state === "copied" ? t("answers.copied") : t("answers.copyLink")}
       </Button>

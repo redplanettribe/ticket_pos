@@ -123,6 +123,13 @@ type CommitSalesInput struct {
 	// commit without a Payment (import, and in-person later), which must
 	// respect every live hold.
 	ExcludePaymentID string
+	// SelfHeld makes one Ticket of each sale the buyer's own: the first Ticket
+	// of the line whose Ticket Type sorts first in the catalog is assigned to
+	// the buyer and accepted in the same transaction that mints it (ADR 0048).
+	// Set by the online checkout while TICKET_ASSIGNMENT_ENABLED is on, and by
+	// nothing else: a door sale's or an import's buyer is a name somebody else
+	// typed.
+	SelfHeld bool
 }
 
 // CommitInput is a fully-prepared Direct Sale Import to record atomically.
@@ -421,6 +428,8 @@ type lockedType struct {
 	priceCents int
 	capacity   int
 	soldCount  int
+	sortOrder  int
+	name       string
 }
 
 // CommitSales records prepared Ticket Sales, their Lines, and the resulting
@@ -463,11 +472,11 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 	for _, id := range typeIDs {
 		var lt lockedType
 		err := tx.QueryRowContext(ctx, `
-			SELECT price_cents, capacity, sold_count
+			SELECT price_cents, capacity, sold_count, sort_order, name
 			FROM ticket_types
 			WHERE id = $1 AND event_id = $2 AND organization_id = $3
 			FOR UPDATE
-		`, id, in.EventID, in.OrganizationID).Scan(&lt.priceCents, &lt.capacity, &lt.soldCount)
+		`, id, in.EventID, in.OrganizationID).Scan(&lt.priceCents, &lt.capacity, &lt.soldCount, &lt.sortOrder, &lt.name)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &UnknownTicketTypeError{Row: firstRow[id], TicketTypeID: id}
 		}
@@ -536,6 +545,11 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 		}
 
 		amountCents := 0
+		// The buyer's own Ticket, chosen as the lines are written: the first
+		// Ticket of the line whose Ticket Type comes first in catalog order
+		// (sort_order, then name — the order every storefront list shows).
+		var selfHeldTicketID string
+		var selfHeldType lockedType
 		for _, line := range s.Lines {
 			unitPrice := locked[line.TicketTypeID].priceCents
 			if line.UnitPriceCents != nil {
@@ -570,6 +584,12 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 			if err != nil {
 				return nil, err
 			}
+			if lt := locked[line.TicketTypeID]; in.SelfHeld && (selfHeldTicketID == "" ||
+				lt.sortOrder < selfHeldType.sortOrder ||
+				(lt.sortOrder == selfHeldType.sortOrder && lt.name < selfHeldType.name)) {
+				selfHeldTicketID = ticketIDs[1]
+				selfHeldType = lt
+			}
 			// And the Answers the buyer gave at checkout, landing on those very
 			// Tickets in the same transaction (#311). The Payment held them keyed
 			// by (payment line, index) across the provider redirect; here index n
@@ -602,6 +622,12 @@ func (r *Repository) CommitSales(ctx context.Context, tx *sql.Tx, in CommitSales
 					return nil, rbErr
 				}
 			} else if _, err := tx.ExecContext(ctx, `RELEASE SAVEPOINT ticket_answers`); err != nil {
+				return nil, err
+			}
+		}
+
+		if selfHeldTicketID != "" {
+			if err := holdOwnTicket(ctx, tx, selfHeldTicketID, customerID, s.Customer.Email, in.Now); err != nil {
 				return nil, err
 			}
 		}
@@ -676,6 +702,31 @@ func mintTickets(ctx context.Context, tx *sql.Tx, ticketSaleLineID string, quant
 		ticketIDs[ordinal] = id
 	}
 	return ticketIDs, rows.Err()
+}
+
+// holdOwnTicket makes one freshly minted Ticket the buyer's own Self-held
+// Ticket: assigned to the buyer's address and accepted at once, in the caller's
+// transaction (ADR 0048).
+//
+// ACCEPTED BY PURCHASE, NOT BY LINK. Checking out is the buyer's own act, so
+// "who is this one for" needs no asking and no Assignment mail. It writes
+// holder_customer_id and accepted_at together, as migration 080's CHECK
+// requires, and touches nothing on the customers row — a payment is not Proof
+// of Email Ownership, and whether the buyer is Verified stays the sign-in
+// module's authority. The Organization sees an ordinary accepted Ticket under
+// the name and address the Sale was made with, which it already sees on the
+// Sale.
+//
+// Like mintTickets it takes a transaction and not a pool: a Ticket that is
+// the buyer's own from the start must be so in the commit that minted it, or
+// a crash in between leaves a Sale whose buyer holds nothing.
+func holdOwnTicket(ctx context.Context, tx *sql.Tx, ticketID, customerID, email string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE tickets
+		SET holder_email = $2, holder_customer_id = $3, assigned_at = $4, accepted_at = $4
+		WHERE id = $1
+	`, ticketID, platform.NormalizeEmail(email), customerID, now)
+	return err
 }
 
 // liveHoldsForUpdate returns the quantities live Capacity Holds claim per

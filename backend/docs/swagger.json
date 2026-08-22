@@ -2502,6 +2502,10 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "self_held": {
+                        "description": "SelfHeld is whether this Ticket's Holder is the buyer themself — the one\nTicket an Online Sale hands the buyer at purchase (ADR 0048), or any\nTicket they later assigned to their own address and accepted. The\nStorefront says \"your ticket\" on it and asks the buyer to answer it,\nwhere every other Ticket is its Holder's to answer. Absent while the\nassignment flag is closed, like the rest of this block.",
+                        "type": "boolean"
+                    },
                     "ticket_id": {
                         "description": "TicketID names which Ticket this is, so the buyer's own form can post back\nagainst it. Safe here and absent from AnswerLinkView, and the difference is\nthe credential: this reader proved they own the Sale, so an id they could\ntry somewhere else is an id for their own Ticket.",
                         "type": "string"
@@ -4020,6 +4024,10 @@
             },
             "service.PublicEventDetail": {
                 "properties": {
+                    "buyer_holds_first_ticket": {
+                        "description": "BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the\nbuyer its first Ticket as their own Self-held Ticket (ADR 0048) — which\nis the platform's Ticket Assignment flag and not a property of the\nEvent, riding here for the reason ticket_questions does: the checkout\ndialog draws a \"Your ticket\" section from this payload, and it may only\ncall a Ticket the buyer's own when the sale will actually make it so.",
+                        "type": "boolean"
+                    },
                     "cover_image_url": {
                         "type": "string"
                     },

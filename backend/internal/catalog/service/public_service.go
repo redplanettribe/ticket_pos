@@ -257,6 +257,13 @@ type PublicEventDetail struct {
 	// null for an external Event still missing one, which a published Event
 	// cannot be (the publish gate requires it, #208).
 	RegistrationURL *string `json:"registration_url"`
+	// BuyerHoldsFirstTicket is whether an Online Sale of this Event hands the
+	// buyer its first Ticket as their own Self-held Ticket (ADR 0048) — which
+	// is the platform's Ticket Assignment flag and not a property of the
+	// Event, riding here for the reason ticket_questions does: the checkout
+	// dialog draws a "Your ticket" section from this payload, and it may only
+	// call a Ticket the buyer's own when the sale will actually make it so.
+	BuyerHoldsFirstTicket bool `json:"buyer_holds_first_ticket"`
 }
 
 // PublicEventPage is one page of global explorer results.
@@ -469,6 +476,9 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 		Tags:             toTagViews(tags),
 		Discoverable:     row.Discoverable,
 		RegistrationMode: string(mode),
+		// Only a ticketed Event sells online; an external one never makes a
+		// Sale and so never hands anybody a Ticket.
+		BuyerHoldsFirstTicket: s.ticketAssignmentEnabled && mode != catalog.RegistrationModeExternal,
 	}
 	// The Registration Link travels only on the Event that actually registers
 	// through it.

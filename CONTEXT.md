@@ -316,8 +316,15 @@ The buyer's act of naming an email address for one of their Tickets, and the rec
 Done after the purchase and never at checkout, from the Confirmation Link page or the Customer Area, on the `online` and `import` Sales Channels; a door sale has no buyer surface to do it from. Nothing is held on a Payment, so an abandoned checkout leaves no third party's address behind.
 Assignment, never transfer: the Ticket Sale, the Sale Confirmation, the money and the Reversal Window stay with the buyer, who may reassign any Ticket at any time — including one already accepted, which clears that Ticket's Answers, because an Answer is a fact about a person and the new Holder is not carrying the old one's allergy. Changes no figure: Tickets Sold, capacity and Purchase Limit all still read off Ticket Sale Line quantities.
 Kept as three states on the Ticket — `unassigned`, `assigned`, `accepted` — with the current Holder and when it last changed, never a history of who was named before, the same way an Answer keeps no author.
+One Ticket on every Online Sale is the buyer's own from the start, as a Self-held Ticket, so the buyer is never asked to name themself; every other Ticket starts `unassigned`.
 Distinct from an Event assignment, which puts a Member on an Event's staff and has nothing to do with tickets.
 _Avoid_: Transfer, allocation, ticket sharing, invite, guest list entry, seat assignment, delegation
+
+**Self-held Ticket**:
+The one Ticket of an Online Sale that is the buyer's own: the first Ticket of the Sale's first line in the catalog's order, assigned to the buyer and accepted the moment the Sale is made, because checking out is the buyer's own act and the one case where "who is this for" needs no asking.
+Accepted by purchase rather than by link, so it proves nothing about the buyer's inbox and makes nobody Verified; to the Organization it is an ordinary accepted Ticket held by the buyer, under the name and address the Sale was made with. Its Ticket Questions are the only ones checkout asks, under "Your ticket", and the only ones the buyer is presumed able to answer; the Sale's other Tickets are for their own Holders to answer.
+Still the buyer's to reassign, like any Ticket — a buyer who is not attending hands it on, and it stops being self-held. Only an Online Sale has one: a door sale's or a Sale Import's buyer is a name somebody else typed.
+_Avoid_: Buyer's ticket (as the term), primary ticket, own ticket, main ticket, purchaser ticket
 
 **Holder**:
 The person a Ticket was assigned to. Capitalised as a role, and the same word ADR 0044 used in lowercase for whoever happened to be holding an Answer Link — the difference is that a Holder is named, proven and known to the platform.

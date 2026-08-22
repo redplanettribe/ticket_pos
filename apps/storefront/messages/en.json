@@ -251,9 +251,8 @@
     "submit": "Continue to payment",
     "submitting": "Starting payment…",
     "answers": {
-      "title": "About each ticket",
-      "hint": "Optional — skip anything you don't know.",
-      "ticketHeading": "{ticketType} · ticket {index} of {total}",
+      "title": "Your ticket · {ticketType}",
+      "hint": "Optional — skip anything you're not sure of.",
       "optional": "Optional",
       "optionalLabel": "{question} · Optional",
       "noAnswer": "No answer"
@@ -388,7 +387,7 @@
       "outstanding": "{count, plural, one {# question still needs an answer.} other {# questions still need answers.}}",
       "allDone": "Everything the organizer asked has been answered.",
       "ticketHeading": "Ticket {position} of {total}",
-      "copyHint": "Answer what you know. For the rest, copy this ticket's link and send it to whoever will be using it — it opens these questions and shows them nothing about your purchase.",
+      "copyHint": "Answer your own ticket here. For the others, copy each ticket's link and send it to whoever will be using it — it opens their questions and shows them nothing about your purchase.",
       "copyLink": "Copy this ticket's link",
       "copied": "Copied",
       "linkClosed": "There's no link to share for this one any more. Answers close when the doors open, and a reversed purchase closes them too.",
@@ -398,7 +397,10 @@
       "saveFailed": "That didn't save. Try again.",
       "networkFailed": "That didn't save. Check your connection and try again.",
       "nothingToSave": "There's nothing to save yet — fill this in first.",
-      "retiredQuestion": "The organizer has stopped asking this. The answer is kept as it was."
+      "retiredQuestion": "The organizer has stopped asking this. The answer is kept as it was.",
+      "ownTicket": "Your ticket",
+      "rowOutstanding": "{count, plural, one {# question waiting} other {# questions waiting}}",
+      "rowAnswered": "Answered"
     },
     "holdingHeading": "Tickets someone gave you",
     "holdingDescription": "Someone bought these and gave them to you. The event is theirs to change: if they hand a ticket to someone else, it leaves this list.",
@@ -408,12 +410,12 @@
       "stateUnassigned": "No address yet",
       "stateAssigned": "This ticket is for {email}",
       "stateAccepted": "{email} has picked this ticket up",
-      "emailLabel": "Email address for this ticket",
+      "emailLabel": "Email address of whoever will use this ticket",
       "emailPlaceholder": "name@example.com",
       "notice": "We'll email this address about the ticket, and the organizer will see it beside this ticket's answers. Only give an address whose owner is happy for you to.",
       "changeClearsAnswers": "Changing the address clears this ticket's answers. An answer belongs to the person who gave it, so the next person is asked again.",
-      "assign": "Save this address",
-      "reassign": "Change this address",
+      "assign": "Save address",
+      "reassign": "Change address",
       "saved": "Saved",
       "unchanged": "That's already this ticket's address.",
       "saveFailed": "That address didn't save. Try again.",
@@ -421,7 +423,11 @@
       "closedChannel": "This purchase was made at the door, so there's no address to give here. The organizer can help.",
       "closedReversed": "This purchase was undone, so these tickets aren't going to anyone.",
       "closedStarted": "The event has started, so addresses are closed. What was given is kept as it was.",
-      "closedUnknown": "Addresses can't be given for this ticket."
+      "closedUnknown": "Addresses can't be given for this ticket.",
+      "rowUnassigned": "No address yet",
+      "rowAssigned": "For {email}",
+      "rowAccepted": "{email} has it",
+      "giveAway": "Give this ticket to someone else"
     }
   },
   "myInfo": {

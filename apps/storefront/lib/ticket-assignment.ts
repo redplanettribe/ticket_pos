@@ -104,6 +104,15 @@ export function assignmentStateOf(ticket: BuyerTicket): AssignmentState | null {
   return state === "unassigned" || state === "assigned" || state === "accepted" ? state : null;
 }
 
+/**
+ * Whether this Ticket is the buyer's own (ADR 0048): its Holder is the buyer.
+ * The page says "your ticket" on it, asks the buyer to answer it, and offers
+ * no link for it — there is nobody to forward one to.
+ */
+export function isOwnTicket(ticket: BuyerTicket): boolean {
+  return ticket.self_held === true;
+}
+
 /** The address the buyer gave this Ticket, or "" while it has none. */
 export function holderEmailOf(ticket: BuyerTicket): string {
   return ticket.holder_email ?? "";

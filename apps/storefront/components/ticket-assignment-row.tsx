@@ -112,65 +112,69 @@ export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) 
   }
 
   return (
-    <div className="space-y-3 border-t pt-4">
-      <p className="text-sm font-medium">
-        {assignmentState === "accepted" ?
-          t("assignment.stateAccepted", { email: current })
-        : assignmentState === "assigned" ?
-          t("assignment.stateAssigned", { email: current })
-        : t("assignment.stateUnassigned")}
-      </p>
-
+    <div className="space-y-2">
       {open ?
-        <>
-          {/* THE NOTICE RIDES ON THE FIELD ITSELF, as its `description`, so it
-              is `aria-describedby` the input rather than a paragraph near it: a
-              buyer on a screen reader hears what the address will be used for
-              while their cursor is in the box, which is BEFORE THEY SUBMIT in
-              the only sense that matters. #324's last acceptance criterion, and
-              the one the API explicitly cannot cover. */}
+        <div className="flex items-end gap-2 [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1">
+          {/* ONE LINE: label, field, button. The notice — that the address
+              will be mailed and shown to the Organization — rides on the field
+              as its `description`, so it is `aria-describedby` the input and is
+              heard BEFORE THEY SUBMIT in the only sense that matters; #324's
+              last acceptance criterion, and the one the API cannot cover. */}
           <FormField
             id={fieldId}
-            label={t("assignment.emailLabel")}
-            description={t("assignment.notice")}
+            label={
+              assignmentState === "accepted" ?
+                t("assignment.stateAccepted", { email: current })
+              : assignmentState === "assigned" ?
+                t("assignment.stateAssigned", { email: current })
+              : t("assignment.emailLabel")
+            }
+            description={
+              current !== "" ?
+                `${t("assignment.notice")} ${t("assignment.changeClearsAnswers")}`
+              : t("assignment.notice")
+            }
           >
+            {/* FormField clones its child with the id and aria-describedby, so
+                the input — not the flex wrapper — must be that child; the
+                button is a sibling OUTSIDE the field, aligned by the grid. */}
             <Input
-              type="email"
-              inputMode="email"
-              autoComplete="off"
-              maxLength={MAX_HOLDER_EMAIL_LENGTH}
-              placeholder={t("assignment.emailPlaceholder")}
-              value={value}
-              disabled={state === "busy"}
-              onChange={(event) => {
-                setValue(event.target.value);
-                setState("idle");
-                setFailure(null);
-              }}
-            />
+                type="email"
+                inputMode="email"
+                autoComplete="off"
+                maxLength={MAX_HOLDER_EMAIL_LENGTH}
+                placeholder={t("assignment.emailPlaceholder")}
+                value={value}
+                disabled={state === "busy"}
+                onChange={(event) => {
+                  setValue(event.target.value);
+                  setState("idle");
+                  setFailure(null);
+                }}
+              />
           </FormField>
-
-          {/* Only once there is something to lose. A first assignment clears no
-              Answers, so warning about it there would be a page inventing a
-              consequence. */}
-          {current !== "" ?
-            <p className="text-muted-foreground text-sm">{t("assignment.changeClearsAnswers")}</p>
-          : null}
-
-          <div className="flex items-center gap-3">
-            <Button size="sm" variant="outline" onClick={submit} disabled={state === "busy"}>
-              {current === "" ? t("assignment.assign") : t("assignment.reassign")}
-            </Button>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={submit}
+            disabled={state === "busy"}
+          >
             {state === "saved" ?
-              <span className="text-muted-foreground text-sm">{t("assignment.saved")}</span>
-            : null}
-          </div>
-        </>
+              t("assignment.saved")
+            : current === "" ?
+              t("assignment.assign")
+            : t("assignment.reassign")}
+          </Button>
+        </div>
         // A CLOSED WINDOW HIDES THE INPUT AND NEVER THE RECORD. The address
-        // above stays exactly where it was — a reversed purchase keeps its
-        // Answers readable for the same reason — and the reason is stated,
-        // because a missing field with no explanation reads as a fault.
+        // stays exactly where it was, and the reason is stated, because a
+        // missing field with no explanation reads as a fault.
       : <p className="text-muted-foreground text-sm">
+          {assignmentState === "accepted" ?
+            t("assignment.stateAccepted", { email: current })
+          : assignmentState === "assigned" ?
+            t("assignment.stateAssigned", { email: current })
+          : null}{" "}
           {refusal === "channel_unsupported" ?
             t("assignment.closedChannel")
           : refusal === "sale_reversed" ?

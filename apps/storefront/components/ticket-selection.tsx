@@ -27,7 +27,7 @@ import { ConsentCheckbox } from "@/components/consent-checkbox";
 import { useFormatLocale } from "@/i18n/format-locale";
 import { Link } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType } from "@/lib/api";
-import { answerSlots, checkoutAnswerBodies, type AnswerValues } from "@/lib/checkout-answers";
+import { checkoutAnswerBodies, ownTicketSlot, type AnswerValues } from "@/lib/checkout-answers";
 import {
   apiErrorMessage,
   fieldCodeMessage,
@@ -123,6 +123,12 @@ type TicketSelectionProps = {
   eventName: string;
   ticketTypes: PublicTicketType[];
   /**
+   * Whether an Online Sale hands the buyer its first Ticket as their own
+   * (ADR 0048) — the platform's assignment flag, read off the event payload so
+   * the dialog calls a Ticket "yours" only when the sale will make it so.
+   */
+  buyerHoldsFirstTicket: boolean;
+  /**
    * The current Policy Version's Short Notice and checkbox labels, as the API
    * serves them — null when it could not be reached (#253).
    *
@@ -215,6 +221,7 @@ export function TicketSelection({
   eventSlug,
   eventName,
   ticketTypes,
+  buyerHoldsFirstTicket,
   priceIncludesFee,
   timezone,
   policy,
@@ -300,11 +307,13 @@ export function TicketSelection({
   const consentBoxes = checkoutConsentBoxes(consentSession, email);
   const showConsent = anyConsentBox(consentBoxes);
 
-  // One set of questions per ticket in the cart, and none at all when nothing in
-  // it asks anything — which, while the Ticket Question flag is closed, is every
-  // cart on the platform (ADR 0045). Recomputed with the quantities, so removing
-  // a ticket removes its section.
-  const slots = answerSlots(ticketTypes, quantities);
+  // ONE set of questions, for the buyer's own Ticket, and none at all when
+  // that Ticket Type asks nothing or the sale hands the buyer nothing (ADR
+  // 0048). The other tickets in the cart are not asked about: their Answers are
+  // their Holders' to give, from the sale page, after the purchase. Recomputed
+  // with the quantities, so emptying the cart removes the section.
+  const own = ownTicketSlot(ticketTypes, quantities, buyerHoldsFirstTicket);
+  const slots = own === null ? [] : [own];
 
   const count = totalQuantity(quantities);
   const total = totalCents(ticketTypes, quantities);
@@ -915,31 +924,30 @@ export function TicketSelection({
                 </FormField>
               </div>
               {/*
-                The answer section (#311), drawn ABOVE the consent section and
-                below the buyer's own details, which is where it belongs on both
-                counts: these are facts about other people, so they come after
-                the buyer has said who they are, and consent stays adjacent to
-                the pay button it gates.
+                The buyer's own Ticket's questions (#311, ADR 0048), drawn
+                ABOVE the consent section and below the buyer's own details:
+                they are facts about the buyer, asked once they have said who
+                they are, and consent stays adjacent to the pay button it gates.
 
                 It gates nothing. There is no required check anywhere in it, and
                 the submit button below deliberately does not mention it.
               */}
-              <CheckoutAnswers
-                slots={slots}
-                values={answers}
-                onChange={(key, value) =>
-                  setAnswers((current) => ({ ...current, [key]: value }))
-                }
-                labels={{
-                  title: t("answers.title"),
-                  hint: t("answers.hint"),
-                  ticketHeading: (ticketType, index, total) =>
-                    t("answers.ticketHeading", { ticketType, index, total }),
-                  optional: t("answers.optional"),
-                  optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
-                  noAnswer: t("answers.noAnswer"),
-                }}
-              />
+              {own !== null ?
+                <CheckoutAnswers
+                  slot={own}
+                  values={answers}
+                  onChange={(key, value) =>
+                    setAnswers((current) => ({ ...current, [key]: value }))
+                  }
+                  labels={{
+                    title: t("answers.title", { ticketType: own.ticketTypeName }),
+                    hint: t("answers.hint"),
+                    optional: t("answers.optional"),
+                    optionalLabel: (question: string) => t("answers.optionalLabel", { question }),
+                    noAnswer: t("answers.noAnswer"),
+                  }}
+                />
+              : null}
               {/*
                 The consent section: the Short Notice and the three boxes, in
                 the dialog the purchase happens in, because the guidance

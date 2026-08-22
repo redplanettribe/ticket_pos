@@ -6,6 +6,7 @@ import {
   answerSlots,
   checkoutAnswerBodies,
   hasCheckoutQuestions,
+  ownTicketSlot,
   type AnsweredTicketType,
   type AnswerValues,
 } from "./checkout-answers.ts";
@@ -191,4 +192,28 @@ test("checkoutAnswerBodies sends a number as a string", () => {
   const slots = answerSlots([{ id: "tt-ga", name: "GA", ticket_questions: [age] }], { "tt-ga": 1 });
   const [body] = checkoutAnswerBodies(slots, { "tt-ga:1:q-age": { number: "3.50" } });
   assert.equal(body?.number, "3.50");
+});
+
+// CHECKOUT ASKS ABOUT THE BUYER'S OWN TICKET AND NO OTHER (ADR 0048): the
+// first ticket of the first Ticket Type in catalog order, whatever the cart's
+// quantities — the other two of three are their Holders' to answer.
+test("ownTicketSlot is the first ticket of the first catalog type in the cart", () => {
+  const slot = ownTicketSlot([vip, generalAdmission], { "tt-vip": 0, "tt-ga": 3 }, true);
+  assert.deepEqual(slot, {
+    ticketTypeId: "tt-ga",
+    ticketTypeName: "General Admission",
+    index: 1,
+    questions: [size, meal],
+  });
+});
+
+// Catalog order wins over which line asks questions: a buyer holding a VIP
+// that asks nothing holds the VIP, and is asked nothing.
+test("ownTicketSlot is null when the buyer's own ticket type asks nothing", () => {
+  assert.equal(ownTicketSlot([vip, generalAdmission], { "tt-vip": 1, "tt-ga": 2 }, true), null);
+});
+
+test("ownTicketSlot is null with assignment closed or an empty cart", () => {
+  assert.equal(ownTicketSlot([generalAdmission], { "tt-ga": 3 }, false), null);
+  assert.equal(ownTicketSlot([generalAdmission], { "tt-ga": 0 }, true), null);
 });

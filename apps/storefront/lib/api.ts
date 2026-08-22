@@ -372,6 +372,10 @@ export type PublicEventDetail = {
   // buyer pays exactly what the organizer set and no fee is mentioned at all.
   price_includes_fee: boolean;
   ticket_types: PublicTicketType[];
+  // Whether an Online Sale hands the buyer its first Ticket as their own
+  // (ADR 0048) — the platform's assignment flag, so the checkout dialog only
+  // calls a Ticket "yours" when the sale will make it so.
+  buyer_holds_first_ticket: boolean;
   tags: PublicTag[];
   // Whether the Event advertises itself. It gates nothing about rendering or
   // selling — a published Event is reachable by direct link either way (ADR

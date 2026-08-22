@@ -297,6 +297,7 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 eventSlug={event.slug}
                 eventName={event.name}
                 ticketTypes={event.ticket_types}
+                buyerHoldsFirstTicket={event.buyer_holds_first_ticket}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}
                 // The current Policy Version's Short Notice and checkbox

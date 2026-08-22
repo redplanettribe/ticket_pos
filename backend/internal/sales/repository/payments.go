@@ -360,6 +360,9 @@ type ApprovePaymentInput struct {
 	// Payment begun before migration 064 amounts to anyway, since a Payment
 	// holding three NULL answers has no capture act to evidence and is skipped.
 	CaptureConsent CaptureConsent
+	// SelfHeld makes one Ticket of the sale the buyer's own (ADR 0048); see
+	// CommitSalesInput.SelfHeld. On while TICKET_ASSIGNMENT_ENABLED is.
+	SelfHeld bool
 }
 
 // CaptureConsent records the Consent Record and applies the consent state for a
@@ -533,6 +536,7 @@ func (r *Repository) ApprovePaymentAndCommitSale(ctx context.Context, in Approve
 		// This Payment's own hold must convert into sold_count, not count
 		// against itself (ADR 0013).
 		ExcludePaymentID: paymentID,
+		SelfHeld:         in.SelfHeld,
 		Sales: []CommitSale{{
 			// The buyer is rebuilt from the Payment verbatim: the sale records
 			// what they supplied at begin-checkout, whatever their profile says

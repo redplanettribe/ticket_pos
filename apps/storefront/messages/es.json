@@ -251,9 +251,8 @@
     "submit": "Continuar al pago",
     "submitting": "Iniciando el pago…",
     "answers": {
-      "title": "Sobre cada entrada",
-      "hint": "Opcional: omita lo que no sepa.",
-      "ticketHeading": "{ticketType} · entrada {index} de {total}",
+      "title": "Su entrada · {ticketType}",
+      "hint": "Opcional: deje en blanco lo que no sepa.",
       "optional": "Opcional",
       "optionalLabel": "{question} · Opcional",
       "noAnswer": "Sin respuesta"
@@ -388,7 +387,7 @@
       "outstanding": "{count, plural, one {Falta responder # pregunta.} other {Faltan responder # preguntas.}}",
       "allDone": "Ya está respondido todo lo que pidió el organizador.",
       "ticketHeading": "Entrada {position} de {total}",
-      "copyHint": "Responda lo que sepa. Para el resto, copie el enlace de esta entrada y envíeselo a quien vaya a usarla: abre estas preguntas y no le muestra nada sobre su compra.",
+      "copyHint": "Responda aquí por su propia entrada. Para las demás, copie el enlace de cada entrada y envíelo a quien vaya a usarla: abre sus preguntas y no muestra nada sobre su compra.",
       "copyLink": "Copiar el enlace de esta entrada",
       "copied": "Copiado",
       "linkClosed": "Ya no hay ningún enlace que compartir para esta entrada. Las respuestas se cierran cuando empieza el evento, y una compra anulada también las cierra.",
@@ -398,7 +397,10 @@
       "saveFailed": "No se guardó. Inténtelo de nuevo.",
       "networkFailed": "No se guardó. Revise su conexión e inténtelo de nuevo.",
       "nothingToSave": "Todavía no hay nada que guardar: complete este campo primero.",
-      "retiredQuestion": "El organizador ya no pregunta esto. La respuesta se conserva tal como estaba."
+      "retiredQuestion": "El organizador ya no pregunta esto. La respuesta se conserva tal como estaba.",
+      "ownTicket": "Su entrada",
+      "rowOutstanding": "{count, plural, one {# pregunta pendiente} other {# preguntas pendientes}}",
+      "rowAnswered": "Respondida"
     },
     "holdingHeading": "Entradas que le dieron",
     "holdingDescription": "Alguien compró estas entradas y se las dio. Quien las compró puede cambiarlas: si le da una entrada a otra persona, desaparece de esta lista.",
@@ -408,12 +410,12 @@
       "stateUnassigned": "Todavía sin dirección",
       "stateAssigned": "Esta entrada es para {email}",
       "stateAccepted": "{email} ya recogió esta entrada",
-      "emailLabel": "Correo electrónico para esta entrada",
+      "emailLabel": "Correo de quien usará esta entrada",
       "emailPlaceholder": "nombre@ejemplo.com",
       "notice": "Le escribiremos a esta dirección sobre la entrada, y el organizador la verá junto a las respuestas de esta entrada. Dé solo una dirección cuyo titular esté de acuerdo.",
       "changeClearsAnswers": "Cambiar la dirección borra las respuestas de esta entrada. Una respuesta es de quien la dio, así que a la siguiente persona se le vuelve a preguntar.",
-      "assign": "Guardar esta dirección",
-      "reassign": "Cambiar esta dirección",
+      "assign": "Guardar correo",
+      "reassign": "Cambiar correo",
       "saved": "Guardado",
       "unchanged": "Esa ya es la dirección de esta entrada.",
       "saveFailed": "La dirección no se guardó. Inténtelo de nuevo.",
@@ -421,7 +423,11 @@
       "closedChannel": "Esta compra se hizo en la puerta, así que aquí no hay ninguna dirección que dar. El organizador puede ayudarle.",
       "closedReversed": "Esta compra fue anulada, así que estas entradas no son para nadie.",
       "closedStarted": "El evento ya empezó, así que las direcciones están cerradas. Lo que se dio se conserva tal como estaba.",
-      "closedUnknown": "No se pueden dar direcciones para esta entrada."
+      "closedUnknown": "No se pueden dar direcciones para esta entrada.",
+      "rowUnassigned": "Sin dirección todavía",
+      "rowAssigned": "Para {email}",
+      "rowAccepted": "{email} la tiene",
+      "giveAway": "Dar esta entrada a otra persona"
     }
   },
   "myInfo": {
