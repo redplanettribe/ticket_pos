@@ -1,6 +1,35 @@
 {
     "components": {
         "schemas": {
+            "handler.answerBody": {
+                "properties": {
+                    "checked": {
+                        "description": "Checked answers checkbox.",
+                        "type": "boolean"
+                    },
+                    "date": {
+                        "description": "Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a\ndate carries no time and no zone, so nothing can shift it by a day.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number answers number, as a decimal STRING rather than a JSON number.\nJSON numbers are doubles in most parsers, and a value that survives a\nNUMERIC column only to be rounded on the way through the wire would defeat\nthe column. See catalog.SubmittedAnswer.",
+                        "type": "string"
+                    },
+                    "option_ids": {
+                        "description": "OptionIDs answers single_choice (one) and multi_choice (any number). They\nare OPTION IDENTITIES and never labels, because a label could not survive\na rename — which is the whole reason an Option has an id.\n\nAn empty array is somebody clearing their choices, which is refused as an\nempty Answer; the way to say \"not said\" is to DELETE the Answer.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "text": {
+                        "description": "Text answers short_text and long_text.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.avatarUploadURLBody": {
                 "properties": {
                     "content_type": {
@@ -1710,6 +1739,38 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeTicketAnswersDetail": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.TicketAnswersView"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "openapi.EnvelopeTicketAnswersList": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketAnswersView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeTicketQuestionDetail": {
                 "properties": {
                     "data": {
@@ -1922,6 +1983,59 @@
                     },
                     "url": {
                         "description": "URL is the whole thing an organizer copies: the Storefront Event page with\nthe code as its ref. Derived at read time from the Storefront origin this\nprocess is configured with, never stored, so moving the Storefront moves\nevery link with it.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnswerOptionView": {
+                "properties": {
+                    "current_label": {
+                        "description": "CurrentLabel is what the same Option reads NOW. It equals Label until\nsomebody corrects the Option's wording; after that the two differ, and\nboth are true statements about different moments.",
+                        "type": "string"
+                    },
+                    "label": {
+                        "description": "Label is THE SNAPSHOT: the words this Option showed when it was chosen.\nThis is what the person actually read, and nothing ever rewrites it.",
+                        "type": "string"
+                    },
+                    "option_id": {
+                        "description": "OptionID is the Option's stable identity, which is what a form posts back\nand what survives a rename.",
+                        "type": "string"
+                    },
+                    "retired": {
+                        "description": "Retired is true for an Option kept only so that what chose it still reads.\nAn Answer against one persists and stays readable; what it may not do is\nbe chosen afresh.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnswerView": {
+                "description": "Answer is null when this Ticket has not answered this question — which,\non a required question, is an Outstanding Answer. Null and never a blank\nAnswer: \"not said\" and \"said nothing\" are different facts, and only the\nfirst of them is a debt an Organization can chase.",
+                "properties": {
+                    "checked": {
+                        "type": "boolean"
+                    },
+                    "date": {
+                        "description": "Date is a calendar date, YYYY-MM-DD. Never an instant: it carries no time\nand no zone, so nothing can shift it by a day.",
+                        "type": "string"
+                    },
+                    "number": {
+                        "description": "Number is a decimal string and not a JSON number, deliberately. JSON\nnumbers are IEEE doubles in most readers, and a value that survived a\nNUMERIC column only to be rounded by the browser parsing it would defeat\nthe column. The staff app renders the digits; nothing arithmetic happens\non this side.",
+                        "type": "string"
+                    },
+                    "options": {
+                        "description": "Options are the Options a choice Answer chose, in the order given. Empty\nfor the five kinds not answered by choosing.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.AnswerOptionView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "description": "UpdatedAt is when this Answer last changed. The whole of the history this\nplatform keeps: no versions, and no record of who changed it.",
                         "type": "string"
                     }
                 },
@@ -3832,6 +3946,58 @@
                     },
                     "name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.TicketAnswersView": {
+                "properties": {
+                    "answerable": {
+                        "description": "Answerable is whether this Ticket's Answers may still be written. False\nonce the Event has started and false on a reversed Ticket Sale — and never\na reason to hide anything: everything below stays readable either way.",
+                        "type": "boolean"
+                    },
+                    "answerable_refusal": {
+                        "description": "AnswerableRefusal names WHY not, or is empty while it is answerable. The\nstaff app draws the reason beside the frozen fields rather than leaving\nsomebody to wonder why the form will not take.",
+                        "type": "string"
+                    },
+                    "confirmation_ref": {
+                        "description": "ConfirmationRef is the buyer's own reference for the Ticket Sale, which is\nhow staff on the phone find the sale a caller is asking about.",
+                        "type": "string"
+                    },
+                    "ordinal": {
+                        "description": "Ordinal is which of its Ticket Sale Line's units this Ticket is,\n1..quantity. Internal and not a seat number — but it is the only thing\ntelling two Tickets of one line apart, which is what lets staff say \"the\nsecond of Ana's four\".",
+                        "type": "integer"
+                    },
+                    "questions": {
+                        "description": "Questions carries the Ticket Type's questions in the order they are asked,\nretired ones last, each with this Ticket's Answer or null.",
+                        "items": {
+                            "$ref": "#/components/schemas/service.TicketQuestionAnswerView"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ticket_id": {
+                        "type": "string"
+                    },
+                    "ticket_sale_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    },
+                    "ticket_type_name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.TicketQuestionAnswerView": {
+                "properties": {
+                    "answer": {
+                        "$ref": "#/components/schemas/service.AnswerView"
+                    },
+                    "question": {
+                        "$ref": "#/components/schemas/service.TicketQuestionView"
                     }
                 },
                 "type": "object"
@@ -10137,6 +10303,82 @@
                 ]
             }
         },
+        "/api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets": {
+            "get": {
+                "description": "Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Answers 404 while the Ticket Question feature flag is off.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket sale ID",
+                        "in": "path",
+                        "name": "ticketSaleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketAnswersList"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "List a ticket sale's tickets and answers",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
         "/api/v1/staff/events/{id}/ticket-types": {
             "get": {
                 "description": "Lists ticket types for a catalog event.",
@@ -11663,6 +11905,300 @@
                     }
                 ],
                 "summary": "Rename ticket question option",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/tickets/{ticketId}": {
+            "get": {
+                "description": "One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Answers 404 while the Ticket Question feature flag is off.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket ID",
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketAnswersDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Get a ticket's questions and answers",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}": {
+            "delete": {
+                "description": "Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket ID",
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket question ID",
+                        "in": "path",
+                        "name": "questionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketAnswersDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Remove a ticket's answer",
+                "tags": [
+                    "staff"
+                ]
+            },
+            "put": {
+                "description": "Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket ID",
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket question ID",
+                        "in": "path",
+                        "name": "questionId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.answerBody",
+                                        "summary": "body",
+                                        "description": "The answer, in the shape its question's kind takes"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The answer, in the shape its question's kind takes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeTicketAnswersDetail"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Answer a ticket question",
                 "tags": [
                     "staff"
                 ]

@@ -5617,6 +5617,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/ticket-sales/{ticketSaleId}/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a ticket sale's tickets and answers
+         * @description Lists every Ticket of one Ticket Sale with its Ticket Questions and this Ticket's Answers. Reversed sales are listed and readable; only writing is refused. Answers 404 while the Ticket Question feature flag is off.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket sale ID */
+                    ticketSaleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketAnswersList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/ticket-types": {
         parameters: {
             query?: never;
@@ -6787,6 +6858,239 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/staff/events/{id}/tickets/{ticketId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a ticket's questions and answers
+         * @description One Ticket, its Ticket Type's Ticket Questions (retired ones included) and what this Ticket has answered. Answers 404 while the Ticket Question feature flag is off.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket ID */
+                    ticketId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketAnswersDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/staff/events/{id}/tickets/{ticketId}/answers/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Answer a ticket question
+         * @description Writes one Ticket's Answer to one Ticket Question, creating it or correcting it. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket ID */
+                    ticketId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The answer, in the shape its question's kind takes */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.answerBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketAnswersDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Remove a ticket's answer
+         * @description Removes one Ticket's Answer to one Ticket Question, restoring the Outstanding Answer where the question is required. Refused once the Event has started and on a reversed Ticket Sale. Answers 404 while the Ticket Question feature flag is off.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Event ID */
+                    id: string;
+                    /** @description Ticket ID */
+                    ticketId: string;
+                    /** @description Ticket question ID */
+                    questionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeTicketAnswersDetail"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/staff/events/{id}/video-upload-url": {
         parameters: {
             query?: never;
@@ -7725,6 +8029,33 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        "handler.answerBody": {
+            /** @description Checked answers checkbox. */
+            checked?: boolean;
+            /**
+             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
+             *     date carries no time and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number answers number, as a decimal STRING rather than a JSON number.
+             *     JSON numbers are doubles in most parsers, and a value that survives a
+             *     NUMERIC column only to be rounded on the way through the wire would defeat
+             *     the column. See catalog.SubmittedAnswer.
+             */
+            number?: string;
+            /**
+             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
+             *     are OPTION IDENTITIES and never labels, because a label could not survive
+             *     a rename — which is the whole reason an Option has an id.
+             *
+             *     An empty array is somebody clearing their choices, which is refused as an
+             *     empty Answer; the way to say "not said" is to DELETE the Answer.
+             */
+            option_ids?: string[];
+            /** @description Text answers short_text and long_text. */
+            text?: string;
+        };
         "handler.avatarUploadURLBody": {
             content_type?: string;
             file_name?: string;
@@ -8551,6 +8882,16 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeTicketAnswersDetail": {
+            data?: components["schemas"]["service.TicketAnswersView"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
+        "openapi.EnvelopeTicketAnswersList": {
+            data?: components["schemas"]["service.TicketAnswersView"][];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeTicketQuestionDetail": {
             data?: components["schemas"]["service.TicketQuestionView"];
             error?: components["schemas"]["platform.APIError"];
@@ -8664,6 +9005,63 @@ export interface components {
              *     every link with it.
              */
             url?: string;
+        };
+        "service.AnswerOptionView": {
+            /**
+             * @description CurrentLabel is what the same Option reads NOW. It equals Label until
+             *     somebody corrects the Option's wording; after that the two differ, and
+             *     both are true statements about different moments.
+             */
+            current_label?: string;
+            /**
+             * @description Label is THE SNAPSHOT: the words this Option showed when it was chosen.
+             *     This is what the person actually read, and nothing ever rewrites it.
+             */
+            label?: string;
+            /**
+             * @description OptionID is the Option's stable identity, which is what a form posts back
+             *     and what survives a rename.
+             */
+            option_id?: string;
+            /**
+             * @description Retired is true for an Option kept only so that what chose it still reads.
+             *     An Answer against one persists and stays readable; what it may not do is
+             *     be chosen afresh.
+             */
+            retired?: boolean;
+        };
+        /**
+         * @description Answer is null when this Ticket has not answered this question — which,
+         *     on a required question, is an Outstanding Answer. Null and never a blank
+         *     Answer: "not said" and "said nothing" are different facts, and only the
+         *     first of them is a debt an Organization can chase.
+         */
+        "service.AnswerView": {
+            checked?: boolean;
+            /**
+             * @description Date is a calendar date, YYYY-MM-DD. Never an instant: it carries no time
+             *     and no zone, so nothing can shift it by a day.
+             */
+            date?: string;
+            /**
+             * @description Number is a decimal string and not a JSON number, deliberately. JSON
+             *     numbers are IEEE doubles in most readers, and a value that survived a
+             *     NUMERIC column only to be rounded by the browser parsing it would defeat
+             *     the column. The staff app renders the digits; nothing arithmetic happens
+             *     on this side.
+             */
+            number?: string;
+            /**
+             * @description Options are the Options a choice Answer chose, in the order given. Empty
+             *     for the five kinds not answered by choosing.
+             */
+            options?: components["schemas"]["service.AnswerOptionView"][];
+            text?: string;
+            /**
+             * @description UpdatedAt is when this Answer last changed. The whole of the history this
+             *     platform keeps: no versions, and no record of who changed it.
+             */
+            updated_at?: string;
         };
         "service.BeginCheckoutResult": {
             amount_cents?: number;
@@ -10043,6 +10441,45 @@ export interface components {
             canonical_key?: string;
             curated?: boolean;
             name?: string;
+        };
+        "service.TicketAnswersView": {
+            /**
+             * @description Answerable is whether this Ticket's Answers may still be written. False
+             *     once the Event has started and false on a reversed Ticket Sale — and never
+             *     a reason to hide anything: everything below stays readable either way.
+             */
+            answerable?: boolean;
+            /**
+             * @description AnswerableRefusal names WHY not, or is empty while it is answerable. The
+             *     staff app draws the reason beside the frozen fields rather than leaving
+             *     somebody to wonder why the form will not take.
+             */
+            answerable_refusal?: string;
+            /**
+             * @description ConfirmationRef is the buyer's own reference for the Ticket Sale, which is
+             *     how staff on the phone find the sale a caller is asking about.
+             */
+            confirmation_ref?: string;
+            /**
+             * @description Ordinal is which of its Ticket Sale Line's units this Ticket is,
+             *     1..quantity. Internal and not a seat number — but it is the only thing
+             *     telling two Tickets of one line apart, which is what lets staff say "the
+             *     second of Ana's four".
+             */
+            ordinal?: number;
+            /**
+             * @description Questions carries the Ticket Type's questions in the order they are asked,
+             *     retired ones last, each with this Ticket's Answer or null.
+             */
+            questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
+            ticket_id?: string;
+            ticket_sale_id?: string;
+            ticket_type_id?: string;
+            ticket_type_name?: string;
+        };
+        "service.TicketQuestionAnswerView": {
+            answer?: components["schemas"]["service.AnswerView"];
+            question?: components["schemas"]["service.TicketQuestionView"];
         };
         "service.TicketQuestionOptionView": {
             /**
