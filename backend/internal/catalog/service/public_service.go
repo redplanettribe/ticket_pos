@@ -134,6 +134,55 @@ type PublicTicketType struct {
 	// not retroactive, so remaining allowance is max(0, limit - already_held) and
 	// is never asserted non-negative.
 	AlreadyHeld *int `json:"already_held"`
+	// TicketQuestions are what this Ticket Type asks the person who will hold one
+	// of its tickets, in the order they are asked (#311).
+	//
+	// PRESENT ONLY WHERE THE FEATURE FLAG IS OPEN, and empty on every Ticket Type
+	// that asks nothing — which, on the shipped deployment, is all of them
+	// (ADR 0045). The Storefront draws its answer section from this and from
+	// nothing else, so a closed flag is a checkout with no answer section at all
+	// rather than one hidden by a second flag on the frontend that could disagree.
+	//
+	// IT IS A NARROWER VIEW THAN THE STAFF ONE, deliberately. No `retired` — a
+	// retired question or Option is simply absent, because this is a new list and
+	// nobody is being asked one. No timestamps, no `timing` — the timing decided
+	// whether the question is here at all, and restating it would invite a client
+	// to filter on it a second time. What a public payload does not say cannot be
+	// read wrong.
+	TicketQuestions []PublicTicketQuestion `json:"ticket_questions,omitempty"`
+}
+
+// PublicTicketQuestion is one Ticket Question as the Storefront's checkout draws
+// it: the words, the shape of the field, whether to mark it, and the Options.
+type PublicTicketQuestion struct {
+	ID string `json:"id"`
+	// Label is the question AS COINED — the Organization's own words, read
+	// identically on an `en` and an `es` page exactly as a Custom Tag is
+	// (ADR 0027). Only the page chrome around it follows the Locale.
+	Label string `json:"label"`
+	// Kind is which of the seven field shapes to draw: short_text, long_text,
+	// single_choice, multi_choice, number, date, checkbox.
+	Kind string `json:"kind"`
+	// Required MARKS A FIELD AND GATES NOTHING. Its only effect anywhere on this
+	// platform is producing an Outstanding Answer the Organization can chase, and
+	// a Storefront that turned it into a disabled pay button would be reversing
+	// ADR 0044 — the buyer is not assumed to know the answers, which is the
+	// premise the whole feature rests on.
+	Required bool `json:"required"`
+	// Options is empty for the five kinds that are not answered by choosing, and
+	// carries only LIVE Options for the two that are.
+	Options []PublicTicketQuestionOption `json:"options"`
+}
+
+// PublicTicketQuestionOption is one selectable value: its stable identity, and
+// the words it currently reads.
+//
+// The id is what an answer names, never the label — a label could not survive a
+// rename, which is the whole reason an Option has an id (migration 072). The
+// label is what the buyer reads, and a snapshot of it is kept with their Answer.
+type PublicTicketQuestionOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // PublicPromotion is a live Promotion as the Storefront shows it (ADR 0021):
@@ -438,6 +487,33 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 	detail.VenueName = nullStringPtr(row.VenueName)
 	detail.VenueAddress = nullStringPtr(row.VenueAddress)
 
+	// The Ticket Questions this Event's Ticket Types ask at checkout, read once
+	// for the whole page rather than once per Ticket Type — and read at all only
+	// where the flag is open, so the shipped deployment adds no query to the most
+	// requested page on the Storefront (ADR 0045).
+	//
+	// A failure here is NOT fatal to the page. An Event that cannot render its
+	// answer section is an Event that still sells tickets, which is what the page
+	// is for; the buyer answers by Answer Link afterwards, which is the route the
+	// feature already assumes most holders take. This is the read side of the
+	// same judgement holdCheckoutAnswers makes on the write side.
+	questionsByType := map[string][]PublicTicketQuestion{}
+	if s.ticketQuestionsEnabled && len(types) > 0 {
+		ticketTypeIDs := make([]string, 0, len(types))
+		for _, tt := range types {
+			ticketTypeIDs = append(ticketTypeIDs, tt.ID)
+		}
+		asked, err := s.repo.ListCheckoutQuestions(ctx, ticketTypeIDs)
+		if err != nil {
+			s.logger.Warn("ticket questions: the event page could not read them; it renders without its answer section",
+				"event_id", row.ID, "error", err)
+		}
+		for _, question := range asked {
+			questionsByType[question.TicketTypeID] = append(
+				questionsByType[question.TicketTypeID], toPublicTicketQuestion(question))
+		}
+	}
+
 	for _, tt := range types {
 		remaining := tt.Capacity - tt.SoldCount - held[tt.ID]
 		if remaining < 0 {
@@ -459,9 +535,36 @@ func (s *Service) GetPublicEvent(ctx context.Context, orgSlug, eventSlug string,
 
 			MaxPerCustomer: nullIntPtr(tt.MaxPerCustomer),
 			AlreadyHeld:    viewerHoldingOf(viewer, ownHoldings, tt.ID),
+			// Nil for every Ticket Type that asks nothing, and for every one of
+			// them while the flag is closed, which omits the key entirely.
+			TicketQuestions: questionsByType[tt.ID],
 		})
 	}
 	return detail, nil
+}
+
+// toPublicTicketQuestion narrows one question to what a public page may see.
+//
+// What it DROPS is the interesting half: `retired` (a retired question is not in
+// this list at all), `timing` (it decided membership of this list and restating
+// it would invite a client to filter twice), `sort_order` (the list is already in
+// order, and a number a client could re-sort by is a second source of truth) and
+// the timestamps (nothing on a checkout form is about when a question was
+// authored).
+func toPublicTicketQuestion(question catalog.AskedQuestion) PublicTicketQuestion {
+	view := PublicTicketQuestion{
+		ID:       question.ID,
+		Label:    question.Label,
+		Kind:     string(question.Kind),
+		Required: question.Required,
+		// Non-nil so a choice question with every Option retired renders as an
+		// empty list rather than as a `null` each client has to guard.
+		Options: make([]PublicTicketQuestionOption, 0, len(question.Options)),
+	}
+	for _, option := range question.Options {
+		view.Options = append(view.Options, PublicTicketQuestionOption{ID: option.ID, Label: option.Label})
+	}
+	return view
 }
 
 // viewerHoldingOf renders one Ticket Type's already_held: nil for an anonymous

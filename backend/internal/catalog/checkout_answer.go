@@ -1,5 +1,7 @@
 package catalog
 
+import "database/sql"
+
 // The checkout capture: what survives of a buyer's answers on their way onto a
 // Payment (#311, ADR 0044).
 //
@@ -36,7 +38,18 @@ type AskedQuestion struct {
 	ID           string
 	TicketTypeID string
 	Kind         TicketQuestionKind
-	Options      []AskedOption
+	// Label is the question AS COINED, read identically in every Locale exactly
+	// as a Custom Tag is (ADR 0027). It is here for the surface that DRAWS the
+	// form; the capture that reads the form back has no use for it, and that
+	// asymmetry is fine — one struct describing one question is better than two
+	// describing halves of it.
+	Label string
+	// Required produces an Outstanding Answer and NOTHING ELSE. It reaches the
+	// Storefront so the field can be marked, and no surface may turn a mark into
+	// a gate: no checkout, door sale or Sale Import is ever refused for want of
+	// an Answer (ADR 0044).
+	Required bool
+	Options  []AskedOption
 }
 
 // AskedOption is one selectable value as it read on the checkout form. The label
@@ -45,6 +58,90 @@ type AskedQuestion struct {
 type AskedOption struct {
 	ID    string
 	Label string
+}
+
+// CheckoutQuestionsSQL selects the questions a set of Ticket Types puts to a
+// buyer AT CHECKOUT, each row carrying one live Option (or a NULL one for the
+// five kinds that offer none). `$1` is the Ticket Type ids, as an array.
+//
+// IT IS A STRING IN THE DOMAIN PACKAGE, USED BY TWO REPOSITORIES, and that is
+// the whole reason it is here — the same arrangement sales.LiveHoldsSQL has for
+// the same reason. The catalog repository reads it to DRAW the form on the
+// Storefront event page; the sales repository reads it to judge what came BACK
+// from that form. Two copies of these three filters would eventually differ, and
+// the way that failure shows up is a question the buyer was shown and whose
+// answer is then silently dropped — or, worse, one they were never shown that
+// the capture happily accepts.
+//
+// THREE FILTERS, AND EACH IS LOAD-BEARING:
+//
+//   - `q.retired_at IS NULL`. A retired question has left every new list; the
+//     Answers already given under it keep reading, and nobody is asked again.
+//   - `q.timing = 'at_checkout'`. v1 only ever writes that value, but it is
+//     HONOURED from the start rather than assumed, so the day an Organization
+//     may choose `after_purchase` this surface already obeys it without an
+//     Answer migration (migration 072).
+//   - `o.retired_at IS NULL`, in the JOIN and not the WHERE — in the WHERE it
+//     would drop the question itself for the non-choice kinds. A retired Option
+//     is gone from new lists, and this is a new list.
+//
+// The ordering is the order the questions are asked in, ties broken on
+// created_at exactly as ticket_types are, with each question's Options in their
+// own order beneath it.
+const CheckoutQuestionsSQL = `
+	SELECT q.id, q.ticket_type_id, q.kind, q.label, q.required,
+	       o.id, o.label
+	FROM ticket_questions q
+	LEFT JOIN ticket_question_options o
+	       ON o.ticket_question_id = q.id AND o.retired_at IS NULL
+	WHERE q.ticket_type_id = ANY($1)
+	  AND q.retired_at IS NULL
+	  AND q.timing = 'at_checkout'
+	ORDER BY q.ticket_type_id, q.sort_order, q.created_at, o.sort_order, o.created_at
+`
+
+// ScanAskedQuestions folds CheckoutQuestionsSQL's rows back into questions.
+//
+// The LEFT JOIN returns one row per (question, Option), so a question with four
+// Options arrives four times and one with none arrives once with a NULL Option.
+// Folding them here rather than in each repository keeps the query and the shape
+// it produces in one place — a caller that got the fold wrong would silently
+// offer a choice question with one Option.
+//
+// It does not close the rows: the caller owns them, as it does for
+// sales.ScanHeldQuantities.
+func ScanAskedQuestions(rows *sql.Rows) ([]AskedQuestion, error) {
+	var asked []AskedQuestion
+	// Where each question landed, so its Options attach without a scan.
+	byID := map[string]int{}
+	for rows.Next() {
+		var questionID, ticketTypeID, kind, label string
+		var required bool
+		var optionID, optionLabel sql.NullString
+		if err := rows.Scan(&questionID, &ticketTypeID, &kind, &label, &required,
+			&optionID, &optionLabel); err != nil {
+			return nil, err
+		}
+		position, seen := byID[questionID]
+		if !seen {
+			asked = append(asked, AskedQuestion{
+				ID:           questionID,
+				TicketTypeID: ticketTypeID,
+				Kind:         TicketQuestionKind(kind),
+				Label:        label,
+				Required:     required,
+			})
+			position = len(asked) - 1
+			byID[questionID] = position
+		}
+		if optionID.Valid {
+			asked[position].Options = append(asked[position].Options, AskedOption{
+				ID:    optionID.String,
+				Label: optionLabel.String,
+			})
+		}
+	}
+	return asked, rows.Err()
 }
 
 // SubmittedCheckoutAnswer is one answer as the buyer's browser stated it: which

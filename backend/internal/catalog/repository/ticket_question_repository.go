@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/peter/ticket_pos/backend/internal/catalog"
 )
 
 // TicketQuestion is one thing an Organization wants to know about whoever will
@@ -444,4 +446,32 @@ func (r *Repository) TicketQuestionHasAnswers(ctx context.Context, questionID st
 		SELECT EXISTS (SELECT 1 FROM ticket_answers WHERE ticket_question_id = $1)
 	`, questionID).Scan(&exists)
 	return exists, err
+}
+
+// ListCheckoutQuestions returns the Ticket Questions a set of Ticket Types puts
+// to a buyer AT CHECKOUT, each with the Options it currently offers — the form
+// the Storefront event page draws (#311).
+//
+// The query and the fold are catalog.CheckoutQuestionsSQL and
+// catalog.ScanAskedQuestions, SHARED WITH THE SALES REPOSITORY, which reads what
+// comes back from that form. One definition of "what is this buyer being asked",
+// used by the surface that asks it and by the surface that judges the reply: two
+// copies of those filters would eventually differ, and the failure would be a
+// question shown whose answer is dropped, or one never shown that the capture
+// accepts.
+//
+// It takes Ticket Type ids rather than an Event id because that is what BOTH
+// callers hold — the event page has just listed its Ticket Types, and the
+// checkout has just resolved a cart — and because a Ticket Question belongs to a
+// Ticket Type and to nothing above it.
+func (r *Repository) ListCheckoutQuestions(ctx context.Context, ticketTypeIDs []string) ([]catalog.AskedQuestion, error) {
+	if len(ticketTypeIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Pool.QueryContext(ctx, catalog.CheckoutQuestionsSQL, ticketTypeIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return catalog.ScanAskedQuestions(rows)
 }

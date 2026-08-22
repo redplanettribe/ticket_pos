@@ -23,80 +23,28 @@ import (
 // are keepable is catalog.HoldableCheckoutAnswers' finding, and this file only
 // moves rows.
 
-// ListCheckoutQuestions returns the Ticket Questions a set of Ticket Types puts
+// ListCheckoutQuestions returns the Ticket Questions a cart's Ticket Types put
 // to a buyer AT CHECKOUT, each with the Options it currently offers.
 //
-// THREE FILTERS, AND EACH IS LOAD-BEARING:
+// The query and the fold are catalog.CheckoutQuestionsSQL and
+// catalog.ScanAskedQuestions, SHARED WITH THE STOREFRONT'S EVENT PAGE, which
+// draws the form these answers come back from. Two copies of those filters would
+// eventually differ, and the way that failure shows up is a question the buyer
+// was shown whose answer is then silently dropped — or one they were never shown
+// that this capture happily accepts.
 //
-//   - `retired_at IS NULL` on the question. A retired question has left every
-//     new list; the Answers already given under it keep reading, and nobody is
-//     asked it again.
-//   - `timing = 'at_checkout'`. v1 only ever writes that value, but it is
-//     honoured from the start rather than assumed, so that the day an
-//     Organization may choose `after_purchase` this surface already obeys it
-//     without an Answer migration (migration 072).
-//   - `retired_at IS NULL` on the Option. A retired Option is gone from new
-//     lists, and this is a new list. Passing only live Options is what lets
-//     catalog.HoldableCheckoutAnswers drop a retired id without needing to know
-//     what retirement is.
-//
-// The result is shaped as catalog.AskedQuestion because that is what the rule
-// takes, and inventing a second spelling of it here would be two vocabularies
-// for one form.
+// One read for every Ticket Type in the cart rather than one per type: a cart is
+// at most a handful of Ticket Types.
 func (r *Repository) ListCheckoutQuestions(ctx context.Context, ticketTypeIDs []string) ([]catalog.AskedQuestion, error) {
 	if len(ticketTypeIDs) == 0 {
 		return nil, nil
 	}
-
-	// One read for every Ticket Type in the cart rather than one per type: a
-	// cart is at most a handful of Ticket Types, and the join order below is
-	// what makes "in the order they are asked" true across all of them.
-	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT q.id, q.ticket_type_id, q.kind,
-		       o.id, o.label
-		FROM ticket_questions q
-		LEFT JOIN ticket_question_options o
-		       ON o.ticket_question_id = q.id AND o.retired_at IS NULL
-		WHERE q.ticket_type_id = ANY($1)
-		  AND q.retired_at IS NULL
-		  AND q.timing = 'at_checkout'
-		ORDER BY q.ticket_type_id, q.sort_order, q.created_at, o.sort_order, o.created_at
-	`, ticketTypeIDs)
+	rows, err := r.db.Pool.QueryContext(ctx, catalog.CheckoutQuestionsSQL, ticketTypeIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	// The LEFT JOIN returns one row per (question, Option) and one row with a
-	// NULL Option for the five kinds that offer none, so the questions are
-	// folded back together as they stream past. `asked` keeps the order;
-	// `byID` finds the question a row belongs to.
-	var asked []catalog.AskedQuestion
-	byID := map[string]int{}
-	for rows.Next() {
-		var questionID, ticketTypeID, kind string
-		var optionID, optionLabel sql.NullString
-		if err := rows.Scan(&questionID, &ticketTypeID, &kind, &optionID, &optionLabel); err != nil {
-			return nil, err
-		}
-		position, seen := byID[questionID]
-		if !seen {
-			asked = append(asked, catalog.AskedQuestion{
-				ID:           questionID,
-				TicketTypeID: ticketTypeID,
-				Kind:         catalog.TicketQuestionKind(kind),
-			})
-			position = len(asked) - 1
-			byID[questionID] = position
-		}
-		if optionID.Valid {
-			asked[position].Options = append(asked[position].Options, catalog.AskedOption{
-				ID:    optionID.String,
-				Label: optionLabel.String,
-			})
-		}
-	}
-	return asked, rows.Err()
+	return catalog.ScanAskedQuestions(rows)
 }
 
 // HoldCheckoutAnswers writes the Answers a buyer gave at checkout onto their
