@@ -6,6 +6,12 @@ Builds on [ADR 0043](./adr/0043-a-ticket-becomes-a-row-and-quantities-stay-the-t
 [ADR 0044](./adr/0044-the-holder-answers-by-link-and-the-platform-never-writes-to-them.md), which this
 supersedes in part. Two new ADRs ride with it — see **Design records** below.
 
+> **Status note.** Written while the Answer Link still existed. [ADR 0049](./adr/0049-only-the-holder-answers-and-the-answer-link-is-retired.md) has since retired it: there is no
+> second door beside the Assignment Link, an `unassigned` or merely `assigned` Ticket is answerable
+> only by Event Staff, and the buyer neither reads nor writes Answers on a Ticket they do not hold.
+> The "two doors" material below, and **The Answer Link is not retired** under Open Questions, are
+> superseded and kept as the record.
+
 ## Problem Statement
 
 A Customer who buys four tickets holds four Tickets and no way to say who they are for.
@@ -209,7 +215,7 @@ assignment-minted route to a Customer record.
 - **Expires when the Event starts**, read in the Event's timezone, and stops opening when the Ticket
   Sale is reversed or the Ticket is reassigned — the same lifecycle the Answer Link already has.
 
-### The Answer Link, after assignment
+### The Answer Link, after assignment (superseded by ADR 0049 — the Answer Link is retired)
 
 - **Both doors open while `assigned`.** An Assignment Link that is never accepted degrades to
   exactly today's behaviour, so a mistyped address bricks nothing.
@@ -417,7 +423,7 @@ Organization was recommended and declined. It is recorded in its own ADR so that
 it was a decision rather than an oversight, and so that it can be revisited without unpicking the
 rest of the feature.
 
-**The Answer Link is not retired.** It remains the route for every `unassigned` Ticket, which will be
+**The Answer Link is not retired.** *(Reversed by ADR 0049, which retires it.)* It remains the route for every `unassigned` Ticket, which will be
 most of them for a long time, and the fallback whenever an assignment is not accepted. Assignment
 adds a stronger door beside it; it does not replace it.
 

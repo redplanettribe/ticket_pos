@@ -74,29 +74,6 @@ func TestAnAssignmentLinkDoesNotOpenAnotherAddressesAssignment(t *testing.T) {
 	}
 }
 
-// NEITHER OF THE TWO LINKS OPENS WHAT THE OTHER DOES, and it fails
-// CRYPTOGRAPHICALLY rather than by a check somebody has to remember.
-//
-// This is the security property the whole feature rests on. The Answer Link is
-// copyable off the buyer's own sale page; a build where one verified as the
-// other would let a buyer accept on their friend's behalf, and the Verified
-// Customer minted from it would be a fiction (ADR 0046).
-func TestAnAnswerLinkNeverVerifiesAsAnAssignmentLink(t *testing.T) {
-	answers := NewAnswerLinkSigner(signerSecret)
-	assignments := NewAssignmentLinkSigner(signerSecret)
-
-	answerToken, _ := answers.Sign(signedTicket)
-	if _, _, _, ok := assignments.Parse(answerToken); ok {
-		t.Fatal("an Answer Link verified as an Assignment Link.\n" +
-			"They are derived under separate purpose labels precisely so this cannot happen.")
-	}
-
-	assignmentToken, _ := assignments.Sign(signedTicket, signedAtStamp, "carla@example.com")
-	if _, ok := answers.Parse(assignmentToken); ok {
-		t.Fatal("an Assignment Link verified as an Answer Link")
-	}
-}
-
 // AN UNCONFIGURED SIGNER MINTS NOTHING AND OPENS NOTHING. Refusing beats signing
 // with a zero key that anybody holding a copy of this source could forge into an
 // acceptance of somebody else's Ticket.

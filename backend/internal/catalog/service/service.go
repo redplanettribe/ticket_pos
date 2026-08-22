@@ -243,35 +243,19 @@ type Service struct {
 	// address supplied by somebody with no authority to supply it, before any
 	// published Policy Version describes that collection.
 	ticketAssignmentEnabled bool
-	// answerLinks signs and verifies Answer Links (#312, ADR 0044).
-	//
-	// ITS ZERO VALUE IS UNCONFIGURED, which mints nothing and opens nothing —
-	// the same reasoning the flag above gets, and for a sharper reason: the
-	// alternative failure mode is signing with a zero key, which anybody holding
-	// a copy of this source could forge into a link opening any Ticket's
-	// questions. A service nobody wired a secret into refuses; it does not
-	// improvise one.
-	answerLinks catalog.AnswerLinkSigner
-	// answerLinkBaseURL is the Storefront origin an Answer Link points at. A
-	// Storefront URL and never this API's: the holder must land on a page, and
-	// no browser addresses the Go API directly (ADR 0008).
-	answerLinkBaseURL string
 	// assignmentLinks signs and verifies Assignment Links (#325, ADR 0046).
 	//
-	// A SECOND SIGNER BESIDE answerLinks AND NEVER A REUSE OF IT. That is the
-	// security property the whole feature rests on: the Answer Link is copyable
-	// off the buyer's own sale page, so a flow that accepted one would let the
-	// buyer accept on their friend's behalf and the Verified Customer minted
-	// from it would be a fiction. Each derives its own key under its own purpose
-	// label, so a token of one kind cannot verify as the other however its
-	// payload is spelled.
-	//
-	// Its zero value is UNCONFIGURED, which mints nothing and opens nothing.
+	// ITS ZERO VALUE IS UNCONFIGURED, which mints nothing and opens nothing —
+	// the alternative failure mode is signing with a zero key, which anybody
+	// holding a copy of this source could forge into a link accepting any
+	// Ticket. A service nobody wired a secret into refuses; it does not
+	// improvise one. It derives its own key under its own purpose label, so a
+	// token of any other signed link cannot verify as this one however its
+	// payload is spelled (ADR 0046).
 	assignmentLinks catalog.AssignmentLinkSigner
 	// assignmentLinkBaseURL is the Storefront origin an Assignment Link points
-	// at. Kept separate from answerLinkBaseURL even though both are set from the
-	// same configured origin, so that the two links cannot be made to share a
-	// field and then a path.
+	// at. A Storefront URL and never this API's: the Holder must land on a page,
+	// and no browser addresses the Go API directly (ADR 0008).
 	assignmentLinkBaseURL string
 	// mailer delivers the Assignment mail — the ONLY carrier an Assignment Link
 	// ever has, since the token may never appear on a buyer surface or in an API
@@ -385,25 +369,6 @@ func (s *Service) AssignmentMailLimits() catalog.AssignmentMailLimits {
 	return s.assignmentMailLimits
 }
 
-// WithAnswerLinks gives this service the key it signs Answer Links with and the
-// Storefront origin they point at (#312, ADR 0044).
-//
-// The secret is the DEPLOYMENT's link secret — the same value the Confirmation
-// Link is signed with — and is turned into this purpose's own key here rather
-// than used directly. See catalog.NewAnswerLinkSigner: three signed links travel
-// in one flow and none may open what the others do, so each derives its key
-// under its own purpose label. Nothing outside that constructor ever holds the
-// derived key, and nothing inside this service ever holds the raw secret.
-//
-// A WithX rather than a constructor argument, beside WithTicketQuestions and for
-// the same reason: an unwired service is one that signs nothing, which is the
-// safe way to be unwired.
-func (s *Service) WithAnswerLinks(secret []byte, storefrontBaseURL string) *Service {
-	s.answerLinks = catalog.NewAnswerLinkSigner(secret)
-	s.answerLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")
-	return s
-}
-
 // WithAssignmentLinks gives this service the key it signs Assignment Links with
 // and the Storefront origin they point at (#325, ADR 0046).
 //
@@ -413,9 +378,9 @@ func (s *Service) WithAnswerLinks(secret []byte, storefrontBaseURL string) *Serv
 // open what the others do; this is the fourth, and the only one that mints an
 // identity.
 //
-// A WithX rather than a constructor argument, beside WithAnswerLinks and for the
-// same reason: an unwired service is one that signs nothing, which is the safe
-// way to be unwired.
+// A WithX rather than a constructor argument, beside WithTicketQuestions and for
+// the same reason: an unwired service is one that signs nothing, which is the
+// safe way to be unwired.
 func (s *Service) WithAssignmentLinks(secret []byte, storefrontBaseURL string) *Service {
 	s.assignmentLinks = catalog.NewAssignmentLinkSigner(secret)
 	s.assignmentLinkBaseURL = strings.TrimSuffix(strings.TrimSpace(storefrontBaseURL), "/")

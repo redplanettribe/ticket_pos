@@ -709,7 +709,7 @@ func TestTheGuestListNamesAcceptedHoldersAndNobodyElse(t *testing.T) {
 	assignTicketOK(t, env, f.ana, f.anaSaleID, accepted, "carla@example.com")
 	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
 	acceptAssignmentOK(t, env, token)
-	resp, body, _ := answerLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
+	resp, body, _ := publicLinkRequest(t, env, http.MethodPut, assignmentLinkNamePath, map[string]any{
 		"token": token, "first_name": "Carla", "last_name": "Ruiz",
 	})
 	if resp.StatusCode != http.StatusOK {

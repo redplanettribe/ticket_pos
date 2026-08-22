@@ -3680,178 +3680,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/public/answer-link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Open an answer link
-         * @description Opens the Ticket Questions of the one Ticket a signed Answer Link names, for whoever holds the link. Requires no sign-in, creates no Customer and mints no session. **It discloses nothing about the purchase** — the Event name, the Ticket Type name and the questions with this Ticket's answers, and never the buyer's name or email, the price, the Tax ID, the Sale Confirmation reference, or the Sale's other Tickets — because this link is meant to be forwarded (ADR 0044). Refused with 401 ANSWER_LINK_INVALID when the token was tampered with, truncated, signed by another deployment, names a Ticket that no longer exists, or names one whose Ticket Sale has been reversed; those causes are deliberately indistinguishable, because telling them apart would disclose a fact about somebody else's purchase. Refused with 401 ANSWER_LINK_EXPIRED once the Event has started, which is told apart only because an Event's start is already published. Answers 404 while the Ticket Question feature flag is off.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            /** @description The signed answer link token */
-            requestBody: {
-                content: {
-                    "application/json": Record<string, never> | components["schemas"]["handler.answerLinkBody"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeAnswerLink"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Internal Server Error */
-                500: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/public/answer-link/questions/{questionId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Answer a ticket question through an answer link
-         * @description Writes the Answer to one Ticket Question on the Ticket a signed Answer Link names, creating it or replacing what the buyer entered at checkout. Requires no sign-in, creates no Customer and mints no session (ADR 0044). The response is the same disclosure-limited payload the open returns. Refused with 400 INVALID_ANSWER when the value does not fit the question's kind, with 401 ANSWER_LINK_INVALID for a tampered, truncated or reversed-sale link, and with 401 ANSWER_LINK_EXPIRED once the Event has started. Answers 404 while the Ticket Question feature flag is off.
-         */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description Ticket question ID */
-                    questionId: string;
-                };
-                cookie?: never;
-            };
-            /** @description The signed token, and the answer in the shape its question's kind takes */
-            requestBody: {
-                content: {
-                    "application/json": Record<string, never> | components["schemas"]["handler.answerLinkAnswerBody"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["openapi.EnvelopeAnswerLink"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Conflict */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-                /** @description Internal Server Error */
-                500: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["platform.Envelope"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/public/assignment-link": {
         parameters: {
             query?: never;
@@ -9032,49 +8860,6 @@ export interface components {
             /** @description Text answers short_text and long_text. */
             text?: string;
         };
-        "handler.answerLinkAnswerBody": {
-            /** @description Checked answers checkbox. */
-            checked?: boolean;
-            /**
-             * @description Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
-             *     date carries no time and no zone, so nothing can shift it by a day.
-             */
-            date?: string;
-            /**
-             * @description Number answers number, as a decimal STRING rather than a JSON number.
-             *     JSON numbers are doubles in most parsers, and a value that survives a
-             *     NUMERIC column only to be rounded on the way through the wire would defeat
-             *     the column. See catalog.SubmittedAnswer.
-             */
-            number?: string;
-            /**
-             * @description OptionIDs answers single_choice (one) and multi_choice (any number). They
-             *     are OPTION IDENTITIES and never labels, because a label could not survive
-             *     a rename — which is the whole reason an Option has an id.
-             *
-             *     An empty array is somebody clearing their choices, which is refused as an
-             *     empty Answer; the way to say "not said" is to DELETE the Answer.
-             */
-            option_ids?: string[];
-            /** @description Text answers short_text and long_text. */
-            text?: string;
-            /**
-             * @description Token is the signed Answer Link token, and it is the ONLY authority this
-             *     write has. There is no session beside it and no Ticket id anywhere in the
-             *     request: the token names which Ticket is being answered, which is what
-             *     makes "one Ticket's link never opens another's" a property of the
-             *     signature rather than of a check somebody has to remember.
-             */
-            token?: string;
-        };
-        "handler.answerLinkBody": {
-            /**
-             * @description Token is the signed Answer Link token, exactly as it arrived in the
-             *     address. The Storefront reads it out of its own URL and relays it here;
-             *     nothing else about the caller is asked for, or would be believed.
-             */
-            token?: string;
-        };
         "handler.assignmentLinkAnswerBody": {
             /** @description Checked answers checkbox. */
             checked?: boolean;
@@ -9738,11 +9523,6 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
-        "openapi.EnvelopeAnswerLink": {
-            data?: components["schemas"]["service.AnswerLinkView"];
-            error?: components["schemas"]["platform.APIError"];
-            request_id?: string;
-        };
         "openapi.EnvelopeAnswerPurge": {
             data?: components["schemas"]["service.AnswerPurgeResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -10196,32 +9976,6 @@ export interface components {
              *     every link with it.
              */
             url?: string;
-        };
-        "service.AnswerLinkView": {
-            /**
-             * @description EventName is one of the three things the page shows. The Event is public —
-             *     it has a Storefront page anybody can read — so naming it discloses nothing
-             *     that was not already published.
-             */
-            event_name?: string;
-            /**
-             * @description Questions is the third: this Ticket Type's Ticket Questions with whatever
-             *     this Ticket has already said. Labels read AS COINED in every Locale, like
-             *     a Custom Tag — only the page's chrome follows the reader's Locale.
-             *
-             *     The Answers are shown because THE HOLDER IS ENTITLED TO SEE WHAT WAS SAID
-             *     ABOUT THEM. An Answer given here replaces one the buyer guessed at
-             *     checkout, and somebody cannot correct a guess they cannot see. This is
-             *     data about the holder, not about the purchase.
-             */
-            questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
-            /**
-             * @description TicketTypeName is the second. Also public, for the same reason: it is a
-             *     row on that same Event page, with its price beside it. What is NOT here is
-             *     the price this particular buyer paid, which a Promotion or an Affiliate
-             *     Link may have made different from the published one.
-             */
-            ticket_type_name?: string;
         };
         "service.AnswerOptionView": {
             /**

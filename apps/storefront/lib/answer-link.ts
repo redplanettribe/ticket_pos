@@ -1,12 +1,18 @@
 /**
- * The Answer Link's page, as rules rather than as markup (#312, ADR 0044).
+ * A Ticket Question and its Answer, as rules rather than as markup (#312,
+ * ADR 0044; the Answer Link itself is retired by ADR 0049).
  *
- * An Answer Link opens ONE Ticket's Ticket Questions for whoever the buyer
- * forwarded it to, and shows nothing else about the purchase. That last part is
- * a backend property — service.AnswerLinkView never sends the buyer, the price,
- * the Tax ID or the confirmation reference — and this file is the reason it
- * stays one: NOTHING HERE INVENTS A FIELD. It renders what arrived, and what
- * arrives is only ever those three things.
+ * THE FILE OUTLIVES ITS NAME. It was written for the Answer Link's page, and
+ * that page is gone — nothing mints an Answer Link, nothing opens one, and
+ * /answer is a static tombstone. What stayed is everything that was never about
+ * the link: the shapes of a Ticket Question and an Answer, and the rules for
+ * drawing and posting one, which the Assignment Link page (lib/assignment-link.ts)
+ * and a Holder's own panel (lib/buyer-answers.ts) share. It keeps its path
+ * because those importers are live; renaming it is a diff about nothing until
+ * they all move together.
+ *
+ * NOTHING HERE INVENTS A FIELD. It renders what arrived, and what arrives is
+ * only ever a question and its answer.
  *
  * Pure and dependency-free — no React, no i18n runtime — so the rules are
  * directly unit-testable, exactly as the staff app's lib/ticket-answers.ts is.
@@ -93,27 +99,9 @@ export type QuestionAnswer = {
 };
 
 /**
- * What an Answer Link opens: THREE FIELDS AND NO MORE.
- *
- * This type is the Storefront's half of ADR 0044's disclosure rule, and it is
- * written narrow ON PURPOSE. There is no buyer here, no price, no Tax ID, no
- * Sale Confirmation reference, no sibling Ticket and not even a ticket id — the
- * form posts back with the TOKEN. A link forwarded into a group chat should tell
- * the group nothing about who paid.
- *
- * Anybody widening this is reversing that decision, and the backend will not
- * feed it: the API sends exactly these, and there is an integration test that
- * reads the raw response body and fails if a fourth appears.
- */
-export type AnswerLinkView = {
-  event_name: string;
-  ticket_type_name: string;
-  questions: QuestionAnswer[];
-};
-
-/**
  * The body a PUT to one Answer takes: exactly the field its question's kind
- * uses, plus the token that says which Ticket is answering.
+ * uses. Which Ticket is answering is the route's business — a signed token on
+ * the Assignment Link page, a session on the Holder's own panel.
  */
 export type AnswerBody = {
   text?: string;
@@ -122,43 +110,6 @@ export type AnswerBody = {
   checked?: boolean;
   option_ids?: string[];
 };
-
-/**
- * The `errors.answerLink` catalog key for each way a link can fail to open.
- *
- * Mapped here rather than left to the API's own sentence because these three are
- * the whole of what this page can go wrong with, and because the recovery
- * differs: an expired link has no replacement and a broken one might, so
- * offering the same words for both would send half the readers back to the buyer
- * for nothing.
- */
-export const ANSWER_LINK_FAILURE_KEYS = {
-  ANSWER_LINK_INVALID: "invalid",
-  ANSWER_LINK_EXPIRED: "expired",
-  // The feature flag is off. It answers 404 exactly as a build without the
-  // feature does (ADR 0045), and the reader is told the link is not valid —
-  // which is the true statement available to them.
-  TICKET_QUESTIONS_UNAVAILABLE: "invalid",
-  // No signing key configured: a deployment fault, not the holder's, so it says
-  // "try again later" rather than blaming the link they were given.
-  ANSWER_LINK_UNAVAILABLE: "unavailable",
-} as const;
-
-export type AnswerLinkFailure = (typeof ANSWER_LINK_FAILURE_KEYS)[keyof typeof ANSWER_LINK_FAILURE_KEYS];
-
-/**
- * Which copy a failed open gets, from the API's error code.
- *
- * A code this app has not heard of falls through to "invalid", which is the
- * honest floor: the reader could not open their link, and the page has nothing
- * truer to tell them than that.
- */
-export function answerLinkFailure(code: string | undefined): AnswerLinkFailure {
-  if (code && code in ANSWER_LINK_FAILURE_KEYS) {
-    return ANSWER_LINK_FAILURE_KEYS[code as keyof typeof ANSWER_LINK_FAILURE_KEYS];
-  }
-  return "invalid";
-}
 
 /**
  * The Options a choice question may be answered with RIGHT NOW: the live ones,
@@ -270,18 +221,19 @@ export function toggleOption(
  * HAS answered would make the reply look as though it had been thrown away, and
  * would hide from the holder something recorded about them.
  */
-export function visibleQuestions(view: AnswerLinkView): QuestionAnswer[] {
+export function visibleQuestions(view: { questions: QuestionAnswer[] }): QuestionAnswer[] {
   return visibleQuestionsOf(view.questions);
 }
 
 /**
  * The same rule, over a bare list of questions.
  *
- * It exists because the buyer's own surface (#315) draws these questions too,
- * from a payload that is a LIST OF TICKETS rather than one Ticket — see
+ * It exists because a Holder's own surface draws these questions too, from a
+ * payload that is a LIST OF TICKETS rather than one Ticket — see
  * lib/buyer-answers.ts. The rule about retired questions must be identical on
- * both, or a reply the holder can see would vanish from the buyer's copy of the
- * same Ticket, and this is the one line that decides it.
+ * both, or a reply shown on the Assignment Link page would vanish from the
+ * Holder's Customer Area copy of the same Ticket, and this is the one line that
+ * decides it.
  */
 export function visibleQuestionsOf(questions: QuestionAnswer[]): QuestionAnswer[] {
   return questions.filter((pair) => !pair.question.retired || pair.answer !== null);

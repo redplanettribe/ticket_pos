@@ -236,28 +236,13 @@ func domainHTTPStatus(code string) int {
 	// carry the kind and the problem token so the form can point at the field.
 	case "INVALID_ANSWER", "ANSWER_OPTION_NOT_OFFERED":
 		return http.StatusBadRequest
-	// An Answer Link that does not open (#312, ADR 0044). 401 beside its
+	// An Assignment Link that does not open (#325, ADR 0046). 401 beside its
 	// Confirmation Link neighbour and for the same reason: the token IS the
-	// credential, and one that was tampered with, truncated by a chat app, or
-	// signed by another deployment is a caller who proved nothing.
+	// credential, and one that was tampered with, truncated by a mail client,
+	// or signed by another deployment is a caller who proved nothing.
 	//
-	// ANSWER_LINK_INVALID also covers a reversed Ticket Sale, which is a 401 here
-	// where the staff route's TICKET_SALE_REVERSED is a 409 — the difference is
-	// the whole disclosure rule. Event Staff are entitled to know a sale was
-	// reversed; whoever the link was forwarded to is entitled to learn nothing
-	// about somebody else's purchase, so the reversal is indistinguishable from a
-	// forgery. See catalog.ErrAnswerLinkInvalid.
-	//
-	// ANSWER_LINK_EXPIRED is the one refusal told apart, because an Event's start
-	// is already published on the Storefront and saying so lets the page explain
-	// a deadline instead of implying a forgery.
-	case "ANSWER_LINK_INVALID", "ANSWER_LINK_EXPIRED":
-		return http.StatusUnauthorized
-	// An Assignment Link that does not open (#325, ADR 0046). 401 beside the
-	// Answer Link's pair and for the same reason: the token IS the credential.
-	//
-	// ASSIGNMENT_LINK_INVALID covers more ground than its twin — it also answers
-	// a Ticket that has been REASSIGNED away from this address — and that breadth
+	// ASSIGNMENT_LINK_INVALID also answers a Ticket whose Sale was reversed or
+	// that has been REASSIGNED away from this address, and that breadth
 	// is the disclosure rule holding in the error state. "Your friend gave your
 	// ticket to somebody else" is a fact about the buyer's decisions, and this
 	// page never names the buyer or describes what they did.
@@ -267,12 +252,6 @@ func domainHTTPStatus(code string) int {
 	// Holder's — and this reader has no buyer to ask for a new link, because they
 	// are not told who the buyer is.
 	case "ASSIGNMENT_LINK_UNAVAILABLE":
-		return http.StatusInternalServerError
-	// No link secret configured is a deployment fault and not the holder's, so it
-	// is a 500 beside CONFIRMATION_LINK_UNAVAILABLE. Telling somebody their link
-	// is broken when it is the server that is broken sends them back to the buyer
-	// for a replacement that would fail identically.
-	case "ANSWER_LINK_UNAVAILABLE":
 		return http.StatusInternalServerError
 	// The Privacy Policy asked for in a language it is not published in (#250).
 	// 404 rather than a 400 about a bad parameter: the address named a document,

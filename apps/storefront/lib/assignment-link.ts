@@ -30,7 +30,7 @@ import type { QuestionAnswer } from "@/lib/answer-link";
 /**
  * What accepting an Assignment Link returns: FOUR FIELDS AND NO MORE.
  *
- * Written narrow ON PURPOSE, exactly as AnswerLinkView is. There is no buyer
+ * Written narrow ON PURPOSE. There is no buyer
  * here, no price, no Tax ID, no confirmation reference, no sibling Ticket and
  * not even a ticket id — every write posts back with the TOKEN. Being a Customer
  * of this platform buys nobody a fact about somebody else's purchase.

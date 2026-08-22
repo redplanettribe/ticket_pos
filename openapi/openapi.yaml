@@ -33,56 +33,6 @@ components:
           description: Text answers short_text and long_text.
           type: string
       type: object
-    handler.answerLinkAnswerBody:
-      properties:
-        checked:
-          description: Checked answers checkbox.
-          type: boolean
-        date:
-          description: |-
-            Date answers date, as a calendar date YYYY-MM-DD. Never an instant: a
-            date carries no time and no zone, so nothing can shift it by a day.
-          type: string
-        number:
-          description: |-
-            Number answers number, as a decimal STRING rather than a JSON number.
-            JSON numbers are doubles in most parsers, and a value that survives a
-            NUMERIC column only to be rounded on the way through the wire would defeat
-            the column. See catalog.SubmittedAnswer.
-          type: string
-        option_ids:
-          description: |-
-            OptionIDs answers single_choice (one) and multi_choice (any number). They
-            are OPTION IDENTITIES and never labels, because a label could not survive
-            a rename — which is the whole reason an Option has an id.
-
-            An empty array is somebody clearing their choices, which is refused as an
-            empty Answer; the way to say "not said" is to DELETE the Answer.
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        text:
-          description: Text answers short_text and long_text.
-          type: string
-        token:
-          description: |-
-            Token is the signed Answer Link token, and it is the ONLY authority this
-            write has. There is no session beside it and no Ticket id anywhere in the
-            request: the token names which Ticket is being answered, which is what
-            makes "one Ticket's link never opens another's" a property of the
-            signature rather than of a check somebody has to remember.
-          type: string
-      type: object
-    handler.answerLinkBody:
-      properties:
-        token:
-          description: |-
-            Token is the signed Answer Link token, exactly as it arrived in the
-            address. The Storefront reads it out of its own URL and relays it here;
-            nothing else about the caller is asked for, or would be believed.
-          type: string
-      type: object
     handler.assignmentLinkAnswerBody:
       properties:
         checked:
@@ -1003,15 +953,6 @@ components:
         request_id:
           type: string
       type: object
-    openapi.EnvelopeAnswerLink:
-      properties:
-        data:
-          $ref: '#/components/schemas/service.AnswerLinkView'
-        error:
-          $ref: '#/components/schemas/platform.APIError'
-        request_id:
-          type: string
-      type: object
     openapi.EnvelopeAnswerPurge:
       properties:
         data:
@@ -1817,36 +1758,6 @@ components:
             the code as its ref. Derived at read time from the Storefront origin this
             process is configured with, never stored, so moving the Storefront moves
             every link with it.
-          type: string
-      type: object
-    service.AnswerLinkView:
-      properties:
-        event_name:
-          description: |-
-            EventName is one of the three things the page shows. The Event is public —
-            it has a Storefront page anybody can read — so naming it discloses nothing
-            that was not already published.
-          type: string
-        questions:
-          description: |-
-            Questions is the third: this Ticket Type's Ticket Questions with whatever
-            this Ticket has already said. Labels read AS COINED in every Locale, like
-            a Custom Tag — only the page's chrome follows the reader's Locale.
-
-            The Answers are shown because THE HOLDER IS ENTITLED TO SEE WHAT WAS SAID
-            ABOUT THEM. An Answer given here replaces one the buyer guessed at
-            checkout, and somebody cannot correct a guess they cannot see. This is
-            data about the holder, not about the purchase.
-          items:
-            $ref: '#/components/schemas/service.TicketQuestionAnswerView'
-          type: array
-          uniqueItems: false
-        ticket_type_name:
-          description: |-
-            TicketTypeName is the second. Also public, for the same reason: it is a
-            row on that same Event page, with its price beside it. What is NOT here is
-            the price this particular buyer paid, which a Promotion or an Affiliate
-            Link may have made different from the published one.
           type: string
       type: object
     service.AnswerOptionView:
@@ -7628,137 +7539,6 @@ paths:
       summary: Get platform revenue and what the platform owes
       tags:
       - operator
-  /api/v1/public/answer-link:
-    post:
-      description: Opens the Ticket Questions of the one Ticket a signed Answer Link
-        names, for whoever holds the link. Requires no sign-in, creates no Customer
-        and mints no session. **It discloses nothing about the purchase** — the Event
-        name, the Ticket Type name and the questions with this Ticket's answers, and
-        never the buyer's name or email, the price, the Tax ID, the Sale Confirmation
-        reference, or the Sale's other Tickets — because this link is meant to be
-        forwarded (ADR 0044). Refused with 401 ANSWER_LINK_INVALID when the token
-        was tampered with, truncated, signed by another deployment, names a Ticket
-        that no longer exists, or names one whose Ticket Sale has been reversed; those
-        causes are deliberately indistinguishable, because telling them apart would
-        disclose a fact about somebody else's purchase. Refused with 401 ANSWER_LINK_EXPIRED
-        once the Event has started, which is told apart only because an Event's start
-        is already published. Answers 404 while the Ticket Question feature flag is
-        off.
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/handler.answerLinkBody'
-                description: The signed answer link token
-                summary: body
-        description: The signed answer link token
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/openapi.EnvelopeAnswerLink'
-          description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Unauthorized
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Not Found
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Internal Server Error
-      summary: Open an answer link
-      tags:
-      - public
-  /api/v1/public/answer-link/questions/{questionId}:
-    put:
-      description: Writes the Answer to one Ticket Question on the Ticket a signed
-        Answer Link names, creating it or replacing what the buyer entered at checkout.
-        Requires no sign-in, creates no Customer and mints no session (ADR 0044).
-        The response is the same disclosure-limited payload the open returns. Refused
-        with 400 INVALID_ANSWER when the value does not fit the question's kind, with
-        401 ANSWER_LINK_INVALID for a tampered, truncated or reversed-sale link, and
-        with 401 ANSWER_LINK_EXPIRED once the Event has started. Answers 404 while
-        the Ticket Question feature flag is off.
-      parameters:
-      - description: Ticket question ID
-        in: path
-        name: questionId
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/handler.answerLinkAnswerBody'
-                description: The signed token, and the answer in the shape its question's
-                  kind takes
-                summary: body
-        description: The signed token, and the answer in the shape its question's
-          kind takes
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/openapi.EnvelopeAnswerLink'
-          description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Unauthorized
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Not Found
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Conflict
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/platform.Envelope'
-          description: Internal Server Error
-      summary: Answer a ticket question through an answer link
-      tags:
-      - public
   /api/v1/public/assignment-link:
     post:
       description: 'Accepts the Ticket Assignment the signed Assignment Link names:

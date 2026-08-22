@@ -16,7 +16,7 @@ import (
 //
 // PUBLIC AND UNAUTHENTICATED IN THE ORDINARY SENSE, AND YET THIS IS WHERE A
 // PERSON IS MINTED. There is no Security annotation on any of these and no
-// session is read — but unlike its Answer Link neighbour, the first call here
+// session is read — and yet the first call here
 // creates or matches a Verified Customer, because clicking a link that only ever
 // travelled to one address is Proof of Email Ownership (ADR 0035). No session is
 // MINTED either: accepting a ticket does not sign anybody in.
@@ -45,6 +45,25 @@ type assignmentLinkBody struct {
 	// address. The Storefront reads it out of its own URL and relays it here;
 	// nothing else about the caller is asked for, or would be believed.
 	Token string `json:"token"`
+}
+
+// linkToken pulls the token out of a decoded body, refusing an empty one
+// before the service is troubled.
+//
+// A blank token is a MALFORMED REQUEST and not an invalid link: the Storefront
+// only sends these handlers a token it found in the address, so an empty one
+// means the relay is broken rather than that somebody's link is. The page
+// renders its own "this link arrived without its token" copy without ever
+// calling here.
+func linkToken(w http.ResponseWriter, reqID, token string) (string, bool) {
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
+			{Field: "token", Code: platform.CodeRequired, Message: "is required"},
+		})
+		return "", false
+	}
+	return trimmed, true
 }
 
 // assignmentLinkNameBody is the token plus the name the Holder gave.
@@ -136,7 +155,7 @@ func (h *Handler) AcceptAssignmentLink(w http.ResponseWriter, r *http.Request) {
 	// routes are held to, and the same helper: the Storefront only ever sends a
 	// token it found in the address, so an empty one means the relay is broken
 	// rather than that somebody's link is.
-	token, ok := answerLinkToken(w, reqID, body.Token)
+	token, ok := linkToken(w, reqID, body.Token)
 	if !ok {
 		return
 	}
@@ -175,7 +194,7 @@ func (h *Handler) NameByAssignmentLink(w http.ResponseWriter, r *http.Request) {
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	token, ok := answerLinkToken(w, reqID, body.Token)
+	token, ok := linkToken(w, reqID, body.Token)
 	if !ok {
 		return
 	}
@@ -228,7 +247,7 @@ func (h *Handler) AnswerByAssignmentLink(w http.ResponseWriter, r *http.Request)
 		_ = platform.WriteInvalidJSON(w, reqID)
 		return
 	}
-	token, ok := answerLinkToken(w, reqID, body.Token)
+	token, ok := linkToken(w, reqID, body.Token)
 	if !ok {
 		return
 	}
