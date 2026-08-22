@@ -2076,6 +2076,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/answer-reminders/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Answer Reminders
+         * @description Sweeps the active Ticket Sales whose Tickets still owe required Ticket Question Answers and emails each buyer one reminder pointing at their sale's page, where they can answer what they know and copy each Ticket's own Answer Link for whoever will use it (ADR 0044). Addressed to the BUYER and never to a holder: the platform stores no holder address and asks for none. Rationed per Ticket Sale — at most one mail every 7 days and at most two ever — silent once the Event has started, and never sent for a reversed Sale. Swept rather than triggered by an edit, so an Organization authoring four questions in ten minutes cannot mail the same people four times. Transactional: it is not gated by Marketing Consent, exactly as a Sale Confirmation is not, and it is written in the recipient's Mail Locale (the Sale Locale first, then the Customer's, then English). Sends nothing at all while TICKET_QUESTIONS_ENABLED is off (ADR 0045), and the Cloud Scheduler job that drives it ships paused. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. The response reports how many Sales were due, how many mails went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names no buyer, no address and no sale.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAnswerReminderSweep"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/checkout-answers/purge": {
         parameters: {
             query?: never;
@@ -9163,6 +9211,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeAnswerReminderSweep": {
+            data?: components["schemas"]["service.AnswerReminderSweepResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeBeginCheckout": {
             data?: components["schemas"]["service.BeginCheckoutResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -9667,6 +9720,53 @@ export interface components {
              *     Payments is a month of ordinary attrition.
              */
             payments_purged?: number;
+        };
+        "service.AnswerReminderSweepResult": {
+            /**
+             * @description Due is how many Ticket Sales this run found waiting, bounded by the batch.
+             *     It is what the run had to work with, and DueTotal below is what there was.
+             */
+            due?: number;
+            /**
+             * @description DueTotal is how many Ticket Sales are due a reminder across the platform,
+             *     ignoring the batch — the standing backlog, in the sense the purge's
+             *     answers_held is. Two curls a day apart say whether the sweep is keeping up.
+             */
+            due_total?: number;
+            /**
+             * @description Failed is reminders the provider refused. They are NOT recorded in the
+             *     ledger, so the buyer is due again on the next tick and has lost nothing.
+             *     This is the number that says a provider is unwell.
+             */
+            failed?: number;
+            /**
+             * @description Sent is reminders the provider accepted and the ledger recorded. On a
+             *     platform where the feature ships dark and the job ships paused, zero is the
+             *     only answer.
+             */
+            sent?: number;
+            /**
+             * @description Skipped is candidates this run deliberately did not mail: a Confirmation
+             *     Link that could not be signed, or an address the Sale does not carry.
+             *     NOTHING WAS SENT and nothing was recorded, so they are due again on the
+             *     next tick — which is right, because the fault is the deployment's rather
+             *     than the buyer's.
+             *
+             *     A number that stays high is a misconfiguration, not a backlog: the only way
+             *     to fail to sign a Confirmation Link is to have no link secret.
+             */
+            skipped?: number;
+            /**
+             * @description Unrecorded is sends the provider accepted whose ledger row could not be
+             *     written. It is its own number rather than folded into Failed because it
+             *     means the opposite thing: the buyer HAS the mail, and the platform has
+             *     forgotten it sent it, so they may receive one more than the cap intended.
+             *
+             *     It should always be zero. A non-zero value is the one outcome of this job
+             *     that is worth waking somebody for, because the rationing is only as true as
+             *     this table.
+             */
+            unrecorded?: number;
         };
         /**
          * @description Answer is null when this Ticket has not answered this question — which,

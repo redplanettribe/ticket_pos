@@ -1059,6 +1059,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeAnswerReminderSweep": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AnswerReminderSweepResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeBeginCheckout": {
                 "properties": {
                     "data": {
@@ -2226,6 +2240,35 @@ const docTemplate = `{
                     },
                     "payments_purged": {
                         "description": "PaymentsPurged is how many Payments those Answers came off, which is the\nfigure that means something in human terms: forty answers off one abandoned\ncart of twenty tickets is one buyer changing their mind, and forty off forty\nPayments is a month of ordinary attrition.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AnswerReminderSweepResult": {
+                "properties": {
+                    "due": {
+                        "description": "Due is how many Ticket Sales this run found waiting, bounded by the batch.\nIt is what the run had to work with, and DueTotal below is what there was.",
+                        "type": "integer"
+                    },
+                    "due_total": {
+                        "description": "DueTotal is how many Ticket Sales are due a reminder across the platform,\nignoring the batch — the standing backlog, in the sense the purge's\nanswers_held is. Two curls a day apart say whether the sweep is keeping up.",
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "description": "Failed is reminders the provider refused. They are NOT recorded in the\nledger, so the buyer is due again on the next tick and has lost nothing.\nThis is the number that says a provider is unwell.",
+                        "type": "integer"
+                    },
+                    "sent": {
+                        "description": "Sent is reminders the provider accepted and the ledger recorded. On a\nplatform where the feature ships dark and the job ships paused, zero is the\nonly answer.",
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "description": "Skipped is candidates this run deliberately did not mail: a Confirmation\nLink that could not be signed, or an address the Sale does not carry.\nNOTHING WAS SENT and nothing was recorded, so they are due again on the\nnext tick — which is right, because the fault is the deployment's rather\nthan the buyer's.\n\nA number that stays high is a misconfiguration, not a backlog: the only way\nto fail to sign a Confirmation Link is to have no link secret.",
+                        "type": "integer"
+                    },
+                    "unrecorded": {
+                        "description": "Unrecorded is sends the provider accepted whose ledger row could not be\nwritten. It is its own number rather than folded into Failed because it\nmeans the opposite thing: the buyer HAS the mail, and the platform has\nforgotten it sent it, so they may receive one more than the cap intended.\n\nIt should always be zero. A non-zero value is the one outcome of this job\nthat is worth waking somebody for, because the rationing is only as true as\nthis table.",
                         "type": "integer"
                     }
                 },
@@ -6757,6 +6800,37 @@ const docTemplate = `{
                 "summary": "Unsubscribe from the Follow Digest",
                 "tags": [
                     "customer"
+                ]
+            }
+        },
+        "/api/v1/internal/answer-reminders/sweep": {
+            "post": {
+                "description": "Sweeps the active Ticket Sales whose Tickets still owe required Ticket Question Answers and emails each buyer one reminder pointing at their sale's page, where they can answer what they know and copy each Ticket's own Answer Link for whoever will use it (ADR 0044). Addressed to the BUYER and never to a holder: the platform stores no holder address and asks for none. Rationed per Ticket Sale — at most one mail every 7 days and at most two ever — silent once the Event has started, and never sent for a reversed Sale. Swept rather than triggered by an edit, so an Organization authoring four questions in ten minutes cannot mail the same people four times. Transactional: it is not gated by Marketing Consent, exactly as a Sale Confirmation is not, and it is written in the recipient's Mail Locale (the Sale Locale first, then the Customer's, then English). Sends nothing at all while TICKET_QUESTIONS_ENABLED is off (ADR 0045), and the Cloud Scheduler job that drives it ships paused. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. The response reports how many Sales were due, how many mails went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names no buyer, no address and no sale.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAnswerReminderSweep"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Send Answer Reminders",
+                "tags": [
+                    "internal"
                 ]
             }
         },
