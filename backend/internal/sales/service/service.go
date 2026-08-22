@@ -916,7 +916,7 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 		},
 	}
 
-	data, err := exportfile.Build(exported, types, loc, info)
+	data, err := exportfile.Build(exported, types, exportfile.Answers{}, loc, info)
 	if err != nil {
 		return nil, nil, err
 	}
