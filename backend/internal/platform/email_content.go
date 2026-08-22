@@ -661,17 +661,72 @@ var (
 		"Answering is optional and your ticket is valid either way. We will send at most one more reminder about it.",
 		"Responder es opcional y su entrada es válida igualmente. Enviaremos como máximo un recordatorio más al respecto.",
 	)
+
+	// THE PLURAL SHAPE, WHICH #335 RULED INTO EXISTENCE: one mail per Holder per
+	// sweep, listing each owed Ticket with its own Assignment Link. The singular
+	// copy above is untouched — a Holder of one Ticket reads exactly the mail
+	// they always did — and these variants exist only for the person who
+	// accepted several, who used to get one envelope per Ticket and now gets a
+	// list. Same reader, same register (usted), same disclosure rule: Events,
+	// Ticket Types, their own links, and nothing about anybody's purchase.
+	holderAnswerReminderSubjectPluralCopy = translated(
+		"Your tickets for %s still need answers",
+		"Sus entradas para %s aún necesitan respuestas",
+	)
+	// When the listed Tickets span more than one Event, no single Event can
+	// honestly headline the subject, so none does. Each Ticket's own block names
+	// its Event in the body.
+	holderAnswerReminderSubjectMixedCopy = translated(
+		"Your tickets still need answers",
+		"Sus entradas aún necesitan respuestas",
+	)
+	holderAnswerReminderOpeningPluralCopy = translated(
+		"The tickets you accepted still need answers to questions from the organizer.",
+		"Las entradas que aceptó aún necesitan respuesta a preguntas de la organización.",
+	)
+	// One block per Ticket: what it is, and the link that answers for it. The
+	// link sits INSIDE its Ticket's block so a reader holding a General and a
+	// VIP ticket cannot mistake which questions a link opens.
+	holderAnswerReminderTicketPluralCopy = translated(
+		"Event: %s\nTicket: %s\nAnswer here:\n%s",
+		"Evento: %s\nEntrada: %s\nResponda aquí:\n%s",
+	)
+	holderAnswerReminderLinksPluralCopy = translated(
+		"Each link opens its own ticket only, and stops working when the event starts.",
+		"Cada enlace abre solo su entrada y deja de funcionar cuando empieza el evento.",
+	)
+	// "About each of them" rather than "about it": the promise is per Ticket
+	// because the cap is (catalog.MaxAnswerReminders), and only the envelope was
+	// ever shared. Anyone raising the cap has to come here and either change
+	// this sentence or break it, exactly as for the singular closing.
+	holderAnswerReminderClosingPluralCopy = translated(
+		"Answering is optional and your tickets are valid either way. We will send at most one more reminder about each of them.",
+		"Responder es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más sobre cada una.",
+	)
 )
 
-// Subject is the Holder's Answer Reminder's subject line: their ticket, the
-// Event, and what is owed.
+// Subject is the Holder's Answer Reminder's subject line: their ticket or
+// tickets, the Event where one can honestly headline it, and what is owed.
 //
-// IT SAYS "YOUR TICKET" AND NOT "SOME TICKETS", which is the difference between
-// this and the buyer's subject and is the whole of what #328 is about. The
-// reader holds exactly one, and a subject that talked about a purchase would be
-// talking about somebody else's.
+// IT SAYS "YOUR TICKET(S)" AND NEVER "SOME TICKETS", which is the difference
+// between this and the buyer's subject and is the whole of what #328 is about:
+// this reader is told about what THEY hold, never about a purchase, which
+// would be somebody else's. Since #335 the mail may list several Tickets, so
+// the subject goes plural when it does — named after the Event when every
+// listed Ticket shares one, and Event-less when they do not, because a subject
+// that named one Event over a list spanning two would be wrong about half of
+// what it announces.
 func (r HolderAnswerReminder) Subject() string {
-	return fmt.Sprintf(holderAnswerReminderSubjectCopy.in(r.Locale), r.EventName)
+	if len(r.Tickets) == 1 {
+		return fmt.Sprintf(holderAnswerReminderSubjectCopy.in(r.Locale), r.Tickets[0].EventName)
+	}
+	event := r.Tickets[0].EventName
+	for _, ticket := range r.Tickets[1:] {
+		if ticket.EventName != event {
+			return holderAnswerReminderSubjectMixedCopy.in(r.Locale)
+		}
+	}
+	return fmt.Sprintf(holderAnswerReminderSubjectPluralCopy.in(r.Locale), event)
 }
 
 // Text is the Holder's Answer Reminder's plain-text body.
@@ -682,10 +737,27 @@ func (r HolderAnswerReminder) Subject() string {
 // compose one at all — a Ticket whose Assignment Link cannot be signed is
 // dropped and stays due — so by the time this renders, every part of it is
 // present.
+//
+// ONE TICKET RENDERS EXACTLY THE MAIL IT ALWAYS DID; a list only appears for
+// the Holder who accepted several (#335). The two shapes share the discipline:
+// every Ticket's link sits inside its own block, and the closing states the
+// per-Ticket cap in the reader's own terms.
 func (r HolderAnswerReminder) Text() string {
-	text := fmt.Sprintf(holderAnswerReminderOpeningCopy.in(r.Locale), r.EventName, r.TicketTypeName)
-	text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), r.AnswerURL)
-	text += "\n\n" + holderAnswerReminderClosingCopy.in(r.Locale)
+	if len(r.Tickets) == 1 {
+		ticket := r.Tickets[0]
+		text := fmt.Sprintf(holderAnswerReminderOpeningCopy.in(r.Locale), ticket.EventName, ticket.TicketTypeName)
+		text += "\n\n" + fmt.Sprintf(holderAnswerReminderActionCopy.in(r.Locale), ticket.AnswerURL)
+		text += "\n\n" + holderAnswerReminderClosingCopy.in(r.Locale)
+		return text
+	}
+
+	text := holderAnswerReminderOpeningPluralCopy.in(r.Locale)
+	for _, ticket := range r.Tickets {
+		text += "\n\n" + fmt.Sprintf(holderAnswerReminderTicketPluralCopy.in(r.Locale),
+			ticket.EventName, ticket.TicketTypeName, ticket.AnswerURL)
+	}
+	text += "\n\n" + holderAnswerReminderLinksPluralCopy.in(r.Locale)
+	text += "\n\n" + holderAnswerReminderClosingPluralCopy.in(r.Locale)
 	return text
 }
 

@@ -93,7 +93,9 @@ const (
 	// four allowances on it — but a sale with four accepted Holders can now
 	// produce eight mails in all rather than two, to five different people. No
 	// ONE person is written to more than twice, which is the promise this
-	// constant makes and the only promise it ever made.
+	// constant makes and the only promise it ever made — and since #335 it holds
+	// for a Holder of several Tickets too, whose owed Tickets share ONE envelope
+	// per sweep instead of one each, each still burning its own allowance.
 	MaxAnswerReminders = 2
 )
 
@@ -235,9 +237,9 @@ const (
 // decides about, and the unit the ledger is written in.
 //
 // IT IS NOT A MAIL. Several of these become one DueAnswerReminder when they
-// share a buyer, and one of these becomes one DueAnswerReminder when it has a
-// Holder. Keeping the two types apart is what stops the rationing from being
-// reasoned about in terms of messages: the caps count Tickets chased, and a mail
+// share a buyer, and several become one when they share a Holder (#335).
+// Keeping the two types apart is what stops the rationing from being reasoned
+// about in terms of messages: the caps count Tickets chased, and a mail
 // covering four Tickets spends four allowances.
 //
 // EVERY FIELD ABOUT THE SALE IS REPEATED ON EVERY TICKET OF IT, which is a
@@ -355,28 +357,33 @@ func (c AnswerReminderCandidate) Inputs(now time.Time) AnswerReminderInputs {
 // shared pricing types, so this closes no cycle.
 //
 // ONE VALUE, TWO SHAPES, AND THE RECIPIENT SAYS WHICH. A buyer's mail covers
-// every Ticket of one Sale that is still theirs to chase; a Holder's covers the
-// one Ticket they accepted. The fields the other shape does not use are zero,
-// and the send site switches on Recipient rather than sniffing for an empty
-// string.
+// every Ticket of one Sale that is still theirs to chase; a Holder's covers
+// every Ticket they accepted that the sweep found owing. The fields the other
+// shape does not use are zero, and the send site switches on Recipient rather
+// than sniffing for an empty string.
 //
-// WHY THE HOLDER'S IS PER TICKET AND THE BUYER'S IS PER SALE. The buyer has one
-// surface for the whole purchase — the Confirmation Link page, where they answer
-// what they know and copy out each Ticket's Answer Link — so four Tickets are
-// one message with one link. The Holder's surface IS a Ticket: the Assignment
-// Link opens exactly one, by design and as the whole security property of the
-// feature. A person who accepted two Tickets of one sale therefore gets two
-// mails, one per link, because there is no single address that would open both
-// and inventing one would be inventing a surface that discloses a Sale to
-// somebody entitled to see one Ticket.
+// BOTH ARE PER PERSON NOW, AND THE LINKS ARE STILL PER TICKET (#335). The buyer
+// has one surface for the whole purchase — the Confirmation Link page — so four
+// Tickets are one message with one link. The Holder's surface IS a Ticket: the
+// Assignment Link opens exactly one, by design and as the whole security
+// property of the feature, and there is still no single address that would open
+// two — inventing one would be inventing a surface that discloses a Sale to
+// somebody entitled to see one Ticket. What #335 ruled is that the ENVELOPE
+// follows the inbox anyway: one mail per Holder per sweep, listing each owed
+// Ticket with its own Assignment Link, because the buyer's side already fans
+// Tickets into one message per Sale, per-Ticket envelopes to a Holder were an
+// inconsistency as well as a volume problem, and mailing one address twice in
+// one sweep is the shape spam filters punish. Per-Ticket rationing is
+// unchanged: each listed Ticket burns its own allowance; only the envelope is
+// shared.
 type DueAnswerReminder struct {
 	// Recipient decides which half of this struct is meaningful, and which of the
 	// two messages is composed. There is no third case.
 	Recipient AnswerReminderRecipient
 
 	// TicketIDs are the Tickets THIS MAIL COVERS, and the ledger rows it spends
-	// once a provider has accepted it. One for a Holder's; one to many for a
-	// buyer's, in the order the query returned them.
+	// once a provider has accepted it. One to many for either recipient since
+	// #335, in the order the query returned them.
 	//
 	// THE LEDGER IS WRITTEN FROM THIS AND NEVER FROM THE SALE. A mail covering
 	// three Tickets writes three rows, so the fourth Ticket — answered, or
@@ -419,30 +426,46 @@ type DueAnswerReminder struct {
 	CustomerLastName  string
 
 	// HolderEmail is where a Holder's mail goes, set ONLY when Recipient is
-	// RemindTheHolder.
+	// RemindTheHolder. Since #335 it is also the GROUPING KEY for
+	// holder-addressed candidates: every owed Ticket this address accepted in
+	// one sweep's batch becomes one entry of HolderTickets below.
 	HolderEmail string
-	// TicketTypeName is what the Holder recognises their ticket by. Public, like
-	// the Event name beside it.
+	// HolderTickets are the owed Tickets a Holder's ONE mail lists, in the order
+	// the query returned them, each with its own Assignment Link (#335). Empty
+	// on a buyer's mail. Its length always equals len(TicketIDs) on a Holder's:
+	// the entry is what the message prints, the id is what the ledger spends.
+	HolderTickets []HolderReminderTicket
+}
+
+// HolderReminderTicket is one owed Ticket as a Holder's Answer Reminder lists
+// it: the two public facts the reader recognises it by, and the link they
+// answer through.
+//
+// EventName travels PER TICKET, not once per mail, because the envelope is per
+// Holder per sweep (#335) and nothing guarantees every Ticket one address
+// accepted belongs to one Event — the mail must be able to name each honestly.
+//
+// AssignmentLink is the composed Assignment Link URL this Holder answers
+// through — the same link their Assignment mail carried, minted fresh because
+// the platform stores no tokens.
+//
+// IT IS A CREDENTIAL AND THE ONLY ONE THAT MINTS AN IDENTITY (ADR 0046), so it
+// is worth stating exactly how far it travels and why that is allowed. It is
+// composed inside the catalog service, by the one function that composes
+// Assignment Links, and handed to the sales module for the single purpose of
+// putting it in a message addressed to the HolderEmail it groups under — the
+// same address it was already mailed to. It never reaches a buyer surface, an
+// API response or a log line: the sweep's 200 body is counts and names nobody,
+// and the failure logs name a Ticket Sale and never a link. Anything that
+// widens where this field travels is widening where that credential travels,
+// and is a change ADR 0046 rates as severely as leaking the signing key.
+//
+// A TICKET WHOSE LINK COULD NOT BE SIGNED — a deployment with no link secret —
+// IS NEVER LISTED: the sweep DROPS that candidate rather than listing it
+// linkless, exactly as it skips a Confirmation Link it could not sign. Nothing
+// is recorded, so the Ticket is due again as soon as the deployment is fixed.
+type HolderReminderTicket struct {
+	EventName      string
 	TicketTypeName string
-	// AssignmentLink is the composed Assignment Link URL this Holder answers
-	// through — the same link their Assignment mail carried, minted fresh
-	// because the platform stores no tokens.
-	//
-	// IT IS A CREDENTIAL AND THE ONLY ONE THAT MINTS AN IDENTITY (ADR 0046), so
-	// it is worth stating exactly how far it travels and why that is allowed. It
-	// is composed inside the catalog service, by the one function that composes
-	// Assignment Links, and handed to the sales module for the single purpose of
-	// putting it in a message addressed to HolderEmail above — the same address
-	// it was already mailed to. It never reaches a buyer surface, an API response
-	// or a log line: the sweep's 200 body is counts and names nobody, and the
-	// failure logs name a Ticket Sale and never a link. Anything that widens
-	// where this field travels is widening where that credential travels, and is
-	// a change ADR 0046 rates as severely as leaking the signing key.
-	//
-	// EMPTY MEANS THE LINK COULD NOT BE SIGNED — a deployment with no link secret
-	// — and the sweep SKIPS such a candidate rather than composing a message with
-	// no link in it, exactly as it does for a Confirmation Link it could not
-	// sign. Nothing is recorded, so the Ticket is due again as soon as the
-	// deployment is fixed.
 	AssignmentLink string
 }

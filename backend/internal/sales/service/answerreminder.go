@@ -377,36 +377,55 @@ func (s *Service) sendBuyerAnswerReminder(
 	return true
 }
 
-// sendHolderAnswerReminder writes to the person who accepted one Ticket, about
-// that Ticket. It reports whether a provider accepted the message.
+// sendHolderAnswerReminder writes ONCE to the person who accepted Tickets,
+// about every owed Ticket of theirs this sweep found — one mail per Holder per
+// sweep, each Ticket listed with its own Assignment Link (#335). It reports
+// whether a provider accepted the message.
 //
 // IT NAMES NO BUYER AND NO PURCHASE, and the enforcement is that
 // platform.HolderAnswerReminder has no field for either — see that type. What is
-// composed here is an Event name, a Ticket Type name and a link, all three of
-// which this reader was already shown when they accepted.
+// composed here is, per Ticket, an Event name, a Ticket Type name and a link,
+// all of which this reader was already shown when they accepted.
 //
-// THE LINK ARRIVES ALREADY SIGNED, by the catalog module, which is the only
+// THE LINKS ARRIVE ALREADY SIGNED, by the catalog module, which is the only
 // place on this platform an Assignment Link is composed (ADR 0046). This module
-// puts it in a message addressed to the Holder and nowhere else: it is not
-// logged, not returned, and not rendered on any surface. An empty one is a
-// deployment with no link secret and is skipped by the catalog before it gets
-// here, so reaching this function with one would be a bug — checked anyway,
-// because the cost of being wrong is a mail telling somebody to open nothing.
+// puts them in a message addressed to the Holder and nowhere else: they are not
+// logged, not returned, and not rendered on any surface. A Ticket whose link
+// could not be signed — a deployment with no link secret — was dropped by the
+// catalog before it got here, so a mail with nothing to list would be a bug —
+// checked anyway, because the cost of being wrong is a mail telling somebody to
+// open nothing.
 func (s *Service) sendHolderAnswerReminder(
 	ctx context.Context, due catalog.DueAnswerReminder, result *AnswerReminderSweepResult,
 ) bool {
-	if due.HolderEmail == "" || due.AssignmentLink == "" {
+	if due.HolderEmail == "" || len(due.HolderTickets) == 0 {
 		result.Skipped++
-		s.logger.Warn("a Ticket due a Holder's Answer Reminder carries no address or no link; nobody was written to and it stays due",
+		s.logger.Warn("a Holder's Answer Reminder carries no address or no tickets; nobody was written to and they stay due",
 			"ticket_sale_id", due.TicketSaleID)
 		return false
 	}
 
+	tickets := make([]platform.HolderAnswerReminderTicket, 0, len(due.HolderTickets))
+	for _, ticket := range due.HolderTickets {
+		if ticket.AssignmentLink == "" {
+			// Unreachable — the catalog drops a linkless Ticket rather than
+			// listing it — and refused here anyway: an empty link would render as
+			// an instruction with nothing under it, and the Ticket stays due.
+			result.Skipped++
+			s.logger.Warn("a Ticket on a Holder's Answer Reminder carries no link; the whole mail was withheld and everything on it stays due",
+				"ticket_sale_id", due.TicketSaleID)
+			return false
+		}
+		tickets = append(tickets, platform.HolderAnswerReminderTicket{
+			EventName:      ticket.EventName,
+			TicketTypeName: ticket.TicketTypeName,
+			AnswerURL:      ticket.AssignmentLink,
+		})
+	}
+
 	reminder := platform.HolderAnswerReminder{
-		To:             due.HolderEmail,
-		EventName:      due.EventName,
-		TicketTypeName: due.TicketTypeName,
-		AnswerURL:      due.AssignmentLink,
+		To:      due.HolderEmail,
+		Tickets: tickets,
 		// THE CHAIN IS READ IN THE OTHER ORDER FOR THIS READER, which is the one
 		// thing about this function that differs from its buyer-addressed sibling
 		// beyond the disclosure. A Holder is not party to the sale: they did not

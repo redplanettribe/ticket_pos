@@ -131,10 +131,36 @@ func TestAnswerReminderCarriesNoUnsubscribe(t *testing.T) {
 
 func holderAnswerReminder() HolderAnswerReminder {
 	return HolderAnswerReminder{
-		To:             "carla@example.com",
-		EventName:      "Noche de Jazz",
-		TicketTypeName: "General",
-		AnswerURL:      "https://storefront.test/accept?token=x",
+		To: "carla@example.com",
+		Tickets: []HolderAnswerReminderTicket{{
+			EventName:      "Noche de Jazz",
+			TicketTypeName: "General",
+			AnswerURL:      "https://storefront.test/accept?token=x",
+		}},
+	}
+}
+
+// holderAnswerReminderForTwo is the mail #335 ruled into existence: one Holder,
+// one sweep, two accepted Tickets, ONE message listing each with its own
+// Assignment Link. The buyer's side already fans a Sale's Tickets into one
+// mail; per-Ticket envelopes to a Holder were an inconsistency as well as a
+// volume problem, and mailing one address twice in one sweep is the shape spam
+// filters punish.
+func holderAnswerReminderForTwo() HolderAnswerReminder {
+	return HolderAnswerReminder{
+		To: "carla@example.com",
+		Tickets: []HolderAnswerReminderTicket{
+			{
+				EventName:      "Noche de Jazz",
+				TicketTypeName: "General",
+				AnswerURL:      "https://storefront.test/accept?token=x",
+			},
+			{
+				EventName:      "Noche de Jazz",
+				TicketTypeName: "VIP",
+				AnswerURL:      "https://storefront.test/accept?token=y",
+			},
+		},
 	}
 }
 
@@ -263,5 +289,100 @@ func TestHolderAnswerReminderCarriesNoUnsubscribe(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("text = %q, want no unsubscribe in a transactional mail", text)
 		}
+	}
+}
+
+// ONE MAIL, EVERY OWED TICKET, EACH WITH ITS OWN LINK (#335). The ruling: one
+// mail per Holder per sweep, listing each owed Ticket with its own Assignment
+// Link. The single-ticket mail above reads as it always did; this is the shape
+// the envelope takes when one person accepted two.
+func TestHolderAnswerReminderListsEachTicketWithItsOwnLink(t *testing.T) {
+	reminder := holderAnswerReminderForTwo()
+
+	if got := reminder.Subject(); got != "Your tickets for Noche de Jazz still need answers" {
+		t.Fatalf("subject = %q, want the plural English subject", got)
+	}
+	text := reminder.Text()
+	for _, want := range []string{
+		"The tickets you accepted still need answers",
+		"Ticket: General",
+		"Ticket: VIP",
+		"https://storefront.test/accept?token=x",
+		"https://storefront.test/accept?token=y",
+		"Answering is optional and your tickets are valid either way.",
+		"at most one more reminder",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text = %q, want it to contain %q", text, want)
+		}
+	}
+	// EXACTLY ONE LINK PER TICKET AND NO OTHER. Each Assignment Link opens
+	// exactly one Ticket; a mail about two carries two, never a third.
+	if links := strings.Count(text, "https://"); links != 2 {
+		t.Fatalf("the two-ticket reminder carries %d links, want exactly two — one Assignment Link per listed Ticket", links)
+	}
+	// Each link must sit in the ticket's own block, after its Ticket line, so a
+	// reader cannot answer the VIP question through the General ticket's link.
+	if strings.Index(text, "Ticket: General") > strings.Index(text, "token=x") ||
+		strings.Index(text, "token=x") > strings.Index(text, "Ticket: VIP") ||
+		strings.Index(text, "Ticket: VIP") > strings.Index(text, "token=y") {
+		t.Fatalf("text = %q, want each Assignment Link listed under its own Ticket", text)
+	}
+}
+
+// The Spanish two-ticket mail, same discipline: usted register, no English left.
+func TestHolderAnswerReminderListsEachTicketInSpanish(t *testing.T) {
+	reminder := holderAnswerReminderForTwo()
+	reminder.Locale = LocaleES
+
+	if got := reminder.Subject(); got != "Sus entradas para Noche de Jazz aún necesitan respuestas" {
+		t.Fatalf("subject = %q, want the plural Spanish subject", got)
+	}
+	text := reminder.Text()
+	for _, want := range []string{
+		"Las entradas que aceptó aún necesitan respuesta",
+		"Entrada: General",
+		"Entrada: VIP",
+		"https://storefront.test/accept?token=x",
+		"https://storefront.test/accept?token=y",
+		"Responder es opcional y sus entradas son válidas igualmente.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text = %q, want it to contain %q", text, want)
+		}
+	}
+	if strings.Contains(text, "still need answers") || strings.Contains(text, "Ticket:") {
+		t.Fatalf("text = %q, want no English left in it", text)
+	}
+}
+
+// The disclosure rule does not loosen because the mail became a list: a Holder
+// of two Tickets is still told the Events, the Ticket Types and their own links
+// and NOTHING about the purchase (ADR 0044, ADR 0046).
+func TestHolderAnswerReminderForTwoNamesNothingAboutThePurchase(t *testing.T) {
+	reminder := holderAnswerReminderForTwo()
+	rendered := reminder.Subject() + "\n" + reminder.Text()
+	for _, forbidden := range []string{
+		"bought", "purchase", "reference", "Reference",
+		"compró", "compra", "referencia", "Referencia",
+		"$", "Tax ID", "RUC",
+	} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("the two-ticket Holder's reminder contains %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
+// A single-Ticket mail reads exactly as it did before #335: the envelope only
+// grew for the Holder who accepted several, and the ordinary case is untouched.
+func TestHolderAnswerReminderForOneTicketReadsAsBefore(t *testing.T) {
+	reminder := holderAnswerReminder()
+	if got := reminder.Subject(); got != "Your ticket for Noche de Jazz still needs an answer" {
+		t.Fatalf("subject = %q, want the singular subject unchanged", got)
+	}
+	text := reminder.Text()
+	if !strings.Contains(text, "The ticket you accepted still needs an answer") ||
+		!strings.Contains(text, "This link opens your ticket only") {
+		t.Fatalf("text = %q, want the single-ticket wording unchanged", text)
 	}
 }

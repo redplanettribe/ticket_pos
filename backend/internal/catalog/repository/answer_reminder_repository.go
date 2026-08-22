@@ -318,10 +318,12 @@ func answerReminderTime(v sql.NullTime) *time.Time {
 //
 // IT COUNTS MESSAGES AND NOT TICKETS, which is what an operator comparing it
 // against `sent` needs, and it is the one place the grouping rule is stated in
-// SQL. A distinct count over "the Holder's Ticket, or this Ticket's Sale" is
+// SQL. A distinct count over "the Holder's address, or this Ticket's Sale" is
 // exactly the fan-in the service performs: every buyer-addressed Ticket of one
-// Sale collapses to one, and every accepted Ticket stands alone. The two keys
-// are prefixed so a Ticket id can never collide with a Sale id in the same set.
+// Sale collapses to one, and every accepted Ticket collapses into its HOLDER'S
+// one mail — per Holder, not per Ticket, since #335's ruling. The two keys are
+// prefixed so a Holder's address can never collide with a Sale id in the same
+// set.
 //
 // It is a SECOND QUERY rather than a window function on the listing, because
 // that one is bounded by a LIMIT and a count taken through it could only ever
@@ -335,7 +337,7 @@ func (r *Repository) CountAnswerRemindersDue(
 	var total int
 	err := r.db.Pool.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT CASE
-			WHEN $4 AND tk.accepted_at IS NOT NULL THEN 'holder:' || tk.id::text
+			WHEN $4 AND tk.accepted_at IS NOT NULL THEN 'holder:' || tk.holder_email
 			ELSE 'buyer:' || s.id::text
 		END)
 	`+answerReminderFrom+`
