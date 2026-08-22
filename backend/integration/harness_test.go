@@ -181,6 +181,11 @@ func setupTest(t *testing.T) *testEnv {
 	// through enableTicketQuestions and this line closes it again afterwards, so
 	// one of them leaving the flag on cannot quietly change what the rest of the
 	// suite is running against.
+	//
+	// BOTH SERVICES, because one deployment flag reaches both: the catalog
+	// service authors the questions and the sales service asks them at checkout
+	// (#311). Resetting one and not the other would leave the suite in a state no
+	// deployment can be in.
 	sharedApp.CatalogService.WithTicketQuestions(false)
 	sharedApp.SalesService.WithTicketQuestions(false)
 	// The Follow Digest pipeline has its own clock because it reasons in WEEKS:

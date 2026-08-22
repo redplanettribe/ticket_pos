@@ -51,10 +51,11 @@ func optionPath(eventID, ticketTypeID, questionID, optionID string) string {
 func enableTicketQuestions(t *testing.T) {
 	t.Helper()
 	sharedApp.CatalogService.WithTicketQuestions(true)
-	// The same flag, read by the module that puts Answers into the Sales Export
-	// (#314). One deployment switch, so a test cannot end up in a state no
-	// deployment can be in: questions that can be authored but never exported,
-	// or exported but never authored.
+	// The same one deployment flag also opens the Sales Export's per-Ticket sheet
+	// (#314) and the checkout's answer section (#311). Opened together here for
+	// the reason they are closed together in the harness: there is no deployment
+	// in which an Organization can author a question the checkout will not ask,
+	// or export answers to one it never asked.
 	sharedApp.SalesService.WithTicketQuestions(true)
 }
 
