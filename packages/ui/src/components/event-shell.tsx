@@ -39,6 +39,13 @@ type EventShellProps = {
   backHref?: string;
   /** Whether this Member sees the owner-only entries. */
   fullAccess: boolean;
+  /**
+   * Whether this Member sees the Event's Outstanding Answers entry: the Ticket
+   * Question feature is on AND they are an Org Admin. Separate from
+   * `fullAccess` because it is a narrower gate over a feature that ships dark —
+   * see `eventNavItems`.
+   */
+  outstandingAnswers?: boolean;
   eventId: string;
   activePath?: string;
   userMenu?: ReactNode;
@@ -57,6 +64,7 @@ export function EventShell({
   statusVariant,
   backHref = "/events",
   fullAccess,
+  outstandingAnswers = false,
   eventId,
   activePath,
   userMenu,
@@ -64,7 +72,11 @@ export function EventShell({
 }: EventShellProps) {
   // The panel's shape is eventNavItems' decision and its words are the
   // catalog's; this is the one line where the two meet.
-  const navItems: SidebarNavItem[] = eventNavItems({ eventId, fullAccess }).map((entry) => ({
+  const navItems: SidebarNavItem[] = eventNavItems({
+    eventId,
+    fullAccess,
+    outstandingAnswers,
+  }).map((entry) => ({
     ...entry,
     label: labels.nav[entry.key],
   }));

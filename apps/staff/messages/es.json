@@ -114,6 +114,7 @@
     "navTicketTypes": "Tipos de Entrada",
     "navAffiliateLinks": "Enlaces de Afiliado",
     "navSales": "Ventas",
+    "navOutstandingAnswers": "Respuestas Pendientes",
     "navTrends": "Tendencias",
     "publish": "Publicar evento",
     "publishing": "Publicando...",
@@ -356,6 +357,20 @@
     "problemOneOptionOnly": "Esta pregunta admite una sola opción.",
     "problemDuplicateOption": "Esa opción ya está elegida.",
     "problemTooManyOptions": "Son más opciones de las que ofrece esta pregunta."
+  },
+  "outstandingAnswers": {
+    "title": "Respuestas Pendientes",
+    "description": "Preguntas obligatorias que estas entradas todavía no han respondido. Nunca se rechazó nada por falta de una, así que esto es sencillamente lo que queda por conseguir.",
+    "summary": "{answers, plural, one {# respuesta pendiente} other {# respuestas pendientes}} en {tickets, plural, one {# entrada} other {# entradas}}",
+    "nothingOutstanding": "No queda nada pendiente. Todas las preguntas obligatorias están respondidas en todas las entradas vigentes.",
+    "loadFailed": "No se pudieron cargar las respuestas pendientes de este evento.",
+    "colBuyer": "Comprador",
+    "colTicket": "Entrada",
+    "colSold": "Vendida",
+    "colOwes": "Debe",
+    "colActions": "Acciones",
+    "ticketHeading": "{name} · entrada {ordinal}",
+    "pageSummary": "Página {page} de {pages}"
   },
   "tags": {
     "title": "Etiquetas",

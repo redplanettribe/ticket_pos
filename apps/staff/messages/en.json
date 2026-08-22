@@ -114,6 +114,7 @@
     "navTicketTypes": "Ticket Types",
     "navAffiliateLinks": "Affiliate Links",
     "navSales": "Sales",
+    "navOutstandingAnswers": "Outstanding Answers",
     "navTrends": "Trends",
     "publish": "Publish event",
     "publishing": "Publishing...",
@@ -356,6 +357,20 @@
     "problemOneOptionOnly": "This question takes one option.",
     "problemDuplicateOption": "That option is already chosen.",
     "problemTooManyOptions": "That is more options than this question offers."
+  },
+  "outstandingAnswers": {
+    "title": "Outstanding Answers",
+    "description": "Required questions these tickets have not answered yet. Nothing was ever refused for want of one, so this is simply what is still to be chased.",
+    "summary": "{answers, plural, one {# outstanding answer} other {# outstanding answers}} across {tickets, plural, one {# ticket} other {# tickets}}",
+    "nothingOutstanding": "Nothing outstanding. Every required question has been answered on every ticket that still stands.",
+    "loadFailed": "Could not load this event's outstanding answers.",
+    "colBuyer": "Buyer",
+    "colTicket": "Ticket",
+    "colSold": "Sold",
+    "colOwes": "Owes",
+    "colActions": "Actions",
+    "ticketHeading": "{name} · ticket {ordinal}",
+    "pageSummary": "Page {page} of {pages}"
   },
   "tags": {
     "title": "Tags",

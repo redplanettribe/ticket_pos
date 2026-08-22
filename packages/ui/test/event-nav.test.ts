@@ -7,8 +7,8 @@ import { eventNavItems } from "../src/lib/event-nav.ts";
 // Keys rather than labels throughout, the same way staff-nav.test.ts reads: the
 // panel's words come from the staff catalog now (ADR 0041), and a copy edit is
 // not a change to this module's behaviour.
-const litAt = (activePath: string, fullAccess = true) =>
-  eventNavItems({ eventId: "evt_1", fullAccess })
+const litAt = (activePath: string, fullAccess = true, outstandingAnswers = false) =>
+  eventNavItems({ eventId: "evt_1", fullAccess, outstandingAnswers })
     .filter((item) => isNavItemActive(activePath, item.href, { exact: item.exact }))
     .map((item) => item.key);
 
@@ -61,6 +61,53 @@ test("entries read in a fixed order", () => {
     eventNavItems({ eventId: "evt_1", fullAccess: true }).map((item) => item.key),
     ["details", "ticketTypes", "affiliateLinks", "sales", "trends"],
   );
+});
+
+// THE DARK DEFAULT. Ticket Questions ship behind a flag that is off (ADR 0045),
+// and a nav entry is exactly the kind of thing that would admit the feature is
+// there before the Privacy Policy describes it. So the entry is absent unless a
+// caller says otherwise — including for a caller that has not thought about it,
+// which is what the default argument is for. Every test above is a witness to
+// this, since none of them passes the flag.
+test("Outstanding Answers is absent until it is asked for", () => {
+  assert.ok(
+    !eventNavItems({ eventId: "evt_1", fullAccess: true })
+      .map((item) => item.key)
+      .includes("outstandingAnswers"),
+  );
+  assert.ok(
+    !eventNavItems({ eventId: "evt_1", fullAccess: true, outstandingAnswers: false })
+      .map((item) => item.key)
+      .includes("outstandingAnswers"),
+  );
+});
+
+// It takes a flag of its OWN rather than riding fullAccess, because its route is
+// gated to Org Admins alone — narrower than fullAccess, which also admits an
+// Event Owner — and because the feature can be dark for everybody. The caller
+// establishes both facts; this module only places the entry.
+test("Outstanding Answers is offered when asked for, beside Sales", () => {
+  assert.deepEqual(
+    eventNavItems({ eventId: "evt_1", fullAccess: true, outstandingAnswers: true }).map(
+      (item) => item.key,
+    ),
+    ["details", "ticketTypes", "affiliateLinks", "sales", "outstandingAnswers", "trends"],
+  );
+});
+
+test("Outstanding Answers points at the Event's own tab", () => {
+  const entry = eventNavItems({
+    eventId: "evt_1",
+    fullAccess: true,
+    outstandingAnswers: true,
+  }).find((item) => item.key === "outstandingAnswers");
+  assert.equal(entry?.href, "/events/evt_1/outstanding-answers");
+});
+
+test("the Outstanding Answers tab lights on its own page alone", () => {
+  assert.deepEqual(litAt("/events/evt_1/outstanding-answers", true, true), [
+    "outstandingAnswers",
+  ]);
 });
 
 test("Tags are managed from Details, so they have no entry of their own", () => {
