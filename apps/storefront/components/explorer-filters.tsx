@@ -176,17 +176,18 @@ export function ExplorerFilters({
             // not need to be fenced off from the heart that follows it.
             // A selected Tag lights the pill's outline rather than filling the
             // word's half — a fill stopped short of the heart and read as a
-            // block dropped inside the pill, not as the pill being on.
+            // block dropped inside the pill, not as the pill being on. Hover is
+            // the same story: the chip carries no fill of its own, and marks
+            // itself only so the pill around it can take the hover fill whole.
             const chip = (
               <button
                 type="button"
+                data-tag-chip
                 onClick={() => toggleTag(tag)}
                 aria-pressed={active}
                 className={cn(
                   "rounded-l-full py-1 pr-2 pl-3 text-sm transition-colors",
-                  active
-                    ? "font-medium text-primary"
-                    : "text-foreground hover:bg-muted",
+                  active ? "font-medium text-primary" : "text-foreground",
                 )}
               >
                 {label}
@@ -203,7 +204,7 @@ export function ExplorerFilters({
                   "inline-flex items-center rounded-full border bg-background transition-colors",
                   active
                     ? "border-primary ring-1 ring-primary"
-                    : "border-input",
+                    : "border-input has-[[data-tag-chip]:hover]:bg-muted",
                 )}
               >
                 {chip}
