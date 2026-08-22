@@ -222,8 +222,8 @@
     "submitting": "Starting payment…",
     "answers": {
       "title": "About each ticket",
-      "hint": "Optional \u2014 skip anything you don't know.",
-      "ticketHeading": "{ticketType} \u00b7 ticket {index} of {total}",
+      "hint": "Optional — skip anything you don't know.",
+      "ticketHeading": "{ticketType} · ticket {index} of {total}",
       "optional": "Optional",
       "noAnswer": "No answer"
     },
@@ -351,7 +351,24 @@
     "refundPendingNote": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through — check back in a few minutes.",
     "refundPendingNoteLink": "We're confirming your refund with the payment provider. Your tickets stay valid until it goes through.",
     "undoFailed": "This purchase could not be undone. Try again.",
-    "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again."
+    "undoNetworkFailed": "This purchase could not be undone. Check your connection and try again.",
+    "answers": {
+      "title": "Questions about these tickets",
+      "outstanding": "{count, plural, one {# question still needs an answer.} other {# questions still need answers.}}",
+      "allDone": "Everything the organiser asked has been answered.",
+      "ticketHeading": "Ticket {position} of {total}",
+      "copyHint": "Answer what you know. For the rest, copy this ticket's link and send it to whoever will be using it — it opens these questions and shows them nothing about your purchase.",
+      "copyLink": "Copy this ticket's link",
+      "copied": "Copied",
+      "linkClosed": "There's no link to share for this one any more. Answers close when the doors open, and a reversed purchase closes them too.",
+      "requiredMark": "(the organiser is waiting on this one)",
+      "save": "Save",
+      "saved": "Saved",
+      "saveFailed": "That didn't save. Try again.",
+      "networkFailed": "That didn't save. Check your connection and try again.",
+      "nothingToSave": "There's nothing to save yet — fill this in first.",
+      "retiredQuestion": "The organiser has stopped asking this. The answer is kept as it was."
+    }
   },
   "myInfo": {
     "heading": "My info",

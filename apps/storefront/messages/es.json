@@ -223,7 +223,7 @@
     "answers": {
       "title": "Sobre cada entrada",
       "hint": "Opcional: omita lo que no sepa.",
-      "ticketHeading": "{ticketType} \u00b7 entrada {index} de {total}",
+      "ticketHeading": "{ticketType} · entrada {index} de {total}",
       "optional": "Opcional",
       "noAnswer": "Sin respuesta"
     },
@@ -351,7 +351,24 @@
     "refundPendingNote": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete; vuelva a revisar en unos minutos.",
     "refundPendingNoteLink": "Estamos confirmando su reembolso con el proveedor de pagos. Sus entradas siguen siendo válidas hasta que se complete.",
     "undoFailed": "No se pudo deshacer esta compra. Inténtelo de nuevo.",
-    "undoNetworkFailed": "No se pudo deshacer esta compra. Revise su conexión e inténtelo de nuevo."
+    "undoNetworkFailed": "No se pudo deshacer esta compra. Revise su conexión e inténtelo de nuevo.",
+    "answers": {
+      "title": "Preguntas sobre estas entradas",
+      "outstanding": "{count, plural, one {Falta responder # pregunta.} other {Faltan responder # preguntas.}}",
+      "allDone": "Ya está respondido todo lo que pidió el organizador.",
+      "ticketHeading": "Entrada {position} de {total}",
+      "copyHint": "Responda lo que sepa. Para el resto, copie el enlace de esta entrada y envíeselo a quien vaya a usarla: abre estas preguntas y no le muestra nada sobre su compra.",
+      "copyLink": "Copiar el enlace de esta entrada",
+      "copied": "Copiado",
+      "linkClosed": "Ya no hay ningún enlace que compartir para esta entrada. Las respuestas se cierran cuando empieza el evento, y una compra anulada también las cierra.",
+      "requiredMark": "(el organizador está esperando esta)",
+      "save": "Guardar",
+      "saved": "Guardado",
+      "saveFailed": "No se guardó. Inténtelo de nuevo.",
+      "networkFailed": "No se guardó. Revise su conexión e inténtelo de nuevo.",
+      "nothingToSave": "Todavía no hay nada que guardar: complete este campo primero.",
+      "retiredQuestion": "El organizador ya no pregunta esto. La respuesta se conserva tal como estaba."
+    }
   },
   "myInfo": {
     "heading": "Mis datos",
