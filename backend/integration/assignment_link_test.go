@@ -53,13 +53,35 @@ type assignmentLinkView struct {
 	HolderLastName  string `json:"holder_last_name"`
 	Questions       []struct {
 		Question ticketQuestion `json:"question"`
-		Answer   *struct {
-			Text    *string `json:"text"`
-			Number  *string `json:"number"`
-			Date    *string `json:"date"`
-			Checked *bool   `json:"checked"`
-		} `json:"answer"`
+		Answer   *holderAnswer  `json:"answer"`
 	} `json:"questions"`
+}
+
+// holderAnswer is one Answer as the Holder's own page renders it.
+//
+// IT CARRIES THE SAME SHAPE EVENT STAFF SEE and deliberately not a narrower one:
+// the Options a choice Answer recorded, the words each Option SHOWED AT THE TIME
+// beside the words it shows now, and when the Answer last changed. Four surfaces
+// answer one question through one write (service.answerTicketQuestion), and a
+// decoder here that could not see those fields would let the Holder's route
+// quietly stop recording them.
+//
+// THERE IS NO AUTHOR FIELD AND THERE MUST NEVER BE ONE. The platform records
+// what the current Answer is and when it changed — never who changed it (ADR
+// 0046 rejected the history table for the same reason migration 073 has no
+// author column).
+type holderAnswer struct {
+	Text    *string `json:"text"`
+	Number  *string `json:"number"`
+	Date    *string `json:"date"`
+	Checked *bool   `json:"checked"`
+	Options []struct {
+		OptionID     string `json:"option_id"`
+		Label        string `json:"label"`
+		CurrentLabel string `json:"current_label"`
+		Retired      bool   `json:"retired"`
+	} `json:"options"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // assignmentMailFor finds the one Assignment mail sent to an address, failing if
@@ -115,6 +137,44 @@ func acceptAssignmentOK(t *testing.T, env *testEnv, token string) assignmentLink
 		t.Fatalf("accept status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 	return decodeAssignmentLinkView(t, body.Data)
+}
+
+// answerByAssignmentLink is the Holder writing one of their own Answers: a PUT
+// naming the question in the path and carrying the token in the body, with no
+// session, no cookie and no Ticket id anywhere.
+func answerByAssignmentLink(
+	t *testing.T, env *testEnv, token, questionID string, body map[string]any,
+) (*http.Response, envelope, []byte) {
+	t.Helper()
+	withToken := map[string]any{"token": token}
+	for key, value := range body {
+		withToken[key] = value
+	}
+	return answerLinkRequest(t, env, http.MethodPut, assignmentLinkQuestionPath+questionID, withToken)
+}
+
+// answerByAssignmentLinkOK writes the Answer and insists it worked.
+func answerByAssignmentLinkOK(
+	t *testing.T, env *testEnv, token, questionID string, body map[string]any,
+) assignmentLinkView {
+	t.Helper()
+	resp, envelope, _ := answerByAssignmentLink(t, env, token, questionID, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("holder answer status=%d error=%+v", resp.StatusCode, envelope.Error)
+	}
+	return decodeAssignmentLinkView(t, envelope.Data)
+}
+
+// holderAnswerFor picks one question's Answer off the Holder's page.
+func holderAnswerFor(t *testing.T, view assignmentLinkView, questionID string) *holderAnswer {
+	t.Helper()
+	for _, pair := range view.Questions {
+		if pair.Question.ID == questionID {
+			return pair.Answer
+		}
+	}
+	t.Fatalf("question %s is not on the Holder's page", questionID)
+	return nil
 }
 
 func decodeAssignmentLinkView(t *testing.T, data json.RawMessage) assignmentLinkView {
@@ -522,11 +582,19 @@ func TestAcceptingClosesTheAnswerLinkAndTheHolderAnswersForThemselves(t *testing
 	f := newAssignmentFixture(t, env)
 	ticketID := f.anaTicketIDs[0]
 
+	// DOOR ONE, ON AN `unassigned` TICKET. Most Tickets will be here for a long
+	// time, and ADR 0046 keeps the Answer Link precisely so they are answerable:
+	// "It remains the route for every `unassigned` Ticket."
+	forwarded := answerLinkToken(t, ticketID)
+	if resp, body, _ := openAnswerLink(t, env, forwarded); resp.StatusCode != http.StatusOK {
+		t.Fatalf("the Answer Link does not open on an unassigned Ticket: status=%d error=%+v",
+			resp.StatusCode, body.Error)
+	}
+
 	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
 
 	// WHILE MERELY `assigned`, THE OLD DOOR IS STILL OPEN. Nothing is bricked by
 	// a mail nobody clicked.
-	forwarded := answerLinkToken(t, ticketID)
 	if resp, body, _ := openAnswerLink(t, env, forwarded); resp.StatusCode != http.StatusOK {
 		t.Fatalf("the Answer Link stopped opening on a merely assigned Ticket: status=%d error=%+v",
 			resp.StatusCode, body.Error)
@@ -878,5 +946,395 @@ func TestTheAssignmentLinkRefusesATamperedToken(t *testing.T) {
 	resp, body, _ := acceptAssignment(t, env, "  ")
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("a blank token answered %d, want 400 VALIDATION_ERROR: %+v", resp.StatusCode, body.Error)
+	}
+}
+
+// The Holder answers their own Ticket Questions, OF EVERY QUESTION TYPE (#326).
+//
+// A ROUTE EXISTING IS NOT THE SAME AS SEVEN KINDS WORKING. The Holder's write
+// shares one body with the three other answering surfaces — Event Staff, the
+// buyer, the Answer Link — so the kinds ought to travel; what this test is for is
+// that "ought to" is asserted at the Holder's own seam rather than assumed from
+// a neighbour's. Every kind goes in through the Assignment Link and is read back
+// off the page the Assignment Link returns.
+//
+// THE QUESTIONS ARE AUTHORED AFTER THE SALE, which is the ordinary case ADR 0044
+// names: "A late-added Ticket Question reaches a holder only if the buyer
+// forwards it" — or, now, only if the Holder accepted.
+func TestTheHolderAnswersEverySevenKindsThroughTheAssignmentLink(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
+	acceptAssignmentOK(t, env, token)
+
+	for _, tc := range []struct {
+		kind    string
+		options []string
+		// answer is the body the Holder posts; optionsAt fills option_ids from
+		// the created question's own Options for the two choice kinds.
+		answer    map[string]any
+		optionsAt []int
+		// verify reads the Answer back off the Holder's page.
+		verify func(t *testing.T, answer *holderAnswer)
+	}{
+		{
+			kind:   "short_text",
+			answer: map[string]any{"text": "  S  "},
+			verify: func(t *testing.T, a *holderAnswer) {
+				// Trimmed and otherwise kept as written: these are the Holder's
+				// own words about their own body.
+				if a.Text == nil || *a.Text != "S" {
+					t.Fatalf("text=%v, want S", a.Text)
+				}
+			},
+		},
+		{
+			kind:   "long_text",
+			answer: map[string]any{"text": "Coeliac, and no shellfish"},
+			verify: func(t *testing.T, a *holderAnswer) {
+				if a.Text == nil || *a.Text != "Coeliac, and no shellfish" {
+					t.Fatalf("text=%v, want the whole sentence", a.Text)
+				}
+			},
+		},
+		{
+			kind:   "number",
+			answer: map[string]any{"number": "4.50"},
+			verify: func(t *testing.T, a *holderAnswer) {
+				// The trailing zero survives: a NUMERIC column and no float in
+				// the path, so nothing the Holder typed rounds.
+				if a.Number == nil || *a.Number != "4.50" {
+					t.Fatalf("number=%v, want 4.50", a.Number)
+				}
+			},
+		},
+		{
+			kind:   "date",
+			answer: map[string]any{"date": "2026-09-01"},
+			verify: func(t *testing.T, a *holderAnswer) {
+				if a.Date == nil || *a.Date != "2026-09-01" {
+					t.Fatalf("date=%v, want 2026-09-01", a.Date)
+				}
+			},
+		},
+		{
+			kind:   "checkbox",
+			answer: map[string]any{"checked": false},
+			verify: func(t *testing.T, a *holderAnswer) {
+				// FALSE IS AN ANSWER. A Holder who read the question and said no
+				// has said something, and it is not the same as never having
+				// been asked — so it must arrive as a present false.
+				if a.Checked == nil || *a.Checked {
+					t.Fatalf("checked=%v, want a present false", a.Checked)
+				}
+			},
+		},
+		{
+			kind: "single_choice", options: []string{"S", "M", "L"},
+			optionsAt: []int{2},
+			verify: func(t *testing.T, a *holderAnswer) {
+				if len(a.Options) != 1 || a.Options[0].Label != "L" {
+					t.Fatalf("options=%+v, want the one L", a.Options)
+				}
+			},
+		},
+		{
+			kind: "multi_choice", options: []string{"Vegetarian", "Vegan", "Nuts"},
+			optionsAt: []int{1, 2},
+			verify: func(t *testing.T, a *holderAnswer) {
+				// SEVERAL OPTIONS IN ONE ANSWER — the property this kind exists
+				// for, and the one a single_choice code path would silently drop.
+				if len(a.Options) != 2 {
+					t.Fatalf("options=%d, want 2", len(a.Options))
+				}
+			},
+		},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			body := map[string]any{"label": "Holder question " + tc.kind, "kind": tc.kind}
+			if tc.options != nil {
+				body["option_labels"] = tc.options
+			}
+			question := createTicketQuestion(t, env, f.staffSession, f.eventID, f.ticketTypeID, body)
+
+			answerBody := tc.answer
+			if tc.optionsAt != nil {
+				answerBody = map[string]any{"option_ids": optionIDsAt(question, tc.optionsAt)}
+			}
+
+			view := answerByAssignmentLinkOK(t, env, token, question.ID, answerBody)
+			answer := holderAnswerFor(t, view, question.ID)
+			if answer == nil {
+				t.Fatal("the Holder's Answer did not come back on their own page")
+			}
+			tc.verify(t, answer)
+		})
+	}
+}
+
+// A CHOICE ANSWER RECORDS THE OPTION CHOSEN TOGETHER WITH THE WORDS IT SHOWED AT
+// THE TIME, on the Holder's route as on every other (#326).
+//
+// This is asserted at the staff seam already
+// (TestRenamingAnOptionLeavesTheAnswersSnapshotIntact); what is asserted here is
+// that the Holder's own write produces the same pair of facts, because the
+// snapshot is what makes an Answer mean something a year later. The identity
+// keeps the Answer attached across a rename; the snapshot is what the Holder
+// actually read when they chose.
+func TestAHolderChoiceAnswerRecordsTheOptionAndTheWordsItShowed(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	question := createTicketQuestion(t, env, f.staffSession, f.eventID, f.ticketTypeID, map[string]any{
+		"label": "Main course", "kind": "single_choice",
+		"option_labels": []string{"Chicken", "Fish"},
+	})
+	chickenID := question.Options[0].ID
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
+	acceptAssignmentOK(t, env, token)
+
+	view := answerByAssignmentLinkOK(t, env, token, question.ID,
+		map[string]any{"option_ids": []string{chickenID}})
+	chosen := holderAnswerFor(t, view, question.ID)
+	if len(chosen.Options) != 1 {
+		t.Fatalf("options=%+v, want the one the Holder chose", chosen.Options)
+	}
+	if chosen.Options[0].OptionID != chickenID {
+		t.Fatalf("option_id=%q, want %q — the Answer must name the Option itself",
+			chosen.Options[0].OptionID, chickenID)
+	}
+	if chosen.Options[0].Label != "Chicken" {
+		t.Fatalf("snapshot=%q, want the words the Holder read", chosen.Options[0].Label)
+	}
+
+	// The Organization corrects the wording months later. The Holder chose from
+	// a menu that said "Chicken", and no later edit may rewrite what they read.
+	resp, body := env.patch(t, optionPath(f.eventID, f.ticketTypeID, question.ID, chickenID),
+		map[string]any{"label": "Chicken (halal)"}, authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rename status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	after := holderAnswerFor(t, acceptAssignmentOK(t, env, token), question.ID)
+	if len(after.Options) != 1 || after.Options[0].OptionID != chickenID {
+		t.Fatalf("options=%+v — the rename forked the Answer off its Option", after.Options)
+	}
+	if after.Options[0].Label != "Chicken" {
+		t.Fatalf("snapshot=%q — a rename rewrote what the Holder read", after.Options[0].Label)
+	}
+	if after.Options[0].CurrentLabel != "Chicken (halal)" {
+		t.Fatalf("current label=%q, want the correction", after.Options[0].CurrentLabel)
+	}
+}
+
+// THE HOLDER'S ANSWER OVERWRITES WHAT THE BUYER GUESSED, resolves that Ticket's
+// Outstanding Answer, and moves `updated_at` and nothing else (#326).
+//
+// This is the whole point of the accept step. Ana bought a ticket for Carla and
+// guessed a size; Carla is the person wearing the shirt. There is nothing
+// special in the code about whose write it is — an Answer belongs to the TICKET
+// (ADR 0044), so one row per (Ticket, question) is what "overwrites" means — and
+// nothing anywhere records that it was the Holder rather than the buyer.
+func TestTheHolderOverwritesWhatTheBuyerGuessedAndResolvesTheOutstandingAnswer(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	// The buyer guesses at the size — the required question, so before she does
+	// the Ticket owes an Outstanding Answer.
+	if owed := labelsOwedBy(listOutstanding(t, env, f.staffSession, f.eventID), ticketID); len(owed) != 1 {
+		t.Fatalf("owed=%v, want the one required question outstanding before anybody answers", owed)
+	}
+	guessResp, guessBody := env.put(t, buyerAnswerPath(f.anaSaleID, ticketID, f.sizeQuestion.ID),
+		map[string]any{"text": "XXL"}, authHeader(f.ana))
+	if guessResp.StatusCode != http.StatusOK {
+		t.Fatalf("the buyer's guess status=%d error=%+v", guessResp.StatusCode, guessBody.Error)
+	}
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
+
+	// THE GUESS IS ON THE HOLDER'S OWN PAGE. Somebody cannot correct a guess
+	// they cannot see, and this is data about the Holder rather than about the
+	// purchase.
+	accepted := acceptAssignmentOK(t, env, token)
+	guessed := holderAnswerFor(t, accepted, f.sizeQuestion.ID)
+	if guessed == nil || guessed.Text == nil || *guessed.Text != "XXL" {
+		t.Fatalf("the buyer's guess is not shown to the Holder: %+v", guessed)
+	}
+
+	// The clock moves so that a real change can be told from a re-submission.
+	later := env.fixedClock.Add(time.Hour)
+	sharedApp.CatalogService.WithClock(func() time.Time { return later })
+
+	corrected := holderAnswerFor(t,
+		answerByAssignmentLinkOK(t, env, token, f.sizeQuestion.ID, map[string]any{"text": "S"}),
+		f.sizeQuestion.ID)
+	if corrected.Text == nil || *corrected.Text != "S" {
+		t.Fatalf("text=%v, want the Holder's own S over the buyer's XXL", corrected.Text)
+	}
+	// `updated_at` IS KEPT — it is the only history this platform holds.
+	if !corrected.UpdatedAt.After(guessed.UpdatedAt) {
+		t.Fatalf("updated_at did not move when the Holder corrected the guess: %v then %v",
+			guessed.UpdatedAt, corrected.UpdatedAt)
+	}
+
+	// AND WHO CHANGED IT IS NOT. One row per (Ticket, question), no earlier
+	// version of it, and no column naming an author — ADR 0046 rejected the
+	// history table for the same reason migration 073 has no author column.
+	var rows int
+	if err := env.db.QueryRow(`
+		SELECT COUNT(*) FROM ticket_answers WHERE ticket_id = $1 AND ticket_question_id = $2
+	`, ticketID, f.sizeQuestion.ID).Scan(&rows); err != nil {
+		t.Fatalf("count Answers: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("rows=%d, want exactly one Answer per (Ticket, Ticket Question)", rows)
+	}
+	assertNoAnswerAuthorColumn(t, env)
+
+	// ANSWERING RESOLVES THAT TICKET'S OUTSTANDING ANSWERS. The debt is computed
+	// from whether a row exists, so the Holder's route pays it down exactly as
+	// the other three do — the Organization stops chasing this Ticket.
+	if owed := labelsOwedBy(listOutstanding(t, env, f.staffSession, f.eventID), ticketID); owed != nil {
+		t.Fatalf("owed=%v, want nothing outstanding once the Holder has answered", owed)
+	}
+}
+
+// assertNoAnswerAuthorColumn reads the Answer table's own shape, because the
+// property is the ABSENCE of a fact and no API response can show an absence that
+// convincingly.
+//
+// The platform records the current Answer and when it changed. An author column
+// would be a permanent record of which of four friends said what about
+// somebody's body, and ADR 0046 rejected exactly that store.
+func assertNoAnswerAuthorColumn(t *testing.T, env *testEnv) {
+	t.Helper()
+	rows, err := env.db.Query(`
+		SELECT column_name FROM information_schema.columns
+		WHERE table_name = 'ticket_answers'
+	`)
+	if err != nil {
+		t.Fatalf("read the Answer table's columns: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatalf("scan column: %v", err)
+		}
+		for _, forbidden := range []string{
+			"answered_by", "author", "author_id", "written_by", "source", "holder_customer_id",
+		} {
+			if column == forbidden {
+				t.Errorf("ticket_answers.%s records WHO changed an Answer; the platform keeps when, not who", column)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate columns: %v", err)
+	}
+}
+
+// EVENT STAFF KEEP CORRECTING ANY ANSWER ON ANY TICKET OF THEIR EVENT, including
+// one whose Holder has accepted (#326).
+//
+// ADR 0044's three-party rule survives ADR 0046 intact. What accepting closes is
+// the UNAUTHENTICATED door — the forwarded Answer Link that a group chat could
+// use to change somebody's size as a joke — and not the two accountable ones. A
+// Holder who typed the wrong thing rings the Organization, and somebody there
+// must be able to fix it.
+func TestEventStaffCorrectAnAnswerOnAnAcceptedTicket(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	ticketID := f.anaTicketIDs[0]
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, ticketID, "carla@example.com")
+	token := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
+	acceptAssignmentOK(t, env, token)
+	answerByAssignmentLinkOK(t, env, token, f.sizeQuestion.ID, map[string]any{"text": "S"})
+
+	// The forwarded door is shut, and this is the same Ticket through it.
+	resp, body, _ := answerLinkRequest(t, env, http.MethodPut,
+		answerLinkQuestionPath+f.sizeQuestion.ID,
+		map[string]any{"token": answerLinkToken(t, ticketID), "text": "XXL"})
+	assertAPIError(t, resp, body, http.StatusUnauthorized, "ANSWER_LINK_INVALID")
+
+	// Event Staff go through anyway, on their own authenticated route.
+	corrected := putAnswer(t, env, f.staffSession, f.eventID, ticketID, f.sizeQuestion.ID,
+		map[string]any{"text": "M"})
+	if answer := answerFor(t, corrected, f.sizeQuestion.ID); answer.Text == nil || *answer.Text != "M" {
+		t.Fatalf("text=%v — Event Staff lost their route once a Holder accepted", answer.Text)
+	}
+
+	// And the Holder sees the correction on their own page: one Answer per
+	// (Ticket, question), whoever last wrote it.
+	if shown := holderAnswerFor(t, acceptAssignmentOK(t, env, token), f.sizeQuestion.ID); shown.Text == nil || *shown.Text != "M" {
+		t.Fatalf("the Holder's page shows %v, want the staff correction", shown.Text)
+	}
+}
+
+// THE HOLDER EDITS UNTIL THE EVENT STARTS, AND NEVER ON A REVERSED SALE (#326).
+//
+// The accept route's window is asserted next door; this is the WRITE going
+// through the same gate, which is the point of there being one gate and not
+// three. If the read refused and the write did not, the write would confirm to a
+// stale reader that a Ticket the read had told them nothing about still exists.
+//
+// The deadline is the Event's start as it stands NOW — an Organization that
+// moves its Event moves every Holder's deadline with it — read as an instant, so
+// the Event's own timezone is what fixes when the doors open.
+func TestTheHoldersEditWindowClosesAtTheDoorsAndOnAReversedSale(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+
+	assignTicketOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[0], "carla@example.com")
+	carla := assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com"))
+	acceptAssignmentOK(t, env, carla)
+	assignTicketOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[1], "diego@example.com")
+	diego := assignmentTokenFrom(t, assignmentMailFor(t, env, "diego@example.com"))
+	acceptAssignmentOK(t, env, diego)
+
+	// While the Event is ahead of them, both may write.
+	answerByAssignmentLinkOK(t, env, carla, f.sizeQuestion.ID, map[string]any{"text": "S"})
+
+	// The doors open. The window closes for the Holder too — and this is also
+	// when #322's purge takes an unaccepted address.
+	setEventStart(t, env, f.eventID, env.fixedClock.Add(-time.Hour))
+	resp, body, _ := answerByAssignmentLink(t, env, carla, f.sizeQuestion.ID, map[string]any{"text": "M"})
+	assertAPIError(t, resp, body, http.StatusUnauthorized, "ASSIGNMENT_LINK_EXPIRED")
+
+	// Put the Event back in the future and reverse the Sale instead. A reversed
+	// Sale is indistinguishable from a forgery here: "your friend cancelled the
+	// purchase" is a fact about somebody else's money, and the Holder is never
+	// told who the buyer is.
+	setEventStart(t, env, f.eventID, env.fixedClock.Add(30*24*time.Hour))
+	if _, err := env.db.Exec(
+		`UPDATE ticket_sales SET status = 'reversed' WHERE id = $1`, f.anaSaleID,
+	); err != nil {
+		t.Fatalf("reverse the Sale: %v", err)
+	}
+	resp, body, _ = answerByAssignmentLink(t, env, diego, f.sizeQuestion.ID, map[string]any{"text": "L"})
+	assertAPIError(t, resp, body, http.StatusUnauthorized, "ASSIGNMENT_LINK_INVALID")
+	if strings.Contains(strings.ToLower(body.Error.Message), "revers") {
+		t.Error("the refusal tells the Holder the Sale was reversed; that is a fact about somebody else's money")
+	}
+
+	// AND THE ANSWER ALREADY GIVEN SURVIVES THE REVERSAL. What is recorded stays
+	// recorded; the window governs writing, not reading.
+	var text sql.NullString
+	if err := env.db.QueryRow(`
+		SELECT text_value FROM ticket_answers WHERE ticket_id = $1 AND ticket_question_id = $2
+	`, f.anaTicketIDs[0], f.sizeQuestion.ID).Scan(&text); err != nil {
+		t.Fatalf("read the Holder's Answer: %v", err)
+	}
+	if text.String != "S" {
+		t.Fatalf("text=%v — a Sale Reversal erased the Holder's Answer", text)
 	}
 }
