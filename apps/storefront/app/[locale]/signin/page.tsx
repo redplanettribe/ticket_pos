@@ -8,6 +8,7 @@ import { localeAlternates } from "@/lib/alternates";
 import { getPrivacyPolicy } from "@/lib/api";
 import { BRAND_NAME } from "@/lib/brand";
 import { getCustomerSession } from "@/lib/customer-session";
+import { isCheckoutDestination } from "@/lib/checkout-signin";
 import { safeNext } from "@/lib/destination";
 import { safeFollowIntent } from "@/lib/follow-intent";
 import { googleSignInStartPath, isGoogleSignInConfigured } from "@/lib/google-signin";
@@ -158,6 +159,18 @@ export default async function SignInPage({ params, searchParams }: SignInPagePro
       <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-12 sm:py-16">
         <SignInForm
           next={destination}
+          // WHY this page is being shown, when there is a why worth saying
+          // (ADR 0054, #385). A buyer who pressed Buy signed out is here because
+          // checkout begins signed in, and being told that before they type an
+          // address is the difference between a wall and a dead end.
+          //
+          // Read OFF THE DESTINATION rather than passed beside it: `next` is
+          // what the wall wrote and what it carries the basket in, so the
+          // sentence cannot drift from where the visitor is going, and it
+          // survives every detour that already carries `next` — a Google
+          // Sign-In that failed, and one held at the consent step — without
+          // either of those paths learning what checkout is.
+          reason={isCheckoutDestination(destination) ? "checkout" : null}
           // Guarded before it reaches an input: anything not plausibly an email
           // is dropped, because a page anybody can link to must not be able to
           // put arbitrary text in a field that looks like this app's own

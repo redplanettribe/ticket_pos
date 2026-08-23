@@ -1,7 +1,7 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 import { readAssignmentLink } from "./support/assignment-link";
-import { readPasscode } from "./support/passcode";
+import { signInAsCustomer } from "./support/sign-in";
 import {
   ensureFixtureEvent,
   FIXTURE_TICKET_TYPE,
@@ -42,38 +42,6 @@ const BUYER_TAX_ID = "1712345675";
 // Every amount the Customer sees is one formatted dollar figure.
 const MONEY = /^\$\d+\.\d{2}$/;
 
-async function signInFromPasscode(page: Page, email: string) {
-  await page.goto(`/${LOCALE}/signin?next=/tickets`);
-  await page.getByLabel("Email").fill(email);
-  await page.getByRole("button", { name: "Send passcode" }).click();
-  await expect(page.getByLabel("Passcode")).toBeVisible();
-
-  const code = readPasscode(email);
-  test.skip(
-    code === null,
-    "no passcode in the API log — this journey needs the dev stack (`make dev`)",
-  );
-  await page.getByLabel("Passcode").fill(code as string);
-  await page.getByRole("button", { name: "Sign in" }).click();
-
-  // The consent step (#251) appears only for an address with something still
-  // unanswered. This buyer ticked the required box at checkout and left the
-  // optional two unticked — and an unticked box at a capture moment is a No,
-  // which is an ANSWER (ADR 0034) — so ordinarily there is nothing to ask and
-  // the session is minted straight away. Tolerated either way: whether the
-  // step is shown is a consent rule, not this journey's.
-  const consentBox = page.getByLabel(/I have read and accept the Privacy Policy/);
-  await Promise.race([
-    consentBox.waitFor({ state: "visible" }),
-    page.waitForURL(new RegExp(`/${LOCALE}/tickets$`)),
-  ]);
-  if (await consentBox.isVisible()) {
-    await consentBox.check();
-    await page.getByRole("button", { name: "Agree and sign in" }).click();
-  }
-  await expect(page).toHaveURL(new RegExp(`/${LOCALE}/tickets$`));
-}
-
 test("a buyer of two tickets gives one away, and the Holder answers its questions from the link", async ({
   page,
   browser,
@@ -91,7 +59,18 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   const buyer = `e2e-buyer-${stamp}@example.com`;
   const holder = `e2e-holder-${stamp}@example.com`;
 
-  // Step 1 — the buyer takes TWO General Admission tickets through the stub
+  // Step 1 — the buyer signs in, because checkout begins signed in (ADR 0054,
+  // #385): the address a Ticket Sale is written to comes from a Customer
+  // Session and there is no field to type one into. This journey was a guest
+  // purchase until then and was rewritten rather than dropped — nothing it is
+  // about changed, only who is doing it.
+  //
+  // It also puts the buyer where step 2 needs them anyway: the Customer Area
+  // used to be reached by a sign-in AFTER the purchase, and that sign-in is now
+  // this one, moved to the front.
+  await signInAsCustomer(page, buyer, { locale: LOCALE });
+
+  // Step 1b — the buyer takes TWO General Admission tickets through the stub
   // Payment Provider. The total is read off the page rather than asserted to a
   // number: what this journey needs is that the same figure follows the buyer
   // onto the provider's page, not what the Fee Handling made it.
@@ -117,13 +96,17 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   await expect(dialog.getByText("Your ticket · General Admission")).toBeVisible();
   await expect(dialog.getByLabel(QUESTION, { exact: false })).toHaveCount(1);
 
-  await dialog.getByLabel("Email", { exact: true }).fill(buyer);
+  // No email field: the address is the session's, stated back at the buyer
+  // prominently instead of typed (ADR 0054).
+  await expect(dialog.getByLabel("Email", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("checkout-identity")).toContainText(buyer);
   await dialog.getByLabel("First name").fill("Ada");
   await dialog.getByLabel("Last name").fill("Lovelace");
   await dialog.getByLabel("ID type").selectOption("cedula");
   await dialog.getByLabel("ID number").fill(BUYER_TAX_ID);
-  // Addressed by id rather than by words the Policy Version owns (ADR 0036).
-  await page.locator("#consent-policy-acceptance").check();
+  // No consent box to tick: this buyer answered at sign-in, which is the one
+  // place consent is asked now (#254, ADR 0054).
+  await expect(page.locator("#consent-policy-acceptance")).toHaveCount(0);
   await page.getByRole("button", { name: "Continue to payment" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/${LOCALE}/checkout/stub\\?`));
@@ -131,11 +114,12 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
   await page.getByRole("link", { name: "Approve payment" }).click();
   await expect(page.getByRole("heading", { name: "You're going!" })).toBeVisible();
 
-  // Step 2 — the buyer signs in. The first ticket is already THEIRS (ADR
-  // 0048); the second is one collapsed row, opened to give it an address. The
-  // notice about what that discloses sits on the field; the row's state is
-  // what tells the two tickets apart once saved.
-  await signInFromPasscode(page, buyer);
+  // Step 2 — the buyer goes to their Customer Area, already signed in: the
+  // session they bought under is the same one that reads it. The first ticket
+  // is already THEIRS (ADR 0048); the second is one collapsed row, opened to
+  // give it an address. The notice about what that discloses sits on the field;
+  // the row's state is what tells the two tickets apart once saved.
+  await page.goto(`/${LOCALE}/tickets`);
   await expect(page.getByText("Your ticket", { exact: true })).toBeVisible();
   await page.getByText("Ticket 2 of 2").click();
   const addressField = page.getByLabel("Email address of whoever will use this ticket");
@@ -190,7 +174,7 @@ test("a buyer of two tickets gives one away, and the Holder answers its question
     // folded behind "Review or edit"; opened, the field holds what they said
     // and saves on blur with no button to press. A save from a panel that
     // owed nothing does NOT fold it — only the last owed Answer does.
-    await signInFromPasscode(holderPage, holder);
+    await signInAsCustomer(holderPage, holder, { locale: LOCALE });
     await expect(holderPage.getByText("Someone gave you this ticket", { exact: false })).toBeVisible();
     const reviewOrEdit = holderPage.getByText("Answered · Review or edit", { exact: true });
     await expect(reviewOrEdit).toBeVisible();

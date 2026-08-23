@@ -15,6 +15,7 @@
  */
 
 import { safeEventPath } from "./checkout.ts";
+import { decodeSelection, encodeSelection } from "./selection-url.ts";
 import { isAppLocale, localePrefixOf, type AppLocale } from "./locale.ts";
 import { safePrefillEmail } from "./signin-prefill.ts";
 
@@ -46,6 +47,26 @@ export type CheckoutContext = {
    * the sign-in link then simply arrives blank.
    */
   customerEmail: string;
+  /**
+   * The basket this checkout was for, encoded exactly as it travels in an
+   * address (ADR 0054, lib/selection-url.ts) — so a Payment that was declined
+   * hands the buyer back the selection they were about to pay for instead of an
+   * empty Event page.
+   *
+   * It is stored rather than rebuilt because this is the last moment anything
+   * knows it: the buyer leaves this origin for the Payment Provider, and the
+   * page state that held the quantities is gone by the time they come back.
+   *
+   * A SUGGESTION AND NOT A COMMAND, like every other spelling of a selection.
+   * It names Ticket Types and quantities, cannot spell a price or a capacity,
+   * and is re-judged against the Event by the page that receives it — a Ticket
+   * Type that sold out while the buyer was at the provider comes back reported
+   * rather than restored.
+   *
+   * Empty when the cookie predates this field or nothing survived its guards,
+   * in which case the retry link is exactly the bare Event page it always was.
+   */
+  selection: string;
   /**
    * The language the buyer was reading the Event page in when they set off.
    *
@@ -98,9 +119,17 @@ export function parseCheckoutContext(raw: string | null | undefined): CheckoutCo
   const customerEmail = safePrefillEmail(
     typeof candidate.customerEmail === "string" ? candidate.customerEmail : null,
   );
+  // Round-tripped through the selection format's own decoder rather than
+  // pattern-matched here: a cookie is caller-controlled storage however
+  // httpOnly it is, and anything the decoder refuses — malformed, duplicated,
+  // oversized, hostile — comes back as the empty selection and is written out
+  // as the empty string. One guard, in the module that owns the format.
+  const selection = encodeSelection(
+    decodeSelection(typeof candidate.selection === "string" ? candidate.selection : null),
+  );
   if (!clientTransactionId || !eventPath) return null;
   const locale = readLocale(candidate);
-  return { clientTransactionId, eventPath, eventName, customerEmail, locale };
+  return { clientTransactionId, eventPath, eventName, customerEmail, selection, locale };
 }
 
 /**

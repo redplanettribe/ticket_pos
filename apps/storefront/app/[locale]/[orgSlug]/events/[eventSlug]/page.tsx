@@ -17,7 +17,9 @@ import { Link } from "@/i18n/navigation";
 import { affiliateCodeFromRef, recordAffiliateClick } from "@/lib/affiliate-click";
 import { localeAlternates } from "@/lib/alternates";
 import { getPrivacyPolicy, getPublicEvent } from "@/lib/api";
-import { customerSessionToken, getFollows } from "@/lib/customer-session";
+import { checkoutIdentity } from "@/lib/checkout-identity";
+import { opensCheckout } from "@/lib/checkout-signin";
+import { customerSessionToken, getCustomerSession, getFollows } from "@/lib/customer-session";
 import { formatEventDateTime } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import { markdownSummary } from "@/lib/markdown-summary";
@@ -37,8 +39,18 @@ type EventPageProps = {
    * `?sel=…` — the ticket selection the buyer had chosen before being sent to
    * sign in, if any (ADR 0054, lib/selection-url.ts). It is a suggestion and
    * nothing more: it is re-judged below against the Event as it is now.
+   *
+   * `?checkout=1` — the buyer came back through the wall at Buy and was on
+   * their way to pay, so the dialog opens on arrival rather than making them
+   * press the same button twice (lib/checkout-signin.ts). A request and not a
+   * grant: it opens nothing for a visitor with no Customer Session and nothing
+   * for an empty basket.
    */
-  searchParams: Promise<{ ref?: string | string[]; sel?: string | string[] }>;
+  searchParams: Promise<{
+    ref?: string | string[];
+    sel?: string | string[];
+    checkout?: string | string[];
+  }>;
 };
 
 export async function generateMetadata({ params }: EventPageProps): Promise<Metadata> {
@@ -167,6 +179,22 @@ export default async function EventPage({ params, searchParams }: EventPageProps
   // moment later. With no `sel` at all it produces an empty selection and an
   // empty report, which is exactly the page as it was before this existed.
   const restoredSelection = restoreSelectionFromParam(event.ticket_types, query.sel);
+
+  // WHO THIS PAGE WOULD SELL TO, which is the wall at Buy (ADR 0054, #385).
+  //
+  // Read here, on the server, with the page — so the Buy control knows before
+  // the buyer touches it whether it is a button or a link to sign in, and so
+  // the dialog it opens can state the address it is writing to in the same
+  // paint. It is the same read the header already makes on this page, and an
+  // anonymous visitor pays nothing for it: with no cookie, getCustomerSession
+  // returns without calling the API at all.
+  //
+  // Null for a visitor with no session, for a Confirmation Link session — which
+  // is not Proof of Email Ownership and which the API refuses to sell to (#384)
+  // — and for a session read that failed. All three meet the wall, and the
+  // sign-in page reads the same session and lets straight through anybody who
+  // turns out to have one after all.
+  const identity = checkoutIdentity(await getCustomerSession());
 
   // The words are the visitor's language; the clock stays the Event's own.
   const dateLabel = formatEventDateTime(event.starts_at, event.timezone, await getFormatLocale());
@@ -320,6 +348,12 @@ export default async function EventPage({ params, searchParams }: EventPageProps
                 // The basket the buyer arrived with, already re-judged. Empty
                 // for everyone who arrived without one (ADR 0054).
                 restoredSelection={restoredSelection}
+                // Who the purchase would be addressed to, or null — the wall.
+                identity={identity}
+                // Whether they arrived mid-purchase. Honoured only when there
+                // is somebody to sell to and something to sell them, which the
+                // component decides: this is what the address ASKED for.
+                openCheckoutOnArrival={opensCheckout(query.checkout)}
                 buyerHoldsFirstTicket={event.buyer_holds_first_ticket}
                 priceIncludesFee={event.price_includes_fee}
                 timezone={event.timezone}

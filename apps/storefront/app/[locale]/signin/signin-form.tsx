@@ -81,6 +81,20 @@ type SignInFormProps = {
    * under a different address can correct it.
    */
   initialEmail: string;
+  /**
+   * WHY this visitor is being asked to sign in, when there is a reason worth
+   * stating, and null for everybody who simply came here (ADR 0054, #385).
+   *
+   * "checkout" is a buyer who pressed Buy signed out. It is derived server-side
+   * from the destination they are carrying, so it cannot disagree with where
+   * they are about to be sent, and it survives a Google Sign-In that failed or
+   * was held at consent because those carry the same destination.
+   *
+   * A closed set rather than a sentence: the words are looked up from the
+   * catalog at render, so nothing here holds copy a language switch would
+   * strand.
+   */
+  reason: "checkout" | null;
   /** True when the visitor arrived here because their Customer Session had run out. */
   expired: boolean;
   /**
@@ -182,6 +196,7 @@ function GoogleMark() {
 export function SignInForm({
   next,
   initialEmail,
+  reason,
   expired,
   linkFailure,
   googleFailed,
@@ -399,6 +414,17 @@ export function SignInForm({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Why they are here, said FIRST and before any field. A buyer who
+            pressed Buy and found themselves on a sign-in page is owed the
+            reason before they are owed the form; it is what makes this a wall
+            rather than a dead end, and it reaches them before they have typed
+            anything. Not `variant="destructive"`: nothing has gone wrong. */}
+        {reason === "checkout" ? (
+          <Alert>
+            <AlertDescription>{t("reason.checkout")}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {expired ? (
           <Alert>
             <AlertDescription>{t("sessionEnded")}</AlertDescription>

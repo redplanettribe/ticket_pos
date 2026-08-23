@@ -216,7 +216,13 @@
     "selectionCount": "{count, plural, =0 {Ninguna entrada seleccionada} one {# entrada} other {# entradas}}",
     "getTickets": "Obtener entradas",
     "title": "Finalizar compra",
-    "description": "{event} — enviaremos su confirmación a este correo.",
+    "description": "Está comprando entradas para {event}.",
+    "identity": {
+      "label": "Sus entradas van a",
+      "note": "Enviaremos sus entradas y su comprobante a esta dirección. Es la dirección con la que inició sesión.",
+      "switch": "¿No es usted? Inicie sesión con otro correo",
+      "required": "Inicie sesión antes de comprar, para saber a dónde enviar sus entradas."
+    },
     "lineQuantity": "{count} × {ticketType}",
     "total": "Total",
     "capacityTitle": "No quedan suficientes entradas",
@@ -232,7 +238,6 @@
     },
     "startFailed": "No se pudo iniciar la compra. Inténtelo de nuevo.",
     "networkFailed": "No se pudo iniciar la compra. Revise su conexión e inténtelo de nuevo.",
-    "emailLabel": "Correo electrónico",
     "firstNameLabel": "Nombres",
     "lastNameLabel": "Apellidos",
     "taxIdTypeLabel": "Tipo de documento",
@@ -296,6 +301,9 @@
     "metaDescription": "Inicie sesión con su correo para ver sus entradas.",
     "title": "Iniciar sesión",
     "emailStep": "Ingrese el correo con el que compró sus entradas y le enviaremos un código de 6 dígitos. No necesita contraseña.",
+    "reason": {
+      "checkout": "Inicie sesión para comprar sus entradas. Se las enviamos a la dirección con la que inicie sesión, así no tiene que escribirla dos veces — y su selección le está esperando."
+    },
     "codeStep": "Ingrese el código de 6 dígitos que enviamos a {email}.",
     "sessionEnded": "Su sesión terminó. Inicie sesión de nuevo para ver sus entradas.",
     "link": {
