@@ -53,6 +53,11 @@ export type SaleListRow = {
   // How many of the sale's Tickets have an accepted Holder: the people a
   // reversal tells. Stated on the row so the confirm dialog can say so first.
   held_ticket_count: number;
+  // How the sale reached the platform (#370, ADR 0052): `sale_import`,
+  // `manually_recorded`, `correction_replacement` or `channel_sale`. Derived by
+  // the API off the row's own columns and stored nowhere — see saleOriginToken
+  // for why this app is told the answer instead of working it out.
+  origin: string;
 };
 
 export type SalesPagination = {
@@ -574,6 +579,33 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export const TAX_ID_TYPES = ["cedula", "ruc", "passport"] as const;
 export type TaxIdType = (typeof TAX_ID_TYPES)[number];
 
+/**
+ * How a Ticket Sale reached the platform (#370, ADR 0052).
+ *
+ * DERIVED BY THE API, NOT HERE, and the split is deliberate. Recognising a
+ * Manually Recorded Sale is a three-way negative — an imported sale with neither
+ * a Sale Import batch nor a Sale Correction linkage — and ADR 0052 requires that
+ * predicate to live in exactly ONE place, which is `sales.DeriveSaleOrigin` on
+ * the backend. Restating it here from `channel` / `replaces_sale_id` would make
+ * two places, and the second would be the one nobody updates when a third
+ * batchless writer lands. This app is told the answer and narrows it to a token.
+ *
+ * The values are the API's own, one per route in:
+ *
+ * - `sale_import` — it arrived in an uploaded Sale Import batch.
+ * - `manually_recorded` — somebody typed it into the form, one sale at a time.
+ * - `correction_replacement` — it is a Sale Correction's replacement.
+ * - `channel_sale` — it sold on a Sales Channel of its own, with no import
+ *   behind it (an Online Sale today).
+ */
+export const SALE_ORIGINS = [
+  "sale_import",
+  "manually_recorded",
+  "correction_replacement",
+  "channel_sale",
+] as const;
+export type SaleOrigin = (typeof SALE_ORIGINS)[number];
+
 // Who caused a Sale Reversal: the buyer undoing their own Online Sale inside the
 // Reversal Window, their own staff undoing a Sale Import, or the platform
 // recording a refund it made off-platform at the organization's request. The two
@@ -595,6 +627,22 @@ export function saleChannelToken(channel: string | null): SaleChannel | null {
 /** Which source a row carries, or null when it has none this app can name. */
 export function saleSourceToken(source: string | null): SaleSource | null {
   return narrow(SALE_SOURCES, source);
+}
+
+/**
+ * How a row reached the platform, or null for an origin this app cannot name.
+ *
+ * Null is the load-bearing half. A fourth route — or a fourth batchless writer
+ * on the `import` channel, which ADR 0052 warns is the way this set grows —
+ * arrives here as a value that is not in the list, and the caller shows the
+ * API's own word rather than a token it has no copy for. A guess would put a
+ * confident, WRONG account of where a sale came from on the screen, which is
+ * worse than an unfamiliar one: the whole point of the origin is to explain a
+ * row nobody recognises. Null is also the answer for a payload carrying no
+ * origin at all.
+ */
+export function saleOriginToken(origin: string | null | undefined): SaleOrigin | null {
+  return narrow(SALE_ORIGINS, origin);
 }
 
 /** Which Payment Method a row was taken by, or null for one this app cannot name. */

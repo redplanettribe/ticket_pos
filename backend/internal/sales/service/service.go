@@ -863,6 +863,14 @@ type SaleListItem struct {
 	// Holder: the people a reversal would tell, stated on the row so the
 	// confirm dialog can say so before anybody is told.
 	HeldTicketCount int `json:"held_ticket_count"`
+	// Origin is HOW THE SALE REACHED THE PLATFORM (#370, ADR 0052):
+	// `sale_import` (it arrived in an uploaded batch), `manually_recorded` (a
+	// Manually Recorded Sale somebody typed), `correction_replacement` (a Sale
+	// Correction's replacement) or `channel_sale` (it sold on a Sales Channel of
+	// its own). It is derived from the row by sales.DeriveSaleOrigin and stored
+	// nowhere; it is stated so a row nobody recognises can be accounted for, and
+	// it confers no action — every Member who may read the list reads it.
+	Origin string `json:"origin"`
 }
 
 // Pagination is the ADR-0006 nested pagination object: the current page and
@@ -990,6 +998,10 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 			ReplacedByConfirmationRef: row.ReplacedByConfirmationRef,
 			ReplacesConfirmationRef:   row.ReplacesConfirmationRef,
 			HeldTicketCount:           row.HeldTicketCount,
+			// Derived here and nowhere else, off the row's own columns: the
+			// Sales list never learns the predicate, it is told the answer
+			// (#370, ADR 0052). The Sales Export reads the same function.
+			Origin: sales.DeriveSaleOrigin(row.Channel, row.ImportBatchID, row.ReplacesSaleID),
 		})
 	}
 

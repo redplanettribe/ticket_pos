@@ -1300,6 +1300,13 @@ type SaleRow struct {
 	// matching id is.
 	ReplacedByConfirmationRef *string
 	ReplacesConfirmationRef   *string
+	// ImportBatchID is the Sale Import batch the sale arrived in, nil on every
+	// sale that never came out of an uploaded file: an Online Sale, a Sale
+	// Correction's replacement, and a Manually Recorded Sale. It is read for
+	// one purpose — sales.DeriveSaleOrigin, which needs the batch's ABSENCE to
+	// tell the last two apart from the first (#370, ADR 0052) — and is not on
+	// the wire: the Sales list states the derived origin, not the batch id.
+	ImportBatchID *string
 	// ReversedByBatchUndo is true on a reversed sale that went with its Sale
 	// Import batch's undo — its reversed_at is the batch's undone_at (migration
 	// 086) — and false on one reversed singly or corrected, even if its batch
@@ -1509,6 +1516,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.reversed_by,
 			ts.replaced_by_sale_id,
 			ts.replaces_sale_id,
+			ts.import_batch_id,
 			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaced_by_sale_id),
 			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaces_sale_id),
 			COALESCE((
@@ -1555,7 +1563,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		var s SaleRow
 		var typesJSON []byte
 		var source, paymentMethod, taxIDType, taxIDNumber, reversedBy sql.NullString
-		var replacedBy, replaces, replacedByRef, replacesRef sql.NullString
+		var replacedBy, replaces, importBatchID, replacedByRef, replacesRef sql.NullString
 		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
@@ -1579,6 +1587,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&reversedBy,
 			&replacedBy,
 			&replaces,
+			&importBatchID,
 			&replacedByRef,
 			&replacesRef,
 			&s.ReversedByBatchUndo,
@@ -1592,6 +1601,9 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		}
 		if replaces.Valid {
 			s.ReplacesSaleID = &replaces.String
+		}
+		if importBatchID.Valid {
+			s.ImportBatchID = &importBatchID.String
 		}
 		if replacedByRef.Valid {
 			s.ReplacedByConfirmationRef = &replacedByRef.String

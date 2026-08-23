@@ -9396,9 +9396,14 @@ paths:
         here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale
         and replaces_sale_id on its replacement, each with the linked sale''s Confirmation
         reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref,
-        all null until a correction is recorded — ADR 0050), each rolled-up Ticket
-        Type carrying its ticket_type_id so the Correct form can be pre-filled from
-        the row, held_ticket_count (how many of the sale''s Tickets have an accepted
+        all null until a correction is recorded — ADR 0050), `origin` — how the sale
+        reached the platform, one of `sale_import` (it arrived in an uploaded Sale
+        Import batch), `manually_recorded` (a Manually Recorded Sale somebody typed),
+        `correction_replacement` (a Sale Correction''s replacement) or `channel_sale`
+        (it sold on a Sales Channel of its own), derived from the row and stored nowhere,
+        so a row nobody recognises can be accounted for (ADR 0052) — each rolled-up
+        Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled
+        from the row, held_ticket_count (how many of the sale''s Tickets have an accepted
         Holder, the people a reversal would tell), and the recorded-at and payment
         method for the row-detail expand. Filterable by status (default active), ticket
         type (sales including that type), sold-at date range (interpreted in the Event
