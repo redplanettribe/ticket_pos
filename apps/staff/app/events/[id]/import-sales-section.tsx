@@ -43,6 +43,7 @@ import {
   type ImportPreviewResult,
 } from "@/lib/imports-api";
 
+import { RecordSaleDialog } from "./record-sale-dialog";
 import { useSalesRefreshNotify } from "./sales-refresh";
 
 type ImportSalesSectionProps = {
@@ -56,6 +57,19 @@ type ImportSalesSectionProps = {
   timezone: string | null;
 };
 
+/**
+ * The one place an Organization records sales, by either of two routes: upload
+ * a filled-in Sale Import file, or record one sale by hand (#369, ADR 0052).
+ *
+ * GATE. The page renders this section for an Org Admin OR an Event Owner, while
+ * every endpoint behind it — the Sale Import's and the manual record's alike —
+ * admits only whoever may manage the Event's sales, which today is the Org
+ * Admin. So an Event Owner is shown the tool and refused by it. That mismatch
+ * PREDATES this section growing a second route and is deliberately left alone
+ * here (#369, out of scope): the record-a-sale modal mirrors the section's gate
+ * exactly rather than widening or narrowing it, so the two routes are wrong in
+ * the same way and are fixed in one move when the gate is.
+ */
 export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProps) {
   const t = useTranslations("sales");
   const errorCopy = useMessages().errors;
@@ -74,6 +88,8 @@ export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProp
   const [undoTarget, setUndoTarget] = useState<ImportHistoryEntry | null>(null);
   const [notifyBuyers, setNotifyBuyers] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  // The other route to the same act: one sale typed instead of uploaded.
+  const [recordOpen, setRecordOpen] = useState(false);
 
   // Signals the sibling Sales list to re-fetch its current view after a
   // successful commit/undo (paired with the existing success toast).
@@ -240,6 +256,22 @@ export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProp
     }
   }
 
+  /**
+   * A hand-typed sale is real the moment it is saved, so the screen behind the
+   * modal has to agree with it: the Sales list re-reads its current view, the
+   * Ticket Types re-read the capacity it just took, and a preview of a file
+   * still on screen is re-run over that new capacity rather than left claiming
+   * room it no longer has.
+   */
+  async function handleRecorded() {
+    setRecordOpen(false);
+    notifySalesRefresh();
+    await loadTicketTypes();
+    if (file) {
+      await runPreview(file);
+    }
+  }
+
   function openUndo(entry: ImportHistoryEntry) {
     setUndoTarget(entry);
     setNotifyBuyers(false);
@@ -286,6 +318,25 @@ export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProp
         <CardDescription>{t("importDescription")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Route 1 — type one sale. First because it is the shorter road, and
+            the one an organizer with a single cash payment should not have to
+            read past a spreadsheet to find. */}
+        <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1 text-sm">
+            <p className="font-medium">{t("recordManualHeading")}</p>
+            <p className="text-muted-foreground">{t("recordManualHint")}</p>
+          </div>
+          <Button type="button" size="sm" onClick={() => setRecordOpen(true)}>
+            {t("recordManualOpen")}
+          </Button>
+        </div>
+
+        {/* Route 2 — upload a file. The four steps below are all its own. */}
+        <div className="space-y-1 border-t pt-6">
+          <p className="text-sm font-medium">{t("importFileHeading")}</p>
+          <p className="text-sm text-muted-foreground">{t("importFileHint")}</p>
+        </div>
+
         {/* Step 1 — download template */}
         <div className="space-y-2">
           <p className="text-sm font-medium">{t("importStepTemplate")}</p>
@@ -594,6 +645,18 @@ export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProp
           )}
         </div>
       </CardContent>
+
+      {/* The modal is rendered from inside this section on purpose: it inherits
+          the section's gate rather than restating one (see the note above). */}
+      <RecordSaleDialog
+        eventId={eventId}
+        open={recordOpen}
+        ticketTypes={ticketTypes}
+        currency={currency}
+        timezone={timezone}
+        onClose={() => setRecordOpen(false)}
+        onRecorded={() => void handleRecorded()}
+      />
 
       <Dialog open={undoTarget !== null} onOpenChange={(open) => (!open ? setUndoTarget(null) : undefined)}>
         <DialogContent>

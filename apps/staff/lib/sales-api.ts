@@ -400,12 +400,94 @@ export function correctionVerdict(result: ImportPreviewResult): CorrectionVerdic
   };
 }
 
+// RecordSaleInput is the Manually Recorded Sale form's body (#369, ADR 0052):
+// the Sale Import template's columns and nothing else. There is deliberately no
+// send_confirmation — the buyer is always mailed, no prior Confirmation existing
+// to fall back on — and no idempotency key, which is why the save button is
+// disabled while a save is in flight.
+export type RecordSaleInput = {
+  customer_email: string;
+  customer_first_name: string;
+  customer_last_name: string;
+  customer_tax_id_type: string;
+  customer_tax_id_number: string;
+  ticket_type_id: string;
+  quantity: number;
+  payment_method: string;
+  sold_at: string;
+  // Null uses the Ticket Type's catalog price. It is a price PER TICKET, as it
+  // is in the uploaded template and in the Sale Correction; 0 records a comp.
+  amount_cents: number | null;
+};
+
+// RecordedSale mirrors POST /api/v1/staff/events/{id}/sales, 201.
+//
+// possible_duplicate rides on the created sale rather than blocking it: the
+// warning is the organizer's to overrule, and they are told about it after the
+// fact as well as before.
+export type RecordedSale = {
+  sale_id: string;
+  confirmation_ref: string;
+  customer_email: string;
+  customer_first_name: string;
+  customer_last_name: string;
+  ticket_type_id: string;
+  ticket_type_name: string;
+  quantity: number;
+  amount_cents: number;
+  currency: string;
+  sold_at: string;
+  payment_method: string;
+  confirmation_sent: boolean;
+  possible_duplicate: boolean;
+  duplicate_of_date?: string;
+};
+
 /**
- * correctionFieldErrors reads the per-column complaints out of a
- * VALIDATION_FAILED refusal, keyed by the template's column name. Empty for
- * any other error.
+ * recordSale records one Manually Recorded Sale via the BFF (#369, ADR 0052).
+ *
+ * A refused row arrives as ApiError with code VALIDATION_FAILED and a `fields`
+ * detail naming the template's bare columns; an Event that registers elsewhere
+ * as EVENT_IS_EXTERNAL_REGISTRATION, and a capacity race lost between the
+ * verdict and the write as IMPORT_BATCH_FAILED.
  */
-export function correctionFieldErrors(details: unknown): Record<string, string> {
+export async function recordSale(eventId: string, input: RecordSaleInput): Promise<RecordedSale> {
+  return fetchEventsJSON<RecordedSale>(`/api/events/${eventId}/sales`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * previewManualSale asks for the record-a-sale form's live verdict: the same
+ * judgement the save makes — the import row rules, capacity, the Purchase Limit
+ * and the duplicate warning — in the Sale Import preview's shape, writing
+ * nothing.
+ *
+ * It answers 200 whatever the verdict, with ONE exception the caller must
+ * handle: a quantity that is not a whole number is refused by the decoder as a
+ * 400 VALIDATION_FAILED naming the quantity column, because a JSON 1.5 never
+ * reaches the validator that would have worded it as a row verdict.
+ */
+export async function previewManualSale(
+  eventId: string,
+  input: RecordSaleInput,
+): Promise<ImportPreviewResult> {
+  return fetchEventsJSON<ImportPreviewResult>(`/api/events/${eventId}/sales/preview`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * rowFieldErrors reads the per-column complaints out of a VALIDATION_FAILED
+ * refusal, keyed by the template's column name. Empty for any other error.
+ *
+ * Shared by every form that types ONE import row — the Sale Correction and the
+ * Manually Recorded Sale — because both are refused the same way: bare template
+ * column names, no `rows[N].` prefix.
+ */
+export function rowFieldErrors(details: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   if (!details || typeof details !== "object") {
     return out;

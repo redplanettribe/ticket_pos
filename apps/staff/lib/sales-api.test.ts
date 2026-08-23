@@ -4,12 +4,12 @@ import test from "node:test";
 import {
   canCorrectSale,
   canReverseSale,
-  correctionFieldErrors,
   correctionPrefill,
   correctionVerdict,
   exportFieldMessage,
   paymentMethodToken,
   reversalProvenance,
+  rowFieldErrors,
   saleChannelToken,
   saleOriginToken,
   saleSourceToken,
@@ -257,9 +257,9 @@ test("correctionPrefill reads the template's columns off the row, blanks for a m
   });
 });
 
-test("correctionFieldErrors keys the refusal's complaints by column, first complaint wins, and is empty for anything else", () => {
+test("rowFieldErrors keys the refusal's complaints by column, first complaint wins, and is empty for anything else", () => {
   assert.deepEqual(
-    correctionFieldErrors({
+    rowFieldErrors({
       fields: [
         { field: "quantity", message: "is over the Purchase Limit" },
         { field: "quantity", message: "second complaint" },
@@ -268,8 +268,8 @@ test("correctionFieldErrors keys the refusal's complaints by column, first compl
     }),
     { quantity: "is over the Purchase Limit", customer_email: "must be a valid email" },
   );
-  assert.deepEqual(correctionFieldErrors(undefined), {});
-  assert.deepEqual(correctionFieldErrors({ channel: "online" }), {});
+  assert.deepEqual(rowFieldErrors(undefined), {});
+  assert.deepEqual(rowFieldErrors({ channel: "online" }), {});
 });
 
 // --- the live verdict (#352) ----------------------------------------------
