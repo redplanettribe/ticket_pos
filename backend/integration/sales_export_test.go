@@ -367,7 +367,9 @@ func TestSalesExportWorkbookShape(t *testing.T) {
 		// The Event's catalog, one column per Ticket Type, then the roll-up.
 		"GA", "total_quantity",
 		"amount", "net_proceeds", "currency",
-		"channel", "source", "payment_method", "status",
+		// The origin (#373) sits with the other provenance facts, after the
+		// channel and source it says what neither of them can.
+		"channel", "source", "origin", "payment_method", "status",
 		// The reversal pair after the status it elaborates, then the Sale
 		// Correction linkage, last.
 		"reversed_at", "reversed_by", "corrected_by", "corrects",

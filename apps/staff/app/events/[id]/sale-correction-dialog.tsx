@@ -23,10 +23,10 @@ import { PLATFORM_TIME_ZONE, formatCalendarDay } from "@/lib/format";
 import {
   TAX_ID_TYPES,
   correctSale,
-  correctionFieldErrors,
   correctionPrefill,
   correctionVerdict,
   previewSaleCorrection,
+  rowFieldErrors,
   type CorrectSaleInput,
   type CorrectionVerdict,
   type SaleListRow,
@@ -237,7 +237,7 @@ export function SaleCorrectionDialog({
       onCorrected();
     } catch (error) {
       if (error instanceof ApiError && error.code === "VALIDATION_FAILED") {
-        const fields = correctionFieldErrors(error.details);
+        const fields = rowFieldErrors(error.details);
         setFieldErrors(fields);
         if (Object.keys(fields).length === 0) {
           toast.error(apiErrorMessage(errorCopy, error) ?? t("correctFailed"));

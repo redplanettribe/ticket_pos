@@ -515,6 +515,42 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.manualSaleBody": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_first_name": {
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_number": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_type": {
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "description": "Quantity is a whole number of tickets. It is decoded as a raw JSON number\nand documented as an integer; manualSaleQuantity explains why the Go type\nis not one, and no client should read it as licence to send a decimal.",
+                        "type": "integer"
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.markFailedBody": {
                 "properties": {
                     "reason": {
@@ -11183,7 +11219,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales": {
             "get": {
-                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale, ` + "`" + `staff` + "`" + ` when a Sale Import undo or a single-sale staff reversal did, and ` + "`" + `operator` + "`" + ` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, each with the linked sale's Confirmation reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref, all null until a correction is recorded — ADR 0050), each rolled-up Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled from the row, held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. ` + "`" + `reversed_count` + "`" + ` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.",
+                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale, ` + "`" + `staff` + "`" + ` when a Sale Import undo or a single-sale staff reversal did, and ` + "`" + `operator` + "`" + ` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, each with the linked sale's Confirmation reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref, all null until a correction is recorded — ADR 0050), ` + "`" + `origin` + "`" + ` — how the sale reached the platform, one of ` + "`" + `sale_import` + "`" + ` (it arrived in an uploaded Sale Import batch), ` + "`" + `manually_recorded` + "`" + ` (a Manually Recorded Sale somebody typed), ` + "`" + `correction_replacement` + "`" + ` (a Sale Correction's replacement) or ` + "`" + `channel_sale` + "`" + ` (it sold on a Sales Channel of its own), derived from the row and stored nowhere, so a row nobody recognises can be accounted for (ADR 0052) — each rolled-up Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled from the row, held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. ` + "`" + `reversed_count` + "`" + ` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -11381,6 +11417,111 @@ const docTemplate = `{
                 "tags": [
                     "staff"
                 ]
+            },
+            "post": {
+                "description": "A Manually Recorded Sale (#368, ADR 0052): ONE Sale Import row typed instead of uploaded. The body is the Sale Import template's columns — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents giving the price of ONE ticket, overriding the Ticket Type's catalog price and multiplied by the quantity (0 records a comp). There is deliberately NO send_confirmation and NO idempotency_key. The row is validated exactly as an import row: Ticket Type on this Event, the Tax ID pair rule with the pair optional, a positive integer quantity, sold_at not in the future — plus two departures from the file import, both deliberate: CAPACITY is refused here on the quantity rather than deferred to a batch commit, and the PURCHASE LIMIT is enforced. A refused row returns 400 VALIDATION_FAILED with one field error per offending column, named by the template's bare column name with no rows[N]. prefix, and writes nothing. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries possible_duplicate with duplicate_of_date — a warning that never blocks the record. The recorded sale is a Direct Sale on the ` + "`" + `import` + "`" + ` channel with source ` + "`" + `direct` + "`" + ` and NO Sale Import batch: it never appears in the Import history, and recording one never stops an earlier upload being the latest batch, so an existing batch stays undoable. Tickets are minted one per unit, all ` + "`" + `unassigned` + "`" + ` and none self-held; no fee snapshot is written, so the sale contributes its full price to Takings and nothing to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation, in their own remembered language; confirmation_sent reports whether that mail went out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION before any field is judged on an Event that registers externally, 404 EVENT_NOT_FOUND when the Event is not this Organization's, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import; reading the Sales list is not.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.manualSaleBody",
+                                        "summary": "body",
+                                        "description": "The sale, as the Sale Import template's columns"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The sale, as the Sale Import template's columns",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record one Ticket Sale by hand",
+                "tags": [
+                    "staff"
+                ]
             }
         },
         "/api/v1/staff/events/{id}/sales/export": {
@@ -11570,6 +11711,113 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v1/staff/events/{id}/sales/preview": {
+            "post": {
+                "description": "The manual sale form's live verdict (#368, ADR 0052): validates the row exactly as POST .../sales would, and writes nothing. The body is the same as the record's. Returns the Sale Import preview's shape — ` + "`" + `rows` + "`" + ` holding exactly one row with its ` + "`" + `valid` + "`" + ` flag and per-column ` + "`" + `errors` + "`" + ` (field names are the template's bare column names), ` + "`" + `capacity_impact` + "`" + ` per Ticket Type, and ` + "`" + `committable` + "`" + `. Capacity and the Purchase Limit are both decided here, on the quantity column, which is what lets the organizer learn the Event is full or the buyer over their allowance while the number can still be changed. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries ` + "`" + `possible_duplicate` + "`" + ` with ` + "`" + `duplicate_of_date` + "`" + `, a warning that does not block. Always 200 whatever the verdict, with the same refusals and the same permission gate as the record.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.manualSaleBody",
+                                        "summary": "body",
+                                        "description": "The sale, as the Sale Import template's columns"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The sale, as the Sale Import template's columns",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Preview one Manually Recorded Sale",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
         "/api/v1/staff/events/{id}/sales/summary": {
             "get": {
                 "description": "Returns the Sales tab stat strip for the Event: net_proceeds_cents — what the Event's active Online Sales have left the Organization after the Platform Fee and its Fee IVA, summed from the per-line snapshots the sales froze (in-person and imported sales contribute nothing; reversed sales drop out) — plus the Event currency, the count of its active Ticket Sales across all channels, and tickets_sold — the quantities of those sales' lines summed, likewise across all channels, so one Ticket Sale of four tickets counts 1 toward sales_count and 4 here. The platform's cut is never returned as a number. Restricted to Org Admins and Event Owners; Event Staff are refused.",
@@ -11726,7 +11974,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales/{saleId}/correct": {
             "post": {
-                "description": "A Sale Correction (ADR 0050): reverses a single active ` + "`" + `import` + "`" + `-channel Ticket Sale and records a replacement in the SAME transaction, each pointing at the other (replaced_by_sale_id on the old sale, replaces_sale_id on the new one). The body is the Sale Import template's columns for the replacement — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents overriding the catalog price — plus ` + "`" + `send_confirmation` + "`" + ` (default false). The replacement is validated exactly like an import row: Ticket Type on the Event, Tax ID rules when either half is filled, Payment Method required, sold_at not in the future, capacity and the Purchase Limit both counted NET of the sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with one field error per offending column (field names are the template's column names) and writes nothing — the original sale stays active. The replacement is a fresh sale: channel ` + "`" + `import` + "`" + `, source ` + "`" + `direct` + "`" + `, no Sale Import batch (so a later batch undo never sweeps it), a new Sale Confirmation reference, and fresh Tickets all ` + "`" + `unassigned` + "`" + ` — no Ticket Assignment or Answer is carried over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation is true, in which case the replacement's Sale Confirmation (with the outstanding-answers line) goes to the replacement's email — never a voided mail. Works before, during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import.",
+                "description": "A Sale Correction (ADR 0050): reverses a single active ` + "`" + `import` + "`" + `-channel Ticket Sale and records a replacement in the SAME transaction, each pointing at the other (replaced_by_sale_id on the old sale, replaces_sale_id on the new one). The body is the Sale Import template's columns for the replacement — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents giving the price of ONE ticket, overriding the catalog price and multiplied by the quantity — plus ` + "`" + `send_confirmation` + "`" + ` (default false). The replacement is validated exactly like an import row: Ticket Type on the Event, Tax ID rules when either half is filled, Payment Method required, sold_at not in the future, capacity and the Purchase Limit both counted NET of the sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with one field error per offending column (field names are the template's column names) and writes nothing — the original sale stays active. The replacement is a fresh sale: channel ` + "`" + `import` + "`" + `, source ` + "`" + `direct` + "`" + `, no Sale Import batch (so a later batch undo never sweeps it), a new Sale Confirmation reference, and fresh Tickets all ` + "`" + `unassigned` + "`" + ` — no Ticket Assignment or Answer is carried over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation is true, in which case the replacement's Sale Confirmation (with the outstanding-answers line) goes to the replacement's email — never a voided mail. Works before, during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import.",
                 "parameters": [
                     {
                         "description": "Event ID",

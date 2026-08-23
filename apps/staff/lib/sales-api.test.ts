@@ -4,13 +4,14 @@ import test from "node:test";
 import {
   canCorrectSale,
   canReverseSale,
-  correctionFieldErrors,
   correctionPrefill,
   correctionVerdict,
   exportFieldMessage,
   paymentMethodToken,
   reversalProvenance,
+  rowFieldErrors,
   saleChannelToken,
+  saleOriginToken,
   saleSourceToken,
   taxIdSnapshot,
 } from "./sales-api.ts";
@@ -131,6 +132,37 @@ test("an actor this app cannot name keeps the API's own word", () => {
   });
 });
 
+// --- sale origin ----------------------------------------------------------
+
+/**
+ * How a sale reached the platform (#370, ADR 0052). The API derives it — the
+ * three-way negative that recognises a Manually Recorded Sale is spelled out in
+ * exactly one place, and that place is Go (sales.DeriveSaleOrigin) — so what is
+ * left to get wrong on this side is naming a value the API sent, and refusing to
+ * name one it did not.
+ */
+test("saleOriginToken names every route a sale can have reached the platform by", () => {
+  assert.equal(saleOriginToken("sale_import"), "sale_import");
+  assert.equal(saleOriginToken("manually_recorded"), "manually_recorded");
+  assert.equal(saleOriginToken("correction_replacement"), "correction_replacement");
+  assert.equal(saleOriginToken("channel_sale"), "channel_sale");
+});
+
+test("an origin this app has never heard of narrows to null rather than a guess", () => {
+  // The screen falls back to the API's own word. Guessing the nearest token
+  // would put a WRONG account of a sale's provenance on the screen — and this is
+  // the field a fourth batchless writer would arrive through.
+  assert.equal(saleOriginToken("pos_sale"), null);
+});
+
+test("a payload with no origin at all narrows to null", () => {
+  // Not every caller has one: an older cached response, or a shape this app
+  // reads for another purpose. Null, never a default route.
+  assert.equal(saleOriginToken(null), null);
+  assert.equal(saleOriginToken(undefined), null);
+  assert.equal(saleOriginToken(""), null);
+});
+
 // --- the Sales Export refusal ---------------------------------------------
 
 // The one sentence on these surfaces that stays the API's English on purpose:
@@ -206,6 +238,9 @@ test("correctionPrefill reads the template's columns off the row, blanks for a m
     replaced_by_confirmation_ref: null,
     replaces_confirmation_ref: null,
     held_ticket_count: 0,
+    // The row states its origin (#370). The Correct form takes nothing from it:
+    // a correction's replacement is a new sale with an origin of its own.
+    origin: "sale_import",
   });
   assert.deepEqual(prefill, {
     customer_email: "ana@example.com",
@@ -222,9 +257,9 @@ test("correctionPrefill reads the template's columns off the row, blanks for a m
   });
 });
 
-test("correctionFieldErrors keys the refusal's complaints by column, first complaint wins, and is empty for anything else", () => {
+test("rowFieldErrors keys the refusal's complaints by column, first complaint wins, and is empty for anything else", () => {
   assert.deepEqual(
-    correctionFieldErrors({
+    rowFieldErrors({
       fields: [
         { field: "quantity", message: "is over the Purchase Limit" },
         { field: "quantity", message: "second complaint" },
@@ -233,8 +268,8 @@ test("correctionFieldErrors keys the refusal's complaints by column, first compl
     }),
     { quantity: "is over the Purchase Limit", customer_email: "must be a valid email" },
   );
-  assert.deepEqual(correctionFieldErrors(undefined), {});
-  assert.deepEqual(correctionFieldErrors({ channel: "online" }), {});
+  assert.deepEqual(rowFieldErrors(undefined), {});
+  assert.deepEqual(rowFieldErrors({ channel: "online" }), {});
 });
 
 // --- the live verdict (#352) ----------------------------------------------

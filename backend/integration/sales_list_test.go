@@ -81,6 +81,10 @@ type saleListRow struct {
 	// How many of the sale's Tickets have an accepted Holder — the people a
 	// reversal would tell, stated on the row so the confirm can say so first.
 	HeldTicketCount int `json:"held_ticket_count"`
+	// How the sale reached the platform (#370, ADR 0052): `sale_import`,
+	// `manually_recorded`, `correction_replacement` or `channel_sale`. Derived
+	// from the row and never stored; exercised in sale_origin_test.go.
+	Origin string `json:"origin"`
 }
 
 type salesListEnvelope struct {

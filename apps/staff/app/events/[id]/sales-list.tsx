@@ -44,6 +44,7 @@ import {
   reversalProvenance,
   reverseSale,
   saleChannelToken,
+  saleOriginToken,
   saleSourceToken,
   salesListQuery,
   taxIdSnapshot,
@@ -51,6 +52,7 @@ import {
   type ReversalActor,
   type SaleChannel,
   type SaleListRow,
+  type SaleOrigin,
   type SaleSortDir,
   type SaleSortField,
   type SaleSource,
@@ -87,6 +89,16 @@ const SOURCE_KEYS = {
   direct: "sourceDirect",
   external_platform: "sourceExternalPlatform",
 } as const satisfies Record<SaleSource, string>;
+
+// How the sale reached the platform (#370, ADR 0052). The API derives it — the
+// three-way negative that recognises a Manually Recorded Sale is single-sourced
+// in Go — and this map is only the word for each answer.
+const ORIGIN_KEYS = {
+  sale_import: "originSaleImport",
+  manually_recorded: "originManuallyRecorded",
+  correction_replacement: "originCorrectionReplacement",
+  channel_sale: "originChannelSale",
+} as const satisfies Record<SaleOrigin, string>;
 
 const PAYMENT_METHOD_KEYS = {
   cash: "paymentCash",
@@ -875,6 +887,11 @@ function SaleRows({
   const channelToken = saleChannelToken(sale.channel);
   const sourceToken = saleSourceToken(sale.source);
   const channel = channelToken ? t(CHANNEL_KEYS[channelToken]) : sale.channel;
+  const originToken = saleOriginToken(sale.origin);
+  // How this row got here, under the channel it got here on. An origin this app
+  // cannot name falls back to the API's own word, and a row that carries none at
+  // all says nothing rather than inventing a route (#370).
+  const origin = originToken ? t(ORIGIN_KEYS[originToken]) : sale.origin;
   const paymentToken = paymentMethodToken(sale.payment_method);
 
   return (
@@ -947,12 +964,21 @@ function SaleRows({
           {formatDateTime(sale.recorded_at, zone, locale)}
         </td>
         <td className="py-3 pr-4">
-          {sourceToken || sale.source
-            ? t("channelWithSource", {
-                channel,
-                source: sourceToken ? t(SOURCE_KEYS[sourceToken]) : (sale.source ?? ""),
-              })
-            : channel}
+          <div>
+            {sourceToken || sale.source
+              ? t("channelWithSource", {
+                  channel,
+                  source: sourceToken ? t(SOURCE_KEYS[sourceToken]) : (sale.source ?? ""),
+                })
+              : channel}
+          </div>
+          {/* The origin sits under the channel because it answers the next
+              question that cell raises: "Import · Direct" says the Organization
+              recorded this sale itself, and this says by which route — an
+              uploaded file, somebody typing, or a Sale Correction standing in
+              for a mistake. Read-only, and offered to every Member who may read
+              the list at all (#370). */}
+          {origin ? <div className="text-xs text-muted-foreground">{origin}</div> : null}
         </td>
         <td className="py-3 pr-4 font-mono text-xs">{sale.confirmation_ref}</td>
       </tr>

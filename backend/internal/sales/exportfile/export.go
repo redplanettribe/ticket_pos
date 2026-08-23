@@ -58,6 +58,7 @@ const (
 	colCurrency          = "currency"
 	colChannel           = "channel"
 	colSource            = "source"
+	colOrigin            = "origin"
 	colPaymentMethod     = "payment_method"
 	colStatus            = "status"
 	colReversedAt        = "reversed_at"
@@ -114,6 +115,15 @@ const (
 // net_proceeds immediately after amount: what the buyer paid and what the sale
 // left the Organization, side by side, which is where they get compared.
 //
+// The origin sits with those transaction facts, immediately after channel and
+// source (#373, ADR 0052), because it is the thing neither of them can say: a
+// Sale Import batch, a Manually Recorded Sale somebody typed and a Sale
+// Correction's replacement all read `import` in the channel column and `direct`
+// in the source column, so before this column the file could not tell an
+// accountant how a row they did not recognise got here. It comes AFTER both
+// rather than before, because the two stored facts are read first and the
+// derived one summarises them.
+//
 // The reversal pair comes last, after the status it elaborates: on the vast
 // majority of rows it says nothing at all, and a reader scanning left to right
 // should reach the whole of the sale before reaching the two columns that only
@@ -137,6 +147,7 @@ var fixedColumns = []string{
 	colCurrency,
 	colChannel,
 	colSource,
+	colOrigin,
 	colPaymentMethod,
 	colStatus,
 	colReversedAt,
@@ -262,8 +273,37 @@ type Sale struct {
 	Currency         string
 	Channel          string
 	Source           *string
-	PaymentMethod    *string
-	Status           string
+	// Origin is how this Ticket Sale reached the platform (#373, ADR 0052), and
+	// it is one of the four values sales.DeriveSaleOrigin answers with:
+	// `sale_import`, `manually_recorded`, `correction_replacement` or
+	// `channel_sale`. The caller derives it; nothing here restates the
+	// predicate, because a Manually Recorded Sale is recognised by a three-way
+	// negative and a second copy of that is the copy nobody updates. It is the
+	// same value the Sales list states on its rows (#370), so the file and the
+	// screen can never disagree about where a sale came from.
+	//
+	// It is a plain string and NOT a pointer, unlike ReversedBy beside it,
+	// because it is never absent: every Ticket Sale reached the platform
+	// somehow, and the derivation is total. That is deliberate and it is the
+	// distinction the blank-not-zero rule actually draws — a blank cell means
+	// the figure or the event does not apply to this row (no Net Proceeds, no
+	// Sale Reversal, no correction), and there is no sale to which "how did
+	// this get here" does not apply. A sale that came in on a Sales Channel of
+	// its own says `channel_sale` rather than leaving a hole an accountant would
+	// have to account for, which is also what makes grouping the file by origin
+	// add up to every row in it. The Info sheet names all four values, since
+	// they are the platform's vocabulary and not the reader's.
+	//
+	// The column deliberately does NOT name WHICH Sale Import batch an imported
+	// sale arrived in. A batch has no name a reader could use: sale_import_batches
+	// carries an id and the uploader's idempotency key, and neither is something
+	// the person holding this file ever saw. Printing a UUID per row would add a
+	// column of noise to the file the Organization forwards, and the Import
+	// history is the surface that lists batches. What the accountant needs from
+	// this file is which ROUTE a sale took, and that is what the column states.
+	Origin        string
+	PaymentMethod *string
+	Status        string
 	// ReversedAt is when the Sale Reversal happened, written as a real date cell
 	// in the Event's timezone exactly as SoldAt is — so a reader can sort by it
 	// and subtract it from the sale it undid.
@@ -394,6 +434,25 @@ func infoLines(info Info, loc *time.Location, rowCount int, answers Answers) []s
 		"This file reflects the filters that were on screen when it was downloaded, so two "+
 			"downloads of the same Event can differ. The Ticket Type columns are the Event's "+
 			"catalog as it stood at the moment above.",
+	)
+
+	// The origin column, defined value by value (#373, ADR 0052).
+	//
+	// This sheet is the only place in the workbook that can explain it. The
+	// column holds four tokens in the platform's vocabulary — nobody has met
+	// `correction_replacement` before, and a reader who did not download the
+	// file cannot ask the screen — while `channel` says `import` for three of
+	// the four, so the values cannot be worked out from the neighbouring
+	// columns either. Said as one paragraph rather than four lines, because it
+	// is a legend for one column and reads as a sentence.
+	lines = append(lines,
+		"",
+		"Each row's "+colOrigin+" says how the sale reached the platform: "+
+			"sale_import — it arrived in an uploaded Sale Import batch; "+
+			"manually_recorded — somebody typed it in here as a single sale, in no batch; "+
+			"correction_replacement — it stands in for a sale that was corrected, and the "+
+			colCorrects+" column names that sale; "+
+			"channel_sale — it was sold on the platform itself and not imported at all.",
 	)
 
 	// The second sheet is announced, because a reader who did not download the
@@ -671,7 +730,11 @@ func Build(sales []Sale, types []TicketTypeColumn, answers Answers, loc *time.Lo
 			colCustomerEmail:     sale.CustomerEmail,
 			colCurrency:          sale.Currency,
 			colChannel:           sale.Channel,
-			colStatus:            sale.Status,
+			// Written with the always-present text, never with the optional
+			// pointers below it: an origin is a fact of every row. See
+			// Sale.Origin.
+			colOrigin: sale.Origin,
+			colStatus: sale.Status,
 		}
 		for header, value := range text {
 			if err := setStr(f, DataSheet, cols, header, row, value); err != nil {

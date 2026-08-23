@@ -247,7 +247,7 @@ var (
 // filters.
 //
 // @Summary      List an Event's Ticket Sales
-// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo or a single-sale staff reversal did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, each with the linked sale's Confirmation reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref, all null until a correction is recorded — ADR 0050), each rolled-up Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled from the row, held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
+// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo or a single-sale staff reversal did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, each with the linked sale's Confirmation reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref, all null until a correction is recorded — ADR 0050), `origin` — how the sale reached the platform, one of `sale_import` (it arrived in an uploaded Sale Import batch), `manually_recorded` (a Manually Recorded Sale somebody typed), `correction_replacement` (a Sale Correction's replacement) or `channel_sale` (it sold on a Sales Channel of its own), derived from the row and stored nowhere, so a row nobody recognises can be accounted for (ADR 0052) — each rolled-up Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled from the row, held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -770,6 +770,26 @@ func rowValidationFields(result *importfile.ValidateResult) []platform.FieldErro
 	return fields
 }
 
+// bareRowValidationFields flattens ONE typed row's complaints into field errors
+// under the template's own column names — "quantity", not "rows[1].quantity".
+//
+// A form has an input per template column and no row index anywhere on it, so a
+// prefix here would name a field the caller cannot find and every typed route
+// would have to strip it back off (#367). The uploaded file keeps the prefix,
+// where it is the only thing telling row 3's complaint from row 40's.
+//
+// No stable code, for the reason rowValidationFields gives: a RowError is a
+// spreadsheet cell's complaint, shown verbatim, and Staff-only.
+func bareRowValidationFields(result *importfile.ValidateResult) []platform.FieldError {
+	var fields []platform.FieldError
+	for _, row := range result.Rows {
+		for _, e := range row.Errors {
+			fields = append(fields, platform.FieldError{Field: e.Field, Message: e.Message})
+		}
+	}
+	return fields
+}
+
 // parseSkipRows parses the multipart `skip_rows` field: a comma-separated list of
 // file row numbers to exclude from the commit (e.g. "3,7"), tolerating optional
 // surrounding brackets and whitespace. Blank means skip nothing.
@@ -930,22 +950,47 @@ type correctSaleBody struct {
 	SendConfirmation    bool   `json:"send_confirmation"`
 }
 
-// correctSaleInput lifts the decoded form into the service's input, trimming
-// every text cell as the commit and the preview both must.
+// correctSaleInput lifts the decoded form into the service's input: the
+// template's columns through the shared trim, plus the one field a correction
+// alone carries.
 func correctSaleInput(body correctSaleBody) service.CorrectSaleInput {
 	return service.CorrectSaleInput{
-		CustomerEmail:       strings.TrimSpace(body.CustomerEmail),
-		CustomerFirstName:   strings.TrimSpace(body.CustomerFirstName),
-		CustomerLastName:    strings.TrimSpace(body.CustomerLastName),
-		CustomerTaxIDType:   strings.TrimSpace(body.CustomerTaxIDType),
-		CustomerTaxIDNumber: strings.TrimSpace(body.CustomerTaxIDNumber),
-		TicketTypeID:        strings.TrimSpace(body.TicketTypeID),
-		Quantity:            body.Quantity,
-		PaymentMethod:       strings.TrimSpace(body.PaymentMethod),
-		SoldAt:              strings.TrimSpace(body.SoldAt),
-		AmountCents:         body.AmountCents,
-		SendConfirmation:    body.SendConfirmation,
+		ImportRowInput: trimmedImportRow(service.ImportRowInput{
+			CustomerEmail:       body.CustomerEmail,
+			CustomerFirstName:   body.CustomerFirstName,
+			CustomerLastName:    body.CustomerLastName,
+			CustomerTaxIDType:   body.CustomerTaxIDType,
+			CustomerTaxIDNumber: body.CustomerTaxIDNumber,
+			TicketTypeID:        body.TicketTypeID,
+			Quantity:            body.Quantity,
+			PaymentMethod:       body.PaymentMethod,
+			SoldAt:              body.SoldAt,
+			AmountCents:         body.AmountCents,
+		}),
+		SendConfirmation: body.SendConfirmation,
 	}
+}
+
+// trimmedImportRow trims every text cell of one typed Sale Import row, and is
+// the one place any route that types a row rather than uploading one does it
+// (#367).
+//
+// It is shared rather than repeated because the trim is part of the verdict,
+// not decoration: " a@b.com " is a valid email and "a@b.com " is not, so a
+// route that forgot to trim would refuse a row its sibling accepts — the exact
+// drift between the two typed routes that ADR 0052 requires cannot happen.
+// The uploaded file gets the same treatment from the parser, before a RawRow
+// exists at all.
+func trimmedImportRow(in service.ImportRowInput) service.ImportRowInput {
+	in.CustomerEmail = strings.TrimSpace(in.CustomerEmail)
+	in.CustomerFirstName = strings.TrimSpace(in.CustomerFirstName)
+	in.CustomerLastName = strings.TrimSpace(in.CustomerLastName)
+	in.CustomerTaxIDType = strings.TrimSpace(in.CustomerTaxIDType)
+	in.CustomerTaxIDNumber = strings.TrimSpace(in.CustomerTaxIDNumber)
+	in.TicketTypeID = strings.TrimSpace(in.TicketTypeID)
+	in.PaymentMethod = strings.TrimSpace(in.PaymentMethod)
+	in.SoldAt = strings.TrimSpace(in.SoldAt)
+	return in
 }
 
 // saleTarget reads and checks the two path ids of a correction call,
@@ -1012,7 +1057,7 @@ func (h *Handler) PreviewSaleCorrection(w http.ResponseWriter, r *http.Request) 
 // CorrectSale reverses one imported Ticket Sale and records its replacement.
 //
 // @Summary      Correct one imported Ticket Sale
-// @Description  A Sale Correction (ADR 0050): reverses a single active `import`-channel Ticket Sale and records a replacement in the SAME transaction, each pointing at the other (replaced_by_sale_id on the old sale, replaces_sale_id on the new one). The body is the Sale Import template's columns for the replacement — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents overriding the catalog price — plus `send_confirmation` (default false). The replacement is validated exactly like an import row: Ticket Type on the Event, Tax ID rules when either half is filled, Payment Method required, sold_at not in the future, capacity and the Purchase Limit both counted NET of the sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with one field error per offending column (field names are the template's column names) and writes nothing — the original sale stays active. The replacement is a fresh sale: channel `import`, source `direct`, no Sale Import batch (so a later batch undo never sweeps it), a new Sale Confirmation reference, and fresh Tickets all `unassigned` — no Ticket Assignment or Answer is carried over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation is true, in which case the replacement's Sale Confirmation (with the outstanding-answers line) goes to the replacement's email — never a voided mail. Works before, during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import.
+// @Description  A Sale Correction (ADR 0050): reverses a single active `import`-channel Ticket Sale and records a replacement in the SAME transaction, each pointing at the other (replaced_by_sale_id on the old sale, replaces_sale_id on the new one). The body is the Sale Import template's columns for the replacement — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents giving the price of ONE ticket, overriding the catalog price and multiplied by the quantity — plus `send_confirmation` (default false). The replacement is validated exactly like an import row: Ticket Type on the Event, Tax ID rules when either half is filled, Payment Method required, sold_at not in the future, capacity and the Purchase Limit both counted NET of the sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with one field error per offending column (field names are the template's column names) and writes nothing — the original sale stays active. The replacement is a fresh sale: channel `import`, source `direct`, no Sale Import batch (so a later batch undo never sweeps it), a new Sale Confirmation reference, and fresh Tickets all `unassigned` — no Ticket Assignment or Answer is carried over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation is true, in which case the replacement's Sale Confirmation (with the outstanding-answers line) goes to the replacement's email — never a voided mail. Works before, during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import.
 // @Tags         staff
 // @Accept       json
 // @Produce      json
@@ -1046,16 +1091,172 @@ func (h *Handler) CorrectSale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if invalid != nil {
-		// The one row's complaints, under the template's own column names: the
-		// form has a field per column and no "rows[1]." to strip.
-		var fields []platform.FieldError
-		for _, row := range invalid.Rows {
-			for _, e := range row.Errors {
-				fields = append(fields, platform.FieldError{Field: e.Field, Message: e.Message})
-			}
-		}
-		_ = platform.WriteValidationError(w, reqID, fields)
+		_ = platform.WriteValidationError(w, reqID, bareRowValidationFields(invalid))
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
+}
+
+// manualSaleBody is the Manually Recorded Sale form: the Sale Import template's
+// columns, cell for cell, and nothing else (#368, ADR 0052).
+//
+// It does NOT embed the Sale Correction's body even though the two are the same
+// columns today. Sharing one struct would put both routes' OpenAPI schema on one
+// definition, so a field added for one would silently appear on the other's
+// documented contract — and the two bodies are deliberately diverging: a
+// correction carries send_confirmation and this never will.
+//
+// THERE IS NO send_confirmation AND NO idempotency_key. The buyer is always
+// mailed, because no prior Sale Confirmation exists to fall back on; and the
+// create carries no key because there is no batch to hang one on, with the hole
+// that leaves named and accepted in ADR 0052's consequences.
+type manualSaleBody struct {
+	CustomerEmail       string `json:"customer_email"`
+	CustomerFirstName   string `json:"customer_first_name"`
+	CustomerLastName    string `json:"customer_last_name"`
+	CustomerTaxIDType   string `json:"customer_tax_id_type"`
+	CustomerTaxIDNumber string `json:"customer_tax_id_number"`
+	TicketTypeID        string `json:"ticket_type_id"`
+	// Quantity is a whole number of tickets. It is decoded as a raw JSON number
+	// and documented as an integer; manualSaleQuantity explains why the Go type
+	// is not one, and no client should read it as licence to send a decimal.
+	Quantity      json.Number `json:"quantity" swaggertype:"integer"`
+	PaymentMethod string      `json:"payment_method"`
+	SoldAt        string      `json:"sold_at"`
+	AmountCents   *int        `json:"amount_cents"`
+}
+
+// manualSaleQuantity reads the quantity cell, and is the whole reason the field
+// is a json.Number.
+//
+// A spreadsheet carries "1.5" as text and the import validator answers it on the
+// quantity column, with MsgQuantityNotWhole. A form carries it as a JSON number,
+// which an int field refuses at the decoder — turning a complaint the organizer
+// could act on into an unparseable body naming nothing. So the fractional case
+// is caught here and answered in the validator's own words, on the validator's
+// own column, and everything else falls through to be judged exactly as an
+// uploaded row is.
+//
+// A blank or absent quantity reads as 0 and is left to the validator, which
+// already says "must be greater than zero" about it.
+func manualSaleQuantity(raw json.Number) (int, *platform.FieldError) {
+	if strings.TrimSpace(raw.String()) == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw.String())
+	if err != nil {
+		return 0, &platform.FieldError{Field: importfile.ColQuantity, Message: importfile.MsgQuantityNotWhole}
+	}
+	return n, nil
+}
+
+// manualSaleInput lifts the decoded form into the shared typed-import-row input,
+// through the same trim every typed route uses — the trim is part of the
+// verdict, not decoration (see trimmedImportRow).
+func manualSaleInput(body manualSaleBody, quantity int) service.ImportRowInput {
+	return trimmedImportRow(service.ImportRowInput{
+		CustomerEmail:       body.CustomerEmail,
+		CustomerFirstName:   body.CustomerFirstName,
+		CustomerLastName:    body.CustomerLastName,
+		CustomerTaxIDType:   body.CustomerTaxIDType,
+		CustomerTaxIDNumber: body.CustomerTaxIDNumber,
+		TicketTypeID:        body.TicketTypeID,
+		Quantity:            quantity,
+		PaymentMethod:       body.PaymentMethod,
+		SoldAt:              body.SoldAt,
+		AmountCents:         body.AmountCents,
+	})
+}
+
+// manualSaleForm reads the Event id and decodes the form both manual-sale routes
+// take, writing the refusal itself when either is unusable.
+//
+// The quantity complaint is written as a VALIDATION_FAILED naming the column,
+// exactly as the service's own refusals are, so a form that renders errors
+// beside their inputs needs no second shape for this one.
+func manualSaleForm(w http.ResponseWriter, r *http.Request, reqID string) (eventID string, in service.ImportRowInput, ok bool) {
+	eventID = strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return "", service.ImportRowInput{}, false
+	}
+	var body manualSaleBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return "", service.ImportRowInput{}, false
+	}
+	quantity, complaint := manualSaleQuantity(body.Quantity)
+	if complaint != nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{*complaint})
+		return "", service.ImportRowInput{}, false
+	}
+	return eventID, manualSaleInput(body, quantity), true
+}
+
+// RecordManualSale records one Manually Recorded Sale.
+//
+// @Summary      Record one Ticket Sale by hand
+// @Description  A Manually Recorded Sale (#368, ADR 0052): ONE Sale Import row typed instead of uploaded. The body is the Sale Import template's columns — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents giving the price of ONE ticket, overriding the Ticket Type's catalog price and multiplied by the quantity (0 records a comp). There is deliberately NO send_confirmation and NO idempotency_key. The row is validated exactly as an import row: Ticket Type on this Event, the Tax ID pair rule with the pair optional, a positive integer quantity, sold_at not in the future — plus two departures from the file import, both deliberate: CAPACITY is refused here on the quantity rather than deferred to a batch commit, and the PURCHASE LIMIT is enforced. A refused row returns 400 VALIDATION_FAILED with one field error per offending column, named by the template's bare column name with no rows[N]. prefix, and writes nothing. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries possible_duplicate with duplicate_of_date — a warning that never blocks the record. The recorded sale is a Direct Sale on the `import` channel with source `direct` and NO Sale Import batch: it never appears in the Import history, and recording one never stops an earlier upload being the latest batch, so an existing batch stays undoable. Tickets are minted one per unit, all `unassigned` and none self-held; no fee snapshot is written, so the sale contributes its full price to Takings and nothing to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation, in their own remembered language; confirmation_sent reports whether that mail went out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION before any field is judged on an Event that registers externally, 404 EVENT_NOT_FOUND when the Event is not this Organization's, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import; reading the Sales list is not.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string          true  "Event ID"
+// @Param        body  body      manualSaleBody  true  "The sale, as the Sale Import template's columns"
+// @Success      201   {object}  platform.Envelope
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales [post]
+func (h *Handler) RecordManualSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, in, ok := manualSaleForm(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	result, invalid, err := h.svc.RecordManualSale(r.Context(), actorFromRequest(r), eventID, in)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	if invalid != nil {
+		_ = platform.WriteValidationError(w, reqID, bareRowValidationFields(invalid))
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
+}
+
+// PreviewManualSale judges a Manually Recorded Sale without recording anything.
+//
+// @Summary      Preview one Manually Recorded Sale
+// @Description  The manual sale form's live verdict (#368, ADR 0052): validates the row exactly as POST .../sales would, and writes nothing. The body is the same as the record's. Returns the Sale Import preview's shape — `rows` holding exactly one row with its `valid` flag and per-column `errors` (field names are the template's bare column names), `capacity_impact` per Ticket Type, and `committable`. Capacity and the Purchase Limit are both decided here, on the quantity column, which is what lets the organizer learn the Event is full or the buyer over their allowance while the number can still be changed. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries `possible_duplicate` with `duplicate_of_date`, a warning that does not block. Always 200 whatever the verdict, with the same refusals and the same permission gate as the record.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string          true  "Event ID"
+// @Param        body  body      manualSaleBody  true  "The sale, as the Sale Import template's columns"
+// @Success      200   {object}  platform.Envelope
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/preview [post]
+func (h *Handler) PreviewManualSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, in, ok := manualSaleForm(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	result, err := h.svc.PreviewManualSale(r.Context(), actorFromRequest(r), eventID, in)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
 }

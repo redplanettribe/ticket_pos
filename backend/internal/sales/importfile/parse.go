@@ -43,6 +43,18 @@ const (
 // — a row over the allowance is fixed by lowering or removing its quantity.
 const ColQuantity = colQuantity
 
+// MsgQuantityNotWhole is the validator's complaint about a quantity cell holding
+// something that is not a whole number.
+//
+// It is exported for the ONE caller that can meet a fractional quantity without
+// this package ever seeing it: a typed route whose transport is JSON, where 1.5
+// arrives as a number rather than as text and is refused by the decoder before a
+// RawRow exists (#368). That route raises the complaint itself, and says it in
+// these words rather than its own, so an organizer typing "1.5" is told the same
+// thing whether they typed it into the form or into the spreadsheet — the
+// no-drift rule ADR 0052 turns on.
+const MsgQuantityNotWhole = "must be a whole number"
+
 // requiredHeaders must all be present for a file to be parseable at all.
 var requiredHeaders = []string{
 	colCustomerEmail, colCustomerFirstName, colCustomerLastName, colTicketType,

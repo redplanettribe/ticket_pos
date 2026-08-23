@@ -42,7 +42,7 @@ var templatePrompts = map[string]string{
 	colQuantity:          "Required. Number of tickets sold. A whole number, 1 or more.",
 	colPaymentMethod:     "Required. How the sale was paid: pick cash or transfer.",
 	colSoldAt:            "Sale date, e.g. 2026-07-15. Not in the future.",
-	colAmount:            "Total paid, e.g. 25.00. Leave blank to use the Ticket Type's own price.",
+	colAmount:            "Price per ticket, e.g. 25.00 — not the row's total. Leave blank to use the Ticket Type's own price.",
 
 	colCustomerTaxIDType:   "Optional. The buyer's ID type: pick cedula, ruc or passport. Leave blank if you didn't collect one.",
 	colCustomerTaxIDNumber: "Optional. The buyer's ID number, e.g. 1712345675. Fill it in only together with the type.",
@@ -58,7 +58,7 @@ var templateHeaderComments = map[string]string{
 	colQuantity:          "How many tickets of this Ticket Type were sold on this row. Required. A whole number of 1 or more.",
 	colPaymentMethod:     "How this Direct Sale was paid. Required. cash or transfer.",
 	colSoldAt:            "The date the sale was made, e.g. 2026-07-15. Should not be in the future.",
-	colAmount:            "Total amount paid for this row. Leave blank to use the Ticket Type's own price.",
+	colAmount:            "What one ticket on this row cost, e.g. 25.00 — not the row's total. It is multiplied by the quantity: a row of 3 at 25.00 records a sale of 75.00. Leave blank to use the Ticket Type's own price.",
 
 	colCustomerTaxIDType:   "Optional. Which kind of ID the buyer gave for tax declarations: cedula, ruc or passport. Leave the whole pair blank when you didn't collect one — those sales still import.",
 	colCustomerTaxIDNumber: "Optional. The ID number itself, checked when you fill it in: a cédula is 10 digits, a RUC 13, a passport 6–20 letters or digits. Fill it in together with the type.",
@@ -75,7 +75,7 @@ var templateInstructions = []string{
 	"4. quantity is the number of tickets sold on that row (a whole number, 1 or more).",
 	"5. payment_method is how it was paid: cash or transfer.",
 	"6. sold_at is the sale date, e.g. 2026-07-15. It should not be in the future.",
-	"7. amount is the total paid. Leave it blank to use the Ticket Type's own price.",
+	"7. amount is the price of one ticket, not the row's total — 3 tickets at 25.00 records a sale of 75.00. Leave it blank to use the Ticket Type's own price.",
 	"8. customer_tax_id_type and customer_tax_id_number are optional: fill both in only for sales where you collected the buyer's ID, and leave both blank otherwise.",
 	"",
 	"Tip: select a cell to see a hint for that column. Warnings are just guidance — the upload preview does the final check.",

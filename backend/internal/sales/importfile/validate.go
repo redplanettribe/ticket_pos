@@ -298,7 +298,7 @@ func validateRow(raw RawRow, byID, byName map[string]TicketTypeRef, loc *time.Lo
 	if raw.Quantity == "" {
 		add(colQuantity, "is required")
 	} else if q, err := strconv.Atoi(raw.Quantity); err != nil {
-		add(colQuantity, "must be a whole number")
+		add(colQuantity, MsgQuantityNotWhole)
 	} else if q <= 0 {
 		add(colQuantity, "must be greater than zero")
 	} else {
