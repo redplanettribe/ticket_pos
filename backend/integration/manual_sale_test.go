@@ -111,7 +111,13 @@ func manualSaleBody(email, first, last, ttID string, quantity int, method, soldA
 // A SALE TYPED BY HAND IS ONE BATCHLESS DIRECT SALE. The response names the
 // sale and its Sale Confirmation reference; the row reads `import`/`direct` with
 // no batch and no correction link; the Import history never hears of it; a
-// Ticket is minted per unit, all unassigned and none self-held; capacity,
+// Ticket is minted per unit and — WITH TICKET_ASSIGNMENT_ENABLED CLOSED, WHICH
+// IS WHAT THIS FIXTURE LEAVES IT — none of them is held. That last clause used
+// to be unconditional. ADR 0055 repealed it: with the flag open this route
+// seats the buyer on Ticket 1 like any other, which is asserted in
+// self_held_ticket_test.go's TestAManuallyRecordedSaleSeatsTheBuyerOnTicketOne.
+// What is checked below is the flag being shut, not a rule about hand-typed
+// sales; capacity,
 // Tickets Sold and Takings all move, Net Proceeds does not; and the buyer is
 // mailed exactly once.
 func TestRecordingASaleByHandRecordsOneBatchlessDirectSale(t *testing.T) {
@@ -189,7 +195,7 @@ func TestRecordingASaleByHandRecordsOneBatchlessDirectSale(t *testing.T) {
 		t.Fatalf("read the Tickets: %v", err)
 	}
 	if touched != 0 {
-		t.Errorf("%d Tickets carry a Holder or an acceptance, want 0 — all unassigned, none self-held", touched)
+		t.Errorf("%d Tickets carry a Holder or an acceptance, want 0 — TICKET_ASSIGNMENT_ENABLED is closed in this fixture, so no Self-held Ticket (ADR 0055)", touched)
 	}
 
 	// THE FIGURES MOVE, EXCEPT THE ONE A DIRECT SALE NEVER TOUCHES.
