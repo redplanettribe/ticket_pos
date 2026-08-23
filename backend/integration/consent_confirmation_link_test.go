@@ -22,6 +22,16 @@ import (
 // NOT work — twice, against an answer the owner has since given, and from a
 // token minted for something else.
 //
+// NOTHING CREATES A PENDING CONFIRMATION ANY MORE (ADR 0054, #386): the guest
+// checkout was its only producer and that route is deleted. This file is
+// therefore about a BACKLOG rather than about a flow — every link it exercises
+// was issued before the door closed, and every one of them must still resolve,
+// because the alternative to leaving a Pending Confirmation alone is either
+// manufacturing consent or destroying evidence. Its setup ages a Payment into
+// the shape the deleted route wrote (beginLegacyGuestCheckout) and settles it
+// through the return leg that is still live, so what is under test is today's
+// code meeting yesterday's rows.
+//
 // The seam is HTTP and the mail, as everywhere in this package. The token is
 // read out of the MESSAGE a Customer actually received rather than minted
 // through a back door, because "the receipt carries the link" is the criterion
@@ -100,19 +110,25 @@ func confirmConsentOK(t *testing.T, env *testEnv, token string) consentConfirmat
 	return view
 }
 
-// guestCheckoutPending runs one guest checkout with the optional boxes as
+// guestCheckoutPending settles one guest checkout with the optional boxes as
 // given, and returns the token out of the receipt it produced. It is the setup
 // almost every test below shares: somebody typed an address they had not
 // proven, ticked something, and paid.
+//
+// SUCH A CHECKOUT CAN NO LONGER BE BEGUN (ADR 0054, #386), which is why this
+// goes through beginLegacyGuestCheckout: the Payment is aged into the shape the
+// deleted route wrote, and then settled by the return leg exactly as it stands
+// today. That is not a workaround, it is the situation — these links were issued
+// before the door closed and have to keep resolving after it.
+//
 // The optional answers are POINTERS, because the three cases are three
 // different facts: ticked, shown and left unticked (an explicit No, which
 // occupies the state and cannot later be pended over), and not shown at all.
 func guestCheckoutPending(t *testing.T, env *testEnv, sessionID, email, eventSlug string, marketing, networking *bool) string {
 	t.Helper()
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Pending Fest", eventSlug, 1000, 10)
-	begin := beginCheckoutWithEvidenceOK(t, env, testOrgSlug, eventSlug, "",
-		consentCheckoutBody(email, "Ana", "Lopez",
-			boolPtr(true), marketing, networking, cartLine(gaID, 1)))
+	begin := beginLegacyGuestCheckout(t, env, eventSlug, email, "Ana", "Lopez",
+		boolPtr(true), marketing, networking, cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
 	confirmations := saleConfirmationsFor(t, env, email)
@@ -136,9 +152,8 @@ func TestSaleConfirmationCarriesTheConfirmationLineOnlyWhenSomethingPends(t *tes
 	// A guest who ticked nothing: an explicit No, nothing pends, nothing to
 	// confirm.
 	_, quietID := publishCheckoutEvent(t, env, sessionID, "Quiet Fest", "quiet-fest", 1000, 10)
-	quiet := beginCheckoutWithEvidenceOK(t, env, testOrgSlug, "quiet-fest", "",
-		consentCheckoutBody("quiet@example.com", "Quiet", "Buyer",
-			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(quietID, 1)))
+	quiet := beginLegacyGuestCheckout(t, env, "quiet-fest", "quiet@example.com", "Quiet", "Buyer",
+		boolPtr(true), boolPtr(false), boolPtr(false), cartLine(quietID, 1))
 	confirmCheckoutOK(t, env, quiet.ClientTransactionID, "approved")
 
 	quietReceipts := saleConfirmationsFor(t, env, "quiet@example.com")
@@ -354,9 +369,8 @@ func TestAPressConfirmsOnlyWhatItsLinkWasMintedFor(t *testing.T) {
 	// A later checkout on the same address ticks Networking, which pends because
 	// its owner has still never answered it.
 	_, secondID := publishCheckoutEvent(t, env, sessionID, "Later Fest", "later-fest", 1000, 10)
-	later := beginCheckoutWithEvidenceOK(t, env, testOrgSlug, "later-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(true), boolPtr(true), cartLine(secondID, 1)))
+	later := beginLegacyGuestCheckout(t, env, "later-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(true), boolPtr(true), cartLine(secondID, 1))
 	confirmCheckoutOK(t, env, later.ClientTransactionID, "approved")
 
 	if state := readConsentState(t, env, "ana@example.com"); state.NetworkingConsent.String != "pending_confirmation" {

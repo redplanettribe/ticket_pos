@@ -402,15 +402,14 @@ func TestFreeClaimAppliesTheSelfAssertedTaxIDRules(t *testing.T) {
 	_, freeID := publishCheckoutEvent(t, env, sessionID, "Asserted Fest", "asserted-fest", 0, 10)
 	line := cartLine(freeID, 1)
 
-	// She claims once as a guest, filling her blank Tax ID, then claims the
-	// record by signing in.
-	first := beginCheckoutSettled(t, env, "test-org", "asserted-fest", "",
+	// She claims once, filling her blank Tax ID.
+	token := buyerSession(t, env, "ana@example.com")
+	first := beginCheckoutSettled(t, env, "test-org", "asserted-fest", token,
 		taxIDCheckoutBody("ana@example.com", "Ana", "Lopez", "cedula", validCedula, line))
 	approvedRef(t, first)
 	if got := readCustomerTaxID(t, env, "ana@example.com"); !got.is("cedula", validCedula) {
-		t.Fatalf("customer tax id after the guest claim = %s, want the filled cedula:%s", got, validCedula)
+		t.Fatalf("customer tax id after her claim = %s, want the filled cedula:%s", got, validCedula)
 	}
-	token := customerSignIn(t, env, "ana@example.com")
 
 	// Signed in, she claims again under her company RUC: the person correcting
 	// herself, so the write-back applies.
@@ -424,17 +423,20 @@ func TestFreeClaimAppliesTheSelfAssertedTaxIDRules(t *testing.T) {
 		t.Fatalf("her sale tax id = %s, want ruc:%s", got, companyRUC)
 	}
 
-	// A stranger claims a free ticket under her address with a number of their
-	// choosing. The sale records what was typed; her profile does not move.
-	stranger := beginCheckoutSettled(t, env, "test-org", "asserted-fest", "",
+	// And a free claim is gated exactly as a paid one: a body naming her address,
+	// sent from somebody else's session, reaches her in no way (ADR 0054, #386).
+	// A ticket that costs nothing is still a Customer record written and a receipt
+	// emailed, so the door in front of it is the same door.
+	stranger := beginCheckoutSmugglingOK(t, env, "test-org", "asserted-fest",
+		buyerSession(t, env, "bruno@example.com"),
 		taxIDCheckoutBody("ana@example.com", "Ana", "Lopez", "cedula", otherCedula, line))
-	strangerRef := approvedRef(t, stranger)
 	if got := readCustomerTaxID(t, env, "ana@example.com"); !got.is("ruc", companyRUC) {
-		t.Fatalf("customer tax id after the anonymous claim = %s, want the untouched ruc:%s", got, companyRUC)
+		t.Fatalf("customer tax id after somebody else's claim = %s, want the untouched ruc:%s", got, companyRUC)
 	}
-	if got := readSaleTaxID(t, env, strangerRef); !got.is("cedula", otherCedula) {
-		t.Fatalf("stranger's sale tax id = %s, want the typed cedula:%s", got, otherCedula)
+	if got := readCustomerTaxID(t, env, "bruno@example.com"); !got.is("cedula", otherCedula) {
+		t.Fatalf("his tax id = %s, want the cedula he typed about himself", got)
 	}
+	_ = stranger
 }
 
 // TestFreeClaimsAreFilterableByPaymentMethod: `free` is a Payment Method like

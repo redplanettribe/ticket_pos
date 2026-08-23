@@ -567,6 +567,10 @@ func TestAnswerReminderIsNeverSentForAReversedSale(t *testing.T) {
 // domain (ADR 0030, ADR 0034).
 func TestAnswerReminderIsSentRegardlessOfMarketingConsent(t *testing.T) {
 	env := setupTest(t)
+	// The buyer declines both optional consents at the door, which is where they
+	// are asked since ADR 0054 — so what follows is a purchase by somebody who
+	// granted nothing, which is the only thing this test means anything about.
+	buyerDecliningMarketing(t, env, "ana@example.com")
 	newReminderFixture(t, env)
 
 	var digestEnabled bool

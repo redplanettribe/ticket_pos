@@ -21,13 +21,35 @@ import (
 //
 //   - Nobody reaches a Payment Provider under an unaccepted Privacy Policy.
 //   - No Payment that failed to become a sale leaves any trace of consent.
-//   - Nothing a guest ticks can speak for an inbox they have not proven.
+//   - Nothing a guest ticked can speak for an inbox they had not proven.
+//
+// THE THIRD IS IN THE PAST TENSE NOW (ADR 0054, #386). Checkout begins signed
+// in, so every answer captured here is given by somebody who proved the address
+// it is recorded against, and nothing this platform does creates a Pending
+// Confirmation any more. The rule survives its producer, and so do the tests
+// about it: the Payments a guest began before the door closed are still in the
+// table, they still settle through this exact commit path, and settling one must
+// still not silence a legacy subscriber or overwrite an answer its owner gave.
+// Those tests run through beginLegacyGuestCheckout, which ages a Payment into
+// the shape the deleted route wrote. Everything else here runs under a session.
+//
+// WHO IS OWED A BOX AT CHECKOUT AT ALL, now that consent is collected at the
+// sign-in door: a Customer caught by a Policy Version published under a live
+// session, and one whose optional boxes have never been answered — which is the
+// state every address a legacy guest checkout minted is in, and which the
+// sign-in gate lets straight through because it holds on Policy Acceptance
+// alone. signedInOwingEveryBox builds both at once.
 
 // consentCheckoutBody is a begin-checkout body with the three boxes stated
 // explicitly. A nil answer omits the key entirely, which is the wire's way of
 // saying the box was not shown — not the same as sending false.
-func consentCheckoutBody(email, firstName, lastName string, policy, marketing, networking *bool, lines ...map[string]any) map[string]any {
-	body := checkoutBody(email, firstName, lastName, lines...)
+//
+// It names no buyer. On this file's helper the buyer is the SESSION TOKEN passed
+// to beginCheckoutWithEvidence, which is the whole subject here: who is asked
+// what, and whose answer it counts as, are now one question with one answer.
+func consentCheckoutBody(firstName, lastName string, policy, marketing, networking *bool, lines ...map[string]any) map[string]any {
+	body := checkoutBody("", firstName, lastName, lines...)
+	delete(body, buyerEmailKey)
 	delete(body, "policy_acceptance")
 	if policy != nil {
 		body["policy_acceptance"] = *policy
@@ -41,10 +63,16 @@ func consentCheckoutBody(email, firstName, lastName string, policy, marketing, n
 	return body
 }
 
-// beginCheckoutWithEvidence begins a checkout carrying the circumstances a real
-// request arrives with — the client IP as the BFF derived it, the browser's user
-// agent, and the page the dialog was open on. The same headers the sign-in
-// consent step is tested with, because the evidence is the same evidence.
+// beginCheckoutWithEvidence begins a checkout as the Customer holding `token`,
+// carrying the circumstances a real request arrives with — the client IP as the
+// BFF derived it, the browser's user agent, and the page the dialog was open on.
+// The same headers the sign-in consent step is tested with, because the evidence
+// is the same evidence.
+//
+// The token is passed rather than minted (as beginCheckout mints one) because
+// every test in this file and its neighbour is about a Customer in a PARTICULAR
+// consent state, built deliberately at sign-in. An empty token posts no
+// Authorization at all, which is how the tests about the wall read the refusal.
 func beginCheckoutWithEvidence(t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any) (*http.Response, envelope) {
 	t.Helper()
 	headers := map[string]string{
@@ -55,7 +83,7 @@ func beginCheckoutWithEvidence(t *testing.T, env *testEnv, orgSlug, eventSlug, t
 	if token != "" {
 		headers["Authorization"] = "Bearer " + token
 	}
-	return env.post(t, "/api/v1/public/organizations/"+orgSlug+"/events/"+eventSlug+"/checkout", body, headers)
+	return env.post(t, "/api/v1/customer/organizations/"+orgSlug+"/events/"+eventSlug+"/checkout", body, headers)
 }
 
 func beginCheckoutWithEvidenceOK(t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any) beginCheckoutResult {
@@ -69,6 +97,92 @@ func beginCheckoutWithEvidenceOK(t *testing.T, env *testEnv, orgSlug, eventSlug,
 		t.Fatalf("decode begin checkout result: %v", err)
 	}
 	return result
+}
+
+// legacyGuestBuyerEmail is the proven address a legacy Payment is BEGUN under
+// before it is rewritten into a guest's. Nothing is ever asserted about it: it
+// exists only because beginning a checkout now requires somebody real.
+const legacyGuestBuyerEmail = "legacy-buyer@example.com"
+
+// beginLegacyGuestCheckout produces the one thing this platform can no longer
+// produce: a Payment shaped like a guest checkout begun before ADR 0054 — a
+// typed, UNPROVEN address and consent answers given for it — sitting in the
+// table, waiting for a return leg that runs under the new code.
+//
+// WHY IT EXISTS AT ALL. #386 deleted the guest begin-checkout, so a Pending
+// Confirmation has no producer any more; but Pending Confirmations are RECORDED,
+// their Consent Confirmation Links are in people's inboxes, and every path that
+// resolves one has to keep working (ADR 0054, which supersedes ADR 0035's
+// producer and not its state). Testing those paths needs the state, and the
+// state has to be built the way history built it or the tests prove nothing
+// about history.
+//
+// WHY IT IS SURGERY RATHER THAN A FIXTURE. The pending write happens deep in the
+// commit — the repository reads `customer_session_authorized` off the Payment
+// and passes it to the consent capture as EmailProven — so seeding the consent
+// columns directly would skip exactly the code under test. Rewriting the Payment
+// instead runs the real confirm, the real capture, the real receipt and the real
+// token, and it is a faithful picture of the deploy: Payments begun under the
+// old rules do settle under the new binary, and this is what they look like.
+func beginLegacyGuestCheckout(
+	t *testing.T, env *testEnv, eventSlug, email, firstName, lastName string,
+	policy, marketing, networking *bool, lines ...map[string]any,
+) beginCheckoutResult {
+	t.Helper()
+	begin := beginCheckoutWithEvidenceOK(t, env, testOrgSlug, eventSlug,
+		buyerSession(t, env, legacyGuestBuyerEmail),
+		consentCheckoutBody(firstName, lastName, nil, nil, nil, lines...))
+
+	// The Payment as the deleted route would have written it: addressed to an
+	// address nobody proved, carrying the three answers a guest was always shown.
+	if _, err := env.db.Exec(`
+		UPDATE payments
+		   SET customer_email = $2,
+		       customer_session_authorized = FALSE,
+		       consent_policy_acceptance = $3,
+		       consent_marketing = $4,
+		       consent_networking = $5
+		 WHERE client_transaction_id = $1
+	`, begin.ClientTransactionID, email,
+		nullableBoolArg(policy), nullableBoolArg(marketing), nullableBoolArg(networking)); err != nil {
+		t.Fatalf("age the payment into a guest checkout: %v", err)
+	}
+	return begin
+}
+
+// nullableBoolArg keeps the nil load-bearing across the SQL boundary: a box that
+// was not shown is a NULL column, never a false.
+func nullableBoolArg(v *bool) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+// signedInOwingEveryBox returns a Customer Session whose holder is owed all
+// three consent boxes at the checkout dialog — the nearest thing left to the
+// guest most of this file was written about, and reachable without inventing
+// anything.
+//
+// The optional pair is unanswered because that is a state real people are in:
+// every address a legacy guest checkout created carries it, and the sign-in gate
+// holds on Policy Acceptance ALONE, so such a person signs straight through and
+// meets those two boxes at the dialog for the first time. The required box is
+// outstanding because a new Policy Version is published under her live session,
+// which is the one way that happens now that acceptance is collected at sign-in
+// and a session cannot be re-gated once minted.
+//
+// Both steps are writes no surface performs — you cannot UNanswer a consent, and
+// nothing lets a test publish a policy through the API — so both are SQL. They
+// are a starting state, not a transition.
+func signedInOwingEveryBox(t *testing.T, env *testEnv, email string) string {
+	t.Helper()
+	token := customerSignIn(t, env, email)
+	forgetConsentAnswers(t, env, email, false)
+	publishPolicyVersion(t, env, "1-test")
+	assertBoxes(t, signedInConsentBoxes(t, env, token), true, true, true,
+		"a re-gated Customer who has never answered either optional box")
+	return token
 }
 
 // countConsentRecords counts the whole evidence log, for the assertions whose
@@ -110,11 +224,18 @@ func readPaymentConsent(t *testing.T, env *testEnv, clientTransactionID string) 
 // TestCheckoutRefusedWithoutPolicyAcceptance is the gate itself, and it is the
 // API's gate rather than the dialog's: a caller that is not the Storefront gets
 // the same refusal, and nothing at all is recorded.
+//
+// The buyer here is the only person left who can meet a required box at a
+// checkout: one holding a live session when a new Policy Version is published.
+// The gate did not change with ADR 0054; who reaches it did.
 func TestCheckoutRefusedWithoutPolicyAcceptance(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 	line := cartLine(gaID, 1)
+
+	token := signedInOwingEveryBox(t, env, "ana@example.com")
+	recordsBefore := countConsentRecords(t, env)
 
 	cases := []struct {
 		name   string
@@ -128,14 +249,23 @@ func TestCheckoutRefusedWithoutPolicyAcceptance(t *testing.T) {
 		{name: "box explicitly declined", policy: boolPtr(false)},
 	}
 	for _, tc := range cases {
-		resp, body := beginCheckoutWithEvidence(t, env, "test-org", "consent-fest", "",
-			consentCheckoutBody("ana@example.com", "Ana", "Lopez", tc.policy, boolPtr(true), boolPtr(true), line))
+		resp, body := beginCheckoutWithEvidence(t, env, "test-org", "consent-fest", token,
+			consentCheckoutBody("Ana", "Lopez", tc.policy, boolPtr(true), boolPtr(true), line))
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s: status=%d, want 400", tc.name, resp.StatusCode)
 		}
 		if body.Error == nil || body.Error.Code != "POLICY_ACCEPTANCE_REQUIRED" {
 			t.Fatalf("%s: error=%+v, want POLICY_ACCEPTANCE_REQUIRED", tc.name, body.Error)
 		}
+	}
+
+	// And the gate in front of the gate: no Customer Session, no checkout at all
+	// (ADR 0054). A body that accepts everything cannot buy its way past it,
+	// because there is no longer a route on which an unproven buyer is a buyer.
+	resp, body := beginCheckoutWithEvidence(t, env, "test-org", "consent-fest", "",
+		consentCheckoutBody("Ana", "Lopez", boolPtr(true), boolPtr(true), boolPtr(true), line))
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous checkout: status=%d error=%+v, want 401", resp.StatusCode, body.Error)
 	}
 
 	// The refusal is total. No Payment means no Capacity Hold on tickets nobody
@@ -148,8 +278,8 @@ func TestCheckoutRefusedWithoutPolicyAcceptance(t *testing.T) {
 	if payments != 0 {
 		t.Fatalf("payments after refused begins = %d, want 0", payments)
 	}
-	if got := countConsentRecords(t, env); got != 0 {
-		t.Fatalf("consent records after refused begins = %d, want 0", got)
+	if got := countConsentRecords(t, env); got != recordsBefore {
+		t.Fatalf("consent records after refused begins = %d, want the %d her sign-in left", got, recordsBefore)
 	}
 }
 
@@ -161,14 +291,16 @@ func TestCheckoutConsentSurvivesTheProviderRedirect(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+	token := signedInOwingEveryBox(t, env, "ana@example.com")
+
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez",
 			boolPtr(true), boolPtr(true), boolPtr(true), cartLine(gaID, 1)))
 
-	// Between the two legs there is a Payment and nothing else. Not even a
-	// Customer: the record the evidence would have to point at does not exist yet.
-	if got := countConsentRecords(t, env); got != 0 {
-		t.Fatalf("consent records before the sale commits = %d, want 0", got)
+	// Between the two legs there is a Payment and nothing else: the answers are
+	// held, and the evidence of the checkout does not exist until the sale does.
+	if got := len(consentRecordsOn(t, env, "ana@example.com", "checkout")); got != 0 {
+		t.Fatalf("checkout consent records before the sale commits = %d, want 0", got)
 	}
 	snapshot := readPaymentConsent(t, env, begin.ClientTransactionID)
 	if snapshot.PolicyAcceptance == nil || !*snapshot.PolicyAcceptance {
@@ -197,20 +329,18 @@ func TestCheckoutConsentSurvivesTheProviderRedirect(t *testing.T) {
 		t.Fatalf("confirm status = %q, want approved", confirmed.Status)
 	}
 
-	records := readConsentRecords(t, env, "ana@example.com")
+	records := consentRecordsOn(t, env, "ana@example.com", "checkout")
 	if len(records) != 1 {
-		t.Fatalf("consent records = %d, want exactly one for one capture act", len(records))
+		t.Fatalf("checkout consent records = %d, want exactly one for one capture act", len(records))
 	}
 	record := records[0]
-	if record.Channel != "checkout" {
-		t.Fatalf("channel = %q, want checkout", record.Channel)
-	}
-	// The address AS ASSERTED on the dialog, and unproven: a guest typed it.
+	// The address the SESSION named, and there is no other kind: it is not
+	// asserted on the dialog any more, it is read off the credential (ADR 0054).
 	if record.Email != "ana@example.com" {
 		t.Fatalf("record email = %q", record.Email)
 	}
-	if record.EmailProven {
-		t.Fatal("email_proven = true on a guest checkout; nobody proved that address")
+	if !record.EmailProven {
+		t.Fatal("email_proven = false on a checkout that could only be begun with proof of that address")
 	}
 	if !record.PolicyAcceptance.Valid || !record.PolicyAcceptance.Bool {
 		t.Fatalf("recorded policy_acceptance = %+v, want true", record.PolicyAcceptance)
@@ -236,9 +366,12 @@ func TestCheckoutConsentSurvivesTheProviderRedirect(t *testing.T) {
 	if !record.OriginURL.Valid || record.OriginURL.String == "" {
 		t.Fatalf("recorded origin url = %+v", record.OriginURL)
 	}
-	// No session id, and that is the truth about a guest: there was no session.
+	// No session id, and that is still the truth even though there is now always a
+	// session: the act this record evidences is finished by a redirect back from a
+	// Payment Provider, which no session outlives. What ties the evidence to what
+	// happened is the Ticket Sale.
 	if record.SessionID.Valid {
-		t.Fatalf("recorded session id = %+v, want none on a guest checkout", record.SessionID)
+		t.Fatalf("recorded session id = %+v, want none on a checkout settled across a redirect", record.SessionID)
 	}
 
 	state := readConsentState(t, env, "ana@example.com")
@@ -250,26 +383,32 @@ func TestCheckoutConsentSurvivesTheProviderRedirect(t *testing.T) {
 	if state.PolicyVersionID.String != currentPolicyVersionID(t, env) {
 		t.Fatalf("stored policy_version_id = %q, want the current edition", state.PolicyVersionID.String)
 	}
-	// The optional ticks are somebody's claim on an address nobody proved, so
-	// they pend: recorded, denied for sending, unanswered for prompting.
-	if state.MarketingConsent.String != "pending_confirmation" {
-		t.Fatalf("marketing_consent = %q, want pending_confirmation from a guest tick", state.MarketingConsent.String)
+	// The optional ticks are the answer of somebody who proved this address, so
+	// they GRANT. This is the line ADR 0054 moved: the same body, the same commit,
+	// the same evidence — and no Pending Confirmation, because there is no longer
+	// a way to tick a box for an inbox nobody has proven.
+	if state.MarketingConsent.String != "granted" {
+		t.Fatalf("marketing_consent = %q, want granted from a proven tick", state.MarketingConsent.String)
 	}
-	if state.NetworkingConsent.String != "pending_confirmation" {
-		t.Fatalf("networking_consent = %q, want pending_confirmation from a guest tick", state.NetworkingConsent.String)
+	if state.NetworkingConsent.String != "granted" {
+		t.Fatalf("networking_consent = %q, want granted from a proven tick", state.NetworkingConsent.String)
 	}
-	// A pending marketing consent must not switch the Follow Digest on. The flag
-	// is left exactly as it was — off, since migration 065 starts a Customer born
-	// after consent unsubscribed — and the sender's rule (never send on pending)
-	// is the second lock on the same door (ADR 0034, ADR 0035).
-	if state.DigestEnabled {
-		t.Fatal("digest_enabled = true; a tick nobody has proven must not switch the Digest on")
+	// And the Follow Digest moves with it, in lockstep, which is the half a
+	// pending answer was never allowed to reach (ADR 0034).
+	if !state.DigestEnabled {
+		t.Fatal("digest_enabled = false; a proven grant switches the weekly Digest on")
 	}
 }
 
 // TestGuestUntickedOptionalBoxesAnswerNothing: a guest's silence is evidence of
 // what they were shown, and nothing at all about the person whose address they
 // typed.
+//
+// NO CHECKOUT CAN BE BEGUN THIS WAY ANY MORE (ADR 0054, #386). What is under
+// test is a Payment a guest began before the door closed, settling afterwards
+// through the commit path that is still live — the only place an unproven answer
+// can still arrive, and the reason none of this rule was deleted with its
+// producer.
 //
 // The record keeps the false, because the log's job is to say what happened on
 // the surface. The STATE does not move, because the state is the platform's
@@ -284,14 +423,13 @@ func TestGuestUntickedOptionalBoxesAnswerNothing(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	begin := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
-	records := readConsentRecords(t, env, "ana@example.com")
+	records := consentRecordsOn(t, env, "ana@example.com", "checkout")
 	if len(records) != 1 {
-		t.Fatalf("consent records = %d, want one", len(records))
+		t.Fatalf("checkout consent records = %d, want one", len(records))
 	}
 	if !records[0].MarketingConsent.Valid || records[0].MarketingConsent.Bool {
 		t.Fatalf("recorded marketing_consent = %+v, want a false that was SHOWN", records[0].MarketingConsent)
@@ -330,9 +468,9 @@ func TestUnprovenNoCannotSilenceALegacySubscriber(t *testing.T) {
 	followingCustomer(t, env, "ana@example.com")
 	forgetConsentAnswers(t, env, "ana@example.com", true)
 
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	// A guest's Payment, begun before ADR 0054 closed the door and settling now.
+	begin := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
 	state := readConsentState(t, env, "ana@example.com")
@@ -358,9 +496,8 @@ func TestUnprovenNoLeavesTheOwnerStillToBeAsked(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	begin := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
 	// Ana signs in for the first time. She is not stopped for Policy Acceptance:
@@ -379,22 +516,24 @@ func TestUnprovenNoLeavesTheOwnerStillToBeAsked(t *testing.T) {
 }
 
 // TestUnshownOptionalBoxesRecordNothing: a body that omits the optional boxes is
-// saying they were not shown, which is not a refusal. It is the shape #254's
-// signed-in dialog will send, and the shape every checkout in the rest of this
-// suite sends today.
+// saying they were not shown, which is not a refusal. It is the shape the dialog
+// sends whenever a box was drawn and its neighbours were not, and — with consent
+// collected at sign-in — very nearly the only shape it sends at all.
 func TestUnshownOptionalBoxesRecordNothing(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+	token := signedInOwingEveryBox(t, env, "ana@example.com")
+
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez",
 			boolPtr(true), nil, nil, cartLine(gaID, 1)))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
-	records := readConsentRecords(t, env, "ana@example.com")
+	records := consentRecordsOn(t, env, "ana@example.com", "checkout")
 	if len(records) != 1 {
-		t.Fatalf("consent records = %d, want one", len(records))
+		t.Fatalf("checkout consent records = %d, want one", len(records))
 	}
 	if records[0].MarketingConsent.Valid || records[0].NetworkingConsent.Valid {
 		t.Fatalf("recorded optional answers = %+v/%+v, want NULL for boxes that were not shown",
@@ -419,31 +558,41 @@ func TestAbandonedCheckoutRecordsNoConsent(t *testing.T) {
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 	line := cartLine(gaID, 1)
 
+	token := signedInOwingEveryBox(t, env, "ana@example.com")
+
 	// Declined at the provider.
-	declined := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("declined@example.com", "Ana", "Lopez",
+	declined := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez",
 			boolPtr(true), boolPtr(true), boolPtr(true), line))
 	if got := confirmCheckoutOK(t, env, declined.ClientTransactionID, "declined"); got.Status != "failed" {
 		t.Fatalf("confirm status = %q, want failed", got.Status)
 	}
 
 	// Never returned from the payment page at all.
-	beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("abandoned@example.com", "Ana", "Lopez",
+	beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez",
 			boolPtr(true), boolPtr(true), boolPtr(true), line))
 
-	if got := countConsentRecords(t, env); got != 0 {
-		t.Fatalf("consent records after a declined and an abandoned Payment = %d, want 0", got)
+	if got := len(consentRecordsOn(t, env, "ana@example.com", "checkout")); got != 0 {
+		t.Fatalf("checkout consent records after a declined and an abandoned Payment = %d, want 0", got)
 	}
-	// Exactly the same rule that leaves them no Customer: the two are one
-	// transaction, so neither can exist without the other.
-	var customers int
-	if err := env.db.QueryRow(`SELECT COUNT(*) FROM customers`).Scan(&customers); err != nil {
-		t.Fatalf("count customers: %v", err)
+	// Exactly the same rule that leaves them no SALE: the evidence and the
+	// transaction are one commit, so neither can exist without the other.
+	//
+	// The Customer half of that rule is no longer readable here and its absence is
+	// the point — the buyer had to sign in to reach the dialog at all, so a
+	// Customer exists before any Payment does (ADR 0054). What must be untouched
+	// is the ANSWER: she ticked both boxes on two checkouts that never became
+	// sales, and both boxes are still outstanding.
+	var sales int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM ticket_sales`).Scan(&sales); err != nil {
+		t.Fatalf("count ticket sales: %v", err)
 	}
-	if customers != 0 {
-		t.Fatalf("customers after unsettled Payments = %d, want 0", customers)
+	if sales != 0 {
+		t.Fatalf("ticket sales after unsettled Payments = %d, want 0", sales)
 	}
+	assertBoxes(t, signedInConsentBoxes(t, env, token), true, true, true,
+		"answers on a Payment that never settled were never given")
 }
 
 // TestGuestAnswerNeverFlipsAProvenAnswer is ADR 0035's adversarial case: the
@@ -463,10 +612,10 @@ func TestGuestAnswerNeverFlipsAProvenAnswer(t *testing.T) {
 		t.Fatalf("state after her own sign-in = %+v/%+v, want granted", before.MarketingConsent, before.NetworkingConsent)
 	}
 
-	// A stranger checks out under her address and unticks both.
-	stranger := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(false), boolPtr(false), line))
+	// A stranger's checkout under her address, begun before ADR 0054 closed that
+	// door and settling now, with both boxes unticked.
+	stranger := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(false), boolPtr(false), line)
 	confirmCheckoutOK(t, env, stranger.ClientTransactionID, "approved")
 
 	after := readConsentState(t, env, "ana@example.com")
@@ -480,7 +629,7 @@ func TestGuestAnswerNeverFlipsAProvenAnswer(t *testing.T) {
 		t.Fatal("digest_enabled = false; a guest's No may not unsubscribe a proven Customer")
 	}
 
-	// The tick that changed nothing still left its record — two acts, two rows.
+	// The answer that changed nothing still left its record — two acts, two rows.
 	if got := len(readConsentRecords(t, env, "ana@example.com")); got != 2 {
 		t.Fatalf("consent records = %d, want two: her sign-in and the stranger's checkout", got)
 	}
@@ -527,9 +676,8 @@ func TestGuestTickNeverUpgradesADeclinedConsent(t *testing.T) {
 		t.Fatalf("marketing_consent after her own No = %q, want denied", got.MarketingConsent.String)
 	}
 
-	guest := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(true), boolPtr(true), cartLine(gaID, 1)))
+	guest := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(true), boolPtr(true), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, guest.ClientTransactionID, "approved")
 
 	state := readConsentState(t, env, "ana@example.com")
@@ -588,7 +736,7 @@ func TestSignedInCheckoutCapturesAProvenAnswer(t *testing.T) {
 	}
 
 	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+		consentCheckoutBody("Ana", "Lopez",
 			boolPtr(true), boolPtr(true), boolPtr(true), cartLine(gaID, 1)))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
@@ -622,16 +770,18 @@ func TestFreeCheckoutCapturesConsentToo(t *testing.T) {
 	_, freeID := publishCheckoutEvent(t, env, sessionID, "Free Consent Fest", "free-consent-fest", 0, 10)
 	line := cartLine(freeID, 1)
 
-	// Refused for the same reason a paid one is: a free ticket is still a Customer
-	// record created and a receipt emailed.
-	resp, body := beginCheckoutWithEvidence(t, env, "test-org", "free-consent-fest", "",
-		consentCheckoutBody("declined@example.com", "Ana", "Lopez", nil, nil, nil, line))
+	token := signedInOwingEveryBox(t, env, "ana@example.com")
+
+	// Refused for the same reason a paid one is: a free ticket is still a Ticket
+	// Sale recorded and a receipt emailed.
+	resp, body := beginCheckoutWithEvidence(t, env, "test-org", "free-consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez", nil, nil, nil, line))
 	if resp.StatusCode != http.StatusBadRequest || body.Error == nil || body.Error.Code != "POLICY_ACCEPTANCE_REQUIRED" {
 		t.Fatalf("free checkout without acceptance: status=%d error=%+v", resp.StatusCode, body.Error)
 	}
 
-	resp, envBody := beginCheckoutWithEvidence(t, env, "test-org", "free-consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+	resp, envBody := beginCheckoutWithEvidence(t, env, "test-org", "free-consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez",
 			boolPtr(true), boolPtr(true), nil, line))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("free checkout status=%d error=%+v", resp.StatusCode, envBody.Error)
@@ -642,15 +792,15 @@ func TestFreeCheckoutCapturesConsentToo(t *testing.T) {
 	}
 	approvedRef(t, claim)
 
-	records := readConsentRecords(t, env, "ana@example.com")
+	records := consentRecordsOn(t, env, "ana@example.com", "checkout")
 	if len(records) != 1 {
-		t.Fatalf("consent records = %d, want one written by the free settlement", len(records))
+		t.Fatalf("checkout consent records = %d, want one written by the free settlement", len(records))
 	}
-	if records[0].Channel != "checkout" {
-		t.Fatalf("channel = %q, want checkout", records[0].Channel)
+	if !records[0].EmailProven {
+		t.Fatal("email_proven = false on a free claim that could only be begun with proof of the address")
 	}
-	if got := readConsentState(t, env, "ana@example.com"); got.MarketingConsent.String != "pending_confirmation" {
-		t.Fatalf("marketing_consent = %q, want pending_confirmation", got.MarketingConsent.String)
+	if got := readConsentState(t, env, "ana@example.com"); got.MarketingConsent.String != "granted" {
+		t.Fatalf("marketing_consent = %q, want granted from a proven tick", got.MarketingConsent.String)
 	}
 }
 
@@ -663,26 +813,30 @@ func TestCheckoutAcceptanceStampsTheEditionInEffect(t *testing.T) {
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 	line := cartLine(gaID, 1)
 
-	first := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez", boolPtr(true), nil, nil, line))
-	confirmCheckoutOK(t, env, first.ClientTransactionID, "approved")
+	// She accepts at the door, which is where a first acceptance happens now
+	// (ADR 0054): the checkout that follows is owed nothing and stamps nothing.
+	token := customerSignIn(t, env, "ana@example.com")
 	original := currentPolicyVersionID(t, env)
 	if got := readConsentState(t, env, "ana@example.com"); got.PolicyVersionID.String != original {
 		t.Fatalf("stored policy_version_id = %q, want %q", got.PolicyVersionID.String, original)
 	}
 
+	// A new edition is published under her live session. The sign-in gate cannot
+	// re-run on a session already minted, so the CHECKOUT is where she is caught —
+	// and the edition it stamps is the one current at the moment of capture,
+	// resolved by the platform and never named by the client.
 	published := publishPolicyVersion(t, env, "1-test")
-	second := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez", boolPtr(true), nil, nil, line))
+	second := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token,
+		consentCheckoutBody("Ana", "Lopez", boolPtr(true), nil, nil, line))
 	confirmCheckoutOK(t, env, second.ClientTransactionID, "approved")
 
 	if got := readConsentState(t, env, "ana@example.com"); got.PolicyVersionID.String != published {
 		t.Fatalf("stored policy_version_id = %q, want the newly published edition %q", got.PolicyVersionID.String, published)
 	}
 	// Asserted as a SET rather than in order, because both acts share the
-	// harness's fixed clock: what matters is that the earlier record still points
-	// at the superseded edition — the log is never rewritten, and the state moving
-	// on is the only thing that moved.
+	// harness's fixed clock: what matters is that her sign-in's record still
+	// points at the superseded edition — the log is never rewritten, and the state
+	// moving on is the only thing that moved.
 	editions := map[string]int{}
 	for _, record := range readConsentRecords(t, env, "ana@example.com") {
 		editions[record.PolicyVersionID]++
@@ -700,16 +854,18 @@ func TestCheckoutConsentEvidenceIsNotTakenFromTheBody(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	body := consentCheckoutBody("ana@example.com", "Ana", "Lopez",
+	token := signedInOwingEveryBox(t, env, "ana@example.com")
+
+	body := consentCheckoutBody("Ana", "Lopez",
 		boolPtr(true), boolPtr(true), boolPtr(true), cartLine(gaID, 1))
 	body["ip"] = "203.0.113.9"
 	body["user_agent"] = "Definitely Not This"
 	body["origin_url"] = "http://evil.example/"
 
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "", body)
+	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", token, body)
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
-	record := readConsentRecords(t, env, "ana@example.com")[0]
+	record := consentRecordsOn(t, env, "ana@example.com", "checkout")[0]
 	if record.IP.String != "198.51.100.24" {
 		t.Fatalf("recorded ip = %q, want the observed address rather than the body's claim", record.IP.String)
 	}

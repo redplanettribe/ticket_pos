@@ -97,18 +97,24 @@ func TestOnlineCheckoutMakesTheFirstCatalogTicketTheBuyersOwn(t *testing.T) {
 	}
 }
 
-// ACCEPTED BY PURCHASE IS NOT PROOF OF EMAIL OWNERSHIP. A guest who paid holds
-// their Ticket, but the customers row is not marked Verified by it: that stays
-// the sign-in module's authority (ADR 0035), and a self-held Ticket asserts
-// nothing about who controls the inbox.
+// ACCEPTED BY PURCHASE IS NOT PROOF OF EMAIL OWNERSHIP. A buyer holds their
+// Ticket, but the customers row is not marked Verified BY THE SALE: verification
+// stays the sign-in module's authority (ADR 0035), and a self-held Ticket
+// asserts nothing about who controls the inbox.
+//
+// Since ADR 0054 every online buyer is verified anyway — by the sign-in that let
+// them buy — so the property is read here as it is now readable: the sale is
+// settled by a Payment whose buyer never proved anything (the shape of every
+// checkout begun before #386, and of the rows this rule was written for), and
+// the commit that mints the self-held Ticket verifies nobody.
 func TestASelfHeldTicketMakesNobodyVerified(t *testing.T) {
 	env := setupTest(t)
 	enableTicketAssignment(t)
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Guest Fest", "guest-fest", 1000, 10)
 
-	begun := beginCheckoutOK(t, env, "test-org", "guest-fest",
-		checkoutBody("guest@example.com", "Gus", "Perez", cartLine(gaID, 1)))
+	begun := beginLegacyGuestCheckout(t, env, "guest-fest", "guest@example.com", "Gus", "Perez",
+		boolPtr(true), nil, nil, cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 
 	var verified *string
