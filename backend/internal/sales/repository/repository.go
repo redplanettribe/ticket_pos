@@ -1290,6 +1290,12 @@ type SaleRow struct {
 	// correction writes them; a plain single-sale reversal sets neither.
 	ReplacedBySaleID *string
 	ReplacesSaleID   *string
+	// ReplacedByConfirmationRef/ReplacesConfirmationRef are the linked sales'
+	// Sale Confirmation references (#351), read alongside the ids so a row can
+	// say "Corrected → TP-X" without a second lookup. Nil exactly when the
+	// matching id is.
+	ReplacedByConfirmationRef *string
+	ReplacesConfirmationRef   *string
 	// HeldTicketCount is how many of the sale's Tickets have an accepted
 	// Holder — the people a Sale Reversal would tell (#327). Read off
 	// accepted_at, the one fact that makes somebody a Holder.
@@ -1494,6 +1500,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.reversed_by,
 			ts.replaced_by_sale_id,
 			ts.replaces_sale_id,
+			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaced_by_sale_id),
+			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaces_sale_id),
 			(
 				SELECT COUNT(*) FROM tickets tk
 				JOIN ticket_sale_lines tkl ON tkl.id = tk.ticket_sale_line_id
@@ -1534,7 +1542,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		var s SaleRow
 		var typesJSON []byte
 		var source, paymentMethod, taxIDType, taxIDNumber, reversedBy sql.NullString
-		var replacedBy, replaces sql.NullString
+		var replacedBy, replaces, replacedByRef, replacesRef sql.NullString
 		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
@@ -1558,6 +1566,8 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&reversedBy,
 			&replacedBy,
 			&replaces,
+			&replacedByRef,
+			&replacesRef,
 			&s.HeldTicketCount,
 			&total,
 		); err != nil {
@@ -1568,6 +1578,12 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		}
 		if replaces.Valid {
 			s.ReplacesSaleID = &replaces.String
+		}
+		if replacedByRef.Valid {
+			s.ReplacedByConfirmationRef = &replacedByRef.String
+		}
+		if replacesRef.Valid {
+			s.ReplacesConfirmationRef = &replacesRef.String
 		}
 		if err := json.Unmarshal(typesJSON, &s.TicketTypes); err != nil {
 			return nil, 0, err

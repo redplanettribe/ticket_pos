@@ -62,11 +62,16 @@ type importAllowance struct {
 // Only rows that already passed field validation are judged. An invalid row is
 // not going to be recorded, so it neither takes allowance nor needs a second
 // complaint stacked on top of the one the organizer is already fixing.
+//
+// excludeSaleID, when set, is one Ticket Sale left out of what the Customer
+// already holds: the sale a Sale Correction is reversing (#351). The import
+// passes "".
 func (s *Service) refuseImportRowsOverPurchaseLimit(
 	ctx context.Context,
 	eventID string,
 	types []importfile.TicketTypeRef,
 	result *importfile.ValidateResult,
+	excludeSaleID string,
 ) error {
 	rationed := make(map[string]importfile.TicketTypeRef, len(types))
 	for _, tt := range types {
@@ -96,7 +101,7 @@ func (s *Service) refuseImportRowsOverPurchaseLimit(
 
 		customer, resolved := identities[row.CustomerEmail]
 		if !resolved {
-			normalizedEmail, holdings, err := s.resolveCustomerEventHoldings(ctx, eventID, row.CustomerEmail, cutoff)
+			normalizedEmail, holdings, err := s.resolveCustomerEventHoldingsExcluding(ctx, eventID, row.CustomerEmail, cutoff, excludeSaleID)
 			if err != nil {
 				return err
 			}

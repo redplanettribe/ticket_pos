@@ -6,6 +6,8 @@ import { ApiError, fetchEventsJSON } from "./events-api.ts";
 // the JSON the API emits so rows render verbatim.
 
 export type SaleTicketType = {
+  // The id is here for the Correct form (#351), pre-filled from the row.
+  ticket_type_id: string;
   ticket_type_name: string;
   quantity: number;
 };
@@ -42,6 +44,11 @@ export type SaleListRow = {
   // sets neither and reads "Reversed by staff" off reversed_by alone.
   replaced_by_sale_id: string | null;
   replaces_sale_id: string | null;
+  // The linked sales' Confirmation references (#351): the "TP-X" the row
+  // prints in "Corrected → TP-X" / "Corrects TP-Y". Null exactly when the
+  // matching id is.
+  replaced_by_confirmation_ref: string | null;
+  replaces_confirmation_ref: string | null;
   // How many of the sale's Tickets have an accepted Holder: the people a
   // reversal tells. Stated on the row so the confirm dialog can say so first.
   held_ticket_count: number;
@@ -251,6 +258,104 @@ export async function reverseSale(eventId: string, saleId: string): Promise<Reve
   return fetchEventsJSON<ReverseSaleResult>(`/api/events/${eventId}/sales/${saleId}/reverse`, {
     method: "POST",
   });
+}
+
+// CorrectSaleInput is the Sale Correction form (#351, ADR 0050): the Sale
+// Import template's columns for the replacement, plus send_confirmation.
+export type CorrectSaleInput = {
+  customer_email: string;
+  customer_first_name: string;
+  customer_last_name: string;
+  customer_tax_id_type: string;
+  customer_tax_id_number: string;
+  ticket_type_id: string;
+  quantity: number;
+  payment_method: string;
+  sold_at: string;
+  amount_cents: number | null;
+  send_confirmation: boolean;
+};
+
+// CorrectSaleResult mirrors POST /api/v1/staff/events/{id}/sales/{saleId}/correct.
+export type CorrectSaleResult = {
+  reversed_sale_id: string;
+  reversed_confirmation_ref: string;
+  replacement_sale_id: string;
+  replacement_confirmation_ref: string;
+  confirmation_sent: boolean;
+};
+
+/**
+ * Whether a Sales list row offers Correct (#351, ADR 0050): the same three
+ * facts as Reverse, because a Sale Correction is that reversal plus a
+ * replacement, and nothing that cannot be reversed can be corrected.
+ */
+export function canCorrectSale(
+  canManageSales: boolean,
+  sale: Pick<SaleListRow, "channel" | "status">,
+): boolean {
+  return canReverseSale(canManageSales, sale);
+}
+
+/**
+ * correctionPrefill is the Correct form's starting state, read off the row so
+ * the Member retypes only what was wrong. The sold-at is cut to the minute in
+ * the Event's own zone by the caller; here it is the row's ISO value.
+ */
+export function correctionPrefill(sale: SaleListRow): CorrectSaleInput {
+  return {
+    customer_email: sale.customer_email,
+    customer_first_name: sale.customer_first_name,
+    customer_last_name: sale.customer_last_name,
+    customer_tax_id_type: sale.tax_id_type ?? "",
+    customer_tax_id_number: sale.tax_id_number ?? "",
+    ticket_type_id: sale.ticket_types[0]?.ticket_type_id ?? "",
+    quantity: sale.ticket_types[0]?.quantity ?? 1,
+    payment_method: sale.payment_method ?? "",
+    sold_at: sale.sold_at,
+    amount_cents: sale.amount_cents,
+    send_confirmation: false,
+  };
+}
+
+// correctSale records a Sale Correction via the BFF. A refused replacement
+// arrives as ApiError with code VALIDATION_FAILED and a `fields` detail naming
+// the template's columns; the other refusals (SALE_NOT_IMPORTED,
+// SALE_ALREADY_REVERSED, TICKET_SALE_NOT_FOUND) as their own codes.
+export async function correctSale(
+  eventId: string,
+  saleId: string,
+  input: CorrectSaleInput,
+): Promise<CorrectSaleResult> {
+  return fetchEventsJSON<CorrectSaleResult>(`/api/events/${eventId}/sales/${saleId}/correct`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * correctionFieldErrors reads the per-column complaints out of a
+ * VALIDATION_FAILED refusal, keyed by the template's column name. Empty for
+ * any other error.
+ */
+export function correctionFieldErrors(details: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!details || typeof details !== "object") {
+    return out;
+  }
+  const fields = (details as { fields?: unknown }).fields;
+  if (!Array.isArray(fields)) {
+    return out;
+  }
+  for (const f of fields) {
+    if (f && typeof f === "object" && typeof (f as { field?: unknown }).field === "string") {
+      const { field, message } = f as { field: string; message?: unknown };
+      if (!(field in out)) {
+        out[field] = typeof message === "string" ? message : "";
+      }
+    }
+  }
+  return out;
 }
 
 // salesExportPath is the BFF path for the Sales Export under the given filters

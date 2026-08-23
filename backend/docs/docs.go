@@ -311,6 +311,44 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "handler.correctSaleBody": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_first_name": {
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_number": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_type": {
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "type": "integer"
+                    },
+                    "send_confirmation": {
+                        "type": "boolean"
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.coverUploadURLBody": {
                 "properties": {
                     "content_type": {
@@ -4382,6 +4420,10 @@ const docTemplate = `{
                 "properties": {
                     "quantity": {
                         "type": "integer"
+                    },
+                    "ticket_type_id": {
+                        "description": "TicketTypeID is here for the Sale Correction form (#351), which is\npre-filled from the row and must name the Ticket Type by id, as the\nimport template's hidden column does.",
+                        "type": "string"
                     },
                     "ticket_type_name": {
                         "type": "string"
@@ -11067,7 +11109,7 @@ const docTemplate = `{
         },
         "/api/v1/staff/events/{id}/sales": {
             "get": {
-                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale, ` + "`" + `staff` + "`" + ` when a Sale Import undo or a single-sale staff reversal did, and ` + "`" + `operator` + "`" + ` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, both null until a correction is recorded — ADR 0050), held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. ` + "`" + `reversed_count` + "`" + ` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.",
+                "description": "Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is ` + "`" + `customer` + "`" + ` when the buyer reversed their own Online Sale, ` + "`" + `staff` + "`" + ` when a Sale Import undo or a single-sale staff reversal did, and ` + "`" + `operator` + "`" + ` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, each with the linked sale's Confirmation reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref, all null until a correction is recorded — ADR 0050), each rolled-up Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled from the row, held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by ` + "`" + `sort` + "`" + ` (sold_at, recorded_at, customer, amount) and ` + "`" + `dir` + "`" + ` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. ` + "`" + `reversed_count` + "`" + ` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.",
                 "parameters": [
                     {
                         "description": "Event ID",
@@ -11603,6 +11645,122 @@ const docTemplate = `{
                     }
                 ],
                 "summary": "Get an Event's Sales Trends",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/sales/{saleId}/correct": {
+            "post": {
+                "description": "A Sale Correction (ADR 0050): reverses a single active ` + "`" + `import` + "`" + `-channel Ticket Sale and records a replacement in the SAME transaction, each pointing at the other (replaced_by_sale_id on the old sale, replaces_sale_id on the new one). The body is the Sale Import template's columns for the replacement — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents overriding the catalog price — plus ` + "`" + `send_confirmation` + "`" + ` (default false). The replacement is validated exactly like an import row: Ticket Type on the Event, Tax ID rules when either half is filled, Payment Method required, sold_at not in the future, capacity and the Purchase Limit both counted NET of the sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with one field error per offending column (field names are the template's column names) and writes nothing — the original sale stays active. The replacement is a fresh sale: channel ` + "`" + `import` + "`" + `, source ` + "`" + `direct` + "`" + `, no Sale Import batch (so a later batch undo never sweeps it), a new Sale Confirmation reference, and fresh Tickets all ` + "`" + `unassigned` + "`" + ` — no Ticket Assignment or Answer is carried over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation is true, in which case the replacement's Sale Confirmation (with the outstanding-answers line) goes to the replacement's email — never a voided mail. Works before, during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Ticket Sale ID",
+                        "in": "path",
+                        "name": "saleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.correctSaleBody",
+                                        "summary": "body",
+                                        "description": "The replacement, as the template's columns, plus send_confirmation"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The replacement, as the template's columns, plus send_confirmation",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Correct one imported Ticket Sale",
                 "tags": [
                     "staff"
                 ]

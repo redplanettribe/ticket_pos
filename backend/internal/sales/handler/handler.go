@@ -247,7 +247,7 @@ var (
 // filters.
 //
 // @Summary      List an Event's Ticket Sales
-// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo or a single-sale staff reversal did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, both null until a correction is recorded — ADR 0050), held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
+// @Description  Returns a page of the Event's Ticket Sales for the Sales list: one row per Ticket Sale with the Customer, rolled-up Ticket Types, amount in the Event currency, sold_at, channel/source, status, confirmation_ref, the Tax ID snapshot the sale was transacted under (tax_id_type/tax_id_number, both null on sales recorded without one), the Sale Reversal provenance on a reversed row (reversed_at and reversed_by, which is `customer` when the buyer reversed their own Online Sale, `staff` when a Sale Import undo or a single-sale staff reversal did, and `operator` when the platform reversed it after refunding the buyer off-platform at the Organization's request; both null on an active sale and on a sale reversed before either was recorded — the Operator Reversal's money memo is operator-facing only and never appears here), the Sale Correction linkage (replaced_by_sale_id on a corrected sale and replaces_sale_id on its replacement, each with the linked sale's Confirmation reference beside it as replaced_by_confirmation_ref / replaces_confirmation_ref, all null until a correction is recorded — ADR 0050), each rolled-up Ticket Type carrying its ticket_type_id so the Correct form can be pre-filled from the row, held_ticket_count (how many of the sale's Tickets have an accepted Holder, the people a reversal would tell), and the recorded-at and payment method for the row-detail expand. Filterable by status (default active), ticket type (sales including that type), sold-at date range (interpreted in the Event timezone as a half-open interval, end date inclusive), a case-insensitive substring search over customer email/name/confirmation_ref/Tax ID number, and channel/source/payment_method. Sortable by `sort` (sold_at, recorded_at, customer, amount) and `dir` (asc/desc), both validated against allowlists and defaulting to sold_at descending; every sort carries a secondary id tiebreaker so equal values keep a stable order across pages. Response is the ADR-0006 nested envelope { data, pagination, reversed_count } with total via COUNT(*) OVER(); page_size defaults to 50 (max 100) and page floors at 1. `reversed_count` is how many of the Event's Ticket Sales are reversed, across the whole Event and independent of every filter on the request (including status), so a Sale Reversal is visible rather than a row that silently left the default view; it is 0 on an Event that has never had one. Visible to any Member of the Event.
 // @Tags         staff
 // @Produce      json
 // @Security     BearerAuth
@@ -927,4 +927,97 @@ func (h *Handler) ReverseSale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}
+
+// correctSaleBody is the Sale Correction form: the Sale Import template's
+// columns for the replacement, plus send_confirmation (default false).
+type correctSaleBody struct {
+	CustomerEmail       string `json:"customer_email"`
+	CustomerFirstName   string `json:"customer_first_name"`
+	CustomerLastName    string `json:"customer_last_name"`
+	CustomerTaxIDType   string `json:"customer_tax_id_type"`
+	CustomerTaxIDNumber string `json:"customer_tax_id_number"`
+	TicketTypeID        string `json:"ticket_type_id"`
+	Quantity            int    `json:"quantity"`
+	PaymentMethod       string `json:"payment_method"`
+	SoldAt              string `json:"sold_at"`
+	AmountCents         *int   `json:"amount_cents"`
+	SendConfirmation    bool   `json:"send_confirmation"`
+}
+
+// CorrectSale reverses one imported Ticket Sale and records its replacement.
+//
+// @Summary      Correct one imported Ticket Sale
+// @Description  A Sale Correction (ADR 0050): reverses a single active `import`-channel Ticket Sale and records a replacement in the SAME transaction, each pointing at the other (replaced_by_sale_id on the old sale, replaces_sale_id on the new one). The body is the Sale Import template's columns for the replacement — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents overriding the catalog price — plus `send_confirmation` (default false). The replacement is validated exactly like an import row: Ticket Type on the Event, Tax ID rules when either half is filled, Payment Method required, sold_at not in the future, capacity and the Purchase Limit both counted NET of the sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with one field error per offending column (field names are the template's column names) and writes nothing — the original sale stays active. The replacement is a fresh sale: channel `import`, source `direct`, no Sale Import batch (so a later batch undo never sweeps it), a new Sale Confirmation reference, and fresh Tickets all `unassigned` — no Ticket Assignment or Answer is carried over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING unless send_confirmation is true, in which case the replacement's Sale Confirmation (with the outstanding-answers line) goes to the replacement's email — never a voided mail. Works before, during and after the Event. Refused with 409 SALE_NOT_IMPORTED on an Online or In-Person Sale, 409 SALE_ALREADY_REVERSED on a reversed (or already corrected) sale, 404 TICKET_SALE_NOT_FOUND when the sale is not on this Event, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path      string           true  "Event ID"
+// @Param        saleId  path      string           true  "Ticket Sale ID"
+// @Param        body    body      correctSaleBody  true  "The replacement, as the template's columns, plus send_confirmation"
+// @Success      201     {object}  platform.Envelope
+// @Failure      400     {object}  platform.Envelope
+// @Failure      401     {object}  platform.Envelope
+// @Failure      403     {object}  platform.Envelope
+// @Failure      404     {object}  platform.Envelope
+// @Failure      409     {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/{saleId}/correct [post]
+func (h *Handler) CorrectSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+
+	eventID := strings.TrimSpace(r.PathValue("id"))
+	saleID := strings.TrimSpace(r.PathValue("saleId"))
+	var fields []platform.FieldError
+	if eventID == "" {
+		fields = append(fields, platform.FieldError{Field: "id", Code: platform.CodeRequired, Message: "is required"})
+	}
+	if saleID == "" {
+		fields = append(fields, platform.FieldError{Field: "saleId", Code: platform.CodeRequired, Message: "is required"})
+	}
+	if len(fields) > 0 {
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	if _, err := uuid.Parse(saleID); err != nil {
+		_ = platform.WriteDomainError(w, reqID, sales.ErrTicketSaleIDNotFound(saleID))
+		return
+	}
+
+	var body correctSaleBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return
+	}
+
+	result, invalid, err := h.svc.CorrectImportedSale(r.Context(), actorFromRequest(r), eventID, saleID, service.CorrectSaleInput{
+		CustomerEmail:       strings.TrimSpace(body.CustomerEmail),
+		CustomerFirstName:   strings.TrimSpace(body.CustomerFirstName),
+		CustomerLastName:    strings.TrimSpace(body.CustomerLastName),
+		CustomerTaxIDType:   strings.TrimSpace(body.CustomerTaxIDType),
+		CustomerTaxIDNumber: strings.TrimSpace(body.CustomerTaxIDNumber),
+		TicketTypeID:        strings.TrimSpace(body.TicketTypeID),
+		Quantity:            body.Quantity,
+		PaymentMethod:       strings.TrimSpace(body.PaymentMethod),
+		SoldAt:              strings.TrimSpace(body.SoldAt),
+		AmountCents:         body.AmountCents,
+		SendConfirmation:    body.SendConfirmation,
+	})
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	if invalid != nil {
+		// The one row's complaints, under the template's own column names: the
+		// form has a field per column and no "rows[1]." to strip.
+		var fields []platform.FieldError
+		for _, row := range invalid.Rows {
+			for _, e := range row.Errors {
+				fields = append(fields, platform.FieldError{Field: e.Field, Message: e.Message})
+			}
+		}
+		_ = platform.WriteValidationError(w, reqID, fields)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
 }

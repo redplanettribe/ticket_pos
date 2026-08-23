@@ -824,6 +824,7 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// pointed at one row: Event Staff see the reversed state on the list above
 	// and are refused here.
 	mux.Handle("POST /api/v1/staff/events/{id}/sales/{saleId}/reverse", canManageEventSales(http.HandlerFunc(sh.ReverseSale)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sales/{saleId}/correct", canManageEventSales(http.HandlerFunc(sh.CorrectSale)))
 	// The Event's money, though, is not for hired door staff: the Net Proceeds
 	// strip above that list is Org Admin and Event Owner only.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales/summary", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesSummary)))

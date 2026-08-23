@@ -800,6 +800,10 @@ func (s *Service) ListImportHistory(ctx context.Context, actor ActorContext, eve
 // SaleLine is one Ticket Type and its quantity within a Ticket Sale, rolled up
 // for the Sales list.
 type SaleLine struct {
+	// TicketTypeID is here for the Sale Correction form (#351), which is
+	// pre-filled from the row and must name the Ticket Type by id, as the
+	// import template's hidden column does.
+	TicketTypeID   string `json:"ticket_type_id"`
 	TicketTypeName string `json:"ticket_type_name"`
 	Quantity       int    `json:"quantity"`
 }
@@ -843,6 +847,11 @@ type SaleListItem struct {
 	// neither and reads "Reversed by staff" off reversed_by alone.
 	ReplacedBySaleID *string `json:"replaced_by_sale_id"`
 	ReplacesSaleID   *string `json:"replaces_sale_id"`
+	// ReplacedByConfirmationRef/ReplacesConfirmationRef are the linked sales'
+	// Confirmation references (#351): the "TP-X" the row actually prints. Null
+	// exactly when the matching id is.
+	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
+	ReplacesConfirmationRef   *string `json:"replaces_confirmation_ref"`
 	// HeldTicketCount is how many of the sale's Tickets have an accepted
 	// Holder: the people a reversal would tell, stated on the row so the
 	// confirm dialog can say so before anybody is told.
@@ -948,30 +957,32 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 	for _, row := range rows {
 		lines := make([]SaleLine, 0, len(row.TicketTypes))
 		for _, l := range row.TicketTypes {
-			lines = append(lines, SaleLine{TicketTypeName: l.TicketTypeName, Quantity: l.Quantity})
+			lines = append(lines, SaleLine{TicketTypeID: l.TicketTypeID, TicketTypeName: l.TicketTypeName, Quantity: l.Quantity})
 		}
 		items = append(items, SaleListItem{
-			ID:                row.ID,
-			CustomerFirstName: row.CustomerFirstName,
-			CustomerLastName:  row.CustomerLastName,
-			CustomerEmail:     row.CustomerEmail,
-			TicketTypes:       lines,
-			AmountCents:       row.AmountCents,
-			Currency:          row.Currency,
-			SoldAt:            row.SoldAt,
-			Channel:           row.Channel,
-			Source:            row.Source,
-			Status:            row.Status,
-			ConfirmationRef:   row.ConfirmationRef,
-			RecordedAt:        row.RecordedAt,
-			PaymentMethod:     row.PaymentMethod,
-			TaxIDType:         row.CustomerTaxIDType,
-			TaxIDNumber:       row.CustomerTaxIDNumber,
-			ReversedAt:        row.ReversedAt,
-			ReversedBy:        row.ReversedBy,
-			ReplacedBySaleID:  row.ReplacedBySaleID,
-			ReplacesSaleID:    row.ReplacesSaleID,
-			HeldTicketCount:   row.HeldTicketCount,
+			ID:                        row.ID,
+			CustomerFirstName:         row.CustomerFirstName,
+			CustomerLastName:          row.CustomerLastName,
+			CustomerEmail:             row.CustomerEmail,
+			TicketTypes:               lines,
+			AmountCents:               row.AmountCents,
+			Currency:                  row.Currency,
+			SoldAt:                    row.SoldAt,
+			Channel:                   row.Channel,
+			Source:                    row.Source,
+			Status:                    row.Status,
+			ConfirmationRef:           row.ConfirmationRef,
+			RecordedAt:                row.RecordedAt,
+			PaymentMethod:             row.PaymentMethod,
+			TaxIDType:                 row.CustomerTaxIDType,
+			TaxIDNumber:               row.CustomerTaxIDNumber,
+			ReversedAt:                row.ReversedAt,
+			ReversedBy:                row.ReversedBy,
+			ReplacedBySaleID:          row.ReplacedBySaleID,
+			ReplacesSaleID:            row.ReplacesSaleID,
+			ReplacedByConfirmationRef: row.ReplacedByConfirmationRef,
+			ReplacesConfirmationRef:   row.ReplacesConfirmationRef,
+			HeldTicketCount:           row.HeldTicketCount,
 		})
 	}
 
@@ -1560,7 +1571,7 @@ func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID
 	// After the duplicate flag, not before: the soft signal is only computed for
 	// rows still valid, and a row the Purchase Limit rejects is one the organizer
 	// may well fix by skipping it as the duplicate it also is.
-	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &result); err != nil {
+	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &result, ""); err != nil {
 		return nil, err
 	}
 
@@ -1640,7 +1651,7 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 	// place the online path checks. An import moves no money and nobody is
 	// waiting on a payment page, so refusing here costs a rejected row and
 	// nothing else.
-	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated); err != nil {
+	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated, ""); err != nil {
 		return nil, nil, err
 	}
 

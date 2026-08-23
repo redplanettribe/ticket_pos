@@ -74,6 +74,10 @@ type saleListRow struct {
 	// correction is recorded; a plain single-sale reversal sets neither.
 	ReplacedBySaleID *string `json:"replaced_by_sale_id"`
 	ReplacesSaleID   *string `json:"replaces_sale_id"`
+	// The linked sales' Confirmation references (#351), so a row can read
+	// "Corrected → TP-X" / "Corrects TP-Y" without a second lookup.
+	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
+	ReplacesConfirmationRef   *string `json:"replaces_confirmation_ref"`
 	// How many of the sale's Tickets have an accepted Holder — the people a
 	// reversal would tell, stated on the row so the confirm can say so first.
 	HeldTicketCount int `json:"held_ticket_count"`

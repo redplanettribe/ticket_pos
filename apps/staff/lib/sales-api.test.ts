@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canCorrectSale,
   canReverseSale,
+  correctionFieldErrors,
+  correctionPrefill,
   exportFieldMessage,
   paymentMethodToken,
   reversalProvenance,
@@ -167,4 +170,68 @@ test("canReverseSale offers Reverse only to a sales manager, on an active import
   assert.equal(canReverseSale(true, { channel: "in_person", status: "active" }), false);
   // A second press on a reversed sale is refused; the button goes first.
   assert.equal(canReverseSale(true, { channel: "import", status: "reversed" }), false);
+});
+
+test("canCorrectSale is Reverse's gate: a sales manager, on an active imported sale", () => {
+  assert.equal(canCorrectSale(true, { channel: "import", status: "active" }), true);
+  assert.equal(canCorrectSale(false, { channel: "import", status: "active" }), false);
+  assert.equal(canCorrectSale(true, { channel: "online", status: "active" }), false);
+  // A corrected sale is a reversed sale: it cannot be corrected twice.
+  assert.equal(canCorrectSale(true, { channel: "import", status: "reversed" }), false);
+});
+
+test("correctionPrefill reads the template's columns off the row, blanks for a missing Tax ID, and never pre-ticks the confirmation", () => {
+  const prefill = correctionPrefill({
+    id: "s1",
+    customer_first_name: "Ana",
+    customer_last_name: "Lopez",
+    customer_email: "ana@example.com",
+    ticket_types: [{ ticket_type_id: "tt1", ticket_type_name: "GA", quantity: 2 }],
+    amount_cents: 2000,
+    currency: "USD",
+    sold_at: "2026-07-01T10:00:00Z",
+    channel: "import",
+    source: "direct",
+    status: "active",
+    confirmation_ref: "TP-1",
+    recorded_at: "2026-07-01T10:00:00Z",
+    payment_method: "cash",
+    tax_id_type: null,
+    tax_id_number: null,
+    reversed_at: null,
+    reversed_by: null,
+    replaced_by_sale_id: null,
+    replaces_sale_id: null,
+    replaced_by_confirmation_ref: null,
+    replaces_confirmation_ref: null,
+    held_ticket_count: 0,
+  });
+  assert.deepEqual(prefill, {
+    customer_email: "ana@example.com",
+    customer_first_name: "Ana",
+    customer_last_name: "Lopez",
+    customer_tax_id_type: "",
+    customer_tax_id_number: "",
+    ticket_type_id: "tt1",
+    quantity: 2,
+    payment_method: "cash",
+    sold_at: "2026-07-01T10:00:00Z",
+    amount_cents: 2000,
+    send_confirmation: false,
+  });
+});
+
+test("correctionFieldErrors keys the refusal's complaints by column, first complaint wins, and is empty for anything else", () => {
+  assert.deepEqual(
+    correctionFieldErrors({
+      fields: [
+        { field: "quantity", message: "is over the Purchase Limit" },
+        { field: "quantity", message: "second complaint" },
+        { field: "customer_email", message: "must be a valid email" },
+      ],
+    }),
+    { quantity: "is over the Purchase Limit", customer_email: "must be a valid email" },
+  );
+  assert.deepEqual(correctionFieldErrors(undefined), {});
+  assert.deepEqual(correctionFieldErrors({ channel: "online" }), {});
 });

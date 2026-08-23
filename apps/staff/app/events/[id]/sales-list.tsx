@@ -34,6 +34,7 @@ import {
   PAYMENT_METHODS,
   SALE_CHANNELS,
   SALE_SOURCES,
+  canCorrectSale,
   canReverseSale,
   downloadSalesExport,
   exportFieldMessage,
@@ -58,6 +59,7 @@ import {
   type TaxIdType,
 } from "@/lib/sales-api";
 
+import { SaleCorrectionDialog } from "./sale-correction-dialog";
 import { useSalesRefreshNotify, useSalesRefreshSignal } from "./sales-refresh";
 import { TicketAnswersDialog } from "./ticket-answers-dialog";
 
@@ -174,6 +176,9 @@ export function SalesList({
   // The sale a Reverse press is asking about, until it is confirmed or dismissed.
   const [reverseTarget, setReverseTarget] = useState<SaleListRow | null>(null);
   const [reversing, setReversing] = useState(false);
+  // The sale a Correct press opened the form for (#351), until it is
+  // committed or dismissed.
+  const [correctTarget, setCorrectTarget] = useState<SaleListRow | null>(null);
 
   async function confirmReverse() {
     if (!reverseTarget) {
@@ -385,6 +390,8 @@ export function SalesList({
                   eventId={eventId}
                   canReverse={canReverseSale(canManageSales, sale)}
                   onReverse={() => setReverseTarget(sale)}
+                  canCorrect={canCorrectSale(canManageSales, sale)}
+                  onCorrect={() => setCorrectTarget(sale)}
                 />
               ))}
             </table>
@@ -441,6 +448,19 @@ export function SalesList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Correcting one imported sale (#351, ADR 0050): reverse plus a
+          replacement in one act, from a form pre-filled with the row. */}
+      <SaleCorrectionDialog
+        eventId={eventId}
+        sale={correctTarget}
+        ticketTypes={ticketTypes}
+        timezone={timezone}
+        onClose={() => setCorrectTarget(null)}
+        onCorrected={() => {
+          setCorrectTarget(null);
+          notifySalesRefresh();
+        }}
+      />
     </Card>
   );
 }
@@ -823,6 +843,9 @@ type SaleRowsProps = {
   // permission and the row's channel and status (lib/sales-api canReverseSale).
   canReverse: boolean;
   onReverse: () => void;
+  // Whether this row offers Correct (#351): the same gate as Reverse.
+  canCorrect: boolean;
+  onCorrect: () => void;
 };
 
 function SaleRows({
@@ -835,6 +858,8 @@ function SaleRows({
   eventId,
   canReverse,
   onReverse,
+  canCorrect,
+  onCorrect,
 }: SaleRowsProps) {
   const t = useTranslations("sales");
   // The Answers dialog opens from the row detail rather than from the row: it is
@@ -867,9 +892,29 @@ function SaleRows({
               one shows nothing extra (#117). */}
           {reversed ? (
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="destructive">{t("reversedBadge")}</Badge>
+              <Badge variant="destructive">
+                {sale.replaced_by_confirmation_ref ? t("correctedBadge") : t("reversedBadge")}
+              </Badge>
               <span className="text-xs text-muted-foreground">
+                {/* A corrected sale names its replacement first (#351): the
+                    reference is what the reader goes looking for next. */}
+                {sale.replaced_by_confirmation_ref ? (
+                  <>
+                    <span className="font-mono">
+                      {t("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+                    </span>
+                    {" · "}
+                  </>
+                ) : null}
                 <ReversalProvenanceText sale={sale} zone={zone} locale={locale} />
+              </span>
+            </div>
+          ) : null}
+          {/* The replacement says what it stands in for, on an active row too. */}
+          {sale.replaces_confirmation_ref ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              <span className="font-mono">
+                {t("corrects", { reference: sale.replaces_confirmation_ref })}
               </span>
             </div>
           ) : null}
@@ -953,6 +998,20 @@ function SaleRows({
                   }}
                 >
                   {t("reverse")}
+                </Button>
+              ) : null}
+              {/* Correct: the same gate, the same place (#351). */}
+              {canCorrect ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCorrect();
+                  }}
+                >
+                  {t("correct")}
                 </Button>
               ) : null}
             </div>
