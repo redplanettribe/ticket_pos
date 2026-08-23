@@ -207,7 +207,10 @@ func (s *Service) Issue(ctx context.Context, purpose Purpose, email, clientIP st
 	}
 
 	if err := s.email.SendOTP(ctx, email, code, locale); err != nil {
-		s.logger.Error("send otp failed", "email", email, "purpose", string(purpose), "error", err)
+		// The address stays out of the log for the sender's reason (#377): the
+		// challenge row already records who asked, and the sign-in fails loudly
+		// on its own.
+		s.logger.Error("send otp failed", "purpose", string(purpose), "error", err)
 		return fmt.Errorf("send otp: %w", err)
 	}
 

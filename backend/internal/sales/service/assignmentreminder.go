@@ -104,7 +104,12 @@ func (s *Service) SweepAssignmentReminders(ctx context.Context) (*AssignmentRemi
 	result.Due = len(due)
 
 	deadline := s.now().Add(assignmentReminderBudget)
+	pacer := &reminderPacer{service: s, deadline: deadline}
 	for _, candidate := range due {
+		// The gap comes first and the budget check second, so a pause that
+		// spends the last of the budget ends the run here, unsent, rather than
+		// one send past it. Sent and Failed together are the requests made.
+		pacer.pauseBefore(ctx, result.Sent+result.Failed)
 		if !s.now().Before(deadline) {
 			s.logger.Info("assignment reminder sweep stopped on its budget; the rest are due on the next tick",
 				"sent", result.Sent, "remaining", len(due)-result.Sent-result.Skipped-result.Failed)

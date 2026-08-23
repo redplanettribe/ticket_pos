@@ -1,9 +1,11 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -137,4 +139,36 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// A failed send must not put the recipient into the log: on 2026-08-23 a Resend
+// 429 wrote three customer addresses to Cloud Logging through exactly this path
+// (#377). The caller's neighbouring line carries the Sale or Ticket id, which is
+// enough to correlate without naming anyone.
+func TestResendFailureLogNamesNoRecipient(t *testing.T) {
+	var buf bytes.Buffer
+	sender := newTestSender(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"message":"rate limited"}`))
+	})
+	sender.logger = NewSlogLogger(slog.New(slog.NewTextHandler(&buf, nil)))
+
+	const to = "holder@example.com"
+	ctx := context.Background()
+	_ = sender.SendOTP(ctx, to, "123456", DefaultLocale)
+	_ = sender.SendSaleConfirmation(ctx, SaleConfirmation{To: to, Reference: "REF-1", Locale: DefaultLocale})
+	_ = sender.SendAssignmentReminder(ctx, AssignmentReminder{To: to, Locale: DefaultLocale})
+	// The refusing Digest sender is a sender too, and its only line is a failure.
+	_ = NewUnconfiguredDigestSender(sender.logger, "no identity").SendFollowDigest(ctx, FollowDigest{To: to})
+
+	got := buf.String()
+	if !contains(got, "resend send otp failed") || !contains(got, "resend send assignment reminder failed") {
+		t.Fatalf("expected failure lines to be logged, got:\n%s", got)
+	}
+	if contains(got, to) || contains(got, "email=") {
+		t.Errorf("failure log names the recipient:\n%s", got)
+	}
+	if !contains(got, "429") {
+		t.Errorf("failure log should still carry the provider error:\n%s", got)
+	}
 }

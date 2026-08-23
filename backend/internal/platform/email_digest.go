@@ -89,10 +89,11 @@ func NewUnconfiguredDigestSender(logger Logger, reason string) *UnconfiguredDige
 func (s *UnconfiguredDigestSender) SendFollowDigest(_ context.Context, d FollowDigest) error {
 	// Both sections are counted, and separately: an operator reading this line
 	// wants to know what the refusal cost, and "nothing new but six on the
-	// agenda" is a different loss from the reverse.
+	// agenda" is a different loss from the reverse. The recipient is not
+	// named, for the reason ResendEmailSender gives (#377): a refusal log is
+	// not a list of people, and the caller's line carries the Customer id.
 	s.logger.Error(
 		"follow digest not sent: no digest sending identity is configured",
-		"email", d.To,
 		"new", len(d.New),
 		"happening", len(d.Happening),
 		"reason", s.reason,
