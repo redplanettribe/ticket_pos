@@ -158,6 +158,8 @@ func TestResendFailureLogNamesNoRecipient(t *testing.T) {
 	_ = sender.SendOTP(ctx, to, "123456", DefaultLocale)
 	_ = sender.SendSaleConfirmation(ctx, SaleConfirmation{To: to, Reference: "REF-1", Locale: DefaultLocale})
 	_ = sender.SendAssignmentReminder(ctx, AssignmentReminder{To: to, Locale: DefaultLocale})
+	// The refusing Digest sender is a sender too, and its only line is a failure.
+	_ = NewUnconfiguredDigestSender(sender.logger, "no identity").SendFollowDigest(ctx, FollowDigest{To: to})
 
 	got := buf.String()
 	if !contains(got, "resend send otp failed") || !contains(got, "resend send assignment reminder failed") {
