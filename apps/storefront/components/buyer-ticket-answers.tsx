@@ -300,7 +300,12 @@ function TicketBlock({
     // `open` is left UNDEFINED: a `false` here would be re-applied by React on
     // every redraw, snapping a row shut the moment a save inside it came back.
     <details className="group">
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
+      {/* THE WHOLE ROW IS THE TAP TARGET, at least 44px tall: the chevron is a
+          hint, not the handle. Below `sm` the row is two lines — position and
+          Ticket Type, then the address — because a phone is narrower than a
+          full address and the page must never be wider than the phone (#353).
+          At `sm` and above it is one line again, the address taking the rest. */}
+      <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
           className="text-muted-foreground transition-transform group-open:rotate-90"
@@ -309,8 +314,11 @@ function TicketBlock({
         </span>
         <span className="font-medium">{t("answers.ticketHeading", { position, total })}</span>
         <span className="text-muted-foreground">{ticket.ticket_type_name}</span>
-        {/* The state, in the buyer's words: "accepted", never "claimed". */}
-        <span className="text-muted-foreground min-w-0 flex-1 whitespace-nowrap">
+        {/* The state, in the buyer's words: "accepted", never "claimed". The
+            address truncates with an ellipsis rather than overflow: `basis-full`
+            gives it its own line on a phone, `sm:basis-0` puts it back beside
+            the Ticket Type, and `min-w-0` lets the flex item shrink at all. */}
+        <span className="text-muted-foreground min-w-0 basis-full flex-1 truncate sm:basis-0">
           {state === "accepted" ?
             t("assignment.rowAccepted", { email: holder })
           : state === "assigned" ?

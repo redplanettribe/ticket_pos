@@ -114,12 +114,17 @@ export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) 
   return (
     <div className="space-y-2">
       {open ?
-        <div className="flex items-end gap-2 [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1">
-          {/* ONE LINE: label, field, button. The notice — that the address
-              will be mailed and shown to the Organization — rides on the field
-              as its `description`, so it is `aria-describedby` the input and is
-              heard BEFORE THEY SUBMIT in the only sense that matters; #324's
-              last acceptance criterion, and the one the API cannot cover. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1">
+          {/* ONE LINE at `sm` and above: label, field, button. Below it the form
+              STACKS — label, full-width field, full-width button, the notice
+              under — because a phone cannot hold a label, an address and a
+              button side by side without the notice squeezed into a sliver
+              beside a button pushed off the screen (#353). The notice — that
+              the address will be mailed and shown to the Organization — rides
+              on the field as its `description`, so it is `aria-describedby`
+              the input and is heard BEFORE THEY SUBMIT in the only sense that
+              matters; #324's last acceptance criterion, and the one the API
+              cannot cover. */}
           <FormField
             id={fieldId}
             label={
@@ -155,7 +160,7 @@ export function TicketAssignmentRow({ ticket, save }: TicketAssignmentRowProps) 
           </FormField>
           <Button
             variant="outline"
-            className="shrink-0"
+            className="w-full shrink-0 sm:w-auto"
             onClick={submit}
             disabled={state === "busy"}
           >

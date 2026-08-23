@@ -139,7 +139,9 @@ export function HeldTicketAnswers({ ticket, header, children, onAnswered }: Held
       onToggle={(event) => setOpen(event.currentTarget.open)}
       data-testid={`held-ticket-${ticket.ticket_id}`}
     >
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
+      {/* The same row as the Holder List rows below it: at least 44px tall, the
+          whole row the tap target, so a phone buyer need not aim at the chevron. */}
+      <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="text-muted-foreground transition-transform group-open:rotate-90">
           ▸
         </span>
