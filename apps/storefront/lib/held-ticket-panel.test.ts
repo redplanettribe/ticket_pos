@@ -5,6 +5,7 @@ import type { Question, QuestionAnswer, QuestionKind } from "./ticket-questions.
 import {
   closedWindowKey,
   collapsesAfterSave,
+  heldRowDisclosure,
   panelDisclosure,
   saveTrigger,
 } from "./held-ticket-panel.ts";
@@ -106,5 +107,22 @@ test("the closed window is keyed from the API's refusal token", () => {
   assert.equal(
     closedWindowKey({ answerable: false, answerable_refusal: "something_new" }),
     "closedUnknown",
+  );
+});
+
+// #356: a held Ticket's row in its Event group opens only when there is a
+// panel behind it. No row from the held-ticket read, or a Ticket that asks
+// nothing, is a plain row with no chevron.
+test("a held row is plain without a held-ticket read or without questions, and opens otherwise", () => {
+  assert.equal(heldRowDisclosure(null), "plain");
+  assert.equal(heldRowDisclosure({ outstanding_count: 0, questions: [] }), "plain");
+  assert.equal(
+    heldRowDisclosure({ outstanding_count: 0, questions: [unanswered({ retired: true })] }),
+    "plain",
+  );
+  assert.equal(heldRowDisclosure({ outstanding_count: 1, questions: [unanswered()] }), "details");
+  assert.equal(
+    heldRowDisclosure({ outstanding_count: 0, questions: [unanswered({ required: false })] }),
+    "details",
   );
 });

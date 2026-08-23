@@ -386,8 +386,7 @@
       "closedReversed": "This purchase was undone, so answers are closed. What was said is kept as it was.",
       "closedUnknown": "Answers are closed for this ticket. What was said is kept as it was."
     },
-    "holdingHeading": "Tickets someone gave you",
-    "holdingDescription": "Someone bought these and gave them to you. The event is theirs to change: if they hand a ticket to someone else, it leaves this list.",
+    "heldRow": "Someone gave you this ticket · {ticketType}",
     "assignment": {
       "title": "Who these tickets are for",
       "tally": "{assigned} of {total} tickets have an address.",

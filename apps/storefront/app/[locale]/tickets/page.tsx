@@ -15,7 +15,6 @@ import {
 
 import { EventGroup } from "@/components/event-group";
 import { HeaderCustomerNav } from "@/components/header-customer-nav";
-import { HeldTickets } from "@/components/held-tickets";
 import { MyInfo } from "@/components/my-info";
 import { OpenSaleFromHash } from "@/components/open-sale-from-hash";
 import { RetryFailedRead } from "@/components/reversal-watch";
@@ -263,7 +262,7 @@ async function CustomerArea({
 }) {
   // The Tickets somebody gave this Customer and they accepted (#325). Empty
   // for almost everybody, and empty for a Confirmation Link session by
-  // construction.
+  // construction. They are drawn inside their Event's group, by groupsFor.
   const holding = area.holding ?? [];
   // Somebody who has bought nothing may still HOLD something: a friend bought
   // them a ticket and they accepted it (#325). Showing them the "you have no
@@ -289,7 +288,8 @@ async function CustomerArea({
 
   return (
     <>
-      {/* One card per Event, the Sales as rows inside it (#354); a row named by
+      {/* One card per Event, the Sales as rows inside it (#354) and after them
+          the Tickets somebody gave this Customer (#356); a row named by
           the URL's fragment is opened by the client piece below, since a
           fragment alone cannot open a `<details>`. Mounted once for the page. */}
       <OpenSaleFromHash />
@@ -343,15 +343,6 @@ async function CustomerArea({
           </div>
         )}
       </section>
-
-      {/* The Tickets somebody gave this Customer, with their questions: a
-          client component, because the questions are fetched and answered
-          from the browser (#345). See components/held-tickets.tsx. Still its
-          own section under Upcoming for now; #356 folds held Tickets into the
-          Event groups above, which is why groupsFor's `held` is not drawn yet. */}
-      {tab === "upcoming" && holding.length > 0 ? (
-        <HeldTickets holding={holding} />
-      ) : null}
     </>
   );
 }
