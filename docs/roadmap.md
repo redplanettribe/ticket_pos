@@ -321,6 +321,10 @@ filter. Deferred from the slice: a rescue reconciler for lost redirects and prog
 
 Vertical slice: **V6**. Spec: [issue #17](https://github.com/redplanettribe/ticket_pos/issues/17).
 Builds the `direct` Sales Source on top of the sales spine (section D). `external_platform` source is deferred.
+Extended by the Manually Recorded Sale (G11-G14): the same Direct Sale typed one at a time instead of
+uploaded, belonging to no batch. Spec: [issue #366](https://github.com/redplanettribe/ticket_pos/issues/366)
+(ADR 0052). This is deliberately **not** section E - a hand-typed sale is a Direct Sale on the `import`
+channel, and the in-person POS on the `in_person` channel remains unstarted.
 
 
 | #   | Feature                                                                       | Status      |
@@ -335,6 +339,10 @@ Builds the `direct` Sales Source on top of the sales spine (section D). `externa
 | G8  | Undo latest batch: reverse sales, restore capacity, opt-in void email          | Done        |
 | G9  | Staff UI: Event "Import sales" flow + per-event history; `/imports` → picker    | Done        |
 | G10 | Sale import integration tests (+ repository concurrency exception)             | Done        |
+| G11 | Staff API: record one sale + preview (batchless, Purchase Limit enforced)      | Not started |
+| G12 | Staff UI: record-a-sale modal with a Keep adding session + receipt             | Not started |
+| G13 | Sale origin derived (batch / typed / correction) on the Sales list and Export  | Not started |
+| G14 | Manually Recorded Sale integration tests                                        | Not started |
 
 
 ---
