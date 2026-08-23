@@ -53,6 +53,19 @@ type DisplacedHolder struct {
 	// toggles exist to protect. Anybody else here accepted by clicking an
 	// Assignment Link and is told unconditionally.
 	//
+	// IT IS THE PERSON, NOT THE ROUTE, AND THAT IS A CHOICE. A buyer may assign a
+	// Ticket to their OWN address and accept it by clicking, which the assignment
+	// API expressly permits. Such a Ticket was held the way an unconditional
+	// notice's warrant describes — proved, clicked, accepted — and this column
+	// still reports it as the buyer's, so the toggle silences it too. That is
+	// deliberate: the toggle exists to decide whether the Organization is opening
+	// a conversation with the person who bought, and it would be a strange
+	// setting that fell to whether that person happened to route a second Ticket
+	// through their own inbox. The alternative also mails them once PER TICKET —
+	// nothing here dedupes by address — so honouring the route would turn one
+	// silenced buyer into two mails. Reversible in one clause if the ruling goes
+	// the other way.
+	//
 	// A COMPARISON AND NOT AN ADDRESS, which is what keeps the struct as poor as
 	// its doc insists. The buyer's email is compared inside the query and never
 	// selected, so no value in this package can name the buyer even by accident,

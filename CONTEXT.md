@@ -493,6 +493,7 @@ _Avoid_: Manual sale (a Direct Sale is defined by who made it, not by how it was
 A batch upload of Ticket Sales, performed by a Member who can manage the Event's sales and counted against Ticket Type capacity. Each batch carries a Sales Source: `external_platform` sales made in a third-party service, or `direct` sales the Organization made itself. Recorded as a batch so the most recent import to an Event can be reversed. At launch the `direct` source ships first.
 Undone whole-batch and latest-batch only; a single sale of any batch, however old, is instead reversed or corrected on its own, which leaves the batch itself still undoable for the sales it has left.
 The file is one of two ways to record a Direct Sale, not the only one: a Manually Recorded Sale is the same row typed into a form, and belongs to no batch. The Import history therefore lists strictly the files that were uploaded, and a batch undo can never reach a sale somebody typed.
+Every imported row seats its own buyer as the Holder of the first of the Tickets it bought — a Self-held Ticket, exactly as a checkout does (ADR 0055) — so a file of history lands on the Holder List already naming who is coming rather than as a block of unheld Tickets. A batch undo therefore tells those buyers their Ticket is gone only when it was asked to notify them, unlike a Holder who accepted an Assignment and is told either way.
 _Avoid_: Manual sale entry (that is a Manually Recorded Sale, which is deliberately not a Sale Import), external sale upload
 
 **Manually Recorded Sale**:

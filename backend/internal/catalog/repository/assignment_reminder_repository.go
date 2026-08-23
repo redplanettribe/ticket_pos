@@ -57,6 +57,17 @@ const assignmentReminderLedger = `
 // THE CHANNELS ARE `online` AND `import` (ADR 0055, #395) — this list is
 // catalog.remindableAssignmentChannel in SQL and moves with it. `in_person`
 // stays out because a door sale has no buyer surface to assign from at all.
+//
+// KNOWN TO DISAGREE WITH MIGRATION 088, AND UNRULED. The reversal clause below
+// excludes a Sale carrying ANY `sale_reversals` row, whatever became of it.
+// The ADR 0055 backfill narrowed its own version of this predicate to a LIVE
+// reversal (`status <> 'refused'`), on the grounds that a refusal means nothing
+// happened and the buyer is still coming. So a buyer whose Reversal Request was
+// refused now holds Ticket 1 by the backfill and is never chased to name the
+// rest. Nobody is affected today — `sale_reversals` is empty — and #395 left it
+// alone rather than widen a mail sweep on its own authority. Narrowing it here
+// to match 088 is a one-clause change, but it is a decision about who gets
+// mailed and wants a ruling first.
 const assignmentReminderRation = `
 	AND s.channel IN ('online', 'import')
 	AND s.status = 'active'

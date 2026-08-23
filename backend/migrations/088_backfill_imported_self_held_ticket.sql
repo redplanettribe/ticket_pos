@@ -38,7 +38,8 @@
 -- different Tickets as the buyer's. ADR 0055 makes the forward rule and 0048's
 -- the same sentence; this keeps the backfills the same sentence too.
 --
--- WHICH SALES — and the four that are left alone, each for a reason:
+-- WHICH SALES — and the five that are left alone, each for a reason (one more
+-- than 084, which did not split a live reversal from a refused one):
 --
 --   channel = 'import'      Online Sales were 084's and are untouched here.
 --                           `in_person` stays out pending a buyer surface, not
