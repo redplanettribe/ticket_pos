@@ -291,6 +291,10 @@ type Service struct {
 	// which sweeps nothing and mails nobody — the failure mode of an unwired mail
 	// job has to be silence.
 	answerReminders AnswerReminderSource
+	// assignmentReminders is who is due an Assignment Reminder and the ledger of
+	// who has had one (#362, ADR 0051). Optional and nil on any deployment that
+	// has not wired it, which sweeps nothing and mails nobody.
+	assignmentReminders AssignmentReminderSource
 	// displacedHolders tells the people who were holding a reversed Sale's
 	// Tickets that they are not holding them any more (#327, parent #322).
 	//
@@ -427,6 +431,15 @@ func (s *Service) WithOutstandingAnswers(reporter OutstandingAnswerReporter) *Se
 // failing is a run that did nothing and must say so.
 func (s *Service) WithAnswerReminders(source AnswerReminderSource) *Service {
 	s.answerReminders = source
+	return s
+}
+
+// WithAssignmentReminders wires the seam the Assignment Reminder sweep runs on
+// (#362, ADR 0051), on WithAnswerReminders' terms: a setter because the catalog
+// service does not exist yet when this one is constructed, and a deployment
+// that forgets it mails nobody.
+func (s *Service) WithAssignmentReminders(source AssignmentReminderSource) *Service {
+	s.assignmentReminders = source
 	return s
 }
 

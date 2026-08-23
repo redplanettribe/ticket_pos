@@ -617,6 +617,40 @@ variable "answer_reminder_attempt_deadline_seconds" {
   }
 }
 
+# --- Assignment Reminder ------------------------------------------------------
+#
+# One job, one switch (#361, #365, ADR 0051), on the Answer Reminder's pattern
+# and sharing its identity. The sweep reads state and writes to the buyer of
+# every online Sale that still has a Ticket nobody holds.
+
+variable "assignment_reminder_enabled" {
+  description = "Whether the Assignment Reminder sweep tick actually fires. False leaves the job in place but paused, which is how it ships: merging mails nobody, and launching is an Operator's act made by setting this true and applying, then forcing one run by hand while watching (docs/runbook-assignment-reminder.md). The backend's side reads TICKET_ASSIGNMENT_ENABLED and returns no candidates while it is closed, so both switches must be thrown deliberately. This is also the first move if the reminder is ever suspected of writing to the wrong people or too often: pause, then read, because a mail that has gone cannot be recalled."
+  type        = bool
+  default     = false
+}
+
+variable "assignment_reminder_schedule" {
+  description = "Unix cron for the sweep tick, read in America/Guayaquil. Daily at 10:30, half an hour after the Answer Reminder, so a buyer owed one of each receives two mails a little apart. The cadence is NOT what limits how often a buyer is written to: at most one mail per Ticket Sale per 7 days, at most two ever, and none in the Sale's first 24 hours are enforced in the backend against a ledger, so an hourly cron would still mail nobody twice."
+  type        = string
+  default     = "30 10 * * *"
+
+  validation {
+    condition     = can(regex("^\\S+( \\S+){4}$", var.assignment_reminder_schedule))
+    error_message = "assignment_reminder_schedule must be five space-separated cron fields, e.g. \"30 10 * * *\"."
+  }
+}
+
+variable "assignment_reminder_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one sweep before abandoning it. The middle term of the same chain the Answer Reminder keeps — the backend's own run budget first, this second, api_request_timeout_seconds last; read answer_reminder_attempt_deadline_seconds before moving it. A deadline that expires before the run's budget abandons the request mid-send and loses the ledger write for a mail already accepted, which costs a buyer a duplicate."
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.assignment_reminder_attempt_deadline_seconds >= 90 && var.assignment_reminder_attempt_deadline_seconds <= 1800
+    error_message = "assignment_reminder_attempt_deadline_seconds must be between 90 and 1800: at least 90 so it outlives the backend's run budget plus a send in flight, and at most 1800 because Cloud Scheduler rejects more for an HTTP target."
+  }
+}
+
 # --- Holder Address Purge -----------------------------------------------------
 #
 # One job, one switch (#331, parent #322, ADR 0046). Like the Abandoned Answer

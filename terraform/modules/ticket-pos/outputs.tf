@@ -299,3 +299,8 @@ output "digest_email_dns_setup" {
     : local.digest_email_dns_setup_separate
   )
 }
+
+output "assignment_reminder_job_name" {
+  description = "Name of the Cloud Scheduler job driving the Assignment Reminder sweep (ADR 0051). It ships PAUSED (assignment_reminder_enabled defaults false); the launch is the tfvar plus an apply and then one forced run — `gcloud scheduler jobs run <name> --location <region>` — per docs/runbook-assignment-reminder.md. `gcloud scheduler jobs resume` is not the way to start it, because a console resume and the Terraform state then disagree. It presents its own service account, google_service_account.assignment_reminder."
+  value       = google_cloud_scheduler_job.assignment_reminder.name
+}

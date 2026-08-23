@@ -115,6 +115,14 @@ module "ticket_pos" {
   answer_reminder_schedule                 = var.answer_reminder_schedule
   answer_reminder_attempt_deadline_seconds = var.answer_reminder_attempt_deadline_seconds
 
+  # The Assignment Reminder sweep (#361, #365, ADR 0051). Threaded through on the
+  # Answer Reminder's terms: it ships false, its first run is the catch-up to
+  # every pre-feature buyer, and the launch is a reviewed diff of this file's
+  # tfvars plus one forced run — see docs/runbook-assignment-reminder.md.
+  assignment_reminder_enabled                  = var.assignment_reminder_enabled
+  assignment_reminder_schedule                 = var.assignment_reminder_schedule
+  assignment_reminder_attempt_deadline_seconds = var.assignment_reminder_attempt_deadline_seconds
+
   # The Holder Address Purge (#331, parent #322, ADR 0046). Threaded through on
   # the Abandoned Answer Purge's terms, and read the enabled flag as BOTH levers
   # at once for a sharper reason than that job's. It is the incident stop — this

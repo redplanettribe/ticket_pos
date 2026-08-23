@@ -2291,6 +2291,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/assignment-reminders/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Assignment Reminders
+         * @description Sweeps the online Ticket Sales that have more than one Ticket, at least one of them still unassigned, and an Event that has not started, and emails each Sale's BUYER once: the Event, how many of their tickets still have no address, a fresh Confirmation Link to the Sale's page, and the sentence ADR 0047 requires about what giving an address does. Rationed per Ticket Sale (ADR 0051): not before 24 hours after the Sale, at most one mail every 7 days, at most two ever; silent once the Event has started or every Ticket is assigned; never for a single-Ticket Sale, a reversed Sale or an import Sale. A reassigned Self-held Ticket counts as assigned. Transactional: not gated by Marketing Consent, exactly as the Sale Confirmation that carried the same link is not. Written in the Sale Locale, then the buyer's Mail Locale, then English. Sends nothing at all while TICKET_ASSIGNMENT_ENABLED is off. The Cloud Scheduler job that drives it ships paused, and its first run is the announcement to buyers who bought before Ticket Assignment existed. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. Drains a large backlog in batches, oldest Sale first. The response reports how many Sales were due in this batch, how many mails went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names nobody.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeAssignmentReminderSweep"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/internal/checkout-answers/purge": {
         parameters: {
             query?: never;
@@ -9828,6 +9876,11 @@ export interface components {
             error?: components["schemas"]["platform.APIError"];
             request_id?: string;
         };
+        "openapi.EnvelopeAssignmentReminderSweep": {
+            data?: components["schemas"]["service.AssignmentReminderSweepResult"];
+            error?: components["schemas"]["platform.APIError"];
+            request_id?: string;
+        };
         "openapi.EnvelopeBeginCheckout": {
             data?: components["schemas"]["service.BeginCheckoutResult"];
             error?: components["schemas"]["platform.APIError"];
@@ -10444,6 +10497,33 @@ export interface components {
              */
             questions?: components["schemas"]["service.TicketQuestionAnswerView"][];
             ticket_type_name?: string;
+        };
+        "service.AssignmentReminderSweepResult": {
+            /**
+             * @description Backlog is how many Sales are due after this run, batch or no batch — the
+             *     number an Operator watches drain during a catch-up.
+             */
+            backlog?: number;
+            /** @description Due is how many Sales this run found in its batch. */
+            due?: number;
+            /**
+             * @description Failed is how many the provider refused; they stay due and are retried
+             *     next tick, because no ledger row was written.
+             */
+            failed?: number;
+            /** @description Sent is how many mails the provider accepted. */
+            sent?: number;
+            /**
+             * @description Skipped is how many were due but could not be composed — no address, no
+             *     link — and stay due.
+             */
+            skipped?: number;
+            /**
+             * @description Unrecorded is how many were sent but whose ledger row could not be
+             *     written: counted in Sent too, and the one case that can cost a buyer one
+             *     mail over the cap.
+             */
+            unrecorded?: number;
         };
         "service.BeginCheckoutResult": {
             amount_cents?: number;

@@ -306,6 +306,12 @@ Addressed to Holders and nobody else, each about their own Ticket only: a sale o
 Swept rather than triggered, so an Organization drafting its questions cannot mail the same people four times in ten minutes; rationed per Ticket, so a four-Ticket sale can chase two people without mailing either twice, and silent once the Event has started. Transactional, so it is not gated by Marketing Consent, and written in the recipient's Mail Locale.
 _Avoid_: Nudge, chase, follow-up, notification, reminder email (unqualified)
 
+**Assignment Reminder**:
+The mail telling a buyer that Tickets on their Ticket Sale are still `unassigned`, and pointing them at the Customer Area where a Holder can be named.
+Addressed to the buyer and nobody else, because only the buyer can assign; the counterpart of the Answer Reminder, which chases Holders about Answers and deliberately never chases this. Swept rather than triggered, rationed per Ticket Sale, and silent once the Event has started. Transactional, so not gated by Marketing Consent, and written in the Sale Locale.
+Its first sweep is also the announcement to buyers who bought before Ticket Assignment existed: the same mail, with a sentence saying the choice is new.
+_Avoid_: Announcement (as the term), nudge, notification, campaign, "assign your tickets" email, launch email
+
 **Ticket Assignment**:
 The buyer's act of naming an email address for one of their Tickets, and the record of it — the answer to "who is this one for", which a Ticket Sale of four otherwise cannot express.
 Done after the purchase and never at checkout, from the Confirmation Link page or the Customer Area, on the `online` and `import` Sales Channels; a door sale has no buyer surface to do it from. Nothing is held on a Payment, so an abandoned checkout leaves no third party's address behind.
