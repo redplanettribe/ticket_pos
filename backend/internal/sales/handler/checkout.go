@@ -16,9 +16,23 @@ import (
 	"github.com/peter/ticket_pos/backend/internal/sales/service"
 )
 
-// Public checkout endpoints: guest checkout means no session requirement here.
-// These are called by the Storefront BFF (nothing external calls the Go API
-// directly, ADR 0008) on behalf of an anonymous Customer.
+// The online checkout's shared machinery, and the Payment Provider's return leg.
+//
+// THERE IS NO GUEST BEGIN-CHECKOUT (ADR 0054, #386). What used to live here — a
+// public POST that would address a Ticket Sale to whatever `customer_email` was
+// typed into it — is gone, and the one begin-checkout left is the session-gated
+// route in checkout_signed_in.go. The deletion rather than a refusal is the whole
+// point: while the route and the field exist, addressing a Sale to an inbox
+// nobody has proven is EXPRESSIBLE, and sooner or later something expresses it.
+//
+// What stays here is the request shape and the validation both halves always
+// shared, plus ConfirmCheckout. Confirm is deliberately still public and still
+// idempotent: it is the Payment Provider's return leg, driven by a browser that
+// may have come back having lost its cookies, its session and its tab, and a
+// gate on it would strand a buyer who has already paid.
+//
+// Everything here is called by the Storefront BFF; nothing external calls the Go
+// API directly (ADR 0008).
 
 // maxCheckoutLines bounds a single checkout's line count. One Event per cart
 // (ADR 0002) and a handful of Ticket Types per Event make anything beyond this
@@ -99,8 +113,26 @@ type checkoutLineBody struct {
 	Quantity     int    `json:"quantity"`
 }
 
+// beginCheckoutBody is an online checkout as the server understands it, once the
+// buyer's address has been supplied.
+//
+// IT IS NOT A WIRE FORMAT ANY MORE. Nothing decodes a request into this type; the
+// only begin-checkout is beginCustomerCheckoutBody, which carries no address and
+// converges here through addressedTo (checkout_signed_in.go). It survives as the
+// one description of "an online checkout" that the validator and the service
+// input are written against, so that shape, formats and cart rules are stated
+// once.
+//
+// The doc comments on each field are the contract the session-gated body points
+// at, which is why they stay here rather than being duplicated there.
 type beginCheckoutBody struct {
-	CustomerEmail     string `json:"customer_email"`
+	// CustomerEmail is the address the Ticket Sale is written to, and it is
+	// EXPLICITLY NOT A FIELD ON THE WIRE — `json:"-"`, so no client can name it and
+	// no generated client offers it. It is populated in exactly one place, from the
+	// Customer Session (addressedTo), which is what makes "an online Sale is
+	// addressed to a proven address" a property of the code rather than a
+	// convention of a form (ADR 0054).
+	CustomerEmail     string `json:"-"`
 	CustomerFirstName string `json:"customer_first_name"`
 	CustomerLastName  string `json:"customer_last_name"`
 	// The buyer's Tax ID: a Tax ID Type ('cedula' | 'ruc' | 'passport') and its
@@ -148,14 +180,17 @@ type beginCheckoutBody struct {
 	// POINTERS, AND THE NIL IS LOAD-BEARING. Absent means THE BOX WAS NOT SHOWN,
 	// which is a different fact from `false`; false means it was shown and left
 	// unticked, which is an explicit No and is recorded as `denied` (ADR 0034).
-	// A guest checkout always shows all three and therefore always sends all
-	// three; a signed-in Customer is shown only what they have not answered
-	// (#254), and reading their absent boxes as refusals would turn their
-	// purchase into a marketing opt-out.
+	//
+	// ALL THREE ABSENT IS NOW THE ORDINARY CASE. Every buyer is a signed-in
+	// Customer, shown only what they have not answered (#254), and a first-time
+	// buyer answered everything at the sign-in that let them reach the dialog at
+	// all — so the usual checkout sends no consent field whatsoever. Reading those
+	// absences as refusals would turn a purchase into a marketing opt-out.
 	//
 	// PolicyAcceptance is REQUIRED to be present and true of everybody who is
-	// still owed it — every guest, and every signed-in Customer without an
-	// acceptance of the current Policy Version. It is not a field error but a
+	// still owed it, which since ADR 0054 means one person: a Customer holding a
+	// live session when a new Policy Version is published under their feet. It is
+	// not a field error but a
 	// domain refusal — POLICY_ACCEPTANCE_REQUIRED from the service — because what
 	// is wrong is not the shape of the request but that the platform may not act
 	// on it (ADR 0035, consent.ErrPolicyAcceptanceRequired).
@@ -219,78 +254,6 @@ type confirmCheckoutBody struct {
 	ProviderParams map[string]string `json:"provider_params"`
 }
 
-// BeginCheckout starts an online checkout for a published Event: it validates
-// the request, snapshots prices into a pending Payment, and returns the Payment
-// Provider's redirect URL.
-//
-// @Summary      Begin an online checkout
-// @Description  Starts a guest checkout on a published event: validates ticket types, quantities, remaining capacity (check-only, no hold) and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url, exactly as before. A checkout whose cart totals zero — Free Ticket Types only — is settled here and now by the platform itself: no Payment Provider is contacted, the Ticket Sale is recorded and its Sale Confirmation sent before the response is written, and the result comes back status "approved" with confirmation_ref and no redirect_url (ADR 0017). One paid ticket anywhere in the cart makes the whole checkout a provider checkout. Refused with 409 PURCHASE_LIMIT_EXCEEDED when a requested Ticket Type carries a Purchase Limit and this buyer would end up holding more than it allows — details carry ticket_type_id, limit, already_held and requested. The allowance counts that Customer's active Ticket Sales plus their live Capacity Holds, so an abandoned checkout releases it and a Sale Reversal returns it; it is keyed on the Customer, and checked here only and never again when the sale commits, so a Payment the provider approved is never refused over it (ADR 0025). A cart breaching both its Purchase Limit and remaining capacity reports PURCHASE_LIMIT_EXCEEDED, because that refusal is terminal for this buyer while CAPACITY_EXCEEDED would invite a smaller retry the limit refuses just the same. Guest checkout: no authentication is required, only an email, a name, and a valid Tax ID — which is required for a free claim exactly as it is for a paid one. customer_phone is optional: supplied, it is recorded in canonical E.164 form and offered to the Payment Provider so its hosted payment page arrives prefilled; omitted, the checkout proceeds identically and nothing is sent in its place. affiliate_codes is optional and carries the Affiliate Link codes the buyer's recent clicks on this Event left behind, newest first: the first that matches one of this Event's live links credits the Ticket Sale, and a history of unknown, mistyped or deactivated codes simply records the sale unattributed — it never refuses a checkout. At most 5 codes are read; anything beyond is ignored. locale is optional and names the language of the Storefront page the checkout was completed on: it is recorded on the Ticket Sale and decides the language of the Sale Confirmation and of every later mail about that sale (ADR 0033). A checkout naming no locale, or one the platform does not serve, records none and still completes — the receipt then falls back to the Customer's remembered language, and to English. A Customer Session presented in Authorization is optional and changes nothing about the sale — it marks the buyer's details as their own assertion, which is what lets them replace the Tax ID and phone already stored on that Customer. Consent is captured here and refused here: policy_acceptance must be present and true from everybody who is still owed it — every guest, and every signed-in Customer with no acceptance of the current Policy Version — or the checkout is refused with 400 POLICY_ACCEPTANCE_REQUIRED and no Payment is created; the disabled button on the dialog is a courtesy, this is the guarantee. WHICH BOXES A BUYER WAS OWED IS RECOMPUTED HERE and never taken from the body: a guest is owed all three, and a checkout carrying the buyer's own Customer Session for the very address being bought under is owed only what that Customer has not answered (the same set the session read publishes as consent_boxes). An answer for a box that was not owed is DROPPED — so a signed-in Customer who has accepted the current edition and answered both optional boxes checks out with no consent fields at all and writes no Consent Record, and no crafted body can churn a standing Marketing or Networking Consent. It is enforced at BEGIN and never at confirm, so nobody is ever handed to a Payment Provider under a Privacy Policy they have not accepted, and no Payment the provider approved is ever refused over a checkbox. marketing_consent and networking_consent are optional and never blocking: sent true they are a grant, sent false they are an explicit No (which switches the weekly Follow Digest off, ADR 0034), and OMITTED means the box was not shown — which is not a No, and leaves any standing answer untouched. The answers are held on the Payment across the Payment Provider redirect, exactly as the Tax ID, phone and locale are, and the immutable Consent Record plus the consent state are written only when the sale commits: an abandoned, declined or expired Payment records no consent at all, just as it records no Customer. A guest has not proven the address they typed, so an optional tick from one enters Pending Confirmation — recorded as evidence, denied for sending, and never overwriting an answer given under a proven Customer Session (ADR 0035). The technical proof stored with the record (IP, user agent, origin URL) is taken from the request, never from this body. The Policy Version accepted is resolved server-side and is never accepted from a client. answers is optional and carries what the buyer filled in on the checkout's skippable Ticket Question section: one entry per (ticket_type_id, ticket_index, ticket_question_id), where ticket_index is ONE-BASED and names one of that Ticket Type's tickets, 1..quantity counted across the whole cart's holding of it. Exactly one reply slot is filled per entry and WHICH one is decided by the question's kind: text for short_text and long_text, number (a STRING, so the digits reach a NUMERIC column exactly as typed) for number, date for date, checked for checkbox, option_ids for single_choice and multi_choice. `checked: false` is an answer — somebody read the box and left it unticked — while an absent checked is somebody who was never asked. NOTHING ABOUT AN ANSWER CAN EVER REFUSE OR DELAY A CHECKOUT (ADR 0044): it is the only field on this body that produces no field error and no refusal of any kind. An entry naming a Ticket Type not in the cart, a question that Ticket Type does not ask, an index past its quantity, a reply of the wrong shape for the kind, or an Option the question does not currently offer is DROPPED SILENTLY, and the Ticket it was meant for simply carries an Outstanding Answer — which is the whole of what `required` means on a Ticket Question. A choice answer is kept whole or not at all, because dropping one unresolvable Option would rewrite what somebody said. At most 500 entries are read. The answers are held on the Payment keyed by (payment line, index) across the Payment Provider redirect, exactly as the Tax ID, phone, locale and consent answers are, and are written onto the minted Tickets in order — index n becomes ordinal n — only when the sale commits: a Payment that fails or expires produces no Tickets and no Answers on any Ticket. A free checkout, which settles inside this request, carries them through by the same path. The whole section is behind the Ticket Question feature flag: with it closed the field is ignored entirely and nothing is captured, and the public Event page carries no ticket_questions for a client to draw a form from (ADR 0045).
-// @Tags         public
-// @Accept       json
-// @Produce      json
-// @Param        slug       path      string             true  "Organization slug"
-// @Param        eventSlug  path      string             true  "Event slug"
-// @Param        body       body      beginCheckoutBody  true  "Checkout lines, customer identity, Tax ID and optional phone"
-// @Success      201        {object}  openapi.EnvelopeBeginCheckout
-// @Failure      400        {object}  platform.Envelope
-// @Failure      404        {object}  platform.Envelope
-// @Failure      409        {object}  platform.Envelope
-// @Router       /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout [post]
-func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
-	reqID := platform.RequestID(r.Context())
-
-	orgSlug := strings.TrimSpace(r.PathValue("slug"))
-	eventSlug := strings.TrimSpace(r.PathValue("eventSlug"))
-	if orgSlug == "" || eventSlug == "" {
-		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{
-			{Field: "slug", Code: platform.CodeRequired, Message: "organization and event slug are required"},
-		})
-		return
-	}
-
-	var body beginCheckoutBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		_ = platform.WriteInvalidJSON(w, reqID)
-		return
-	}
-
-	fields, input := validateBeginCheckout(orgSlug, eventSlug, body)
-	if len(fields) > 0 {
-		_ = platform.WriteValidationError(w, reqID, fields)
-		return
-	}
-	// Set after validation rather than inside it: these are the facts about the
-	// REQUEST rather than about the form, so they need the *http.Request that
-	// validateBeginCheckout deliberately does not see.
-	//
-	// Both come out of ONE predicate, evaluated once: whether this checkout is the
-	// buyer speaking about themselves. It decides what may be written back onto
-	// their profile and which consent boxes they were owed, and the two must never
-	// be able to disagree — a dialog that hid a box on the strength of a session
-	// the write side then treats as a stranger's would collect nothing and refuse
-	// the sale.
-	input.SessionCustomerID, input.Customer.SelfAsserted = selfAssertedCheckout(r, input.Customer.Email)
-	// The technical proof of the consent act, derived here and never taken from the
-	// body — a body a client composes could claim any address and any browser, and
-	// evidence of circumstances is worth keeping only in the sense that the
-	// platform observed it. The IP comes from the platform's one agreed
-	// derivation rather than from this handler reading the forwarding chain
-	// itself; the user agent and origin are the browser's own headers as the
-	// Storefront BFF relayed them (ADR 0008).
-	//
-	// No session id: this is the guest checkout, and the act it evidences is
-	// finished by a redirect back from a Payment Provider that no session
-	// outlives. What ties the evidence to what happened is the Ticket Sale.
-	input.ConsentEvidence = consent.EvidenceFromRequest(r)
-
-	result, err := h.svc.BeginCheckout(r.Context(), input)
-	if err != nil {
-		_ = platform.WriteDomainError(w, reqID, err)
-		return
-	}
-	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
-}
-
 // validateBeginCheckout applies handler-layer validation (shape, formats,
 // obvious nonsense) so the service only ever sees a well-formed request.
 // Business rules — event published, ticket types on the event, capacity — stay
@@ -298,6 +261,12 @@ func (h *Handler) BeginCheckout(w http.ResponseWriter, r *http.Request) {
 func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([]platform.FieldError, service.BeginCheckoutInput) {
 	var fields []platform.FieldError
 
+	// The address, which no caller supplied: it comes from the Customer Session,
+	// so this branch is now a FAIL-CLOSED ASSERTION rather than form validation.
+	// It cannot fire on a request that reached here through the session gate — a
+	// session's email is an address this platform itself stored and proved — and
+	// it stays because the alternative to an impossible refusal is selling
+	// somebody tickets under an empty address if the wiring ever changes.
 	if strings.TrimSpace(body.CustomerEmail) == "" {
 		fields = append(fields, platform.FieldError{Field: "customer_email", Code: platform.CodeRequired, Message: "is required"})
 	} else if _, err := mail.ParseAddress(body.CustomerEmail); err != nil {
@@ -426,11 +395,18 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 // themselves: the request carries a full Customer Session and it belongs to the
 // very email being bought under.
 //
-// Both halves matter. The session is what proves ownership of the address, so
-// without one an anonymous visitor typing a known email could rewrite a
-// stranger's profile; and the email must match, because a signed-in Customer
-// buying tickets for a friend is supplying the friend's details, not their own
-// (ADR 0016).
+// IT IS CONSTANT TRUE ON THE ONE ROUTE THAT CALLS IT, and it is still asked.
+// Since ADR 0054 there is no route on which a checkout's address can differ from
+// its session's, so both halves below always hold — but SelfAsserted means "we
+// checked", it varies on the staff channels and on every historical row, and a
+// hardcoded true here would leave one column with two meanings depending on which
+// handler wrote it. The constant is a consequence of the gate, not a shortcut
+// past it.
+//
+// Both halves still matter, and this is why they are written down. The session is
+// what proves ownership of the address; and the email must match, because
+// supplying somebody else's address was how a signed-in Customer used to buy for
+// a friend, and that is the very thing the deleted route made possible (ADR 0016).
 //
 // The verdict is about the checkout, not about any one field of it, which is why
 // it is recorded on the buyer (platform.SaleCustomer.SelfAsserted) and guards
@@ -440,11 +416,16 @@ func validateBeginCheckout(orgSlug, eventSlug string, body beginCheckoutBody) ([
 // A Confirmation Link session is deliberately not enough. It is minted from a
 // token in a forwarded email rather than from Proof of Email Ownership, and it
 // exists to show one Ticket Sale; letting it rewrite the profile behind it would
-// hand that power to whoever the confirmation was forwarded to.
+// hand that power to whoever the confirmation was forwarded to. The handler
+// refuses such a session outright before ever reaching here, so this is the
+// second of two independent statements of the same rule.
+//
 // It returns the Customer as well as the verdict, because the two are one fact
 // and a second reading of the session could disagree with the first. The id is
 // empty exactly when the verdict is false, and it is what lets the service ask
-// the consent module which boxes this buyer was owed (#254).
+// the consent module which boxes this buyer was owed (#254) — which, with no
+// guest left to be owed everything, is now the service's ONLY way to answer that
+// question.
 func selfAssertedCheckout(r *http.Request, checkoutEmail string) (string, bool) {
 	session, ok := customersmiddleware.SessionFromContext(r.Context())
 	if !ok || session.TicketSaleID != "" {

@@ -128,10 +128,13 @@ func TestBackfillHoldsAOneTicketOnlineSaleForItsBuyer(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	eventID, gaID := publishCheckoutEvent(t, env, sessionID, "Old Fest", "old-fest", 1000, 10)
 
-	// Typed with the case and whitespace a buyer types: the backfill must land
-	// on the normalised address, as the checkout does.
-	begun := beginCheckoutOK(t, env, "test-org", "old-fest",
-		checkoutBody("  Gus@Example.com ", "Gus", "Perez", cartLine(gaID, 1)))
+	// A sale from before the wall (ADR 0054, #386), which is what this backfill is
+	// FOR: the buyer typed their own address, nobody proved it, and the row it
+	// left is the row the migration has to reach. Typed with the case and
+	// whitespace a buyer types, because the backfill must land on the normalised
+	// address exactly as the checkout did.
+	begun := beginLegacyGuestCheckout(t, env, "old-fest", "  Gus@Example.com ", "Gus", "Perez",
+		boolPtr(true), nil, nil, cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
 	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
 	ticketID := selfHeldTicketID(t, env, saleID)

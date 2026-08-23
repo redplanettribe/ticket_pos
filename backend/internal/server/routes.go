@@ -261,11 +261,18 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 	mux.HandleFunc("POST /api/v1/customer/unsubscribe", h.Unsubscribe)
 	// Confirming a Pending Confirmation from the link in a Sale Confirmation
 	// (#255, ADR 0035) — the unsubscribe route's mirror image, and the second
-	// unauthenticated write in this namespace. A guest checkout creates a
-	// Customer nobody has ever signed in as, so the owner of an address somebody
-	// else typed may have no account to sign in to; the signed token is the whole
-	// authority, and pressing a link that only ever travelled to that inbox is
-	// itself the proof of ownership the guest's tick lacked.
+	// unauthenticated write in this namespace. A guest checkout created a Customer
+	// nobody had ever signed in as, so the owner of an address somebody else typed
+	// may have no account to sign in to; the signed token is the whole authority,
+	// and pressing a link that only ever travelled to that inbox is itself the
+	// proof of ownership the guest's tick lacked.
+	//
+	// NOTHING PRODUCES A PENDING CONFIRMATION ANY MORE (ADR 0054, #386), and this
+	// route stays anyway. The links are already in people's inboxes and the rows
+	// they resolve are already recorded; retiring the resolver would strand them,
+	// and resolving them by inference is exactly what ADR 0035 refuses. It is a
+	// route with no new work and an unfinished backlog, which is the correct shape
+	// for a decision that superseded a producer and not its state.
 	//
 	// POST AND ONLY POST, and here the scanner argument is sharper than it is
 	// above. A prefetch of an unsubscribe GET would silence somebody's mail; a
@@ -295,6 +302,30 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 
 	mux.Handle("GET /api/v1/customer/auth/session", signedIn(http.HandlerFunc(h.GetSession)))
 	mux.Handle("POST /api/v1/customer/auth/logout", signedIn(http.HandlerFunc(h.Logout)))
+	// Beginning an online checkout, session-gated and with no address on the
+	// request (ADR 0054, #384/#386). Served by the SALES handler under this
+	// namespace for the same reason the undo below is: the credential is a
+	// Customer Session, which is this namespace's business, while the operation is
+	// a Payment and a Ticket Sale, which are the sales module's.
+	//
+	// THE NAMESPACE IS THE STATEMENT, and since #386 it is the ONLY statement:
+	// this is the one route in the platform that begins an online checkout, it has
+	// no `customer_email`, and it reads the address from the session. The public
+	// begin-checkout that would sell to whatever address was typed into it is
+	// gone — not refused, deleted — so addressing an online Ticket Sale to an
+	// unproven inbox is unrepresentable rather than merely disallowed.
+	//
+	// It sits behind the same gate as everything else here and behind one more the
+	// middleware cannot express: the handler refuses a Confirmation Link session,
+	// because a token that travelled inside a receipt is not Proof of Email
+	// Ownership and must not be able to buy.
+	//
+	// Confirm is deliberately NOT moved. It stays public and idempotent under
+	// /public/checkout/{clientTransactionId}/confirm: it is the Payment Provider's
+	// return leg and has to work for a browser that came back having lost
+	// everything, including its session.
+	mux.Handle("POST /api/v1/customer/organizations/{slug}/events/{eventSlug}/checkout",
+		signedIn(http.HandlerFunc(app.SalesHandler.BeginCustomerCheckout)))
 	// The Customer Area read. There is deliberately no Customer, email, or
 	// Organization in this path: the session is the only scope.
 	mux.Handle("GET /api/v1/customer/ticket-sales", signedIn(http.HandlerFunc(h.ListTicketSales)))
@@ -499,16 +530,14 @@ func registerPublicRoutes(mux *http.ServeMux, app *App) {
 	// ever ask about an address the caller has not proven they own.
 	mux.Handle("GET /api/v1/public/organizations/{slug}/events/{eventSlug}",
 		customersmiddleware.OptionalCustomerSession(app.CustomersService)(http.HandlerFunc(ch.GetPublicEvent)))
-	// Online checkout (ADR 0012). Guest by definition: no session is required to
-	// buy tickets, only an email, a name, and a Tax ID.
+	// THERE IS NO PUBLIC BEGIN-CHECKOUT (ADR 0054, #386). Beginning an online
+	// checkout is a session-gated Customer route and nothing else; the guest
+	// checkout that used to live here — a POST taking whatever `customer_email`
+	// was typed into it — was deleted rather than deprecated, because a route that
+	// merely refuses the mistake still describes it. A stale client posting here
+	// gets a 404 from the mux, which is the correct answer: this is not a door
+	// that is locked, it is a door that is not there.
 	//
-	// The optional session middleware does not gate this route — an absent or
-	// dead token still checks out as a guest. It is here so the handler can tell
-	// a Customer restating their own Tax ID from an anonymous visitor typing a
-	// known email, which is the difference between an override that updates the
-	// person's profile and one that only lands on the sale (ADR 0016).
-	mux.Handle("POST /api/v1/public/organizations/{slug}/events/{eventSlug}/checkout",
-		customersmiddleware.OptionalCustomerSession(app.CustomersService)(http.HandlerFunc(sh.BeginCheckout)))
 	// Confirm is keyed by our client transaction id rather than by slugs: the
 	// provider's return redirect carries the id and nothing else reliable.
 	mux.HandleFunc("POST /api/v1/public/checkout/{clientTransactionId}/confirm", sh.ConfirmCheckout)

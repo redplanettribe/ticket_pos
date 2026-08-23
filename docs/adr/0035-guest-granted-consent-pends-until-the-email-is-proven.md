@@ -1,5 +1,19 @@
 # Guest-granted consent pends until the email is proven
 
+**Superseded in part by [ADR 0054](./0054-checkout-begins-signed-in-and-the-sale-is-addressed-to-the-session.md): this state has no producer any more.**
+Online checkout requires a Customer Session, so a guest cannot tick a box at checkout, and no other Sales
+Channel collects consent at all. Nothing creates a Pending Confirmation.
+
+Everything below still describes the rows that exist. They are not migrated, not expired, and not resolved
+by inference: the Consent Confirmation Links already in people's inboxes still resolve them, the proven
+owner answering at a later capture moment still supersedes, and the `nil` / `false` / `pending` distinction
+is still load-bearing. The rule this ADR is built on — that a box ticked for an unproven address is a claim
+on an inbox rather than a consent — is untouched, and still governs Follows and the withdrawal path
+(ADR 0039). What changed is only that checkout no longer has to compromise with it. One framing below is
+now inaccurate: Policy Acceptance is described as "a fact about the sale", but a signed-in buyer accepts
+the Policy at sign-in, before any Sale exists, so it is a fact about the Customer, evidenced once and
+carried.
+
 ## Context
 
 Checkout is guest by definition: anyone can type anyone's email. A marketing opt-in ticked there is

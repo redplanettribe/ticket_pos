@@ -207,10 +207,12 @@ func TestDigestSilentForACustomerBornDeclining(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishCheckoutEvent(t, env, sessionID, "Consent Fest", "consent-fest", 1000, 10)
 
-	// The decline, on the surface that cannot prove who is typing.
-	begin := beginCheckoutWithEvidenceOK(t, env, "test-org", "consent-fest", "",
-		consentCheckoutBody("ana@example.com", "Ana", "Lopez",
-			boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1)))
+	// The decline, on the surface that could not prove who was typing: a guest
+	// Payment begun before ADR 0054 closed that door (#386), settling here. The
+	// checkout can no longer be BEGUN this way, and the row it leaves is exactly
+	// the row this test is about.
+	begin := beginLegacyGuestCheckout(t, env, "consent-fest", "ana@example.com", "Ana", "Lopez",
+		boolPtr(true), boolPtr(false), boolPtr(false), cartLine(gaID, 1))
 	confirmCheckoutOK(t, env, begin.ClientTransactionID, "approved")
 
 	// She Follows something, which is the only way a Digest is ever about

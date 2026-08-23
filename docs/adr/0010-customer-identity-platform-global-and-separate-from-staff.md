@@ -1,5 +1,20 @@
 # Customer identity is invisible, platform-global, and separate from staff identity
 
+**Superseded in part by [ADR 0054](./0054-checkout-begins-signed-in-and-the-sale-is-addressed-to-the-session.md).**
+One thing below no longer holds. On the `online` Sales Channel a Customer is no longer created *for* the
+person by their first Ticket Sale: online checkout requires a Customer Session, the Sale is addressed to
+the address that session proved, and the buyer types no address at all. The option this ADR rejected —
+_Account required to buy_ — is the option now taken, for a reason this ADR did not weigh: a mistyped
+address strands the buyer completely, because the only credential a guest ever receives travels inside the
+mail sent to it. The conversion cost named below is real and was accepted knowingly.
+
+Everything else here stands and is still load-bearing: a Customer is still platform-global and
+`UNIQUE(email)`, still shares nothing with a Member but the OTP method, and is still created *for* the
+person on every staff-recorded channel — a Sale Import, a Manually Recorded Sale, and later an In-Person
+Sale all still mint a Customer from an address nobody has proven. `customer_id` is still `NOT NULL` with no
+claim path, verification is still a public path that creates a persisted record, and "a typo merges
+strangers" is still true of every channel a staff member types on.
+
 ## Context
 
 Customers were deliberately not modeled as accounts. `CONTEXT.md` defined a **Customer** as identified by

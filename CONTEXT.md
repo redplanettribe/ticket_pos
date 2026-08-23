@@ -210,7 +210,7 @@ _Avoid_: User tag, private tag, org tag
 **Customer**:
 A person who buys a ticket.
 Identified by a platform-global email — one Customer spans every Organization they have bought from.
-A Customer record is created by any Ticket Sale on any Sales Channel, whether or not the person has ever signed in, by a first sign-in for an email no sale has reached, or by accepting a Ticket Assignment — the accept click being Proof of Email Ownership, so that route mints a Verified Customer without a passcode or a sign-in, and matches an existing record where the email already has one. Every Ticket Sale belongs to one; a Customer minted by accepting owns no Ticket Sale and has consented to nothing beyond holding a ticket.
+A Customer record is created by a Ticket Sale on a staff-recorded Sales Channel, whether or not the person has ever signed in, by a first sign-in for an email no sale has reached, or by accepting a Ticket Assignment — the accept click being Proof of Email Ownership, so that route mints a Verified Customer without a passcode or a sign-in, and matches an existing record where the email already has one. Every Ticket Sale belongs to one; a Customer minted by accepting owns no Ticket Sale and has consented to nothing beyond holding a ticket. An online Ticket Sale creates none: it requires a Customer Session and is addressed to the email that session proved, so a buyer online is always a Verified Customer before they pay.
 Holds what the person asserts about themselves (their current name and Tax ID, later their preferences), while each Ticket Sale keeps its own immutable record of what was transacted. First and last name are stored separately; where a single display name is needed they are joined as "First Last".
 _Avoid_: Buyer, purchaser, account, user, full name
 
@@ -523,12 +523,14 @@ _Avoid_: Registered customer, confirmed customer, active customer
 **Customer Session**:
 A server-side Customer sign-in record on the Storefront, tied to a verified email.
 Spans every Ticket Sale that Customer owns, across all Organizations.
+Required before an online checkout may begin, and the source of that Ticket Sale's email: online, the address is never typed.
 Distinct from a Staff Session, with which it shares nothing but its Proof of Email Ownership methods.
 _Avoid_: Session, login, token, cookie
 
 **Confirmation Link**:
 A signed link carried in a Sale Confirmation, granting access to that one Ticket Sale without signing in.
-Distinct from a Customer Session, which spans every Ticket Sale the Customer owns, and from a Consent Confirmation Link, which may travel in the same email and confirms an optional consent rather than opening a sale.
+Not Proof of Email Ownership, having possibly been forwarded, so it opens a sale and does nothing else: it cannot begin a checkout, and it cannot change what a Customer asserts about themselves.
+Distinct from a Customer Session, which spans every Ticket Sale the Customer owns and is what a buyer holds when they buy, and from a Consent Confirmation Link, which may travel in the same email and confirms an optional consent rather than opening a sale.
 _Avoid_: Magic link, access token, deep link
 
 **Customer Area**:

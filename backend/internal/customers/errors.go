@@ -54,6 +54,29 @@ func ErrReversalRequiresFullSession() apperror.DomainError {
 	)
 }
 
+// ErrCheckoutRequiresFullSession is the same refusal for the act that starts a
+// purchase: a Confirmation Link session asking to begin an online checkout
+// (ADR 0054).
+//
+// It shares the code above because it is the same fact — this credential is too
+// narrow — and carries its own message because none of the others describes what
+// this caller was doing.
+//
+// The reason it must be refused is the whole reason the session-gated checkout
+// exists. That route addresses the Ticket Sale to whatever address the session
+// names, on the strength of that address having been proven; a sale-scoped
+// session is minted by redeeming a Confirmation Link, which is possession of an
+// email that was sent to somebody and can be forwarded, quoted or shared. Accept
+// one here and the platform would be back to selling tickets into an inbox
+// nobody has proven, by a longer road.
+func ErrCheckoutRequiresFullSession() apperror.DomainError {
+	return apperror.New(
+		"CUSTOMER_SESSION_SCOPE_INSUFFICIENT",
+		"Sign in with a passcode to buy tickets.",
+		nil,
+	)
+}
+
 // ErrFollowRequiresFullSession is the same refusal once more, for the Follows
 // (#217): a Confirmation Link session asking to Follow, Unfollow, or read what
 // the Customer Follows.

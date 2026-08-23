@@ -190,13 +190,13 @@ type BeginCheckoutInput struct {
 	// The two travel together because they are one fact — "the person at the
 	// keyboard is provably this Customer" — and the same fact decides both what a
 	// buyer may overwrite on their own profile and which consent boxes they were
-	// owed. A signed-in Customer buying for a friend supplies the friend's
-	// details and the friend's consent: nothing is self-asserted, no id is set,
-	// and the checkout is captured exactly as a guest's is.
+	// owed.
 	//
-	// Empty on every guest checkout, on a Confirmation Link session (which proves
-	// nothing about who holds it), and on the box office and import channels,
-	// which never build one of these.
+	// REQUIRED SINCE ADR 0054, #386. There is one begin-checkout, it is gated on a
+	// Customer Session, and it takes the address from that session — so this is
+	// always set on the online channel and BeginCheckout refuses the input if it
+	// is not. It stays a field rather than becoming an argument because the box
+	// office and import channels never build one of these at all.
 	SessionCustomerID string
 	// Answers are what the buyer typed into the checkout's answer section: one
 	// entry per (Ticket Type, ticket index, Ticket Question) they filled in
@@ -246,19 +246,49 @@ type BeginCheckoutResult struct {
 	ConfirmationRef string `json:"confirmation_ref,omitempty"`
 	AmountCents     int    `json:"amount_cents"`
 	Currency        string `json:"currency"`
+	// AddressedTo is the address this checkout's Ticket Sale was addressed to, as
+	// the API resolved it — on the session-gated route (ADR 0054), the address the
+	// Customer Session proved.
+	//
+	// It is reported back because the Storefront's return leg needs it and has no
+	// other authoritative source for it (#387). The buyer leaves this origin for
+	// the Payment Provider, possibly for minutes, and a session can end while they
+	// are away: a cleared jar, a provider webview that drops cookies, a revoked
+	// session, a return in another browser. The person who comes back has ALREADY
+	// PAID, and the address they bought under is what turns "sign in" from a dead
+	// end into a door — a purchase made under one address and a session held under
+	// another are different Customers (ADR 0011).
+	//
+	// It grants nothing and proves nothing. Sign-in still costs a passcode or a
+	// Google round trip; this only spares the buyer typing what they already told
+	// us. It is reported to the caller that supplied or proved it and to nobody
+	// else, so no address is disclosed that the request did not already name.
+	AddressedTo string `json:"addressed_to"`
 }
 
 // owedConsentAnswers narrows a checkout body's three answers to the boxes this
 // buyer was actually OWED, and refuses the checkout when the one that gates it
 // was owed and not given.
 //
-// WHO IS OWED WHAT. A guest is owed all three: nothing is known about who typed
-// that address, so the dialog draws every box and every answer counts as given.
-// A signed-in Customer buying under their own address is owed only what the
-// consent module says they have not answered — which is what lets a Customer
-// who accepted the current Policy Version and answered both optional boxes check
-// out with no consent UI at all, exactly as they did before this feature existed
-// (#254, parent spec user story 10).
+// WHO IS OWED WHAT, AND THERE IS ONLY ONE ANSWER NOW (ADR 0054, #386). Every
+// online checkout runs under the buyer's own Customer Session for the very
+// address being bought under, so the owed set is always what the consent module
+// says that Customer has not answered. Ordinarily that is nothing at all: a
+// first-time buyer met the boxes at the sign-in that let them reach the dialog,
+// so they check out with no consent UI and no Consent Record, exactly as they did
+// before this feature existed (#254, parent spec user story 10). The one buyer
+// who is still owed something is one holding a live session when a new Policy
+// Version is published under their feet — the sign-in gate cannot re-run on a
+// session already minted, so the checkout is where they are caught.
+//
+// THE GUEST BRANCH IS GONE, and its absence is load-bearing rather than tidy.
+// "Owed all three because nothing is known about who typed that address" was the
+// email-divergence branch: it fired for a visitor with no session and for a
+// signed-in Customer typing somebody else's address, and it is what made a tick
+// here a claim rather than a consent — a Pending Confirmation (ADR 0035). With no
+// route that can express either case, the branch has no way to fire, so it is
+// deleted instead of left as an unreachable statement about a system that no
+// longer exists. What replaces it is a refusal: no session, no owed set, no sale.
 //
 // POLICY ACCEPTANCE GATES BEGIN, NOT CONFIRM, and the choice is the whole point
 // of putting it here (#253, parent spec user story 8).
@@ -291,14 +321,18 @@ type BeginCheckoutResult struct {
 // writes no Consent Record at all (repository.ApprovePaymentAndCommitSale):
 // evidence exists where a capture act happened, and no box was shown here.
 func (s *Service) owedConsentAnswers(ctx context.Context, in BeginCheckoutInput) (consent.Answers, error) {
-	// A guest owes every box, without asking anything: there is no Customer this
-	// request has proven itself to be, and the address in the form is a claim.
-	owed := consent.Outstanding{PolicyAcceptance: true, MarketingConsent: true, NetworkingConsent: true}
-	if in.SessionCustomerID != "" {
-		var err error
-		if owed, err = s.consent.Outstanding(ctx, in.SessionCustomerID); err != nil {
-			return consent.Answers{}, err
-		}
+	// No proven buyer, no checkout. This is unreachable through the one
+	// begin-checkout route — the handler takes the address from the session that
+	// route is gated on — and it fails CLOSED rather than falling back to the
+	// guest reading, because the guest reading is what recorded an unproven tick
+	// as evidence of a consent nobody gave.
+	if in.SessionCustomerID == "" {
+		return consent.Answers{}, fmt.Errorf(
+			"sales: online checkout with no proven buyer; refusing to capture consent for an unproven address")
+	}
+	owed, err := s.consent.Outstanding(ctx, in.SessionCustomerID)
+	if err != nil {
+		return consent.Answers{}, err
 	}
 
 	var answers consent.Answers
@@ -513,7 +547,7 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 	s.holdCheckoutAnswers(ctx, paymentID, requested, in.Answers, now)
 
 	if free {
-		return s.settleFreeCheckout(ctx, event, clientTransactionID, now)
+		return s.settleFreeCheckout(ctx, event, clientTransactionID, customer.Email, now)
 	}
 
 	initiation, err := s.provider.Initiate(ctx, platform.PaymentInitiateInput{
@@ -558,6 +592,10 @@ func (s *Service) BeginCheckout(ctx context.Context, in BeginCheckoutInput) (*Be
 		RedirectURL:         initiation.RedirectURL,
 		AmountCents:         amountCents,
 		Currency:            event.Currency,
+		// The address the sale was addressed to, taken from the same trimmed copy
+		// the Payment snapshot was built from, so what is reported back and what
+		// was recorded cannot disagree.
+		AddressedTo: customer.Email,
 	}, nil
 }
 
@@ -812,7 +850,7 @@ func (s *Service) holdCheckoutAnswers(
 // No Payment Provider is asked, no redirect is handed out, and no confirm leg
 // ever arrives — the buyer has their tickets by the time the response is
 // written.
-func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID string, now time.Time) (*BeginCheckoutResult, error) {
+func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.CheckoutEvent, clientTransactionID, addressedTo string, now time.Time) (*BeginCheckoutResult, error) {
 	ref, err := generateConfirmationRef()
 	if err != nil {
 		return nil, err
@@ -867,6 +905,11 @@ func (s *Service) settleFreeCheckout(ctx context.Context, event *repository.Chec
 		ConfirmationRef:     approved.Sale.ConfirmationRef,
 		AmountCents:         approved.Sale.AmountCents,
 		Currency:            event.Currency,
+		// Reported on the free settlement too, even though this buyer never leaves
+		// the origin and so never risks the round trip: the two outcomes of one
+		// call describe themselves the same way, and a caller that has to ask which
+		// branch it took before reading a field is a caller that will forget.
+		AddressedTo: addressedTo,
 	}, nil
 }
 

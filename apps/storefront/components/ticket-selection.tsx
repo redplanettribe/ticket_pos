@@ -17,15 +17,17 @@ import {
   FormField,
   Input,
   Markdown,
+  cn,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 
 import { CheckoutAnswers } from "@/components/checkout-answers";
 import { ConsentCheckbox } from "@/components/consent-checkbox";
+import { SignInOtherAddressButton } from "@/components/sign-in-other-address-button";
 import { useFormatLocale } from "@/i18n/format-locale";
-import { Link } from "@/i18n/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import type { BeginCheckoutResult, PrivacyPolicy, PublicTicketType } from "@/lib/api";
 import { checkoutAnswerBodies, ownTicketSlot, type AnswerValues } from "@/lib/checkout-answers";
 import {
@@ -34,11 +36,9 @@ import {
   fieldErrorMessages,
   type ErrorCatalog,
 } from "@/lib/api-errors";
-import {
-  anyConsentBox,
-  checkoutConsentBoxes,
-  type ConsentBoxes,
-} from "@/lib/checkout-consent";
+import { anyConsentBox } from "@/lib/checkout-consent";
+import type { CheckoutIdentity } from "@/lib/checkout-identity";
+import { checkoutReturnPath, checkoutSignInHref } from "@/lib/checkout-signin";
 import {
   allowanceSpent,
   checkoutDestination,
@@ -48,6 +48,7 @@ import {
   totalCents,
   totalQuantity,
 } from "@/lib/checkout";
+import type { RestoredSelection, SelectionAdjustment } from "@/lib/selection-url";
 import { formatPrice } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import {
@@ -73,20 +74,41 @@ import { PromotionBadge, PromotionDeadline, TicketTypePrice } from "./promotion"
 /**
  * Ticket selection and the one checkout step, inline on the event page
  * (docs/design/storefront.md): quantity steppers per Ticket Type, a sticky
- * running total, and a Dialog collecting email + first/last name + Tax ID, plus
- * an optional phone number — prefilled from the Customer Session when one
- * exists, guest checkout otherwise.
+ * running total, and — for a buyer with a Customer Session — a Dialog collecting
+ * first/last name and Tax ID, plus an optional phone number.
  *
- * The phone is the one field that is optional, and it prefills only from the
- * Customer's own stored number (#108). Nothing else ever gives it a value: no
- * default, no placeholder, no filler. A number that appears in it is one the
- * person themselves put on their profile — anything else would be the static
- * cardholder data PayPhone's rules prohibit.
+ * BROWSING IS ANONYMOUS AND BUYING IS NOT (ADR 0054, #385). Everything above the
+ * sticky bar is drawn identically for everybody: the Ticket Types, their prices,
+ * their remaining counts and their steppers all work signed out, because the
+ * Storefront is a discovery surface and nothing may gate discovery (ADR 0002,
+ * ADR 0037). The wall stands at ONE control — Buy — where for a visitor with no
+ * identity it is not a button that opens this dialog but a LINK to sign in,
+ * carrying the basket in its destination (lib/checkout-signin.ts). Crossing a
+ * page boundary is what lets the bad news arrive before the buyer has typed
+ * anything, instead of after they have filled a form in.
  *
- * Below the fields sit the Short Notice and the three consent boxes, unticked,
- * with the required one gating the pay button (#253, parent #249). Their words
- * come from the API rather than from the message catalogs, because a Policy
- * Version is the fingerprint of exactly the text a person was shown (ADR 0036).
+ * THERE IS NO EMAIL FIELD. The address the purchase is written to comes from the
+ * session and is stated back, loudly, at the top of the dialog — because a
+ * Customer Session satisfies the wall for its whole life with no re-proof at the
+ * till, and on a shared machine the mitigation is that whose purchase this is
+ * cannot be missed. Beside it sits the way out: sign in as somebody else, which
+ * returns to this same Event with this same basket and this dialog open.
+ *
+ * IT STILL ASKS FOR A NAME, because signing in mints a Customer with none — the
+ * sign-in form asks for an address, a code and consent and nothing else. The Tax
+ * ID and the phone stay optional-shaped as they were: the phone prefills only
+ * from the Customer's own stored number (#108), never from a default, a
+ * placeholder or filler, because anything else would be the static cardholder
+ * data PayPhone's rules prohibit.
+ *
+ * Below the fields the consent section is ORDINARILY ABSENT. A first-time buyer
+ * meets the boxes at sign-in, which holds the sign-in at a consent step while
+ * Policy Acceptance is outstanding (#251), so by the time anybody reaches this
+ * dialog there is nothing left to ask (#254). What remains here is the case
+ * where a Policy Version was published mid-session: the boxes are drawn
+ * unticked, with the required one gating the pay button, and their words come
+ * from the API rather than from the message catalogs because a Policy Version is
+ * the fingerprint of exactly the text a person was shown (ADR 0036).
  *
  * Submitting asks this app's own /api/checkout route to begin the Payment
  * (the browser never addresses the Go API, ADR 0008) and then performs a
@@ -99,29 +121,51 @@ type Envelope<T> = {
   error: { code: string; message: string; details?: unknown } | null;
 };
 
-type SessionData = {
-  email: string;
-  first_name: string;
-  last_name: string;
-  tax_id_type: string | null;
-  tax_id_number: string | null;
-  /** The stored phone in canonical E.164 form, null when the Customer has none. */
-  phone: string | null;
-  /**
-   * Which consent boxes this Customer still owes an answer to (#254).
-   *
-   * It rides on the same read as the prefill above, deliberately: the boxes to
-   * draw and the email to draw them beside are one snapshot of one session, and
-   * a second read could tell this dialog it is serving two different people.
-   */
-  consent_boxes: ConsentBoxes;
-};
-
 type TicketSelectionProps = {
   orgSlug: string;
   eventSlug: string;
   eventName: string;
   ticketTypes: PublicTicketType[];
+  /**
+   * The basket the buyer arrived with, already re-judged against the Ticket
+   * Types above (ADR 0054, lib/selection-url.ts).
+   *
+   * It arrives JUDGED, not claimed: the page decoded the address and clamped
+   * every quantity to what capacity and the Purchase Limit currently allow
+   * (ADR 0025) before handing it over, so nothing here can seed a stepper with
+   * a number a finger could not have produced. Its `adjustments` are what could
+   * NOT be restored, and they are drawn above the ticket list — a basket that
+   * silently differs from the one the buyer pressed Buy on is the one outcome
+   * this whole mechanism exists to prevent.
+   *
+   * Absent for every visitor who arrived without an encoded selection, which is
+   * everyone who did not come back through the wall at Buy.
+   */
+  restoredSelection?: RestoredSelection;
+  /**
+   * Who this purchase would be addressed to, or null when nobody is signed in
+   * (ADR 0054, lib/checkout-identity.ts).
+   *
+   * IT IS THE WALL. Null turns the Buy button into a link to sign-in and makes
+   * this dialog unreachable; non-null is a proven address, the prefill that
+   * comes with it, and the boxes that Customer still owes.
+   *
+   * Read on the SERVER with the page rather than fetched when the dialog opens,
+   * which is what session prefill stopped being speculative about: the address
+   * is on screen the instant the dialog is, there is no moment where an open
+   * dialog cannot say whose purchase this is, and the decision the Buy button
+   * makes is settled before the buyer can press it.
+   */
+  identity: CheckoutIdentity | null;
+  /**
+   * Whether the address asked for the checkout dialog — `?checkout=1`, written
+   * by the wall onto the destination it sends a buyer back to.
+   *
+   * A REQUEST AND NOT A GRANT. It is honoured only when there is somebody to
+   * sell to and something in the basket to sell, so a hand-typed one on an
+   * anonymous visit, or on a basket that nothing survived, opens nothing.
+   */
+  openCheckoutOnArrival?: boolean;
   /**
    * Whether an Online Sale hands the buyer its first Ticket as their own
    * (ADR 0048) — the platform's assignment flag, read off the event payload so
@@ -156,9 +200,14 @@ type TicketSelectionProps = {
   timezone: string | null;
 };
 
-/** The API's begin-checkout field names, mapped onto the form's inputs. */
+/**
+ * The API's begin-checkout field names, mapped onto the form's inputs.
+ *
+ * No `customer_email`: the session-gated route takes none, so it can report no
+ * field error about one and there is no input here for such an error to sit
+ * under (ADR 0054).
+ */
 const FORM_FIELDS = [
-  "customer_email",
   "customer_first_name",
   "customer_last_name",
   "customer_tax_id_type",
@@ -216,11 +265,45 @@ type CheckoutError = {
 const SELECT_CLASS =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
+/**
+ * The Customer's stored phone split back into the two controls the form draws
+ * it with, or an empty pair when they have none (#108, #103).
+ *
+ * A number whose dialling code is in no row at all — only possible if the
+ * country table shrinks under a number already stored — keeps Ecuador on the
+ * selector and shows the whole value in the field, mirroring what "My info"
+ * does. Showing a buyer their own number intact and letting the mirror check
+ * complain beats mangling it to fit a control.
+ */
+function prefilledPhone(phone: string | null): {
+  diallingCode: string;
+  nationalNumber: string;
+} {
+  if (!phone) {
+    return { diallingCode: ECUADOR_DIALLING_CODE, nationalNumber: "" };
+  }
+  const { diallingCode, nationalNumber } = splitPhone(phone);
+  return {
+    diallingCode: diallingCode === "" ? ECUADOR_DIALLING_CODE : diallingCode,
+    nationalNumber,
+  };
+}
+
+/** No boxes at all, which is what a dialog with no identity would draw. */
+const NO_CONSENT_BOXES = {
+  policy_acceptance: false,
+  marketing_consent: false,
+  networking_consent: false,
+};
+
 export function TicketSelection({
   orgSlug,
   eventSlug,
   eventName,
   ticketTypes,
+  restoredSelection,
+  identity,
+  openCheckoutOnArrival = false,
   buyerHoldsFirstTicket,
   priceIncludesFee,
   timezone,
@@ -229,6 +312,11 @@ export function TicketSelection({
   // next/navigation's router, deliberately: the only thing asked of it here is
   // refresh(), which has no address to localize.
   const router = useRouter();
+  // This Event page's own address, without a language prefix, which is what the
+  // wall at Buy builds its round trip out of. Locale-free on the way out and
+  // locale-bearing on the way back through `Link`, so a buyer who switches
+  // language mid sign-in still lands on the page they were buying from.
+  const pathname = usePathname();
   const locale = toAppLocale(useLocale());
   const t = useTranslations("checkout");
   // The error catalog as plain data rather than through `t`: its keys are API
@@ -239,29 +327,70 @@ export function TicketSelection({
   // read-only list on an ended Event says them from the same keys. Two lists of
   // the same Ticket Types must not be able to word the same fact differently.
   const eventCopy = useTranslations("event");
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  // Cédula is the default because it is what the overwhelming majority of
-  // buyers hold; the select is still required, so nothing is submitted under a
-  // type the buyer never looked at without them also typing its number.
-  const [taxIdType, setTaxIdType] = useState<TaxIdType>("cedula");
-  const [taxIdNumber, setTaxIdNumber] = useState("");
+  // Seeded from the restored basket, and from an empty object for everybody
+  // else. The seed is an initial value and not a subscription: once the buyer
+  // touches a stepper the address has had its say, and a later re-render must
+  // never push their own choice back to what a link suggested.
+  const [quantities, setQuantities] = useState<Record<string, number>>(
+    () => restoredSelection?.selection ?? {},
+  );
+  // Open on arrival when the buyer came back through the wall (?checkout=1) and
+  // there is both somebody to sell to and something to sell them. Otherwise the
+  // ordinary closed dialog that Buy opens.
+  //
+  // Judged once, as an initial value: `checkout=1` describes an ARRIVAL, and a
+  // later re-render must not reopen a dialog the buyer has since closed.
+  const [checkoutOpen, setCheckoutOpen] = useState(
+    () =>
+      openCheckoutOnArrival &&
+      identity !== null &&
+      totalQuantity(restoredSelection?.selection ?? {}) > 0,
+  );
+  // The buyer's name, prefilled from their Customer record — and ROUTINELY
+  // EMPTY, which is why these two fields still exist. Signing in mints a
+  // Customer with no name: the sign-in form asks for an address, a code and
+  // consent, and this is the first place anybody is asked what to call them.
+  const [firstName, setFirstName] = useState(identity?.firstName ?? "");
+  const [lastName, setLastName] = useState(identity?.lastName ?? "");
+  // The stored Tax ID is a prefill, not a lock: a signed-in Customer may
+  // override it for this purchase — buying under a company RUC instead of their
+  // cédula — and the override becomes their new stored default (ADR 0016). A
+  // Customer who has never supplied one gets the empty form, with cédula
+  // preselected because it is what the overwhelming majority of buyers hold;
+  // the select is still required, so nothing is submitted under a type the buyer
+  // never looked at without them also typing its number.
+  //
+  // The pair moves together or not at all — lib/checkout-identity.ts already
+  // refuses to hand over half of one — so there is no state where a stored
+  // number sits under a type nobody stored.
+  const storedTaxIdType =
+    identity?.taxIdType && isTaxIdType(identity.taxIdType) ? identity.taxIdType : null;
+  const [taxIdType, setTaxIdType] = useState<TaxIdType>(storedTaxIdType ?? "cedula");
+  const [taxIdNumber, setTaxIdNumber] = useState(
+    storedTaxIdType ? (identity?.taxIdNumber ?? "") : "",
+  );
   // The phone number, split across a country selector and a text field purely
   // for entry: what is submitted is the single canonical E.164 string the two
   // assemble into (#103). Ecuador is selected by default because it is the home
   // market and the overwhelming majority of buyers — the common case should need
   // no interaction at all.
   //
-  // They start empty and are filled in only from the Customer's OWN stored
-  // number, once the session read comes back (#108). Nothing else may write
-  // them: PayPhone's rules prohibit static or filler cardholder data, so a
-  // number in this field is always one the person themselves entered — here or,
-  // earlier, on their profile — and an untouched field submits nothing at all.
-  const [phoneDiallingCode, setPhoneDiallingCode] = useState(ECUADOR_DIALLING_CODE);
-  const [phoneNationalNumber, setPhoneNationalNumber] = useState("");
+  // It is filled in only from the Customer's OWN stored number (#108). Nothing
+  // else may write it: PayPhone's rules prohibit static or filler cardholder
+  // data, so a number in this field is always one the person themselves entered
+  // — here or, earlier, on their profile — and an untouched empty field submits
+  // nothing at all.
+  //
+  // Seeded rather than filled in later, which is what retires the "touched"
+  // flags this used to need: the prefill is the initial value, so there is no
+  // moment where a buyer's own typing could be overwritten by a read landing
+  // behind it.
+  const [phoneDiallingCode, setPhoneDiallingCode] = useState(
+    () => prefilledPhone(identity?.phone ?? null).diallingCode,
+  );
+  const [phoneNationalNumber, setPhoneNationalNumber] = useState(
+    () => prefilledPhone(identity?.phone ?? null).nationalNumber,
+  );
   // The three consent boxes, all starting unticked and never pre-ticked from
   // anything (parent #249): consent has to be something the person actively
   // gave, so there is no prefill here even for a signed-in Customer whose
@@ -270,19 +399,6 @@ export function TicketSelection({
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [networkingConsent, setNetworkingConsent] = useState(false);
-  // Who the session read said is buying, and what they still owe (#254). Null
-  // until that read has come back AND for every visitor it comes back empty for,
-  // which are the same thing as far as the boxes are concerned: a guest.
-  const [consentSession, setConsentSession] = useState<{
-    email: string;
-    consent_boxes: ConsentBoxes;
-  } | null>(null);
-  // Whether the read has settled at all, which is a different question. Before
-  // it has, this dialog does not yet know whether it is serving a guest or a
-  // Customer who has answered everything — and the two get opposite consent UI,
-  // so it draws neither rather than drawing all three boxes and pulling them
-  // away a moment later.
-  const [sessionChecked, setSessionChecked] = useState(false);
   // What the buyer has typed into the answer section, keyed by (Ticket Type,
   // ticket number, question) (#311).
   //
@@ -296,15 +412,13 @@ export function TicketSelection({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<CheckoutError | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const prefillAttempted = useRef(false);
-  const taxIdTouched = useRef(false);
-  const phoneTouched = useRef(false);
 
-  // Which boxes this dialog draws, recomputed on every render because one of its
-  // inputs is the email field: a signed-in Customer who types a friend's address
-  // is checking out as a guest for somebody else, and every box comes back the
-  // moment the two diverge (lib/checkout-consent.ts).
-  const consentBoxes = checkoutConsentBoxes(consentSession, email);
+  // Which boxes this dialog draws: the ones the Customer on the session still
+  // owes, and ORDINARILY NONE. A first-time buyer met them at sign-in, so what
+  // is left here is a Policy Version published mid-session (#254,
+  // lib/checkout-consent.ts). No identity draws none, because there is nobody
+  // to ask.
+  const consentBoxes = identity?.consentBoxes ?? NO_CONSENT_BOXES;
   const showConsent = anyConsentBox(consentBoxes);
 
   // ONE set of questions, for the buyer's own Ticket, and none at all when
@@ -323,6 +437,38 @@ export function TicketSelection({
   // that re-render the form around the selector.
   const countryRows = useMemo(() => countries(formatLocale), [formatLocale]);
 
+  // What the address asked for and could not have. Empty for everybody who
+  // arrived without an encoded selection, which is everybody today.
+  const adjustments = restoredSelection?.adjustments ?? [];
+
+  /**
+   * The sentence for one thing that could not be restored.
+   *
+   * Each branch names a literal message key rather than composing one, so the
+   * catalog can be checked and a missing sentence is a build failure instead of
+   * a blank line in front of a buyer. The Ticket Type is named by ITS OWN name
+   * off the Event payload — an adjustment only ever refers to a Ticket Type this
+   * Event has, because lib/selection-url.ts reports on nothing else.
+   */
+  function adjustmentSentence(adjustment: SelectionAdjustment): string {
+    const ticketType =
+      ticketTypes.find((candidate) => candidate.id === adjustment.ticketTypeId)?.name ?? "";
+    const { requested, restored } = adjustment;
+    if (adjustment.reason === "sold_out") {
+      return t("restored.soldOut", { ticketType });
+    }
+    if (adjustment.reason === "purchase_limit") {
+      // Their own allowance, not the Event's stock. The two must not share a
+      // sentence (ADR 0025).
+      return restored === 0
+        ? t("restored.limitReached", { ticketType })
+        : t("restored.limitReduced", { ticketType, requested, restored });
+    }
+    return restored === 0
+      ? t("restored.unavailable", { ticketType })
+      : t("restored.capacityReduced", { ticketType, requested, restored });
+  }
+
   function adjust(ticketType: PublicTicketType, delta: number) {
     setQuantities((current) => ({
       ...current,
@@ -331,78 +477,28 @@ export function TicketSelection({
   }
 
   /**
-   * Prefill from the Customer Session, once, when checkout opens. A signed-in
-   * Customer gets their email and name filled in; anonymous visitors get an
-   * empty form and no error — guest checkout is the baseline, not a fallback.
-   * Fields the visitor already typed in are never overwritten.
+   * The address this purchase would be sent back to after signing in as
+   * somebody else: this same Event, this same basket, this dialog open again.
+   *
+   * Recomputed from the live quantities rather than from the address that was
+   * arrived on, so a buyer who edited their basket before switching accounts
+   * gets the basket they edited (lib/checkout-signin.ts).
    */
-  async function prefillFromSession() {
-    if (prefillAttempted.current) return;
-    prefillAttempted.current = true;
-    try {
-      const response = await fetch("/api/customer/auth/session");
-      if (!response.ok) return;
-      const envelope = (await response.json()) as Envelope<SessionData>;
-      if (!envelope.data) return;
-      const session = envelope.data;
-      // The consent boxes come off the SAME response as the fields below, which
-      // is the whole reason they ride on this endpoint: the dialog cannot end up
-      // prefilled with one person's email while drawing boxes computed for
-      // another (#254).
-      setConsentSession({ email: session.email, consent_boxes: session.consent_boxes });
-      setEmail((current) => current || session.email);
-      setFirstName((current) => current || session.first_name);
-      setLastName((current) => current || session.last_name);
-      // The stored Tax ID is a prefill, not a lock: a signed-in Customer may
-      // override it for this purchase — buying under a company RUC instead of
-      // their cédula — and the override becomes their new stored default
-      // (ADR 0016). A Customer who has never supplied one gets the empty form.
-      //
-      // The pair moves together, so "already typed in" is tracked with a flag
-      // rather than by testing the value: the type always holds a default, and a
-      // visitor who picked Passport before this response arrived must not find
-      // Cédula selected under their own passport number.
-      if (!taxIdTouched.current && session.tax_id_type && session.tax_id_number && isTaxIdType(session.tax_id_type)) {
-        setTaxIdType(session.tax_id_type);
-        setTaxIdNumber(session.tax_id_number);
-      }
-      // The phone, on exactly the same terms and for the same reason: a
-      // returning Customer gives it once and never again (#108). The stored
-      // value is canonical E.164 and the form is two controls, so splitPhone
-      // resolves it back by longest-prefix match against the country table — a
-      // +1 number lands on whichever +1 row the table lists first, which is
-      // cosmetic and does not change the number submitted (#103).
-      //
-      // Touched is tracked with a flag rather than by testing the value, as the
-      // Tax ID's is: the selector always holds a dialling code, so there is no
-      // "empty" to test, and a buyer who deliberately typed a one-off number
-      // must never find their stored one back in its place.
-      //
-      // A number whose dialling code is in no row at all — only possible if the
-      // table shrinks under a number already stored — keeps Ecuador on the
-      // selector and shows the whole value in the field, mirroring what "My
-      // info" does. Showing a buyer their own number intact and letting the
-      // mirror check complain beats mangling it to fit a control.
-      if (!phoneTouched.current && session.phone) {
-        const { diallingCode, nationalNumber } = splitPhone(session.phone);
-        if (diallingCode !== "") setPhoneDiallingCode(diallingCode);
-        setPhoneNationalNumber(nationalNumber);
-      }
-    } catch {
-      // Prefill is a convenience; its failure must never block a guest.
-    } finally {
-      // Settled either way — signed in, signed out, or unreachable. A read that
-      // failed leaves consentSession null, so the dialog falls back to showing
-      // every box: the answer the API accepts from anybody.
-      setSessionChecked(true);
-    }
-  }
+  const checkoutReturn = checkoutReturnPath(pathname, quantities);
 
+  /**
+   * Buy, for a buyer who has an identity. There is nothing to fetch: who they
+   * are, what they still owe and what prefills their fields all came down with
+   * the page, so the dialog opens fully formed rather than filling in a moment
+   * later.
+   *
+   * A visitor with no identity never reaches this — their Buy control is a link
+   * to sign-in, drawn in its place.
+   */
   function openCheckout() {
     setError(null);
     setFieldErrors({});
     setCheckoutOpen(true);
-    void prefillFromSession();
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -456,7 +552,11 @@ export function TicketSelection({
           org_slug: orgSlug,
           event_slug: eventSlug,
           event_name: eventName,
-          customer_email: email,
+          // NO ADDRESS. The route reads it off the Customer Session and the API
+          // reads it off the same session behind that, so the sale can only be
+          // written to an inbox somebody proved they own (ADR 0054, #384). There
+          // is no field here to send one from and nothing downstream would read
+          // it if there were.
           customer_first_name: firstName,
           customer_last_name: lastName,
           customer_tax_id_type: taxIdType,
@@ -579,6 +679,36 @@ export function TicketSelection({
 
   return (
     <>
+      {/* What the address asked for and this page could not give back
+          (ADR 0054). It is drawn ABOVE the ticket list, before the buyer reads
+          a single price, because it is the difference between the basket they
+          pressed Buy on and the one in front of them now — and a difference
+          they discover at the total is a difference they were misled about.
+
+          It is not dismissed and does not fade when the steppers move: it is a
+          statement about what happened on arrival, and that stays true however
+          the buyer edits things afterwards.
+
+          Nothing here reasons about the rules; `reason` already carries the
+          verdict from lib/selection-url.ts, and the only job left is choosing
+          the sentence. Sold out and a spent Purchase Limit get different words
+          on purpose — a Customer who has used their own allowance must never
+          read it as the Event being full (ADR 0025). */}
+      {adjustments.length > 0 ? (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>{t("restored.title")}</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-4">
+              {adjustments.map((adjustment) => (
+                <li key={adjustment.ticketTypeId}>
+                  {adjustmentSentence(adjustment)}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="space-y-3">
         {ticketTypes.map((ticketType) => {
           const quantity = quantities[ticketType.id] ?? 0;
@@ -695,9 +825,36 @@ export function TicketSelection({
               <p className="text-xs text-muted-foreground">{eventCopy("feeIncluded")}</p>
             ) : null}
           </div>
-          <Button type="button" size="lg" className="h-11" disabled={count === 0} onClick={openCheckout}>
-            {t("getTickets")}
-          </Button>
+          {/* THE WALL AT BUY, and the only place it stands (ADR 0054, #385).
+
+              For a buyer with an identity this is the button it has always
+              been. For a visitor without one it is a LINK — a real one, so it
+              reads as going somewhere, opens in a new tab, and can be seen for
+              what it is before it is pressed — pointing at the ordinary sign-in
+              page and carrying the basket in its destination. Nothing above
+              this bar changed: the prices, the counts and the steppers are the
+              same for everybody, because gating discovery is the one thing the
+              Storefront may not do (ADR 0002, ADR 0037).
+
+              The disabled state is identical in both arms and is about the
+              basket rather than the buyer: an empty cart has nowhere to go,
+              signed in or out. The link's `aria-disabled` is what says so,
+              since an anchor cannot be disabled. */}
+          {identity === null ? (
+            <Button asChild size="lg" className={cn("h-11", count === 0 && "pointer-events-none opacity-50")}>
+              <Link
+                href={checkoutSignInHref(pathname, quantities)}
+                aria-disabled={count === 0}
+                tabIndex={count === 0 ? -1 : undefined}
+              >
+                {t("getTickets")}
+              </Link>
+            </Button>
+          ) : (
+            <Button type="button" size="lg" className="h-11" disabled={count === 0} onClick={openCheckout}>
+              {t("getTickets")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -714,6 +871,44 @@ export function TicketSelection({
             <DialogTitle>{t("title")}</DialogTitle>
             <DialogDescription>{t("description", { event: eventName })}</DialogDescription>
           </DialogHeader>
+
+          {/* WHO THIS PURCHASE IS ADDRESSED TO, said loudly and first
+              (ADR 0054, #385).
+
+              This is not fine print and must never become it. A Customer
+              Session satisfies the wall at Buy for its whole life with no
+              re-proof at the till — which is defensible, because the Customer
+              Area already exposes strictly more behind the same session — so
+              the mitigation for the shared machine is that the address is
+              IMPOSSIBLE TO MISS. Hence the top of the dialog, an accent border,
+              a filled panel, and the address at heading size on its own line
+              rather than in a sentence.
+
+              Beside it, the way out: signing in as somebody else, which returns
+              to this Event with this basket and this dialog open, so changing
+              your mind about which account you are costs you nothing you had
+              already chosen. */}
+          {identity ? (
+            <div
+              className="rounded-lg border-2 border-primary/50 bg-primary/5 p-4"
+              data-testid="checkout-identity"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("identity.label")}
+              </p>
+              <p className="mt-1 break-all text-lg font-semibold leading-tight">
+                {identity.email}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("identity.note")}</p>
+              {/* Ends the session before it lands on /signin, because /signin
+                  sends a signed-in visitor straight on to their destination —
+                  a plain link here would bounce them back to this same dialog
+                  under the same address, having achieved nothing. */}
+              <div className="mt-2">
+                <SignInOtherAddressButton next={checkoutReturn} label={t("identity.switch")} />
+              </div>
+            </div>
+          ) : null}
 
           <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
             {ticketTypes
@@ -758,6 +953,19 @@ export function TicketSelection({
                 {t("backToSelection")}
               </Button>
             </DialogFooter>
+          ) : !identity ? (
+            /*
+              No identity, no form. Unreachable in practice — the Buy control is
+              a link to sign-in for a visitor with no Customer Session, so this
+              dialog never opens for one — and written as a branch rather than
+              as an assertion so that a caller which opens it anyway meets an
+              honest refusal instead of a form addressed to nobody. It is also
+              what the API would do: the session-gated begin-checkout refuses a
+              request with no session outright (#384).
+            */
+            <Alert variant="destructive">
+              <AlertDescription>{t("identity.required")}</AlertDescription>
+            </Alert>
           ) : !policy ? (
             /*
               No notice, no form. The API could not be reached for the current
@@ -774,20 +982,13 @@ export function TicketSelection({
             </Alert>
           ) : (
             <form className="space-y-4" onSubmit={handleSubmit} noValidate>
-              <FormField
-                id="checkout-email"
-                label={t("emailLabel")}
-                error={fieldErrors.customer_email}
-              >
-                <Input
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </FormField>
+              {/* No email field. The address is stated above, off the session,
+                  and there is no way to type a different one here — which is the
+                  load-bearing half of ADR 0054: while the field exists the
+                  mistake is expressible, and eventually something expresses it.
+
+                  The name IS still asked for, and usually for the first time:
+                  signing in mints a Customer with no name. */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   id="checkout-first-name"
@@ -831,7 +1032,6 @@ export function TicketSelection({
                     required
                     value={taxIdType}
                     onChange={(event) => {
-                      taxIdTouched.current = true;
                       if (isTaxIdType(event.target.value)) setTaxIdType(event.target.value);
                     }}
                   >
@@ -856,10 +1056,7 @@ export function TicketSelection({
                     autoComplete="off"
                     required
                     value={taxIdNumber}
-                    onChange={(event) => {
-                      taxIdTouched.current = true;
-                      setTaxIdNumber(event.target.value);
-                    }}
+                    onChange={(event) => setTaxIdNumber(event.target.value)}
                   />
                 </FormField>
               </div>
@@ -879,10 +1076,7 @@ export function TicketSelection({
                     name="phone-country"
                     className={SELECT_CLASS}
                     value={phoneDiallingCode}
-                    onChange={(event) => {
-                      phoneTouched.current = true;
-                      setPhoneDiallingCode(event.target.value);
-                    }}
+                    onChange={(event) => setPhoneDiallingCode(event.target.value)}
                   >
                     {/* Keyed by region code, valued by dialling code: the region
                         is the row's identity and its name is only a rendering of
@@ -913,13 +1107,7 @@ export function TicketSelection({
                     inputMode="tel"
                     autoComplete="tel-national"
                     value={phoneNationalNumber}
-                    onChange={(event) => {
-                      // Touched, and the prefill stops for good: a buyer
-                      // clearing this field means it to stay clear, and one
-                      // typing a one-off number means that number (#108).
-                      phoneTouched.current = true;
-                      setPhoneNationalNumber(event.target.value);
-                    }}
+                    onChange={(event) => setPhoneNationalNumber(event.target.value)}
                   />
                 </FormField>
               </div>
@@ -964,7 +1152,7 @@ export function TicketSelection({
                 Nothing is hidden that has to be read: the checkbox labels are
                 always visible, and each says what it authorizes.
               */}
-              {sessionChecked && showConsent ? (
+              {showConsent ? (
                 <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
                   <details className="text-sm">
                     <summary className="cursor-pointer font-medium">{t("consent.notice")}</summary>
@@ -1031,9 +1219,7 @@ export function TicketSelection({
                 // dialog does not know which of those two people it is serving.
                 // It is the same read the fields above are waiting on, and a
                 // guest's costs no call to the API at all.
-                disabled={
-                  submitting || !sessionChecked || (consentBoxes.policy_acceptance && !policyAccepted)
-                }
+                disabled={submitting || (consentBoxes.policy_acceptance && !policyAccepted)}
                 aria-busy={submitting}
               >
                 {submitting ? t("submitting") : t("submit")}

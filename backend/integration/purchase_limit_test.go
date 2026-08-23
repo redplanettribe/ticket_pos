@@ -486,12 +486,20 @@ func TestLiveCapacityHoldConsumesThePurchaseLimit(t *testing.T) {
 	sessionID := orgAdminSession(t, env)
 	_, gaID := publishRationedEvent(t, env, sessionID, "Tabbed Fest", "tabbed-fest", 1000, 50, 1)
 
-	// A payment page left open on the provider's side. No sale exists, and no
-	// Customer record does either — the pending Payment carries only the email.
+	// A payment page left open on the provider's side. No sale exists — the
+	// allowance this consumes is consumed by the HOLD and by nothing else.
+	//
+	// The Customer does exist, because she signed in to reach the dialog at all
+	// (ADR 0054); what a pending Payment still writes nowhere is a SALE, which is
+	// what the limit would otherwise be counting.
 	first := beginCheckoutOK(t, env, testOrgSlug, "tabbed-fest",
 		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 1)))
-	if got := customerCountByEmail(t, env, "ana@example.com"); got != 0 {
-		t.Fatalf("Customer records for the buyer = %d, want 0 — a pending Payment upserts none", got)
+	var sales int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM ticket_sales`).Scan(&sales); err != nil {
+		t.Fatalf("count ticket sales: %v", err)
+	}
+	if sales != 0 {
+		t.Fatalf("Ticket Sales for the buyer = %d, want 0 — a pending Payment records none", sales)
 	}
 
 	// Typed with different casing, so this also pins the hold arm's own matching:

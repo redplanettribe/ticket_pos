@@ -216,15 +216,28 @@
     "selectionCount": "{count, plural, =0 {No tickets selected} one {# ticket} other {# tickets}}",
     "getTickets": "Get tickets",
     "title": "Checkout",
-    "description": "{event} — we'll email your confirmation to this address.",
+    "description": "You're buying tickets for {event}.",
+    "identity": {
+      "label": "Your tickets go to",
+      "note": "We'll email your tickets and receipt to this address. It's the address you signed in with.",
+      "switch": "Not you? Sign in with another email",
+      "required": "Sign in before buying, so we know where to send your tickets."
+    },
     "lineQuantity": "{count} × {ticketType}",
     "total": "Total",
     "capacityTitle": "Not enough tickets left",
     "purchaseLimitTitle": "More than your limit",
     "backToSelection": "Back to ticket selection",
+    "restored": {
+      "title": "We couldn't restore everything",
+      "soldOut": "{ticketType} sold out while you were away, so it's no longer in your selection.",
+      "unavailable": "{ticketType} is no longer available, so it's no longer in your selection.",
+      "capacityReduced": "Only {restored, plural, one {# ticket} other {# tickets}} left for {ticketType}, not the {requested} you had chosen.",
+      "limitReached": "You've already reached your limit for {ticketType}, so it's no longer in your selection.",
+      "limitReduced": "You can take {restored, plural, one {# more ticket} other {# more tickets}} for {ticketType}, not the {requested} you had chosen."
+    },
     "startFailed": "The checkout could not be started. Please try again.",
     "networkFailed": "The checkout could not be started. Please check your connection and try again.",
-    "emailLabel": "Email",
     "firstNameLabel": "First name",
     "lastNameLabel": "Last name",
     "taxIdTypeLabel": "ID type",
@@ -257,6 +270,8 @@
       "referenceLabel": "Confirmation reference",
       "emailed": "We've emailed your Sale Confirmation with a link to your tickets. Quote the reference above at the door if you need to.",
       "seeTickets": "See your tickets",
+      "signedOutHint": "You're signed out on this device, so your tickets are one step away: sign back in with the address you bought under, or open the link in the email we've just sent you.",
+      "signInToSeeTickets": "Sign in to see your tickets",
       "backToEvent": "Back to the event",
       "discoverMore": "Discover more events"
     },
@@ -288,6 +303,9 @@
     "metaDescription": "Sign in with your email to see your tickets.",
     "title": "Sign in",
     "emailStep": "Enter the email you used to buy your tickets and we'll send you a 6-digit passcode. No password needed.",
+    "reason": {
+      "checkout": "Sign in to buy your tickets. We send them to the address you sign in with, so there's nothing to type twice — and your selection is waiting for you."
+    },
     "codeStep": "Enter the 6-digit passcode we sent to {email}.",
     "sessionEnded": "Your session has ended. Sign in again to see your tickets.",
     "link": {

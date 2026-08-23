@@ -2,30 +2,45 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { AFFILIATE_REF_COOKIE, readAffiliateCodes } from "@/lib/affiliate-ref";
-import { beginCheckout, type BeginCheckoutRequest } from "@/lib/api";
-import { apiErrorResponse } from "@/lib/bff";
+import { beginCheckoutSignedIn, type BeginCheckoutRequest } from "@/lib/api";
+import { apiErrorResponse, notSignedInResponse } from "@/lib/bff";
 import { rememberCheckoutContext } from "@/lib/checkout-context";
 import { checkoutLocaleFromReferer } from "@/lib/checkout-context-cookie";
 import { consentEvidenceHeaders } from "@/lib/consent-evidence";
 import { customerSessionToken } from "@/lib/customer-session";
 import { isAppLocale, type AppLocale } from "@/lib/locale";
+import { encodeSelection } from "@/lib/selection-url";
 
 // Begins a Payment and touches a cookie; never cached.
 export const dynamic = "force-dynamic";
 
 /**
- * The begin-checkout BFF hop: the browser posts the selection and checkout
- * identity here, this handler asks the Go API to begin the checkout
+ * The begin-checkout BFF hop: the browser posts the selection and the buyer's
+ * details here, this handler asks the Go API to begin the checkout
  * (server-side, per ADR 0008 — no browser may address the API), notes the
  * event page and the language it was being read in in the checkout-context
  * cookie for the return leg, and hands back the Payment Provider's redirect
  * URL. The browser then performs a full-page navigation to it: the payment page
  * must be top-level, never an iframe.
  *
- * Validation here is shape-only — is this parseable as a checkout at all? The
- * API owns the real rules (event published, capacity, email validity) and its
- * error envelope is relayed verbatim so the form can show the API's own
- * message and field details.
+ * IT POSTS NO EMAIL, BECAUSE THERE IS NOWHERE FOR ONE TO COME FROM (ADR 0054,
+ * #385). The address a Ticket Sale is written to is read by the API off the
+ * Customer Session token this hop forwards, so the whole class of mistake —
+ * a sale addressed to a typo, to somebody else's inbox, to an address nobody
+ * proved — is unspellable rather than merely guarded against. The dialog has no
+ * email field to send one from, and a body that carried one anyway would be
+ * ignored: nothing below reads it.
+ *
+ * The token is therefore REQUIRED here, and a request without one is refused
+ * 401 without troubling the API. That is a courtesy and not the boundary — the
+ * session-gated route refuses the same request itself, with the same code, and
+ * a Confirmation Link session with 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT.
+ * Enforcement belongs there because the BFF is a hop (ADR 0008).
+ *
+ * Validation here is otherwise shape-only — is this parseable as a checkout at
+ * all? The API owns the real rules (event published, capacity, the buyer's
+ * details) and its error envelope is relayed verbatim so the form can show the
+ * API's own message and field details.
  */
 
 /** Slugs come from our own URLs, but they are still browser input here. */
@@ -37,7 +52,8 @@ type CheckoutRequestBody = {
   org_slug?: unknown;
   event_slug?: unknown;
   event_name?: unknown;
-  customer_email?: unknown;
+  // No customer_email. The address comes from the Customer Session and from
+  // nothing a browser can put in a body (ADR 0054).
   customer_first_name?: unknown;
   customer_last_name?: unknown;
   customer_tax_id_type?: unknown;
@@ -194,6 +210,16 @@ export async function POST(request: Request) {
     return badRequest("Select at least one ticket before checking out.");
   }
 
+  // Who this sale will be addressed to, and the one thing this hop now insists
+  // on (ADR 0054). Refused HERE only so that a browser which lost its session
+  // between opening the dialog and pressing pay gets a 401 it can act on rather
+  // than a round trip; the API refuses the identical request with the identical
+  // code, and it is the API's refusal that makes this true.
+  const sessionToken = await customerSessionToken();
+  if (!sessionToken) {
+    return notSignedInResponse();
+  }
+
   // The phone number is relayed only when the buyer actually gave one, and the
   // key is dropped rather than sent blank (#103). A blank would be this app
   // asserting a value on the buyer's behalf, and PayPhone — which is where this
@@ -228,17 +254,17 @@ export async function POST(request: Request) {
   const answers = parseAnswers(body.answers);
 
   try {
-    // The Customer Session token, when the visitor has one, rides along in
-    // Authorization. It is never required — guest checkout is the baseline — and
-    // the API uses it for one thing only: deciding whether the Tax ID typed
-    // below is the buyer's own assertion about themselves, and may therefore
-    // become their stored one (ADR 0016). A dead or absent token simply checks
-    // out as a guest, so nothing here treats its absence as a problem.
-    const result = await beginCheckout(
+    // The Customer Session token rides in Authorization, and it is now what
+    // NAMES THE BUYER rather than a hint about them (ADR 0054, #384). The API
+    // reads the address off it, writes the Ticket Sale to that address, and
+    // treats the name, Tax ID and phone below as the buyer's own assertions
+    // about themselves — which is what lets them become the stored ones
+    // (ADR 0016) and what makes a consent given here an answer rather than a
+    // Pending Confirmation (ADR 0035).
+    const result = await beginCheckoutSignedIn(
       orgSlug,
       eventSlug,
       {
-        customer_email: asTrimmedString(body.customer_email),
         customer_first_name: asTrimmedString(body.customer_first_name),
         customer_last_name: asTrimmedString(body.customer_last_name),
         customer_tax_id_type: asTrimmedString(body.customer_tax_id_type),
@@ -275,7 +301,7 @@ export async function POST(request: Request) {
         ...(answers.length > 0 ? { answers } : {}),
         lines,
       },
-      await customerSessionToken(),
+      sessionToken,
       // The technical proof of the consent captured on the dialog, forwarded the
       // way the sign-in consent route forwards it and for the same reason: the
       // API records the circumstances of a capture act and can observe none of
@@ -292,22 +318,55 @@ export async function POST(request: Request) {
     // Remembered only once the API accepted the checkout: the slugs were just
     // validated against SLUG_PATTERN, so the path is safe to become an href on
     // the terminal pages.
-    // The buyer's address rides along so the success page can offer sign-in
-    // already filled in (#121). Checkout is guest-facing, so this app's only
-    // record of who bought is the form they just submitted; it is a prefill and
-    // never a credential.
-    // So does the language they were reading in, as the Event page that called
-    // this route states it: this is the last moment anything knows it. The
-    // Payment Provider's return URL is a locale-free constant, so without this
-    // the handler behind it can only guess (T5). Null when neither the body nor
-    // the Referer says, which leaves that handler exactly the guess it had
+    //
+    // WRITTEN IN FULL, BECAUSE A SESSION CAN END BETWEEN PAYING AND RETURNING
+    // (#387). The buyer is about to leave this origin for the Payment Provider,
+    // possibly for minutes; a cleared jar, a provider webview that keeps its own
+    // cookies, a session revoked from another device or a return in a different
+    // browser each land somebody who HAS ALREADY PAID on a terminal page with no
+    // session at all. "Checkout requires a session, therefore the buyer will have
+    // one when they come back" is the one inference this route may not make: it
+    // is true of the request being handled here and says nothing about the one
+    // that follows it.
+    //
+    // The language they were reading in rides along because the Event page that
+    // called this route states it and this is the last moment anything knows it:
+    // the Payment Provider's return URL is a locale-free constant, so without
+    // this the handler behind it can only guess (T5). Null when neither the body
+    // nor the Referer says, which leaves that handler exactly the guess it had
     // before — the same browser asks both times, so nothing is lost by not
     // writing one down here.
     await rememberCheckoutContext({
       clientTransactionId: result.client_transaction_id,
       eventPath: `/${orgSlug}/events/${eventSlug}`,
       eventName: asTrimmedString(body.event_name).slice(0, 200),
-      customerEmail: asTrimmedString(body.customer_email),
+      // The basket, spelled the way a selection travels, so a Payment that is
+      // declined can hand it back rather than an empty Event page (ADR 0054).
+      // Rebuilt from the very lines the API just accepted rather than from
+      // anything the browser said separately about them, so the cookie cannot
+      // remember a different cart than the one that was charged for.
+      selection: encodeSelection(
+        Object.fromEntries(lines.map((line) => [line.ticket_type_id, line.quantity])),
+      ),
+      // The address this Ticket Sale was addressed to, AS THE API JUST REPORTED
+      // IT — the address it read off the Customer Session, echoed back in the
+      // begin-checkout response (#387). It is what lets a buyer whose session
+      // died at the provider sign back into the Customer Area their new tickets
+      // are actually in: a purchase made under one address and a session held
+      // under another are different Customers (ADR 0011).
+      //
+      // TAKEN FROM THE API AND FROM NOTHING THE BROWSER SAID. This hop has no
+      // other honest source: it forwards a session token it never reads, and an
+      // address out of the request body would be `customer_email` back from the
+      // dead, pointed the other way down the wire. It is a prefill either way —
+      // the passcode still has to be proved — but a prefill this app invented
+      // would be this app asserting who the buyer is.
+      //
+      // Blank only when the API said nothing, which is a Storefront running ahead
+      // of an API that predates the field. parseCheckoutContext reads a blank one
+      // as "no prefill" and the sign-in field simply arrives empty, exactly as it
+      // does for a cookie minted by an older release.
+      customerEmail: result.addressed_to ?? "",
       locale,
     });
 

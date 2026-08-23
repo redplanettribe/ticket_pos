@@ -568,9 +568,17 @@ export async function getPublicEvent(
 
 // --- Online checkout (ADR 0012) --------------------------------------------
 
-/** What the begin-checkout endpoint takes: the requested lines plus the checkout identity. */
+/**
+ * What begin-checkout takes: the requested lines plus what the buyer said about
+ * themselves.
+ *
+ * THERE IS NO ADDRESS ON IT, and the absence is the feature (ADR 0054, #386).
+ * The API reads the address off the Customer Session the request carries, and
+ * the route that used to take a typed `customer_email` is deleted — so this type
+ * cannot describe a Ticket Sale addressed to an inbox nobody proved they own,
+ * and neither can anything downstream of it.
+ */
 export type BeginCheckoutRequest = {
-  customer_email: string;
   customer_first_name: string;
   customer_last_name: string;
   /** The buyer's Tax ID, required on this native Sales Channel (ADR 0016). */
@@ -596,8 +604,9 @@ export type BeginCheckoutRequest = {
   /**
    * The language of the page this checkout was completed on, recorded on the
    * Ticket Sale as its Sale Locale and read back whenever mail about that sale
-   * is written (ADR 0033). It is why a guest who never signs in still gets a
-   * Spanish receipt: the page they bought on is the only thing that knows.
+   * is written (ADR 0033). It is why a buyer who signed in without ever choosing
+   * a language still gets a Spanish receipt: the page they bought on is the only
+   * thing that knows.
    *
    * Optional, and the key is dropped when this app cannot say — the API then
    * records no language and falls back to what the Customer's record remembers,
@@ -612,21 +621,23 @@ export type BeginCheckoutRequest = {
    * fact from sending `false`. False is an explicit No, recorded as `denied`
    * and, for marketing, switching the weekly Follow Digest off (ADR 0034);
    * absent leaves any standing answer untouched and records a NULL in the
-   * evidence. A guest is shown all three and therefore sends all three; a
-   * signed-in Customer sends only what they were asked.
+   * evidence. Every buyer sends only what they were asked, and ORDINARILY THAT
+   * IS NOTHING: checkout begins signed in, and a first-time buyer met all three
+   * boxes at the sign-in that let them reach the dialog.
    *
    * `policy_acceptance` is required to be `true` FROM EVERYBODY WHO IS STILL
-   * OWED IT — every guest, and every signed-in Customer with no acceptance of
-   * the current Policy Version — or the API refuses the checkout with
-   * POLICY_ACCEPTANCE_REQUIRED and creates no Payment. The disabled button on
-   * the dialog is what a person sees, not what makes it so. Which boxes were
-   * owed is the API's own finding: an answer for one that was not is dropped,
-   * so nothing sent from here can churn a standing answer.
+   * OWED IT, which now means one person: a Customer holding a live session when
+   * a new Policy Version is published under their feet. Otherwise the API
+   * refuses the checkout with POLICY_ACCEPTANCE_REQUIRED and creates no Payment.
+   * The disabled button on the dialog is what a person sees, not what makes it
+   * so. Which boxes were owed is the API's own finding: an answer for one that
+   * was not is dropped, so nothing sent from here can churn a standing answer.
    *
-   * A guest has not proven the address they typed, so an optional tick from one
-   * enters Pending Confirmation and sends nothing until the owner confirms
-   * (ADR 0035). Nothing here needs to know that — it is the API's finding — but
-   * it is why this app must never tell a guest they are subscribed.
+   * An answer sent from here is always the answer of somebody who proved the
+   * address it is recorded against, so it is a consent and never a claim. The
+   * Pending Confirmation that a guest's tick used to become has no producer left
+   * (ADR 0035, superseded on this point by ADR 0054) — which is why this app can
+   * now tell a buyer plainly what they subscribed to.
    */
   policy_acceptance?: boolean;
   marketing_consent?: boolean;
@@ -675,6 +686,23 @@ export type BeginCheckoutResult = {
   confirmation_ref?: string;
   amount_cents: number;
   currency: string;
+  /**
+   * The address the API addressed this Ticket Sale to (#387). On the
+   * session-gated route that is the address the Customer Session proved, read
+   * server-side and reported back — this app never told the API which address to
+   * use, and it must not learn one from anywhere else either.
+   *
+   * It exists so the return leg keeps working for a buyer whose session did not
+   * survive the trip to the Payment Provider. It is written into the checkout
+   * context cookie and used as a sign-in prefill, and it grants nothing: the
+   * passcode or the Google round trip is still the whole of the proof.
+   *
+   * Optional on this type, and the reason is a deploy: a Storefront running
+   * against an API that predates the field reads undefined, and the cookie then
+   * carries no address exactly as an older cookie does — an empty sign-in field
+   * rather than a wrong one.
+   */
+  addressed_to?: string;
 };
 
 /** The settled outcome of a Payment, as confirm reports it. */
@@ -685,33 +713,30 @@ export type ConfirmCheckoutResult = {
 };
 
 /**
- * beginCheckout starts an online checkout on a published Event. Guest by
- * definition: the form's own email, name, and Tax ID are all the API needs, and
- * a visitor with no session buys exactly like a signed-in one. Failures throw
- * APIError so the route handler can relay the API's own code and message.
+ * beginCheckoutSignedIn starts an online checkout ADDRESSED TO A SESSION
+ * (ADR 0054, #384) — the only way to begin one, since #386 deleted the public
+ * route that took a typed address and the `beginCheckout` that called it.
  *
- * `sessionToken` is therefore optional and changes nothing about the sale. It
- * only tells the API that the buyer has proven they own the address they are
- * buying under, which is what lets a Tax ID typed here replace the one stored on
- * their profile instead of merely landing on this sale (ADR 0016).
+ * The `sessionToken` is REQUIRED and is not a hint here: it is what names the
+ * buyer. No session is a 401 and a Confirmation Link session is a 403
+ * CUSTOMER_SESSION_SCOPE_INSUFFICIENT, both from the API, because the BFF is a
+ * hop and not a boundary (ADR 0008). The wall the buyer actually meets is a
+ * redirect on the Event page (lib/checkout-signin.ts); this is what makes the
+ * mistake inexpressible rather than merely unlikely.
  *
- * `evidence` carries the three headers the API records as the circumstances of
- * the consent captured on this dialog (#253): the client IP as this app derived
- * it, and the browser's own user agent and referring page. The API cannot
- * observe any of them — no browser reaches it directly (ADR 0008), so what it
- * would otherwise record is this process — and they are relayed exactly as the
- * sign-in consent route relays them, because it is the same evidence about the
- * same kind of act.
+ * Confirming what it begins is still the PUBLIC confirm route below, and that is
+ * deliberate rather than an oversight: it is the Payment Provider's return leg,
+ * driven by a browser that may come back having lost its session entirely.
  */
-export async function beginCheckout(
+export async function beginCheckoutSignedIn(
   orgSlug: string,
   eventSlug: string,
   request: BeginCheckoutRequest,
-  sessionToken?: string,
+  sessionToken: string,
   evidence?: Record<string, string>,
 ): Promise<BeginCheckoutResult> {
   const envelope = await callBackend<BeginCheckoutResult>(
-    `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
+    `/api/v1/customer/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
     { method: "POST", body: JSON.stringify(request), sessionToken, headers: evidence },
   );
   if (!envelope.data) {

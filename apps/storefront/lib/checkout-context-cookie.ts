@@ -15,6 +15,7 @@
  */
 
 import { safeEventPath } from "./checkout.ts";
+import { decodeSelection, encodeSelection } from "./selection-url.ts";
 import { isAppLocale, localePrefixOf, type AppLocale } from "./locale.ts";
 import { safePrefillEmail } from "./signin-prefill.ts";
 
@@ -23,9 +24,10 @@ export type CheckoutContext = {
    * Our id for the Payment attempt this context belongs to.
    *
    * Since #121 it is also the key the success page reads the Reversal Window
-   * with. A guest who has just bought holds no Customer Session — checkout never
-   * required one — so this id is the only thing that names their purchase, and
-   * keeping it httpOnly means it stays with the browser that did the buying.
+   * with, and it is the only thing that names the purchase to a browser holding
+   * no session — which since ADR 0054 means a buyer whose session did not
+   * survive the trip to the Payment Provider rather than a guest (#387). Keeping
+   * it httpOnly means it stays with the browser that did the buying.
    */
   clientTransactionId: string;
   /** The event page the checkout began on, e.g. "/demo-venue/events/x". */
@@ -33,8 +35,23 @@ export type CheckoutContext = {
   /** The Event's name, for copy on the terminal pages. */
   eventName: string;
   /**
-   * The address the checkout was made under, so the success page can offer
+   * The address the checkout was made under, so the terminal pages can offer
    * sign-in already filled in (#121).
+   *
+   * ITS RATIONALE CHANGED WITH ADR 0054 AND ITS JOB DID NOT (#387). It used to
+   * be here because the buyer never had a session — checkout was guest-facing,
+   * and this was the only thing that named them. It is here now because THE
+   * BUYER'S SESSION MAY NOT HAVE SURVIVED THE ROUND TRIP: they left this origin
+   * for the Payment Provider, possibly for minutes, and a cleared jar, a provider
+   * webview that drops cookies, a session revoked elsewhere or a return in a
+   * different browser each land somebody who has already paid on a page with no
+   * session. Neither reading makes it optional.
+   *
+   * SINCE #387 IT IS THE API'S ANSWER AND NOT THE BROWSER'S. The session-gated
+   * begin-checkout reports the address it addressed the Ticket Sale to, and the
+   * BFF writes that down; nothing a page could say about who was buying reaches
+   * here, because a browser-supplied address is the field ADR 0054 deleted
+   * wearing a different name.
    *
    * It is a prefill and nothing else: the passcode still has to be proved, so
    * carrying it grants nobody anything. It matters because a purchase made under
@@ -42,10 +59,32 @@ export type CheckoutContext = {
    * (ADR 0011) — a buyer sent to sign in with their everyday email would land in
    * a Customer Area their new tickets are not in.
    *
-   * Empty when the cookie predates this field or the buyer typed nothing usable;
-   * the sign-in link then simply arrives blank.
+   * Empty when the cookie predates this field, or was written by the one release
+   * that wrote none, or holds nothing usable; the sign-in link then simply
+   * arrives blank, which is a buyer typing their own address rather than a buyer
+   * shown a wrong one.
    */
   customerEmail: string;
+  /**
+   * The basket this checkout was for, encoded exactly as it travels in an
+   * address (ADR 0054, lib/selection-url.ts) — so a Payment that was declined
+   * hands the buyer back the selection they were about to pay for instead of an
+   * empty Event page.
+   *
+   * It is stored rather than rebuilt because this is the last moment anything
+   * knows it: the buyer leaves this origin for the Payment Provider, and the
+   * page state that held the quantities is gone by the time they come back.
+   *
+   * A SUGGESTION AND NOT A COMMAND, like every other spelling of a selection.
+   * It names Ticket Types and quantities, cannot spell a price or a capacity,
+   * and is re-judged against the Event by the page that receives it — a Ticket
+   * Type that sold out while the buyer was at the provider comes back reported
+   * rather than restored.
+   *
+   * Empty when the cookie predates this field or nothing survived its guards,
+   * in which case the retry link is exactly the bare Event page it always was.
+   */
+  selection: string;
   /**
    * The language the buyer was reading the Event page in when they set off.
    *
@@ -98,9 +137,17 @@ export function parseCheckoutContext(raw: string | null | undefined): CheckoutCo
   const customerEmail = safePrefillEmail(
     typeof candidate.customerEmail === "string" ? candidate.customerEmail : null,
   );
+  // Round-tripped through the selection format's own decoder rather than
+  // pattern-matched here: a cookie is caller-controlled storage however
+  // httpOnly it is, and anything the decoder refuses — malformed, duplicated,
+  // oversized, hostile — comes back as the empty selection and is written out
+  // as the empty string. One guard, in the module that owns the format.
+  const selection = encodeSelection(
+    decodeSelection(typeof candidate.selection === "string" ? candidate.selection : null),
+  );
   if (!clientTransactionId || !eventPath) return null;
   const locale = readLocale(candidate);
-  return { clientTransactionId, eventPath, eventName, customerEmail, locale };
+  return { clientTransactionId, eventPath, eventName, customerEmail, selection, locale };
 }
 
 /**

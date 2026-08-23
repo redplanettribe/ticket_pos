@@ -7,6 +7,7 @@ import { HeaderCustomerNav } from "@/components/header-customer-nav";
 import { StorefrontShell } from "@/components/storefront-shell";
 import { Link } from "@/i18n/navigation";
 import { readCheckoutContext } from "@/lib/checkout-context";
+import { retryCheckoutPath } from "@/lib/checkout-signin";
 
 export const dynamic = "force-dynamic";
 
@@ -31,13 +32,23 @@ export async function generateMetadata({ params }: FailedPageProps): Promise<Met
 
 /**
  * The end of a payment that did not become a sale. "Try again" goes back to
- * the event page, where checking out again begins a fresh Payment with a new
- * client transaction id — the failed attempt is spent and is never retried in
- * place.
+ * the event page — carrying the selection that was being paid for, so a
+ * declined card does not also cost the buyer their basket — where checking out
+ * again begins a fresh Payment with a new client transaction id: the failed
+ * attempt is spent and is never retried in place.
  *
  * ?issue=support marks the one exception: the provider approved the charge but
  * the sale could not be recorded. Trying again there could charge twice, so
  * the copy sends the Customer to the organizer instead.
+ *
+ * NOTHING HERE READS A SESSION, AND THAT IS DELIBERATE (#387). A buyer can come
+ * back from the Payment Provider without one — a cleared jar, a provider webview
+ * that drops cookies, a return in a different browser — and this page must land
+ * correctly for them: the outcome of a payment is not a fact about who is
+ * signed in. The Event page the retry points at is public and re-judges the
+ * selection on arrival, and if their session really is gone, the wall at Buy
+ * (ADR 0054, #385) meets them there and brings them back with the basket
+ * intact. One wall, in one place, and this is not it.
  */
 export default async function CheckoutFailedPage({ params, searchParams }: FailedPageProps) {
   const { locale } = await params;
@@ -45,7 +56,12 @@ export default async function CheckoutFailedPage({ params, searchParams }: Faile
   setRequestLocale(locale);
   const { issue } = await searchParams;
   const context = await readCheckoutContext();
-  const retryHref = context?.eventPath ?? "/";
+  // Back to the Event with the basket that was about to be paid for (ADR 0054,
+  // #385). The quantities are a suggestion the page re-judges on arrival, so a
+  // Ticket Type that sold out while the buyer was at the provider is reported
+  // rather than restored — and the dialog does NOT reopen: a card was just
+  // refused, and pressing Buy again is the buyer's to do.
+  const retryHref = context ? retryCheckoutPath(context.eventPath, context.selection) : "/";
   const t = await getTranslations("checkout.failed");
 
   if (issue === "support") {

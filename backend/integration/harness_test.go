@@ -214,6 +214,9 @@ func setupTest(t *testing.T) *testEnv {
 	sharedApp.DigestService.WithSendInterval(-1)
 	googleStub.reset()
 	payphoneStub.reset()
+	// The checkout helpers cache one Customer Session per buyer, and the
+	// truncation above has just invalidated every one of them.
+	clear(buyerSessions)
 	return sharedEnv
 }
 

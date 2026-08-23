@@ -9,10 +9,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestPublicCheckoutContract asserts the public checkout endpoints are present
-// in the generated OpenAPI spec so the published contract stays in sync with
-// the code.
-func TestPublicCheckoutContract(t *testing.T) {
+// TestCheckoutContract asserts the shape of the online checkout in the
+// generated OpenAPI spec: which door exists, and which one must not.
+//
+// Beginning an online checkout is session-gated (ADR 0054) and confirming one
+// is not. That asymmetry is the whole decision, so it is asserted in both
+// directions. The absence below is load-bearing and not merely tidy: while a
+// public begin-checkout exists, addressing a Ticket Sale to an unproven inbox
+// is expressible, and the guarantee is off by default for anyone who knows the
+// URL. A regenerated spec that grows that path back has reversed ADR 0054.
+//
+// Confirm stays public because it is the Payment Provider's return leg: it must
+// answer a browser that has lost its session, its cookies, or both, between
+// paying and coming back.
+func TestCheckoutContract(t *testing.T) {
 	t.Parallel()
 
 	specPath := openAPISpecPath(t)
@@ -29,12 +39,17 @@ func TestPublicCheckoutContract(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		"/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout",
+		"/api/v1/customer/organizations/{slug}/events/{eventSlug}/checkout",
 		"/api/v1/public/checkout/{clientTransactionId}/confirm",
 	} {
 		if _, ok := doc.Paths[path]; !ok {
 			t.Fatalf("missing path %q in OpenAPI spec", path)
 		}
+	}
+
+	const guestDoor = "/api/v1/public/organizations/{slug}/events/{eventSlug}/checkout"
+	if _, ok := doc.Paths[guestDoor]; ok {
+		t.Fatalf("the public begin-checkout %q is back in the OpenAPI spec; ADR 0054 removed it", guestDoor)
 	}
 }
 

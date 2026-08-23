@@ -11,7 +11,7 @@ import { signInToUndoHref } from "@/lib/undo-window";
  * "You can undo this purchase until …", wherever it is said.
  *
  * Three surfaces say it and must say it identically: the Customer Area's card,
- * where the undo itself sits; the checkout success page a guest lands on seconds
+ * where the undo itself sits; the checkout success page a buyer lands on seconds
  * after paying; and the Confirmation Link page they return to when they
  * reconsider (#121). One component means the deadline sentence, the Ecuador-time
  * qualifier and the word "undo" cannot drift apart across them.
@@ -26,8 +26,8 @@ import { signInToUndoHref } from "@/lib/undo-window";
  *
  * The action is a child rather than a prop of this component, because it is the
  * one thing that genuinely differs: the Customer Area hands it the button that
- * undoes, and the guest surfaces hand it a link to sign in. Neither this
- * component nor anything under it on a guest surface can execute a reversal.
+ * undoes, and the sessionless surfaces hand it a link to sign in. Neither this
+ * component nor anything under it on one of those can execute a reversal.
  *
  * The words live in the `checkout` namespace for the same reason they live in
  * one component: the buyer meets this sentence for the first time seconds after
@@ -70,15 +70,18 @@ export function UndoWindowNotice({
 }
 
 /**
- * The guest surfaces' action: the one click that turns the Customer Session
+ * The sessionless surfaces' action: the one click that turns the Customer Session
  * requirement from a dead end into a door.
  *
  * Undoing a purchase requires a Customer Session and always will — a
  * Confirmation Link travels by email and gets forwarded, so it must never carry
- * a money-moving action (ADR 0018). But online checkout is guest-facing, which
- * leaves the buyer most likely to want an undo holding no session at all. A
- * guest who is not told this will email the Organization instead, which is the
- * outcome self-service was meant to remove.
+ * a money-moving action (ADR 0018). Two surfaces still meet a reader who holds
+ * none: the Confirmation Link page, which is reached from an inbox and by
+ * design proves nothing; and the checkout success page, where since ADR 0054 a
+ * missing session means not a guest but a buyer whose own session did not
+ * survive the round trip through the Payment Provider (#387). Somebody who is
+ * not told this will email the Organization instead, which is the outcome
+ * self-service was meant to remove.
  *
  * Someone who already holds a full Customer Session is not asked to prove
  * anything again: they are sent straight to the sale itself, where its undo
@@ -88,7 +91,7 @@ export function UndoWindowNotice({
  * destination is that card's own anchor on it; someone signing in first carries
  * the same anchor through as their `next`.
  *
- * When this app does not know which sale it means — a guest whose checkout
+ * When this app does not know which sale it means — a buyer whose checkout
  * context cookie has expired — the destination is the list, exactly as it was
  * before. A less precise landing is the honest degradation; a link to an anchor
  * nothing renders would be a link that quietly does nothing.
