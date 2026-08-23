@@ -82,7 +82,6 @@ WITH sale_tickets AS (
     JOIN tickets t           ON t.ticket_sale_line_id = l.id
     WHERE s.channel = 'online'
       AND s.status = 'active'
-      AND s.reversed_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM sale_reversals r WHERE r.ticket_sale_id = s.id)
       AND s.created_at < TIMESTAMPTZ '2026-08-22T16:33:38Z'   -- go-live constant
     GROUP BY s.id
@@ -94,7 +93,6 @@ JOIN ticket_sales s ON s.id = st.sale_id
 JOIN events e       ON e.id = s.event_id
 WHERE st.ticket_count > 1
   AND st.unassigned_count >= 1
-  AND e.status = 'published'
   AND e.starts_at IS NOT NULL
   AND e.starts_at > NOW();
 ```
@@ -108,6 +106,10 @@ zone already inside it, so `> NOW()` is "has not started" in the Event's own
 timezone without a conversion; `events.timezone` is for display only. A
 Ticket's `holder_email IS NULL` is the `unassigned` state (migration 080); a
 Self-held Ticket that the buyer reassigned carries the new address and so
-counts as assigned. A Sale Reversal is whole-Sale and recorded on
-`ticket_sales.status`/`reversed_at` (migrations 031–032) with a request row in
-`sale_reversals` (migration 039); both are checked.
+counts as assigned. A Sale Reversal is whole-Sale: `ticket_sales.status`
+leaves `active` once reversed (migrations 031–032), and a request row in
+`sale_reversals` (migration 039) marks one in flight; the sweep checks both,
+and so does this query. The Event's `status` is deliberately not filtered,
+because the sweep does not filter it either (nor does the Answer Reminder's):
+a Sale on an unpublished Event with a future start is still a Sale with
+unassigned Tickets.
