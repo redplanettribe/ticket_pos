@@ -27,20 +27,29 @@
 # tomorrow.
 
 # --- Identity -----------------------------------------------------------------
-#
-# No account of its own. #365 drives this job with the EXISTING scheduler
-# identity and invoker grant — google_service_account.answer_reminder and its
-# run.invoker binding in answer_reminder.tf — and that is a deliberate departure
-# from the one-identity-per-job rule the other files keep. The two sweeps are
-# the same act by the same sender (the transactional identity, to buyers, about
-# their own Sale), rationed by the same kind of ledger and paused by the same
-# kind of switch; what the audit log needs to tell apart is the URI each call
-# hit, and it records that. Revoking the shared account stops both reminders at
-# once, which for the failure that would prompt it — mail reaching the wrong
-# people — is the right blast radius rather than the wrong one.
-#
-# If the two ever need separate revocation, the move is a second account with
-# its own run.invoker member, made on answer_reminder.tf's pattern.
+
+# Its own identity, on the terms every job here has one (answer_reminder.tf
+# says why): the audit log must be able to say "the assignment sweep ran" as a
+# different sentence from "the answer sweep ran", and revoking one must never
+# silently revoke the other. The account_id is abbreviated because GCP caps a
+# service account id at 30 characters; the Scheduler job below keeps the full
+# name.
+resource "google_service_account" "assignment_reminder" {
+  project      = var.project_id
+  account_id   = "${var.environment}-ticket-pos-assign-remind"
+  display_name = "Ticket POS ${var.environment} Assignment Reminder sweep"
+  description  = "Identity Cloud Scheduler presents when driving the ${var.environment} Assignment Reminder sweep (ADR 0051)"
+}
+
+# run.invoker on the API service and nothing else, as answer_reminder.tf
+# explains: one authenticated HTTP call to one Cloud Run service.
+resource "google_cloud_run_v2_service_iam_member" "assignment_reminder_invokes_api" {
+  project  = var.project_id
+  location = google_cloud_run_v2_service.api.location
+  name     = google_cloud_run_v2_service.api.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.assignment_reminder.email}"
+}
 
 # --- Schedule -----------------------------------------------------------------
 
@@ -85,7 +94,7 @@ resource "google_cloud_scheduler_job" "assignment_reminder" {
     # Same token placement and audience rule as the Answer Reminder: the
     # audience is the service root, never the sweep path.
     oidc_token {
-      service_account_email = google_service_account.answer_reminder.email
+      service_account_email = google_service_account.assignment_reminder.email
       audience              = google_cloud_run_v2_service.api.uri
     }
   }
@@ -94,5 +103,5 @@ resource "google_cloud_scheduler_job" "assignment_reminder" {
   # own budget first, this second, api_request_timeout_seconds last.
   attempt_deadline = "${var.assignment_reminder_attempt_deadline_seconds}s"
 
-  depends_on = [google_cloud_run_v2_service_iam_member.answer_reminder_invokes_api]
+  depends_on = [google_cloud_run_v2_service_iam_member.assignment_reminder_invokes_api]
 }
