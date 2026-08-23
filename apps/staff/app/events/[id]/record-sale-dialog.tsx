@@ -23,9 +23,13 @@ import { PLATFORM_TIME_ZONE, formatCalendarDay, formatMoney } from "@/lib/format
 import {
   MANUAL_SALE_COLUMNS,
   emptyManualSaleForm,
+  emptyManualSaleSitting,
+  manualSaleAfterRecorded,
   manualSaleBody,
   manualSaleVerdict,
   type ManualSaleForm,
+  type ManualSaleReceiptEntry,
+  type ManualSaleSitting,
   type ManualSaleVerdict,
 } from "@/lib/manual-sale";
 import {
@@ -58,6 +62,11 @@ type RecordSaleDialogProps = {
    * — never the reader's laptop (#289, ADR 0041).
    */
   timezone: string | null;
+  /**
+   * Closes the modal. Called by the dialog itself once a sale is recorded and
+   * the sitting is over — whether it is over is Keep adding's decision, and it
+   * is made here rather than by the caller (#372).
+   */
   onClose: () => void;
   /** Called after a sale is recorded, with what the API says it recorded. */
   onRecorded: (sale: RecordedSale) => void;
@@ -72,9 +81,16 @@ type RecordSaleDialogProps = {
  * endpoint or from the save's own refusal — the app has no validation library
  * and adds none — and each lands on the field the API blamed.
  *
- * There is no Keep adding here; the sitting is #372 and wraps this form rather
- * than living inside it, which is why the form's state, its body and its
- * verdict are pure functions in lib/manual-sale.ts.
+ * A sitting wraps the form (#372): with Keep adding on, a save records the sale
+ * and hands back a form cleared of the buyer for the next name, and a receipt
+ * below lists what this sitting has recorded so the organizer twenty names into
+ * a notebook can see where they are. It is disposable — no session, no draft
+ * and no batch, so there is no undo for a sitting (ADR 0052), and a mistake at
+ * record seven is a Sale Correction on that row.
+ *
+ * Neither the clear-and-keep rule nor the receipt's accumulation is written
+ * here: both are pure functions in lib/manual-sale.ts, because this app has no
+ * component tests and a rule that is not a pure function there is undefended.
  */
 export function RecordSaleDialog({
   eventId,
@@ -103,6 +119,10 @@ export function RecordSaleDialog({
   // with eight complaints about fields they have not reached. The form judges
   // itself AS they type, so the first keystroke is when it starts.
   const [typed, setTyped] = useState(false);
+  // The sitting: whether a save hands the form back for the next name, and
+  // what this one has recorded so far. Client state only — everything listed
+  // is already recorded and mailed, so closing discards it and asks nothing.
+  const [sitting, setSitting] = useState<ManualSaleSitting>(emptyManualSaleSitting);
   // Which preview request is the latest, so a slow earlier answer cannot
   // overwrite the verdict on what has since been typed.
   const previewSeq = useRef(0);
@@ -116,6 +136,9 @@ export function RecordSaleDialog({
     setVerdict(null);
     setPreviewFailed(false);
     setTyped(false);
+    // Keep adding is off on EVERY open, and the previous sitting's receipt goes
+    // with it: the ordinary one-off case is one save and a close.
+    setSitting(emptyManualSaleSitting());
   }, [open, zone]);
 
   // Ask for the verdict as the Organizer types, debounced, on exactly the body
@@ -178,8 +201,13 @@ export function RecordSaleDialog({
   }
 
   /**
-   * Records the sale. A failure leaves every typed value where it is — a
-   * refusal costs a fix, not a retype — and the button is disabled for the
+   * Records the sale, then asks the sitting what happens next: close, or hand
+   * back a form cleared of the buyer with the Ticket Type, Payment Method and
+   * sale date still where the Organizer put them. Either way the sale is
+   * already recorded and the buyer already mailed.
+   *
+   * A failure leaves every typed value where it is and the receipt untouched —
+   * a refusal costs a fix, not a retype — and the button is disabled for the
    * whole flight, which is what stops a double-click recording twice: there is
    * no idempotency key behind this create (ADR 0052).
    */
@@ -191,8 +219,25 @@ export function RecordSaleDialog({
     setFieldErrors({});
     try {
       const recorded = await recordSale(eventId, manualSaleBody(form, zone));
+      // One toast per save: the receipt sits below the fold once the form is
+      // filled, so the confirmation reference has to come to the eye.
       toast.success(t("recordDone", { reference: recorded.confirmation_ref }));
       onRecorded(recorded);
+      const next = manualSaleAfterRecorded(sitting, form, recorded);
+      setSitting(next.sitting);
+      if (next.form) {
+        setForm(next.form);
+        // The open-reset effect only fires when `open` flips, so a save that
+        // keeps the modal up clears the judging state itself: a form with the
+        // buyer taken out of it is refused by every rule there is, and the
+        // next name should not be greeted with the last one's verdict.
+        setVerdict(null);
+        setPreviewFailed(false);
+        setTyped(false);
+      }
+      if (next.closes) {
+        onClose();
+      }
     } catch (error) {
       if (error instanceof ApiError && error.code === "VALIDATION_FAILED") {
         const fields = rowFieldErrors(error.details);
@@ -375,9 +420,30 @@ export function RecordSaleDialog({
 
             <VerdictLine verdict={verdict} checking={checking} failed={previewFailed} />
 
+            {/* Keep adding, off on every open. Locked for the flight it is
+                deciding: it is read when the save answers, and a mid-flight
+                change would decide a save the Organizer did not make it on. */}
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={sitting.keepAdding}
+                disabled={saving}
+                onChange={(event) =>
+                  setSitting((current) => ({ ...current, keepAdding: event.target.checked }))
+                }
+              />
+              <span>
+                <Label className="font-medium">{t("recordKeepAdding")}</Label>
+                <span className="block text-muted-foreground">{t("recordKeepAddingHint")}</span>
+              </span>
+            </label>
+
             <DialogFooter>
               <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
-                {t("recordCancel")}
+                {/* Nothing is being abandoned once a sale is on the receipt:
+                    every line of it is recorded and mailed already. */}
+                {sitting.receipt.length > 0 ? t("recordFinish") : t("recordCancel")}
               </Button>
               <Button type="submit" disabled={saving || checking || verdict?.blocks === true}>
                 {saving ? t("recording") : t("recordConfirm")}
@@ -385,8 +451,70 @@ export function RecordSaleDialog({
             </DialogFooter>
           </form>
         ) : null}
+        <SessionReceipt entries={sitting.receipt} currency={currency} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * What this sitting has recorded, newest first — one line per sale with the
+ * Sale Confirmation reference that finds it again on the Sales list, the buyer,
+ * the Ticket Type and how many, and what was taken.
+ *
+ * It is a receipt and not a basket: every line is a sale that exists, so there
+ * is nothing here to remove, commit or abandon, and closing the modal simply
+ * drops the list (ADR 0052). A line the Event thinks it already has says so —
+ * the warning never blocked the record, and this is where the name typed twice
+ * is caught before twenty more are.
+ */
+function SessionReceipt({
+  entries,
+  currency,
+}: {
+  entries: ManualSaleReceiptEntry[];
+  currency: string;
+}) {
+  const t = useTranslations("sales");
+  const locale = toAppLocale(useLocale());
+  if (entries.length === 0) {
+    return null;
+  }
+  return (
+    <div className="space-y-2 border-t pt-4" aria-live="polite">
+      <p className="text-sm font-medium">
+        {t("recordReceiptHeading", { count: entries.length })}
+      </p>
+      <p className="text-xs text-muted-foreground">{t("recordReceiptHint")}</p>
+      <ul className="space-y-1 text-sm">
+        {entries.map((entry) => (
+          <li
+            key={entry.saleId}
+            className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-md border p-2"
+          >
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{entry.confirmationRef}</span>
+              {/* A buyer's name and their Ticket Type are data; the interpunct
+                  between two independent facts is punctuation, not copy. */}
+              <span className="text-muted-foreground">
+                {entry.buyerName} ·{" "}
+                {t("recordReceiptTickets", {
+                  ticketType: entry.ticketTypeName,
+                  quantity: entry.quantity,
+                })}
+              </span>
+              {entry.possibleDuplicate ? (
+                <span className="text-xs text-amber-700 dark:text-amber-400">
+                  {t("recordReceiptDuplicate")}
+                </span>
+              ) : null}
+            </span>
+            {/* The Organization's currency, never the reader's machine. */}
+            <span>{formatMoney(entry.amountCents, entry.currency || currency, locale)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

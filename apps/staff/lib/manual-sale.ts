@@ -1,9 +1,11 @@
 /**
- * The record-a-sale form's state, body and verdict (#369, ADR 0052).
+ * The record-a-sale form's state, body and verdict, and the sitting it is typed
+ * in (#369, #372, ADR 0052).
  *
  * A Manually Recorded Sale is one Sale Import row typed instead of uploaded, so
  * everything here is about ONE row: what the inputs hold, what body the save
- * sends, and how the preview's answer is read. It is a separate module from
+ * sends, how the preview's answer is read, and what a save leaves behind when
+ * the organizer is still going. It is a separate module from
  * sales-api.ts because that one is the Sales list's endpoints and tokens, and
  * this is a form's state machine with no fetch in it.
  *
@@ -17,7 +19,7 @@
 // well as the bundler — the unit tests import this file directly.
 import { dateTimeLocalToISO } from "./events-api.ts";
 import type { ImportPreviewResult } from "./imports-api.ts";
-import type { RecordSaleInput } from "./sales-api.ts";
+import type { RecordSaleInput, RecordedSale } from "./sales-api.ts";
 
 /**
  * The form as typed: every template column a string, because that is what an
@@ -190,10 +192,9 @@ export function manualSaleVerdict(result: ImportPreviewResult): ManualSaleVerdic
 /**
  * The form to hand back after a sale is recorded and the sitting continues.
  *
- * The keep-adding session itself is #372 and is deliberately not built here.
- * This rule is, because it is a fact about THIS form's state — which of its
- * cells belong to the buyer and which to the sitting — and #372 wraps the form
- * rather than reaching inside it.
+ * A fact about THIS form's state — which of its cells belong to the buyer and
+ * which to the sitting — which is why manualSaleAfterRecorded below calls it
+ * rather than restating it.
  *
  * The buyer, their Tax ID and the amount clear; the Ticket Type, Payment Method
  * and sale date stay, because twenty door sales from the same night are the same
@@ -206,5 +207,98 @@ export function manualSaleFormAfterSave(form: ManualSaleForm): ManualSaleForm {
     ...emptyManualSaleForm(form.soldAtLocal),
     ticketTypeId: form.ticketTypeId,
     paymentMethod: form.paymentMethod,
+  };
+}
+
+/**
+ * One line of the session receipt: a sale this sitting has already recorded.
+ *
+ * Every value here comes off the 201 the record returned, so the list costs no
+ * second request and cannot disagree with what was written. It is disposable
+ * client state — not a batch, not a draft, not persisted — and it is discarded
+ * when the modal closes, because everything on it is already recorded and
+ * mailed (ADR 0052).
+ */
+export type ManualSaleReceiptEntry = {
+  saleId: string;
+  /** The Sale Confirmation reference, which is how the row is found again. */
+  confirmationRef: string;
+  /** The buyer as the API named them; a space between two names is not copy. */
+  buyerName: string;
+  ticketTypeName: string;
+  quantity: number;
+  amountCents: number;
+  currency: string;
+  /** Whether the record carried the duplicate warning. It never blocked it. */
+  possibleDuplicate: boolean;
+};
+
+/**
+ * A sitting at the record-a-sale form: whether it continues after a save, and
+ * what it has recorded so far.
+ *
+ * There is deliberately no session object behind this, no draft and no batch
+ * (ADR 0052). Each entry is a complete, final sale that was recorded the moment
+ * it was saved, which is also why there is no undo for a sitting: a mistake at
+ * record seven is a Sale Correction on that row.
+ */
+export type ManualSaleSitting = {
+  keepAdding: boolean;
+  /** Newest first. */
+  receipt: ManualSaleReceiptEntry[];
+};
+
+/**
+ * A fresh sitting, with Keep adding OFF.
+ *
+ * Off on every open, not off once: the ordinary case is one sale, and a toggle
+ * that remembered last night's door would leave the modal standing open after a
+ * single phone sale.
+ */
+export function emptyManualSaleSitting(): ManualSaleSitting {
+  return { keepAdding: false, receipt: [] };
+}
+
+/** What a recorded sale does to the modal: whether it closes, and on what. */
+export type ManualSaleRecorded = {
+  /** True when the sitting is over and the modal closes on this save. */
+  closes: boolean;
+  /** The form to hand back for the next name, or null when it closes. */
+  form: ManualSaleForm | null;
+  sitting: ManualSaleSitting;
+};
+
+/**
+ * manualSaleAfterRecorded is the whole of what a successful save decides.
+ *
+ * With Keep adding off it closes, which is the one-off case done in one action.
+ * With it on the modal stays up on a form cleared by manualSaleFormAfterSave —
+ * the buyer gone, the sitting's Ticket Type, Payment Method and sale date where
+ * the organizer put them — and the sale joins the receipt at the top.
+ *
+ * It is total and touches neither argument, so the failure path needs no
+ * counterpart: a refused save never reaches here, and there is nothing for it
+ * to have half-written. Every typed value and every line of the receipt stays
+ * exactly as it was.
+ */
+export function manualSaleAfterRecorded(
+  sitting: ManualSaleSitting,
+  form: ManualSaleForm,
+  sale: RecordedSale,
+): ManualSaleRecorded {
+  const entry: ManualSaleReceiptEntry = {
+    saleId: sale.sale_id,
+    confirmationRef: sale.confirmation_ref,
+    buyerName: `${sale.customer_first_name} ${sale.customer_last_name}`.trim(),
+    ticketTypeName: sale.ticket_type_name,
+    quantity: sale.quantity,
+    amountCents: sale.amount_cents,
+    currency: sale.currency,
+    possibleDuplicate: sale.possible_duplicate,
+  };
+  return {
+    closes: !sitting.keepAdding,
+    form: sitting.keepAdding ? manualSaleFormAfterSave(form) : null,
+    sitting: { ...sitting, receipt: [entry, ...sitting.receipt] },
   };
 }

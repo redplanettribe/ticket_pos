@@ -4,11 +4,15 @@ import test from "node:test";
 import {
   MANUAL_SALE_COLUMNS,
   emptyManualSaleForm,
+  emptyManualSaleSitting,
+  manualSaleAfterRecorded,
   manualSaleBody,
   manualSaleFormAfterSave,
   manualSaleVerdict,
+  type ManualSaleSitting,
 } from "./manual-sale.ts";
 import type { ImportPreviewResult } from "./imports-api.ts";
+import type { RecordedSale } from "./sales-api.ts";
 
 /**
  * The staff app has no component tests and adds none (ADR 0052's testing
@@ -294,4 +298,126 @@ test("manualSaleFormAfterSave does not touch the form it was handed", () => {
   manualSaleFormAfterSave(form);
   assert.equal(form.customerEmail, "  buyer@example.com ");
   assert.equal(form.quantity, "2");
+});
+
+// --- the sitting: keep adding, and what it has recorded ---------------------
+
+function recordedSale(overrides: Partial<RecordedSale> = {}): RecordedSale {
+  return {
+    sale_id: "sale-1",
+    confirmation_ref: "TP-ABC123",
+    customer_email: "buyer@example.com",
+    customer_first_name: "Ana",
+    customer_last_name: "Torres",
+    ticket_type_id: "tt-1",
+    ticket_type_name: "General",
+    quantity: 2,
+    amount_cents: 9000,
+    currency: "USD",
+    sold_at: "2026-07-01T15:00:00Z",
+    payment_method: "cash",
+    confirmation_sent: true,
+    possible_duplicate: false,
+    ...overrides,
+  };
+}
+
+test("a sitting opens with Keep adding off and nothing recorded", () => {
+  // Off on EVERY open: the ordinary one-off case is one save and a close, and
+  // a toggle left on from last time would silently keep the modal up.
+  assert.deepEqual(emptyManualSaleSitting(), { keepAdding: false, receipt: [] });
+});
+
+test("with Keep adding off a recorded sale closes the modal and hands back no form", () => {
+  const outcome = manualSaleAfterRecorded(emptyManualSaleSitting(), filledForm(), recordedSale());
+  assert.equal(outcome.closes, true);
+  assert.equal(outcome.form, null);
+});
+
+test("with Keep adding on a recorded sale keeps the modal open on the next form", () => {
+  const outcome = manualSaleAfterRecorded(
+    { keepAdding: true, receipt: [] },
+    filledForm(),
+    recordedSale(),
+  );
+  assert.equal(outcome.closes, false);
+  // The whole clear-and-keep rule, which manualSaleFormAfterSave states and its
+  // own tests above defend: the buyer goes, the sitting's three answers stay.
+  assert.deepEqual(outcome.form, manualSaleFormAfterSave(filledForm()));
+});
+
+test("the receipt takes what the API said it recorded, so nothing is fetched twice", () => {
+  const outcome = manualSaleAfterRecorded(
+    { keepAdding: true, receipt: [] },
+    filledForm(),
+    recordedSale(),
+  );
+  assert.deepEqual(outcome.sitting.receipt, [
+    {
+      saleId: "sale-1",
+      confirmationRef: "TP-ABC123",
+      buyerName: "Ana Torres",
+      ticketTypeName: "General",
+      quantity: 2,
+      amountCents: 9000,
+      currency: "USD",
+      possibleDuplicate: false,
+    },
+  ]);
+});
+
+test("the receipt lists this sitting's sales newest first", () => {
+  // Twenty names deep, the line just recorded is the one being checked.
+  let sitting: ManualSaleSitting = emptyManualSaleSitting();
+  sitting = { ...sitting, keepAdding: true };
+  for (const ref of ["TP-1", "TP-2", "TP-3"]) {
+    sitting = manualSaleAfterRecorded(
+      sitting,
+      filledForm(),
+      recordedSale({ sale_id: ref, confirmation_ref: ref }),
+    ).sitting;
+  }
+  assert.deepEqual(
+    sitting.receipt.map((entry) => entry.confirmationRef),
+    ["TP-3", "TP-2", "TP-1"],
+  );
+});
+
+test("the receipt keeps the duplicate warning the record carried", () => {
+  // The sale is recorded either way — the warning never blocks — and seeing it
+  // in the list is how the name typed twice is caught before twenty more.
+  const outcome = manualSaleAfterRecorded(
+    { keepAdding: true, receipt: [] },
+    filledForm(),
+    recordedSale({ possible_duplicate: true, duplicate_of_date: "2026-07-01" }),
+  );
+  assert.equal(outcome.sitting.receipt[0].possibleDuplicate, true);
+});
+
+test("a buyer with no last name is named by what there is, not by a stray space", () => {
+  const outcome = manualSaleAfterRecorded(
+    { keepAdding: true, receipt: [] },
+    filledForm(),
+    recordedSale({ customer_last_name: "" }),
+  );
+  assert.equal(outcome.sitting.receipt[0].buyerName, "Ana");
+});
+
+test("Keep adding survives the save that used it", () => {
+  const outcome = manualSaleAfterRecorded(
+    { keepAdding: true, receipt: [] },
+    filledForm(),
+    recordedSale(),
+  );
+  assert.equal(outcome.sitting.keepAdding, true);
+});
+
+test("a recorded sale leaves the sitting it was handed untouched", () => {
+  // Which is also why a FAILED save changes nothing: the failure path never
+  // reaches here, and there is no state for it to have half-written.
+  const sitting = { keepAdding: true, receipt: [] };
+  const form = filledForm();
+  manualSaleAfterRecorded(sitting, form, recordedSale());
+  assert.deepEqual(sitting, { keepAdding: true, receipt: [] });
+  assert.equal(form.customerEmail, "  buyer@example.com ");
 });

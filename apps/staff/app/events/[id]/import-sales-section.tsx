@@ -261,10 +261,13 @@ export function ImportSalesSection({ eventId, timezone }: ImportSalesSectionProp
    * modal has to agree with it: the Sales list re-reads its current view, the
    * Ticket Types re-read the capacity it just took, and a preview of a file
    * still on screen is re-run over that new capacity rather than left claiming
-   * room it no longer has.
+   * room it no longer has. It runs after EVERY sale of a keep-adding sitting,
+   * so what is behind the modal is right the moment it is closed.
+   *
+   * Whether that save closes the modal is the modal's own call — Keep adding
+   * decides it (#372) — so this does not close it.
    */
   async function handleRecorded() {
-    setRecordOpen(false);
     notifySalesRefresh();
     await loadTicketTypes();
     if (file) {
