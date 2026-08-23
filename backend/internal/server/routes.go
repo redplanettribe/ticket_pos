@@ -819,6 +819,17 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// The Sales list is readable by any Member of the Event (Org Admin, Event
 	// Owner, Event Staff), unlike the owner-only Sale Import tool above.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales", member(http.HandlerFunc(sh.ListSales)))
+	// Recording ONE Ticket Sale by hand, and the live verdict on it (#368,
+	// ADR 0052). The method split gives the gate split for free: the same
+	// collection is READ by every Member of the Event and WRITTEN only by
+	// whoever can manage its sales — the existing rule that the Sales list is
+	// open to Event Staff while the tool that records sales is not.
+	//
+	// Not on the Sale Import route above, and deliberately: that one returns a
+	// batch id this act has no value for, and names a resource it does not
+	// create. A Manually Recorded Sale belongs to no batch at all.
+	mux.Handle("POST /api/v1/staff/events/{id}/sales", canManageEventSales(http.HandlerFunc(sh.RecordManualSale)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sales/preview", canManageEventSales(http.HandlerFunc(sh.PreviewManualSale)))
 	// Reversing ONE imported Ticket Sale from its row (#350, ADR 0050). The
 	// same gate as the Sale Import and its undo, because it is the same lever
 	// pointed at one row: Event Staff see the reversed state on the list above

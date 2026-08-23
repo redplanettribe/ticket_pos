@@ -7,6 +7,60 @@ import (
 	"time"
 )
 
+// RecordBatchlessImportSaleInput is ONE Manually Recorded Sale to write: the
+// sale itself, already validated and priced by the shared typed-import-row
+// verdict, and who is writing it when.
+type RecordBatchlessImportSaleInput struct {
+	EventID        string
+	OrganizationID string
+	Sale           CommitSale
+	Now            time.Time
+	UpsertCustomer UpsertCustomer
+}
+
+// RecordBatchlessImportSale records ONE Manually Recorded Sale in a transaction
+// of its own (#368, ADR 0052): a Sale Import row that was typed instead of
+// uploaded, on the `import` channel with Sales Source `direct` and no batch.
+//
+// IT OWNS THE TRANSACTION, which is the whole difference between it and its
+// sibling below. A Sale Correction has a reversal to do first and therefore
+// supplies its own boundary; a Manually Recorded Sale reverses nothing, so the
+// sale is the whole of the unit of work and there is nothing for a caller to
+// coordinate with. Commit-as-you-go is the decision this expresses: each typed
+// sale is complete and final the moment it is saved, and no session, draft or
+// accumulated list spans two of them (ADR 0052).
+//
+// NO BATCH IS THE POINT — see commitBatchlessImportSaleTx, which does the write.
+// Recording one never makes an earlier upload stop being the latest batch, so
+// batch undo's latest-only guard is left exactly as it was, and a later undo of
+// any batch walks straight past this sale.
+//
+// Refusals are the sale-commit spine's: *CapacityError when the race between the
+// service's validation and this lock was lost, *UnknownTicketTypeError when the
+// Ticket Type went away underneath the form.
+func (r *Repository) RecordBatchlessImportSale(ctx context.Context, in RecordBatchlessImportSaleInput) (*RecordedSale, error) {
+	tx, err := r.db.Pool.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	recorded, err := r.commitBatchlessImportSaleTx(ctx, tx, batchlessImportSale{
+		EventID:        in.EventID,
+		OrganizationID: in.OrganizationID,
+		Sale:           in.Sale,
+		Now:            in.Now,
+		UpsertCustomer: in.UpsertCustomer,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return recorded, nil
+}
+
 // batchlessImportSale is ONE Direct Sale to record on the `import` channel
 // without a Sale Import batch: the sale itself, already validated and priced,
 // and who is writing it when.

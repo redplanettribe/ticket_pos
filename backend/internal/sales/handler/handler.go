@@ -1096,3 +1096,167 @@ func (h *Handler) CorrectSale(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
 }
+
+// manualSaleBody is the Manually Recorded Sale form: the Sale Import template's
+// columns, cell for cell, and nothing else (#368, ADR 0052).
+//
+// It does NOT embed the Sale Correction's body even though the two are the same
+// columns today. Sharing one struct would put both routes' OpenAPI schema on one
+// definition, so a field added for one would silently appear on the other's
+// documented contract — and the two bodies are deliberately diverging: a
+// correction carries send_confirmation and this never will.
+//
+// THERE IS NO send_confirmation AND NO idempotency_key. The buyer is always
+// mailed, because no prior Sale Confirmation exists to fall back on; and the
+// create carries no key because there is no batch to hang one on, with the hole
+// that leaves named and accepted in ADR 0052's consequences.
+type manualSaleBody struct {
+	CustomerEmail       string `json:"customer_email"`
+	CustomerFirstName   string `json:"customer_first_name"`
+	CustomerLastName    string `json:"customer_last_name"`
+	CustomerTaxIDType   string `json:"customer_tax_id_type"`
+	CustomerTaxIDNumber string `json:"customer_tax_id_number"`
+	TicketTypeID        string `json:"ticket_type_id"`
+	// Quantity is a whole number of tickets. It is decoded as a raw JSON number
+	// and documented as an integer; manualSaleQuantity explains why the Go type
+	// is not one, and no client should read it as licence to send a decimal.
+	Quantity      json.Number `json:"quantity" swaggertype:"integer"`
+	PaymentMethod string      `json:"payment_method"`
+	SoldAt        string      `json:"sold_at"`
+	AmountCents   *int        `json:"amount_cents"`
+}
+
+// manualSaleQuantity reads the quantity cell, and is the whole reason the field
+// is a json.Number.
+//
+// A spreadsheet carries "1.5" as text and the import validator answers it on the
+// quantity column, with MsgQuantityNotWhole. A form carries it as a JSON number,
+// which an int field refuses at the decoder — turning a complaint the organizer
+// could act on into an unparseable body naming nothing. So the fractional case
+// is caught here and answered in the validator's own words, on the validator's
+// own column, and everything else falls through to be judged exactly as an
+// uploaded row is.
+//
+// A blank or absent quantity reads as 0 and is left to the validator, which
+// already says "must be greater than zero" about it.
+func manualSaleQuantity(raw json.Number) (int, *platform.FieldError) {
+	if strings.TrimSpace(raw.String()) == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw.String())
+	if err != nil {
+		return 0, &platform.FieldError{Field: importfile.ColQuantity, Message: importfile.MsgQuantityNotWhole}
+	}
+	return n, nil
+}
+
+// manualSaleInput lifts the decoded form into the shared typed-import-row input,
+// through the same trim every typed route uses — the trim is part of the
+// verdict, not decoration (see trimmedImportRow).
+func manualSaleInput(body manualSaleBody, quantity int) service.ImportRowInput {
+	return trimmedImportRow(service.ImportRowInput{
+		CustomerEmail:       body.CustomerEmail,
+		CustomerFirstName:   body.CustomerFirstName,
+		CustomerLastName:    body.CustomerLastName,
+		CustomerTaxIDType:   body.CustomerTaxIDType,
+		CustomerTaxIDNumber: body.CustomerTaxIDNumber,
+		TicketTypeID:        body.TicketTypeID,
+		Quantity:            quantity,
+		PaymentMethod:       body.PaymentMethod,
+		SoldAt:              body.SoldAt,
+		AmountCents:         body.AmountCents,
+	})
+}
+
+// manualSaleForm reads the Event id and decodes the form both manual-sale routes
+// take, writing the refusal itself when either is unusable.
+//
+// The quantity complaint is written as a VALIDATION_FAILED naming the column,
+// exactly as the service's own refusals are, so a form that renders errors
+// beside their inputs needs no second shape for this one.
+func manualSaleForm(w http.ResponseWriter, r *http.Request, reqID string) (eventID string, in service.ImportRowInput, ok bool) {
+	eventID = strings.TrimSpace(r.PathValue("id"))
+	if eventID == "" {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{{Field: "id", Code: platform.CodeRequired, Message: "is required"}})
+		return "", service.ImportRowInput{}, false
+	}
+	var body manualSaleBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		_ = platform.WriteInvalidJSON(w, reqID)
+		return "", service.ImportRowInput{}, false
+	}
+	quantity, complaint := manualSaleQuantity(body.Quantity)
+	if complaint != nil {
+		_ = platform.WriteValidationError(w, reqID, []platform.FieldError{*complaint})
+		return "", service.ImportRowInput{}, false
+	}
+	return eventID, manualSaleInput(body, quantity), true
+}
+
+// RecordManualSale records one Manually Recorded Sale.
+//
+// @Summary      Record one Ticket Sale by hand
+// @Description  A Manually Recorded Sale (#368, ADR 0052): ONE Sale Import row typed instead of uploaded. The body is the Sale Import template's columns — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents overriding the Ticket Type's catalog price (0 records a comp). There is deliberately NO send_confirmation and NO idempotency_key. The row is validated exactly as an import row: Ticket Type on this Event, the Tax ID pair rule with the pair optional, a positive integer quantity, sold_at not in the future — plus two departures from the file import, both deliberate: CAPACITY is refused here on the quantity rather than deferred to a batch commit, and the PURCHASE LIMIT is enforced. A refused row returns 400 VALIDATION_FAILED with one field error per offending column, named by the template's bare column name with no rows[N]. prefix, and writes nothing. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries possible_duplicate with duplicate_of_date — a warning that never blocks the record. The recorded sale is a Direct Sale on the `import` channel with source `direct` and NO Sale Import batch: it never appears in the Import history, and recording one never stops an earlier upload being the latest batch, so an existing batch stays undoable. Tickets are minted one per unit, all `unassigned` and none self-held; no fee snapshot is written, so the sale contributes its full price to Takings and nothing to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation, in their own remembered language; confirmation_sent reports whether that mail went out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION before any field is judged on an Event that registers externally, 404 EVENT_NOT_FOUND when the Event is not this Organization's, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import; reading the Sales list is not.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string          true  "Event ID"
+// @Param        body  body      manualSaleBody  true  "The sale, as the Sale Import template's columns"
+// @Success      201   {object}  platform.Envelope
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales [post]
+func (h *Handler) RecordManualSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, in, ok := manualSaleForm(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	result, invalid, err := h.svc.RecordManualSale(r.Context(), actorFromRequest(r), eventID, in)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	if invalid != nil {
+		_ = platform.WriteValidationError(w, reqID, bareRowValidationFields(invalid))
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
+}
+
+// PreviewManualSale judges a Manually Recorded Sale without recording anything.
+//
+// @Summary      Preview one Manually Recorded Sale
+// @Description  The manual sale form's live verdict (#368, ADR 0052): validates the row exactly as POST .../sales would, and writes nothing. The body is the same as the record's. Returns the Sale Import preview's shape — `rows` holding exactly one row with its `valid` flag and per-column `errors` (field names are the template's bare column names), `capacity_impact` per Ticket Type, and `committable`. Capacity and the Purchase Limit are both decided here, on the quantity column, which is what lets the organizer learn the Event is full or the buyer over their allowance while the number can still be changed. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries `possible_duplicate` with `duplicate_of_date`, a warning that does not block. Always 200 whatever the verdict, with the same refusals and the same permission gate as the record.
+// @Tags         staff
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path      string          true  "Event ID"
+// @Param        body  body      manualSaleBody  true  "The sale, as the Sale Import template's columns"
+// @Success      200   {object}  platform.Envelope
+// @Failure      400   {object}  platform.Envelope
+// @Failure      401   {object}  platform.Envelope
+// @Failure      403   {object}  platform.Envelope
+// @Failure      404   {object}  platform.Envelope
+// @Failure      409   {object}  platform.Envelope
+// @Router       /api/v1/staff/events/{id}/sales/preview [post]
+func (h *Handler) PreviewManualSale(w http.ResponseWriter, r *http.Request) {
+	reqID := platform.RequestID(r.Context())
+	eventID, in, ok := manualSaleForm(w, r, reqID)
+	if !ok {
+		return
+	}
+
+	result, err := h.svc.PreviewManualSale(r.Context(), actorFromRequest(r), eventID, in)
+	if err != nil {
+		_ = platform.WriteDomainError(w, reqID, err)
+		return
+	}
+	_ = platform.WriteSuccess(w, reqID, http.StatusOK, result)
+}

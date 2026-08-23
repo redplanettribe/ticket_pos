@@ -508,6 +508,42 @@
                 },
                 "type": "object"
             },
+            "handler.manualSaleBody": {
+                "properties": {
+                    "amount_cents": {
+                        "type": "integer"
+                    },
+                    "customer_email": {
+                        "type": "string"
+                    },
+                    "customer_first_name": {
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_number": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_type": {
+                        "type": "string"
+                    },
+                    "payment_method": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "description": "Quantity is a whole number of tickets. It is decoded as a raw JSON number\nand documented as an integer; manualSaleQuantity explains why the Go type\nis not one, and no client should read it as licence to send a decimal.",
+                        "type": "integer"
+                    },
+                    "sold_at": {
+                        "type": "string"
+                    },
+                    "ticket_type_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "handler.markFailedBody": {
                 "properties": {
                     "reason": {
@@ -11300,6 +11336,111 @@
                 "tags": [
                     "staff"
                 ]
+            },
+            "post": {
+                "description": "A Manually Recorded Sale (#368, ADR 0052): ONE Sale Import row typed instead of uploaded. The body is the Sale Import template's columns — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO 8601, naive values read in the Event timezone), and an optional amount_cents overriding the Ticket Type's catalog price (0 records a comp). There is deliberately NO send_confirmation and NO idempotency_key. The row is validated exactly as an import row: Ticket Type on this Event, the Tax ID pair rule with the pair optional, a positive integer quantity, sold_at not in the future — plus two departures from the file import, both deliberate: CAPACITY is refused here on the quantity rather than deferred to a batch commit, and the PURCHASE LIMIT is enforced. A refused row returns 400 VALIDATION_FAILED with one field error per offending column, named by the template's bare column name with no rows[N]. prefix, and writes nothing. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries possible_duplicate with duplicate_of_date — a warning that never blocks the record. The recorded sale is a Direct Sale on the `import` channel with source `direct` and NO Sale Import batch: it never appears in the Import history, and recording one never stops an earlier upload being the latest batch, so an existing batch stays undoable. Tickets are minted one per unit, all `unassigned` and none self-held; no fee snapshot is written, so the sale contributes its full price to Takings and nothing to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation, in their own remembered language; confirmation_sent reports whether that mail went out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION before any field is judged on an Event that registers externally, 404 EVENT_NOT_FOUND when the Event is not this Organization's, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race between validation and commit. Gated by the same permission as Sale Import; reading the Sales list is not.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.manualSaleBody",
+                                        "summary": "body",
+                                        "description": "The sale, as the Sale Import template's columns"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The sale, as the Sale Import template's columns",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Record one Ticket Sale by hand",
+                "tags": [
+                    "staff"
+                ]
             }
         },
         "/api/v1/staff/events/{id}/sales/export": {
@@ -11484,6 +11625,113 @@
                     }
                 ],
                 "summary": "Export an Event's Ticket Sales as a spreadsheet",
+                "tags": [
+                    "staff"
+                ]
+            }
+        },
+        "/api/v1/staff/events/{id}/sales/preview": {
+            "post": {
+                "description": "The manual sale form's live verdict (#368, ADR 0052): validates the row exactly as POST .../sales would, and writes nothing. The body is the same as the record's. Returns the Sale Import preview's shape — `rows` holding exactly one row with its `valid` flag and per-column `errors` (field names are the template's bare column names), `capacity_impact` per Ticket Type, and `committable`. Capacity and the Purchase Limit are both decided here, on the quantity column, which is what lets the organizer learn the Event is full or the buyer over their allowance while the number can still be changed. A row matching another active sale on the Event by email, Ticket Type and sold-at date carries `possible_duplicate` with `duplicate_of_date`, a warning that does not block. Always 200 whatever the verdict, with the same refusals and the same permission gate as the record.",
+                "parameters": [
+                    {
+                        "description": "Event ID",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.manualSaleBody",
+                                        "summary": "body",
+                                        "description": "The sale, as the Sale Import template's columns"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The sale, as the Sale Import template's columns",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Preview one Manually Recorded Sale",
                 "tags": [
                     "staff"
                 ]
