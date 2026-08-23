@@ -500,13 +500,15 @@ func TestManualSaleAmountSnapshotsOverridesOrComps(t *testing.T) {
 	// price, but the Sale Import spreadsheet's own prose called it "total paid",
 	// and an Organizer who believed it recorded 6 tickets at 180.00 as 1080.00
 	// and repaired the sale by hand. #379 settled it in favour of the per-ticket
-	// reading — a total cannot be held losslessly in a per-unit column (what is
-	// 100.00 across 3?), there is no sale-total column to put one in, and both
-	// Staff surfaces already say "Price per ticket" — and the template's three
-	// strings were corrected to say so. This assertion is that decision, and
-	// nothing about this route may reinterpret the column: ADR 0052's whole
-	// reason for sharing one validator is that the same act must not mean two
-	// things depending on how it was typed.
+	// reading — the sale total is derived and never stored, so a total would
+	// have to be split across units by a rule the sales domain does not have,
+	// and both Staff surfaces already said "Price per ticket" — and the
+	// template's three strings were corrected to say so. See ADR 0053.
+	//
+	// This assertion is that decision, and nothing about this route may
+	// reinterpret the column: ADR 0052's whole reason for sharing one validator
+	// is that the same act must not mean two things depending on how it was
+	// typed.
 	perUnit := manualSaleBody("dana@example.com", "Dana", "Ruiz", gaID, 3, "cash", "2026-07-01T10:00:00Z")
 	perUnit["amount_cents"] = 1000
 	multi := recordManualSaleOK(t, env, sessionID, eventID, perUnit)

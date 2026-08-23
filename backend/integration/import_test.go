@@ -197,7 +197,7 @@ func TestDirectSaleImportAmountIsThePricePerTicket(t *testing.T) {
 	env := setupTest(t)
 	sessionID := orgAdminSession(t, env)
 	eventID := createDraftEvent(t, env, sessionID, "Per Ticket Fest", "per-ticket-fest")
-	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Community Senior", 18000, 50)
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Community Senior", 5000, 50)
 
 	commitBatch(t, env, sessionID, eventID, "per-ticket-1", []map[string]any{
 		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 6, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z", "amount_cents": 3000},
@@ -207,6 +207,10 @@ func TestDirectSaleImportAmountIsThePricePerTicket(t *testing.T) {
 	if row.AmountCents != 18000 {
 		t.Errorf("sale amount = %d, want 6 × the per-ticket 3000 (#379)", row.AmountCents)
 	}
+	// Straight to SQL because no staff API exposes a Sale Line's snapshot price:
+	// the sale total above already separates the two readings, and this pins the
+	// figure the total is derived FROM, so a future change cannot keep the total
+	// right by dividing on the way in.
 	var unit int
 	if err := env.db.QueryRow(`
 		SELECT unit_price_cents FROM ticket_sale_lines

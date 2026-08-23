@@ -42,7 +42,7 @@ var templatePrompts = map[string]string{
 	colQuantity:          "Required. Number of tickets sold. A whole number, 1 or more.",
 	colPaymentMethod:     "Required. How the sale was paid: pick cash or transfer.",
 	colSoldAt:            "Sale date, e.g. 2026-07-15. Not in the future.",
-	colAmount:            "Price of one ticket, e.g. 25.00 — not the row's total. Leave blank to use the Ticket Type's own price.",
+	colAmount:            "Price per ticket, e.g. 25.00 — not the row's total. Leave blank to use the Ticket Type's own price.",
 
 	colCustomerTaxIDType:   "Optional. The buyer's ID type: pick cedula, ruc or passport. Leave blank if you didn't collect one.",
 	colCustomerTaxIDNumber: "Optional. The buyer's ID number, e.g. 1712345675. Fill it in only together with the type.",
