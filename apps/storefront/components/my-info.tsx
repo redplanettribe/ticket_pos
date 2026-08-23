@@ -327,15 +327,18 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
             about it. Separate from the edit form because it saves on its own —
             choosing a photo needs no Save button, and removing one is not an
             edit in progress. */}
-        <div className="mb-4 flex items-center gap-4 border-b pb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-4 border-b pb-4">
           <CustomerAvatar
             avatarUrl={profile.avatar_url}
             firstName={profile.first_name}
             lastName={profile.last_name}
             email={profile.email}
-            className="h-16 w-16 text-lg"
+            className="h-16 w-16 shrink-0 text-lg"
           />
-          <div className="space-y-2">
+          {/* min-w-0 lets the hint shrink and wrap beside the avatar instead of
+              pushing past the card; at a 320px sidebar (#358) the whole block
+              drops under the avatar via flex-wrap rather than overlapping it. */}
+          <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -380,7 +383,9 @@ export function MyInfo({ profile: initialProfile }: MyInfoProps) {
         <dl className="space-y-3 text-sm">
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
             <dt className="text-muted-foreground">{t("emailLabel")}</dt>
-            <dd className="font-medium">{profile.email}</dd>
+            {/* An email can be longer than a 320px sidebar is wide and has no
+                space to break at, so it breaks anywhere rather than overflow. */}
+            <dd className="min-w-0 break-all font-medium">{profile.email}</dd>
           </div>
           {editing ? null : (
             <>

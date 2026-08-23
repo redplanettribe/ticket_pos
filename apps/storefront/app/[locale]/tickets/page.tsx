@@ -133,62 +133,84 @@ export default async function CustomerAreaPage({
         t("loadNetworkFailed"))
       : null;
 
+  // Whether "My info" is on the page at all decides the shape of the page (#358).
+  // With it, a laptop gets two columns: tickets left, the panel in a sticky
+  // sidebar on the right. Without it — a Confirmation Link arrival, or a read
+  // that came back without a session — the one column stays centred and
+  // narrow, rather than leaving an empty lane where a sidebar would have been.
+  const showMyInfo = session.status === "ok" && !fromConfirmationLink;
+
   return (
     <StorefrontShell customerNav={<HeaderCustomerNav />}>
-      <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-10 sm:py-12">
-        <PageHeader
-          title={fromConfirmationLink ? t("linkedTitle") : t("title")}
-          description={
-            fromConfirmationLink ? t("linkedDescription") : t("description")
-          }
-        />
-
-        {fromConfirmationLink &&
-        area.status === "ok" &&
-        linkedSaleReversed(area.data) ? (
-          <ReversedSaleNotice />
-        ) : null}
-
-        {fromConfirmationLink ? <ConfirmationLinkNotice /> : null}
-
-        {area.status === "error" ? (
-          <>
-            <Alert variant="destructive">
-              <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
-              {/* Which failure it was stays the API's to say; only the words are
-                  this page's. There is always a sentence: a failure that named
-                  nothing at all is still a failure the reader is owed an
-                  explanation for. */}
-              <AlertDescription>{loadFailure}</AlertDescription>
-            </Alert>
-            {/* The error replaces the cards, and with them anything watching a
-                Reversal Request resolve — so a failed read is what would
-                otherwise end the watch for good. A few silent retries make one
-                blip survivable; see RetryFailedRead. */}
-            <RetryFailedRead />
-          </>
-        ) : (
-          <CustomerArea
-            area={area.data}
-            tab={tab}
-            // A Confirmation Link arrival reads their purchase and acts on
-            // nothing (#121): the cards state the Reversal Window and offer the
-            // way to sign in, never the undo itself. The email travels with it
-            // so that one click is the whole of the sign-in, and it is the
-            // session's own address rather than anything from the URL.
-            viaConfirmationLink={fromConfirmationLink}
-            customerEmail={session.status === "ok" ? session.data.email : null}
+      {/* The grid only exists from `lg` up; below it, the two children stack in
+          DOM order, which is the order they have always had — tickets first,
+          My info last — so the phone layout and the keyboard order are
+          untouched by the laptop one. */}
+      <div
+        className={
+          showMyInfo
+            ? "mx-auto w-full max-w-6xl px-4 py-10 sm:py-12 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-8"
+            : "mx-auto w-full max-w-3xl px-4 py-10 sm:py-12"
+        }
+      >
+        <div className="space-y-8">
+          <PageHeader
+            title={fromConfirmationLink ? t("linkedTitle") : t("title")}
+            description={
+              fromConfirmationLink ? t("linkedDescription") : t("description")
+            }
           />
-        )}
 
+          {fromConfirmationLink &&
+          area.status === "ok" &&
+          linkedSaleReversed(area.data) ? (
+            <ReversedSaleNotice />
+          ) : null}
+
+          {fromConfirmationLink ? <ConfirmationLinkNotice /> : null}
+
+          {area.status === "error" ? (
+            <>
+              <Alert variant="destructive">
+                <AlertTitle>{t("loadFailedTitle")}</AlertTitle>
+                {/* Which failure it was stays the API's to say; only the words are
+                    this page's. There is always a sentence: a failure that named
+                    nothing at all is still a failure the reader is owed an
+                    explanation for. */}
+                <AlertDescription>{loadFailure}</AlertDescription>
+              </Alert>
+              {/* The error replaces the cards, and with them anything watching a
+                  Reversal Request resolve — so a failed read is what would
+                  otherwise end the watch for good. A few silent retries make one
+                  blip survivable; see RetryFailedRead. */}
+              <RetryFailedRead />
+            </>
+          ) : (
+            <CustomerArea
+              area={area.data}
+              tab={tab}
+              // A Confirmation Link arrival reads their purchase and acts on
+              // nothing (#121): the cards state the Reversal Window and offer the
+              // way to sign in, never the undo itself. The email travels with it
+              // so that one click is the whole of the sign-in, and it is the
+              // session's own address rather than anything from the URL.
+              viaConfirmationLink={fromConfirmationLink}
+              customerEmail={session.status === "ok" ? session.data.email : null}
+            />
+          )}
+        </div>
         {/* "My info" is the Customer Area's only write, and it belongs to the
             full session alone. A Confirmation Link arrival is not shown it: that
             session proves possession of a forwarded email rather than ownership
             of the address, and the API refuses the edit behind it (#102). It
-            sits below the tickets because the tickets are what someone came
-            for. */}
-        {session.status === "ok" && !fromConfirmationLink ? (
-          <MyInfo profile={session.data} />
+            comes after the tickets because the tickets are what someone came
+            for — under them on a phone, beside them on a laptop, sticky so the
+            panel rides along while a long list of Event groups scrolls
+            (top-24 clears the sticky header). */}
+        {session.status === "ok" && showMyInfo ? (
+          <aside className="mt-8 lg:sticky lg:top-24 lg:mt-0">
+            <MyInfo profile={session.data} />
+          </aside>
         ) : null}
       </div>
     </StorefrontShell>

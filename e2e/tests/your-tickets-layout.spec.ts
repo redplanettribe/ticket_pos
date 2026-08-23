@@ -21,9 +21,10 @@ const LOCALE = "en";
 const BUYER = "pedrodcsjostrom@gmail.com";
 
 // Two phones at each end of the common range, the widest common phone, a
-// tablet, and a laptop — the last two sit on either side of the `sm` (640px)
-// breakpoint where the assign form returns to one line.
-const WIDTHS = [360, 390, 430, 768, 1280];
+// tablet, and two laptops — the tablet and the laptops sit on either side of
+// the `sm` (640px) breakpoint where the assign form returns to one line and of
+// the `lg` (1024px) one where My info becomes a sidebar (#358).
+const WIDTHS = [360, 390, 430, 768, 1024, 1280];
 
 async function signInFromPasscode(page: Page, email: string) {
   await page.goto(`/${LOCALE}/signin?next=/tickets`);
@@ -53,10 +54,23 @@ async function signInFromPasscode(page: Page, email: string) {
   await page.waitForURL((url) => url.pathname.endsWith("/tickets"));
 }
 
-test("the Customer Area never scrolls sideways with a Holder List row expanded", async ({
-  page,
-}) => {
+// One sign-in for the whole file. Passcodes for an address are rationed, and
+// every test here reads the same page, so they run in order on one shared page
+// rather than each spending a passcode of their own.
+test.describe.configure({ mode: "serial" });
+
+let page: Page;
+
+test.beforeAll(async ({ browser }) => {
+  page = await browser.newPage();
   await signInFromPasscode(page, BUYER);
+});
+
+test.afterAll(async () => {
+  await page?.close();
+});
+
+test("the Customer Area never scrolls sideways with a Holder List row expanded", async () => {
   await page.goto(`/${LOCALE}/tickets`);
   await page.waitForLoadState("networkidle");
 
@@ -81,4 +95,32 @@ test("the Customer Area never scrolls sideways with a Holder List row expanded",
     const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(scrollWidth, `document wider than a ${width}px viewport`).toBeLessThanOrEqual(width);
   }
+});
+
+// The laptop layout (#358): from `lg` up My info is a sidebar to the RIGHT of
+// the tickets; below it, the same element sits BELOW them. Proven on bounding
+// boxes, because the grid is the only thing that moves the panel and a class
+// name would pin the mechanism rather than the promise.
+test("My info is a sidebar on a laptop and sits under the tickets on a tablet", async () => {
+  await page.goto(`/${LOCALE}/tickets`);
+  await page.waitForLoadState("networkidle");
+
+  const myInfo = page.locator("#my-info");
+  const firstGroup = page.locator("details[id^='sale-']").first();
+  await expect(myInfo).toBeVisible();
+  await expect(firstGroup).toBeVisible();
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  let info = (await myInfo.boundingBox())!;
+  let group = (await firstGroup.boundingBox())!;
+  expect(info.x, "My info is not to the right of the tickets at 1280px").toBeGreaterThan(
+    group.x + group.width - 1,
+  );
+
+  await page.setViewportSize({ width: 768, height: 900 });
+  info = (await myInfo.boundingBox())!;
+  group = (await firstGroup.boundingBox())!;
+  expect(info.y, "My info is not below the tickets at 768px").toBeGreaterThan(
+    group.y + group.height - 1,
+  );
 });
