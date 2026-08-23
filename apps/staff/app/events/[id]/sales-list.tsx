@@ -13,9 +13,16 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Input,
   Label,
   Skeleton,
+  toast,
 } from "@ticket-pos/ui";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 
@@ -27,12 +34,15 @@ import {
   PAYMENT_METHODS,
   SALE_CHANNELS,
   SALE_SOURCES,
+  canCorrectSale,
+  canReverseSale,
   downloadSalesExport,
   exportFieldMessage,
   fetchSalesList,
   hasActiveSalesFilters,
   paymentMethodToken,
   reversalProvenance,
+  reverseSale,
   saleChannelToken,
   saleSourceToken,
   salesListQuery,
@@ -49,7 +59,8 @@ import {
   type TaxIdType,
 } from "@/lib/sales-api";
 
-import { useSalesRefreshSignal } from "./sales-refresh";
+import { SaleCorrectionDialog } from "./sale-correction-dialog";
+import { useSalesRefreshNotify, useSalesRefreshSignal } from "./sales-refresh";
 import { TicketAnswersDialog } from "./ticket-answers-dialog";
 
 /**
@@ -127,6 +138,11 @@ type SalesListProps = {
   // may; Event Staff may not, and are not shown the button rather than shown one
   // that refuses them — the API refuses them too.
   canExport: boolean;
+  // Whether the viewer may reverse one imported Ticket Sale from its row (#350,
+  // ADR 0050): the Sale Import's own gate. Org Admins and Event Owners may;
+  // Event Staff see a reversed row's state and no action — the API refuses
+  // them too.
+  canManageSales: boolean;
   // The platform's Ticket Question feature flag, read off the Event payload
   // (#309, ADR 0045) — not a property of this Event. False is the shipped state,
   // and with it false no row offers an Answers button: every request behind one
@@ -149,12 +165,42 @@ export function SalesList({
   dir,
   timezone,
   canExport,
+  canManageSales,
   ticketQuestionsEnabled,
 }: SalesListProps) {
   const t = useTranslations("sales");
   const errorCopy = useMessages().errors;
   const locale = toAppLocale(useLocale());
   const router = useRouter();
+  const notifySalesRefresh = useSalesRefreshNotify();
+  // The sale a Reverse press is asking about, until it is confirmed or dismissed.
+  const [reverseTarget, setReverseTarget] = useState<SaleListRow | null>(null);
+  const [reversing, setReversing] = useState(false);
+  // The sale a Correct press opened the form for (#351), until it is
+  // committed or dismissed.
+  const [correctTarget, setCorrectTarget] = useState<SaleListRow | null>(null);
+
+  async function confirmReverse() {
+    if (!reverseTarget) {
+      return;
+    }
+    setReversing(true);
+    try {
+      const reversed = await reverseSale(eventId, reverseTarget.id);
+      toast.success(t("reverseDone", { reference: reversed.confirmation_ref }));
+      setReverseTarget(null);
+      // The figures above and the import history beside it moved too: the same
+      // signal a batch undo sends, so every sibling re-reads.
+      notifySalesRefresh();
+    } catch (reverseError) {
+      toast.error(
+        (reverseError instanceof ApiError ? apiErrorMessage(errorCopy, reverseError) : null) ??
+          t("reverseFailed"),
+      );
+    } finally {
+      setReversing(false);
+    }
+  }
   const [result, setResult] = useState<SalesListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -342,6 +388,10 @@ export function SalesList({
                   onToggle={() => toggleRow(sale.id)}
                   ticketQuestionsEnabled={ticketQuestionsEnabled}
                   eventId={eventId}
+                  canReverse={canReverseSale(canManageSales, sale)}
+                  onReverse={() => setReverseTarget(sale)}
+                  canCorrect={canCorrectSale(canManageSales, sale)}
+                  onCorrect={() => setCorrectTarget(sale)}
                 />
               ))}
             </table>
@@ -357,6 +407,60 @@ export function SalesList({
           />
         ) : null}
       </CardContent>
+      {/* Reversing one imported sale (#350, ADR 0050). The dialog states the
+          one consequence the organizer cannot see from the row: how many
+          accepted Holders lose their Ticket and are told. The buyer is mailed
+          nothing, and the copy says so rather than offering a toggle. */}
+      <Dialog
+        open={reverseTarget !== null}
+        onOpenChange={(open) => (!open ? setReverseTarget(null) : undefined)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("reverseTitle")}</DialogTitle>
+            <DialogDescription>
+              {reverseTarget
+                ? t("reverseBody", {
+                    reference: reverseTarget.confirmation_ref,
+                    count: reverseTarget.held_ticket_count,
+                  })
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{t("reverseBuyerSilent")}</p>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={reversing}
+              onClick={() => setReverseTarget(null)}
+            >
+              {t("reverseCancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={reversing}
+              onClick={() => void confirmReverse()}
+            >
+              {reversing ? t("reversing") : t("reverseConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Correcting one imported sale (#351, ADR 0050): reverse plus a
+          replacement in one act, from a form pre-filled with the row. */}
+      <SaleCorrectionDialog
+        eventId={eventId}
+        sale={correctTarget}
+        ticketTypes={ticketTypes}
+        timezone={timezone}
+        onClose={() => setCorrectTarget(null)}
+        onCorrected={() => {
+          setCorrectTarget(null);
+          notifySalesRefresh();
+        }}
+      />
     </Card>
   );
 }
@@ -735,6 +839,13 @@ type SaleRowsProps = {
   onToggle: () => void;
   ticketQuestionsEnabled: boolean;
   eventId: string;
+  // Whether this row offers Reverse: decided by the list from the viewer's
+  // permission and the row's channel and status (lib/sales-api canReverseSale).
+  canReverse: boolean;
+  onReverse: () => void;
+  // Whether this row offers Correct (#351): the same gate as Reverse.
+  canCorrect: boolean;
+  onCorrect: () => void;
 };
 
 function SaleRows({
@@ -745,6 +856,10 @@ function SaleRows({
   onToggle,
   ticketQuestionsEnabled,
   eventId,
+  canReverse,
+  onReverse,
+  canCorrect,
+  onCorrect,
 }: SaleRowsProps) {
   const t = useTranslations("sales");
   // The Answers dialog opens from the row detail rather than from the row: it is
@@ -777,9 +892,29 @@ function SaleRows({
               one shows nothing extra (#117). */}
           {reversed ? (
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="destructive">{t("reversedBadge")}</Badge>
+              <Badge variant="destructive">
+                {sale.replaced_by_confirmation_ref ? t("correctedBadge") : t("reversedBadge")}
+              </Badge>
               <span className="text-xs text-muted-foreground">
+                {/* A corrected sale names its replacement first (#351): the
+                    reference is what the reader goes looking for next. */}
+                {sale.replaced_by_confirmation_ref ? (
+                  <>
+                    <span className="font-mono">
+                      {t("correctedTo", { reference: sale.replaced_by_confirmation_ref })}
+                    </span>
+                    {" · "}
+                  </>
+                ) : null}
                 <ReversalProvenanceText sale={sale} zone={zone} locale={locale} />
+              </span>
+            </div>
+          ) : null}
+          {/* The replacement says what it stands in for, on an active row too. */}
+          {sale.replaces_confirmation_ref ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              <span className="font-mono">
+                {t("corrects", { reference: sale.replaces_confirmation_ref })}
               </span>
             </div>
           ) : null}
@@ -846,6 +981,37 @@ function SaleRows({
                   onClick={() => setAnswersOpen(true)}
                 >
                   {t("ticketAnswers")}
+                </Button>
+              ) : null}
+              {/* Reverse sits in the row detail for the same reason Answers does:
+                  a destructive button in the row itself would compete with the
+                  expand for the click. Offered only on an active imported sale
+                  to a Member who may manage the Event's sales (#350). */}
+              {canReverse ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onReverse();
+                  }}
+                >
+                  {t("reverse")}
+                </Button>
+              ) : null}
+              {/* Correct: the same gate, the same place (#351). */}
+              {canCorrect ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCorrect();
+                  }}
+                >
+                  {t("correct")}
                 </Button>
               ) : null}
             </div>

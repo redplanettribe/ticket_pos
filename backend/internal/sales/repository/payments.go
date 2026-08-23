@@ -212,6 +212,12 @@ func (r *Repository) LiveCapacityHolds(ctx context.Context, eventID string, cuto
 type BuyerHoldings struct {
 	CustomerID      string
 	NormalizedEmail string
+	// ExcludeSaleID names one Ticket Sale whose lines are NOT counted, even
+	// while active: the sale a Sale Correction is about to reverse (#351). The
+	// replacement is judged against what the buyer will hold once the old sale
+	// is gone, which is what makes re-recording the same quantity fit under a
+	// limit the old sale had already reached. Empty counts everything.
+	ExcludeSaleID string
 }
 
 // CustomerEventHoldings returns how much of each of an Event's Ticket Types one
@@ -246,11 +252,12 @@ func (r *Repository) CustomerEventHoldings(ctx context.Context, eventID string, 
 			WHERE ts.event_id = $1
 			  AND ts.status = 'active'
 			  AND ts.customer_id = $3::uuid
+			  AND ($5::uuid IS NULL OR ts.id <> $5::uuid)
 			UNION ALL
 			`+sales.LiveHoldsSQL(sales.HoldsFilter{CutoffExpr: "$2", EventExpr: "$1", BuyerEmailExpr: "$4"})+`
 		) holdings
 		GROUP BY ticket_type_id
-	`, eventID, cutoff, customerID, buyer.NormalizedEmail)
+	`, eventID, cutoff, customerID, buyer.NormalizedEmail, nullString(buyer.ExcludeSaleID))
 	if err != nil {
 		return nil, err
 	}

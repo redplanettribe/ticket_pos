@@ -401,13 +401,17 @@ type ExistingSaleKey struct {
 
 // ListActiveSaleKeys returns the (email, ticket type, sold_at) tuples of every
 // active Ticket Sale on the Event, for soft duplicate detection in the preview.
-func (r *Repository) ListActiveSaleKeys(ctx context.Context, orgID, eventID string) ([]ExistingSaleKey, error) {
+// excludeSaleID, when non-empty, leaves one sale out: the Sale Correction
+// preview compares the replacement against every active sale BUT the one it is
+// about to reverse, which would otherwise always match itself (#352).
+func (r *Repository) ListActiveSaleKeys(ctx context.Context, orgID, eventID, excludeSaleID string) ([]ExistingSaleKey, error) {
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT ts.customer_email, tsl.ticket_type_id, ts.sold_at
 		FROM ticket_sales ts
 		JOIN ticket_sale_lines tsl ON tsl.ticket_sale_id = ts.id
 		WHERE ts.event_id = $1 AND ts.organization_id = $2 AND ts.status = 'active'
-	`, eventID, orgID)
+		  AND ($3 = '' OR ts.id::text <> $3)
+	`, eventID, orgID, excludeSaleID)
 	if err != nil {
 		return nil, err
 	}
@@ -1168,9 +1172,9 @@ func (r *Repository) ReverseBatch(ctx context.Context, in ReverseInput) (*Revers
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE sale_import_batches SET status = 'reversed'
+		UPDATE sale_import_batches SET status = 'reversed', undone_at = $2
 		WHERE id = $1
-	`, in.BatchID); err != nil {
+	`, in.BatchID, in.Now); err != nil {
 		return nil, err
 	}
 
@@ -1284,6 +1288,27 @@ type SaleRow struct {
 	// sale reversed before either was recorded (#117).
 	ReversedAt *time.Time
 	ReversedBy *string
+	// ReplacedBySaleID/ReplacesSaleID are the Sale Correction linkage (#350,
+	// ADR 0050): on a reversed sale, the replacement that corrected it; on the
+	// replacement, the sale it stands in for. Nil on every sale until a
+	// correction writes them; a plain single-sale reversal sets neither.
+	ReplacedBySaleID *string
+	ReplacesSaleID   *string
+	// ReplacedByConfirmationRef/ReplacesConfirmationRef are the linked sales'
+	// Sale Confirmation references (#351), read alongside the ids so a row can
+	// say "Corrected → TP-X" without a second lookup. Nil exactly when the
+	// matching id is.
+	ReplacedByConfirmationRef *string
+	ReplacesConfirmationRef   *string
+	// ReversedByBatchUndo is true on a reversed sale that went with its Sale
+	// Import batch's undo — its reversed_at is the batch's undone_at (migration
+	// 086) — and false on one reversed singly or corrected, even if its batch
+	// was undone afterwards. The Sales Export reads it to name the route (#352).
+	ReversedByBatchUndo bool
+	// HeldTicketCount is how many of the sale's Tickets have an accepted
+	// Holder — the people a Sale Reversal would tell (#327). Read off
+	// accepted_at, the one fact that makes somebody a Holder.
+	HeldTicketCount int
 }
 
 // ListSalesQuery selects a page of an Event's Ticket Sales for the Sales list.
@@ -1482,6 +1507,19 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			ts.customer_tax_id_number,
 			ts.reversed_at,
 			ts.reversed_by,
+			ts.replaced_by_sale_id,
+			ts.replaces_sale_id,
+			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaced_by_sale_id),
+			(SELECT confirmation_ref FROM ticket_sales r WHERE r.id = ts.replaces_sale_id),
+			COALESCE((
+				SELECT b.undone_at IS NOT NULL AND b.undone_at = ts.reversed_at
+				FROM sale_import_batches b WHERE b.id = ts.import_batch_id
+			), FALSE) AS reversed_by_batch_undo,
+			(
+				SELECT COUNT(*) FROM tickets tk
+				JOIN ticket_sale_lines tkl ON tkl.id = tk.ticket_sale_line_id
+				WHERE tkl.ticket_sale_id = ts.id AND tk.accepted_at IS NOT NULL
+			) AS held_ticket_count,
 			COUNT(*) OVER() AS total
 		FROM ticket_sales ts
 		JOIN organizations org ON org.id = ts.organization_id
@@ -1517,6 +1555,7 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 		var s SaleRow
 		var typesJSON []byte
 		var source, paymentMethod, taxIDType, taxIDNumber, reversedBy sql.NullString
+		var replacedBy, replaces, replacedByRef, replacesRef sql.NullString
 		var reversedAt sql.NullTime
 		if err := rows.Scan(
 			&s.ID,
@@ -1538,9 +1577,27 @@ func (r *Repository) ListSales(ctx context.Context, q ListSalesQuery) ([]SaleRow
 			&taxIDNumber,
 			&reversedAt,
 			&reversedBy,
+			&replacedBy,
+			&replaces,
+			&replacedByRef,
+			&replacesRef,
+			&s.ReversedByBatchUndo,
+			&s.HeldTicketCount,
 			&total,
 		); err != nil {
 			return nil, 0, err
+		}
+		if replacedBy.Valid {
+			s.ReplacedBySaleID = &replacedBy.String
+		}
+		if replaces.Valid {
+			s.ReplacesSaleID = &replaces.String
+		}
+		if replacedByRef.Valid {
+			s.ReplacedByConfirmationRef = &replacedByRef.String
+		}
+		if replacesRef.Valid {
+			s.ReplacesConfirmationRef = &replacesRef.String
 		}
 		if err := json.Unmarshal(typesJSON, &s.TicketTypes); err != nil {
 			return nil, 0, err

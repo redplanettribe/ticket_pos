@@ -1,11 +1,14 @@
 // Relative (not "@/lib") so the module graph resolves under `node --test` as
 // well as the bundler — the unit tests import this file directly.
 import { ApiError, fetchEventsJSON } from "./events-api.ts";
+import type { ImportPreviewResult } from "./imports-api.ts";
 
 // Types mirror the Go Sales list response (internal/sales). Field names match
 // the JSON the API emits so rows render verbatim.
 
 export type SaleTicketType = {
+  // The id is here for the Correct form (#351), pre-filled from the row.
+  ticket_type_id: string;
   ticket_type_name: string;
   quantity: number;
 };
@@ -36,6 +39,20 @@ export type SaleListRow = {
   // sale reversed before either was recorded (#117, ADR 0018).
   reversed_at: string | null;
   reversed_by: string | null;
+  // The Sale Correction linkage (#350, ADR 0050): on a reversed sale, the
+  // replacement that corrected it; on the replacement, the sale it stands in
+  // for. Both null until a correction is recorded — a sale reversed on its own
+  // sets neither and reads "Reversed by staff" off reversed_by alone.
+  replaced_by_sale_id: string | null;
+  replaces_sale_id: string | null;
+  // The linked sales' Confirmation references (#351): the "TP-X" the row
+  // prints in "Corrected → TP-X" / "Corrects TP-Y". Null exactly when the
+  // matching id is.
+  replaced_by_confirmation_ref: string | null;
+  replaces_confirmation_ref: string | null;
+  // How many of the sale's Tickets have an accepted Holder: the people a
+  // reversal tells. Stated on the row so the confirm dialog can say so first.
+  held_ticket_count: number;
 };
 
 export type SalesPagination = {
@@ -207,6 +224,200 @@ export async function fetchSalesList(
   appendSalesFilters(params, filters);
   appendSalesSort(params, sort, dir);
   return fetchEventsJSON<SalesListResponse>(`/api/events/${eventId}/sales?${params.toString()}`);
+}
+
+// ReverseSaleResult mirrors POST /api/v1/staff/events/{id}/sales/{saleId}/reverse.
+export type ReverseSaleResult = {
+  sale_id: string;
+  confirmation_ref: string;
+  status: string;
+  reversed_at: string;
+  reversed_by: string;
+};
+
+/**
+ * Whether a Sales list row offers Reverse (#350, ADR 0050).
+ *
+ * Three facts, all of which must hold: the viewer may manage the Event's sales
+ * (the Sale Import's own gate — Event Staff see the state and no lever), the
+ * sale is on the `import` channel (an Online Sale is the buyer's or the
+ * platform's to reverse, and an In-Person Sale has no route yet), and it is
+ * still active. The API refuses each of these too; this decides whether to show
+ * a button, not whether the press would succeed.
+ */
+export function canReverseSale(
+  canManageSales: boolean,
+  sale: Pick<SaleListRow, "channel" | "status">,
+): boolean {
+  return canManageSales && sale.channel === "import" && sale.status === "active";
+}
+
+// reverseSale reverses one imported Ticket Sale via the BFF. Surfaces the API's
+// refusal (SALE_NOT_IMPORTED, SALE_ALREADY_REVERSED, TICKET_SALE_NOT_FOUND) as
+// ApiError for the catalog to word.
+export async function reverseSale(eventId: string, saleId: string): Promise<ReverseSaleResult> {
+  return fetchEventsJSON<ReverseSaleResult>(`/api/events/${eventId}/sales/${saleId}/reverse`, {
+    method: "POST",
+  });
+}
+
+// CorrectSaleInput is the Sale Correction form (#351, ADR 0050): the Sale
+// Import template's columns for the replacement, plus send_confirmation.
+export type CorrectSaleInput = {
+  customer_email: string;
+  customer_first_name: string;
+  customer_last_name: string;
+  customer_tax_id_type: string;
+  customer_tax_id_number: string;
+  ticket_type_id: string;
+  quantity: number;
+  payment_method: string;
+  sold_at: string;
+  amount_cents: number | null;
+  send_confirmation: boolean;
+};
+
+// CorrectSaleResult mirrors POST /api/v1/staff/events/{id}/sales/{saleId}/correct.
+export type CorrectSaleResult = {
+  reversed_sale_id: string;
+  reversed_confirmation_ref: string;
+  replacement_sale_id: string;
+  replacement_confirmation_ref: string;
+  confirmation_sent: boolean;
+};
+
+/**
+ * Whether a Sales list row offers Correct (#351, ADR 0050): the same three
+ * facts as Reverse, because a Sale Correction is that reversal plus a
+ * replacement, and nothing that cannot be reversed can be corrected.
+ */
+export function canCorrectSale(
+  canManageSales: boolean,
+  sale: Pick<SaleListRow, "channel" | "status">,
+): boolean {
+  return canReverseSale(canManageSales, sale);
+}
+
+/**
+ * correctionPrefill is the Correct form's starting state, read off the row so
+ * the Member retypes only what was wrong. The sold-at is cut to the minute in
+ * the Event's own zone by the caller; here it is the row's ISO value.
+ */
+export function correctionPrefill(sale: SaleListRow): CorrectSaleInput {
+  return {
+    customer_email: sale.customer_email,
+    customer_first_name: sale.customer_first_name,
+    customer_last_name: sale.customer_last_name,
+    customer_tax_id_type: sale.tax_id_type ?? "",
+    customer_tax_id_number: sale.tax_id_number ?? "",
+    ticket_type_id: sale.ticket_types[0]?.ticket_type_id ?? "",
+    quantity: sale.ticket_types[0]?.quantity ?? 1,
+    payment_method: sale.payment_method ?? "",
+    sold_at: sale.sold_at,
+    amount_cents: sale.amount_cents,
+    send_confirmation: false,
+  };
+}
+
+// correctSale records a Sale Correction via the BFF. A refused replacement
+// arrives as ApiError with code VALIDATION_FAILED and a `fields` detail naming
+// the template's columns; the other refusals (SALE_NOT_IMPORTED,
+// SALE_ALREADY_REVERSED, TICKET_SALE_NOT_FOUND) as their own codes.
+export async function correctSale(
+  eventId: string,
+  saleId: string,
+  input: CorrectSaleInput,
+): Promise<CorrectSaleResult> {
+  return fetchEventsJSON<CorrectSaleResult>(`/api/events/${eventId}/sales/${saleId}/correct`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * previewSaleCorrection asks for the Correct form's live verdict (#352): the
+ * same judgement the commit makes — the import row rules, capacity and the
+ * Purchase Limit net of the sale being corrected, the duplicate warning — in
+ * the Sale Import preview's shape, writing nothing. The commit's refusals
+ * (SALE_NOT_IMPORTED, SALE_ALREADY_REVERSED, TICKET_SALE_NOT_FOUND) arrive as
+ * ApiError.
+ */
+export async function previewSaleCorrection(
+  eventId: string,
+  saleId: string,
+  input: CorrectSaleInput,
+): Promise<ImportPreviewResult> {
+  return fetchEventsJSON<ImportPreviewResult>(
+    `/api/events/${eventId}/sales/${saleId}/correct/preview`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+/** What the Correct form shows of a preview verdict, and whether it may commit. */
+export type CorrectionVerdict = {
+  // True when the commit would refuse: the row is invalid, a Ticket Type is
+  // oversold, or the preview returned no row to judge.
+  blocks: boolean;
+  // The row's complaints by template column, first complaint per column.
+  fieldErrors: Record<string, string>;
+  // The sold-at date of another active sale the replacement matches, or null.
+  // A warning: it never blocks.
+  duplicateOfDate: string | null;
+  // What the chosen Ticket Type has left once the old sale is reversed and the
+  // replacement recorded, or null when the preview named no Ticket Type.
+  remaining: { ticketTypeName: string; remaining: number } | null;
+};
+
+/**
+ * correctionVerdict reads a preview into what the form needs to decide: the
+ * commit is blocked on exactly what the commit would refuse (an invalid row or
+ * an oversell), never on the duplicate warning, which is the organizer's call.
+ */
+export function correctionVerdict(result: ImportPreviewResult): CorrectionVerdict {
+  const row = result.rows[0];
+  if (!row) {
+    return { blocks: true, fieldErrors: {}, duplicateOfDate: null, remaining: null };
+  }
+  const fieldErrors: Record<string, string> = {};
+  for (const e of row.errors ?? []) {
+    if (!(e.field in fieldErrors)) {
+      fieldErrors[e.field] = e.message;
+    }
+  }
+  const impact = result.capacity_impact[0];
+  return {
+    blocks: !row.valid || !result.committable,
+    fieldErrors,
+    duplicateOfDate: row.possible_duplicate && row.duplicate_of_date ? row.duplicate_of_date : null,
+    remaining: impact
+      ? { ticketTypeName: impact.ticket_type_name, remaining: impact.remaining - impact.requested }
+      : null,
+  };
+}
+
+/**
+ * correctionFieldErrors reads the per-column complaints out of a
+ * VALIDATION_FAILED refusal, keyed by the template's column name. Empty for
+ * any other error.
+ */
+export function correctionFieldErrors(details: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!details || typeof details !== "object") {
+    return out;
+  }
+  const fields = (details as { fields?: unknown }).fields;
+  if (!Array.isArray(fields)) {
+    return out;
+  }
+  for (const f of fields) {
+    if (f && typeof f === "object" && typeof (f as { field?: unknown }).field === "string") {
+      const { field, message } = f as { field: string; message?: unknown };
+      if (!(field in out)) {
+        out[field] = typeof message === "string" ? message : "";
+      }
+    }
+  }
+  return out;
 }
 
 // salesExportPath is the BFF path for the Sales Export under the given filters

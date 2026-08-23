@@ -147,6 +147,31 @@ func ErrOperatorReversalNotAnOnlineSale(channel string) apperror.DomainError {
 	)
 }
 
+// ErrSaleNotImported is returned when staff try to reverse a single Ticket
+// Sale that is not on the `import` channel (#350, ADR 0050).
+//
+// The mirror of ErrOperatorReversalNotAnOnlineSale, and its own code rather
+// than a second message under SALE_NOT_REVERSIBLE: the staff app picks its
+// sentence by code, and the sentence SALE_NOT_REVERSIBLE already carries says
+// the opposite of what this reader needs to hear. An Online Sale involves the
+// platform's money and is the Customer's or a Platform Operator's to reverse
+// (ADR 0018, 0019); an In-Person Sale has no route yet.
+func ErrSaleNotImported(channel string) apperror.DomainError {
+	return apperror.New(
+		"SALE_NOT_IMPORTED",
+		"Only an imported sale can be reversed here. An Online Sale is reversed by the buyer within the Reversal Window, or by the platform.",
+		map[string]any{"channel": channel},
+	)
+}
+
+// ErrTicketSaleIDNotFound is returned to staff naming a Ticket Sale id that is
+// not on this Event. It shares TICKET_SALE_NOT_FOUND with the two absences
+// above because it is the same absence; the id is echoed because the only
+// caller is a staff app that just read it off a row.
+func ErrTicketSaleIDNotFound(saleID string) apperror.DomainError {
+	return apperror.New("TICKET_SALE_NOT_FOUND", "That Ticket Sale is not on this Event.", map[string]any{"sale_id": saleID})
+}
+
 // ErrRefundedAmountExceedsCollected is returned when a Platform Operator states
 // they refunded a buyer more than the buyer ever paid.
 //

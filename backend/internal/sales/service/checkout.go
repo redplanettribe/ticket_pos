@@ -675,6 +675,19 @@ func (s *Service) resolveCustomerEventHoldings(
 	eventID, email string,
 	cutoff time.Time,
 ) (string, map[string]int, error) {
+	return s.resolveCustomerEventHoldingsExcluding(ctx, eventID, email, cutoff, "")
+}
+
+// resolveCustomerEventHoldingsExcluding is the same read with one Ticket Sale
+// left out of the count: the sale a Sale Correction is reversing (#351), so the
+// replacement is judged net of it. Every other caller passes "" through the
+// wrapper above.
+func (s *Service) resolveCustomerEventHoldingsExcluding(
+	ctx context.Context,
+	eventID, email string,
+	cutoff time.Time,
+	excludeSaleID string,
+) (string, map[string]int, error) {
 	customerID, normalizedEmail, err := s.customers.ResolveByEmail(ctx, email)
 	if err != nil {
 		return "", nil, err
@@ -682,6 +695,7 @@ func (s *Service) resolveCustomerEventHoldings(
 	holdings, err := s.repo.CustomerEventHoldings(ctx, eventID, repository.BuyerHoldings{
 		CustomerID:      customerID,
 		NormalizedEmail: normalizedEmail,
+		ExcludeSaleID:   excludeSaleID,
 	}, cutoff)
 	if err != nil {
 		return "", nil, err

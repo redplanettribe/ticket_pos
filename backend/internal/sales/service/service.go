@@ -681,34 +681,41 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 	// that id does not exist until the batch commits.
 	if !batch.Replayed {
 		for _, rs := range batch.Recorded {
-			_ = s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
-				To:               rs.CustomerEmail,
-				CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
-				EventName:        event.Name,
-				Reference:        rs.ConfirmationRef,
-				AmountCents:      rs.AmountCents,
-				Currency:         event.Currency,
-				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
-				// An IMPORTED sale's Tickets start out owing everything, because
-				// nobody ever put the questions to that buyer — there is no checkout
-				// form on a spreadsheet import. That is the honest state of the debt
-				// (see repository.outstandingAnswerWhere, which deliberately has no
-				// channel filter), and this is the one mail that can do anything
-				// about it: the buyer gets their Confirmation Link and the sentence
-				// telling them the Tickets behind it still need answers.
-				HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, rs.ID),
-				TaxID:                 rs.CustomerTaxID,
-				// An imported sale was produced by no page and records no Sale
-				// Locale, so this resolves to whatever the recipient's own record
-				// remembers, and to English for the great majority who have never
-				// signed in (ADR 0033). The same helper the online path uses, for
-				// the same reason: one chain, one place.
-				Locale: s.mailLocale(ctx, rs.ID, rs.Locale, rs.CustomerEmail),
-			})
+			_ = s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, rs))
 		}
 	}
 
 	return result, nil
+}
+
+// importedSaleConfirmation builds the Sale Confirmation for a Ticket Sale
+// recorded on the import channel — by a Sale Import batch or as a Sale
+// Correction's replacement — so both paths mail one and the same thing.
+func (s *Service) importedSaleConfirmation(ctx context.Context, event *repository.EventImportContext, rs repository.RecordedSale) platform.SaleConfirmation {
+	return platform.SaleConfirmation{
+		To:               rs.CustomerEmail,
+		CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
+		EventName:        event.Name,
+		Reference:        rs.ConfirmationRef,
+		AmountCents:      rs.AmountCents,
+		Currency:         event.Currency,
+		ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
+		// An IMPORTED sale's Tickets start out owing everything, because
+		// nobody ever put the questions to that buyer — there is no checkout
+		// form on a spreadsheet import. That is the honest state of the debt
+		// (see repository.outstandingAnswerWhere, which deliberately has no
+		// channel filter), and this is the one mail that can do anything
+		// about it: the buyer gets their Confirmation Link and the sentence
+		// telling them the Tickets behind it still need answers.
+		HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, rs.ID),
+		TaxID:                 rs.CustomerTaxID,
+		// An imported sale was produced by no page and records no Sale
+		// Locale, so this resolves to whatever the recipient's own record
+		// remembers, and to English for the great majority who have never
+		// signed in (ADR 0033). The same helper the online path uses, for
+		// the same reason: one chain, one place.
+		Locale: s.mailLocale(ctx, rs.ID, rs.Locale, rs.CustomerEmail),
+	}
 }
 
 // confirmationLink mints the Confirmation Link for a recorded Ticket Sale, or
@@ -800,6 +807,10 @@ func (s *Service) ListImportHistory(ctx context.Context, actor ActorContext, eve
 // SaleLine is one Ticket Type and its quantity within a Ticket Sale, rolled up
 // for the Sales list.
 type SaleLine struct {
+	// TicketTypeID is here for the Sale Correction form (#351), which is
+	// pre-filled from the row and must name the Ticket Type by id, as the
+	// import template's hidden column does.
+	TicketTypeID   string `json:"ticket_type_id"`
 	TicketTypeName string `json:"ticket_type_name"`
 	Quantity       int    `json:"quantity"`
 }
@@ -837,6 +848,21 @@ type SaleListItem struct {
 	TaxIDNumber       *string    `json:"tax_id_number"`
 	ReversedAt        *time.Time `json:"reversed_at"`
 	ReversedBy        *string    `json:"reversed_by"`
+	// ReplacedBySaleID/ReplacesSaleID are the Sale Correction linkage (#350,
+	// ADR 0050), so a row can read "Corrected → …" / "Corrects …". Both null
+	// until a correction is recorded; a plain single-sale reversal sets
+	// neither and reads "Reversed by staff" off reversed_by alone.
+	ReplacedBySaleID *string `json:"replaced_by_sale_id"`
+	ReplacesSaleID   *string `json:"replaces_sale_id"`
+	// ReplacedByConfirmationRef/ReplacesConfirmationRef are the linked sales'
+	// Confirmation references (#351): the "TP-X" the row actually prints. Null
+	// exactly when the matching id is.
+	ReplacedByConfirmationRef *string `json:"replaced_by_confirmation_ref"`
+	ReplacesConfirmationRef   *string `json:"replaces_confirmation_ref"`
+	// HeldTicketCount is how many of the sale's Tickets have an accepted
+	// Holder: the people a reversal would tell, stated on the row so the
+	// confirm dialog can say so before anybody is told.
+	HeldTicketCount int `json:"held_ticket_count"`
 }
 
 // Pagination is the ADR-0006 nested pagination object: the current page and
@@ -938,27 +964,32 @@ func (s *Service) ListSales(ctx context.Context, actor ActorContext, eventID str
 	for _, row := range rows {
 		lines := make([]SaleLine, 0, len(row.TicketTypes))
 		for _, l := range row.TicketTypes {
-			lines = append(lines, SaleLine{TicketTypeName: l.TicketTypeName, Quantity: l.Quantity})
+			lines = append(lines, SaleLine{TicketTypeID: l.TicketTypeID, TicketTypeName: l.TicketTypeName, Quantity: l.Quantity})
 		}
 		items = append(items, SaleListItem{
-			ID:                row.ID,
-			CustomerFirstName: row.CustomerFirstName,
-			CustomerLastName:  row.CustomerLastName,
-			CustomerEmail:     row.CustomerEmail,
-			TicketTypes:       lines,
-			AmountCents:       row.AmountCents,
-			Currency:          row.Currency,
-			SoldAt:            row.SoldAt,
-			Channel:           row.Channel,
-			Source:            row.Source,
-			Status:            row.Status,
-			ConfirmationRef:   row.ConfirmationRef,
-			RecordedAt:        row.RecordedAt,
-			PaymentMethod:     row.PaymentMethod,
-			TaxIDType:         row.CustomerTaxIDType,
-			TaxIDNumber:       row.CustomerTaxIDNumber,
-			ReversedAt:        row.ReversedAt,
-			ReversedBy:        row.ReversedBy,
+			ID:                        row.ID,
+			CustomerFirstName:         row.CustomerFirstName,
+			CustomerLastName:          row.CustomerLastName,
+			CustomerEmail:             row.CustomerEmail,
+			TicketTypes:               lines,
+			AmountCents:               row.AmountCents,
+			Currency:                  row.Currency,
+			SoldAt:                    row.SoldAt,
+			Channel:                   row.Channel,
+			Source:                    row.Source,
+			Status:                    row.Status,
+			ConfirmationRef:           row.ConfirmationRef,
+			RecordedAt:                row.RecordedAt,
+			PaymentMethod:             row.PaymentMethod,
+			TaxIDType:                 row.CustomerTaxIDType,
+			TaxIDNumber:               row.CustomerTaxIDNumber,
+			ReversedAt:                row.ReversedAt,
+			ReversedBy:                row.ReversedBy,
+			ReplacedBySaleID:          row.ReplacedBySaleID,
+			ReplacesSaleID:            row.ReplacesSaleID,
+			ReplacedByConfirmationRef: row.ReplacedByConfirmationRef,
+			ReplacesConfirmationRef:   row.ReplacesConfirmationRef,
+			HeldTicketCount:           row.HeldTicketCount,
 		})
 	}
 
@@ -1142,6 +1173,8 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			Status:            row.Status,
 			ReversedAt:        row.ReversedAt,
 			ReversedBy:        exportedReversalRoute(row),
+			CorrectedByRef:    row.ReplacedByConfirmationRef,
+			CorrectsRef:       row.ReplacesConfirmationRef,
 		})
 	}
 
@@ -1317,10 +1350,13 @@ func exportedNetProceeds(row repository.SaleRow) *int {
 //     invisible to the Organization beyond the sale showing as reversed by the
 //     platform. The Organization is told an institution acted; which person, on
 //     whose say-so, and with what note are operator-facing and stop here.
-//   - `staff` becomes `import_undo`. On this side of the boundary "staff" is the
-//     reader's own Organization, which tells them nothing; the Sale Import undo
-//     is the lever that was actually pulled, and the only route that value has
-//     ever been written by.
+//   - `staff` becomes one of three, because on this side of the boundary
+//     "staff" is the reader's own Organization, which tells them nothing, and
+//     three different levers write it (#352): `correction` when the sale was
+//     replaced by a Sale Correction (it carries the linkage), `import_undo`
+//     when it went with its whole Sale Import batch (its reversed_at is the
+//     batch's undone_at), and `staff_reversal` when one sale was reversed on its
+//     own from the Sales list.
 //
 // Anything else is dropped to nil rather than emitted. A value added to the
 // stored set later — a new reversal route, and the column's constraint is
@@ -1338,12 +1374,22 @@ func exportedReversalRoute(row repository.SaleRow) *string {
 	if row.ReversedBy == nil {
 		return nil
 	}
-	route, ok := map[string]string{
-		sales.ReversalActorCustomer: exportfile.ReversedByCustomer,
-		sales.ReversalActorOperator: exportfile.ReversedByPlatform,
-		sales.ReversalActorStaff:    exportfile.ReversedByImportUndo,
-	}[*row.ReversedBy]
-	if !ok {
+	var route string
+	switch *row.ReversedBy {
+	case sales.ReversalActorCustomer:
+		route = exportfile.ReversedByCustomer
+	case sales.ReversalActorOperator:
+		route = exportfile.ReversedByPlatform
+	case sales.ReversalActorStaff:
+		switch {
+		case row.ReplacedBySaleID != nil:
+			route = exportfile.ReversedByCorrection
+		case row.ReversedByBatchUndo:
+			route = exportfile.ReversedByImportUndo
+		default:
+			route = exportfile.ReversedByStaffReversal
+		}
+	default:
 		return nil
 	}
 	return &route
@@ -1538,7 +1584,7 @@ func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID
 		Location: loc,
 	})
 
-	existing, err := s.repo.ListActiveSaleKeys(ctx, actor.OrganizationID, eventID)
+	existing, err := s.repo.ListActiveSaleKeys(ctx, actor.OrganizationID, eventID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -1547,7 +1593,7 @@ func (s *Service) PreviewImport(ctx context.Context, actor ActorContext, eventID
 	// After the duplicate flag, not before: the soft signal is only computed for
 	// rows still valid, and a row the Purchase Limit rejects is one the organizer
 	// may well fix by skipping it as the duplicate it also is.
-	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &result); err != nil {
+	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &result, ""); err != nil {
 		return nil, err
 	}
 
@@ -1627,7 +1673,7 @@ func (s *Service) CommitImportFile(ctx context.Context, actor ActorContext, even
 	// place the online path checks. An import moves no money and nobody is
 	// waiting on a payment page, so refusing here costs a rejected row and
 	// nothing else.
-	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated); err != nil {
+	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated, ""); err != nil {
 		return nil, nil, err
 	}
 

@@ -819,6 +819,13 @@ func registerStaffRoutes(mux *http.ServeMux, app *App) {
 	// The Sales list is readable by any Member of the Event (Org Admin, Event
 	// Owner, Event Staff), unlike the owner-only Sale Import tool above.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales", member(http.HandlerFunc(sh.ListSales)))
+	// Reversing ONE imported Ticket Sale from its row (#350, ADR 0050). The
+	// same gate as the Sale Import and its undo, because it is the same lever
+	// pointed at one row: Event Staff see the reversed state on the list above
+	// and are refused here.
+	mux.Handle("POST /api/v1/staff/events/{id}/sales/{saleId}/reverse", canManageEventSales(http.HandlerFunc(sh.ReverseSale)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sales/{saleId}/correct", canManageEventSales(http.HandlerFunc(sh.CorrectSale)))
+	mux.Handle("POST /api/v1/staff/events/{id}/sales/{saleId}/correct/preview", canManageEventSales(http.HandlerFunc(sh.PreviewSaleCorrection)))
 	// The Event's money, though, is not for hired door staff: the Net Proceeds
 	// strip above that list is Org Admin and Event Owner only.
 	mux.Handle("GET /api/v1/staff/events/{id}/sales/summary", eventOwnerOrAdmin(http.HandlerFunc(sh.GetSalesSummary)))
