@@ -14,6 +14,7 @@ const context: CheckoutContext = {
   eventPath: "/demo-venue/events/midnight",
   eventName: "Midnight Set",
   customerEmail: "buyer@example.com",
+  selection: "ga:2",
   locale: "es",
 };
 
@@ -44,7 +45,23 @@ test("a cookie written before checkouts remembered a language states none", () =
 
   assert.equal(checkoutContextLocale(older), null);
   // And the rest of it still reads, because the terminal pages depend on it.
-  assert.deepEqual(parseCheckoutContext(older), { ...context, locale: null });
+  // The basket it never held reads as no basket, so "Try again" points at the
+  // bare Event page exactly as it did before that field existed.
+  assert.deepEqual(parseCheckoutContext(older), { ...context, selection: "", locale: null });
+});
+
+test("a remembered basket comes back canonical, or not at all", () => {
+  // Guarded on the way out by the selection format's own decoder, because a
+  // cookie is caller-controlled storage however httpOnly it is. Anything it
+  // refuses reads as no basket, and a declined Payment then hands the buyer the
+  // bare Event page rather than a cart nobody chose (lib/selection-url.ts).
+  const ordered = JSON.stringify({ ...context, selection: "vip:1,ga:2" });
+  assert.equal(parseCheckoutContext(ordered)?.selection, "ga:2,vip:1");
+
+  for (const selection of ["", "ga", "ga:0", "ga:2,ga:1", "../../etc", "__proto__:1", 42, null]) {
+    const stored = JSON.stringify({ ...context, selection });
+    assert.equal(parseCheckoutContext(stored)?.selection, "");
+  }
 });
 
 test("a language this Storefront does not serve is not a language", () => {

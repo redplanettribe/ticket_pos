@@ -685,6 +685,22 @@ export type ConfirmCheckoutResult = {
 };
 
 /**
+ * What the SESSION-GATED begin-checkout takes: the public body minus the one
+ * field ADR 0054 deletes (#384).
+ *
+ * The address is not missing, it is somewhere better: the API reads it off the
+ * Customer Session on the request, so a Ticket Sale begun here can only ever be
+ * written to an inbox somebody proved they own. Everything else — the name, the
+ * Tax ID, the phone, the consent answers, the answers, the lines — is identical,
+ * because nothing else about an online checkout changed.
+ *
+ * Written as an Omit rather than as a second literal so the two bodies cannot
+ * drift: a field added to a checkout is added once, and this one keeps not
+ * having an email.
+ */
+export type BeginCheckoutSignedInRequest = Omit<BeginCheckoutRequest, "customer_email">;
+
+/**
  * beginCheckout starts an online checkout on a published Event. Guest by
  * definition: the form's own email, name, and Tax ID are all the API needs, and
  * a visitor with no session buys exactly like a signed-in one. Failures throw
@@ -702,6 +718,11 @@ export type ConfirmCheckoutResult = {
  * would otherwise record is this process — and they are relayed exactly as the
  * sign-in consent route relays them, because it is the same evidence about the
  * same kind of act.
+ *
+ * NOTHING IN THE STOREFRONT CALLS THIS ANY MORE. Checkout begins signed in
+ * (ADR 0054) and the dialog goes through beginCheckoutSignedIn below; this stays
+ * only until #386 deletes the route it addresses, so that the expand half of the
+ * expand-contract is still there to fall back to.
  */
 export async function beginCheckout(
   orgSlug: string,
@@ -712,6 +733,41 @@ export async function beginCheckout(
 ): Promise<BeginCheckoutResult> {
   const envelope = await callBackend<BeginCheckoutResult>(
     `/api/v1/public/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
+    { method: "POST", body: JSON.stringify(request), sessionToken, headers: evidence },
+  );
+  if (!envelope.data) {
+    throw new APIError(
+      502,
+      { code: "INTERNAL_ERROR", message: "The checkout could not be started." },
+      envelope.request_id ?? crypto.randomUUID(),
+    );
+  }
+  return envelope.data;
+}
+
+/**
+ * beginCheckoutSignedIn starts an online checkout ADDRESSED TO A SESSION
+ * (ADR 0054, #384) — the one the Storefront's checkout dialog uses.
+ *
+ * The `sessionToken` is REQUIRED and is not a hint here: it is what names the
+ * buyer. No session is a 401 and a Confirmation Link session is a 403
+ * CUSTOMER_SESSION_SCOPE_INSUFFICIENT, both from the API, because the BFF is a
+ * hop and not a boundary (ADR 0008). The wall the buyer actually meets is a
+ * redirect on the Event page (lib/checkout-signin.ts); this is what makes the
+ * mistake inexpressible rather than merely unlikely.
+ *
+ * Same 201 envelope as the public route, same failures, same relay: a caller
+ * that had the public one can swap to this by deleting a field.
+ */
+export async function beginCheckoutSignedIn(
+  orgSlug: string,
+  eventSlug: string,
+  request: BeginCheckoutSignedInRequest,
+  sessionToken: string,
+  evidence?: Record<string, string>,
+): Promise<BeginCheckoutResult> {
+  const envelope = await callBackend<BeginCheckoutResult>(
+    `/api/v1/customer/organizations/${encodeURIComponent(orgSlug)}/events/${encodeURIComponent(eventSlug)}/checkout`,
     { method: "POST", body: JSON.stringify(request), sessionToken, headers: evidence },
   );
   if (!envelope.data) {
