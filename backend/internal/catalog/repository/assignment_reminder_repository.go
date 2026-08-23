@@ -53,8 +53,12 @@ const assignmentReminderLedger = `
 // cooldown cutoff ($4 = now - 7d). The reversal-row clause is stricter than
 // the status alone: a Sale whose reversal is in flight is on its way out and
 // is not pointed at.
+//
+// THE CHANNELS ARE `online` AND `import` (ADR 0055, #395) — this list is
+// catalog.remindableAssignmentChannel in SQL and moves with it. `in_person`
+// stays out because a door sale has no buyer surface to assign from at all.
 const assignmentReminderRation = `
-	AND s.channel = 'online'
+	AND s.channel IN ('online', 'import')
 	AND s.status = 'active'
 	AND NOT EXISTS (SELECT 1 FROM sale_reversals sr WHERE sr.ticket_sale_id = s.id)
 	AND s.created_at <= $2

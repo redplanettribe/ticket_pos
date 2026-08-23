@@ -40,14 +40,14 @@ func TestMayRemindAssignment(t *testing.T) {
 		{
 			name:   "an import sale",
 			mutate: func(in *AssignmentReminderInputs) { in.SaleChannel = "import" },
-			want:   false,
-			why:    "the buyer of an import never used the platform; a reminder to them is cold mail (ADR 0051)",
+			want:   true,
+			why:    "ADR 0055 widened the audience: the imported buyer holds Ticket 1 and nobody is named for the rest",
 		},
 		{
 			name:   "an in-person sale",
 			mutate: func(in *AssignmentReminderInputs) { in.SaleChannel = "in_person" },
 			want:   false,
-			why:    "only an online buyer checked out on the page the reminder points at",
+			why:    "a door sale has no buyer surface to assign from, so the reminder would point at nothing",
 		},
 		{
 			name:   "a reversed sale",

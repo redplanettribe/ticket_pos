@@ -92,12 +92,23 @@ const (
 // catalog service before the query runs — a closed flag is "nobody is a
 // candidate", not "every candidate is refused" — so this rule never sees it.
 type AssignmentReminderInputs struct {
-	// SaleChannel is the Sales Channel the Ticket Sale was recorded on. ONLY AN
-	// ONLINE SALE IS REMINDED. An `import` Sale's buyer is a name somebody else
-	// typed, never checked out here, and may not know the platform exists; a
-	// reminder to them is cold mail, which is why Sale Correction (ADR 0050)
-	// mails them nothing by default either. An `in_person` Sale's buyer has no
-	// page they ever saw. Both are refused here as well as in the query, for
+	// SaleChannel is the Sales Channel the Ticket Sale was recorded on. AN
+	// ONLINE SALE AND AN IMPORTED SALE ARE REMINDED; AN `in_person` SALE IS
+	// NOT.
+	//
+	// ADR 0055 widened this past `online` (#395). The exclusion 0051 inherited
+	// said an import Sale's buyer is a name somebody else typed who never used
+	// the platform — but a Sale Import transcribes a transaction that already
+	// happened, its buyer now holds Ticket 1 of it, and on a multi-Ticket Sale
+	// nobody is named for the rest. That is exactly this mail's debt. It is a
+	// deliberate exception to ADR 0050's "an imported buyer is mailed nothing
+	// by default", which is about transactional mail they did not ask about;
+	// asking somebody holding Tickets to name who is coming is the one thing
+	// only they can do.
+	//
+	// `in_person` stays out because a door sale has no buyer surface: Ticket
+	// Assignment refuses the channel, so a reminder would be an instruction its
+	// reader cannot follow. Refused here as well as in the query, for
 	// SaleStatus's reason below.
 	SaleChannel string
 
@@ -154,7 +165,7 @@ type AssignmentReminderInputs struct {
 // question here at all: the buyer is the only reader this mail has, and their
 // address travels on the candidate.
 func MayRemindAssignment(in AssignmentReminderInputs) bool {
-	return in.SaleChannel == SalesChannelOnline &&
+	return remindableAssignmentChannel(in.SaleChannel) &&
 		in.SaleStatus == TicketSaleStatusActive &&
 		!in.SaleCreatedAt.IsZero() && !in.Now.Before(in.SaleCreatedAt.Add(AssignmentReminderMinSaleAge)) &&
 		in.TicketCount > 1 &&
@@ -162,6 +173,13 @@ func MayRemindAssignment(in AssignmentReminderInputs) bool {
 		!in.EventStartsAt.IsZero() && in.Now.Before(in.EventStartsAt) &&
 		in.RemindersSent < MaxAssignmentReminders &&
 		(in.LastRemindedAt.IsZero() || !in.Now.Before(in.LastRemindedAt.Add(AssignmentReminderInterval)))
+}
+
+// remindableAssignmentChannel is the channel clause of MayRemindAssignment,
+// named so the SQL beside it (repository.assignmentReminderRation's
+// `s.channel IN ('online', 'import')`) has something to be the same as.
+func remindableAssignmentChannel(channel string) bool {
+	return channel == SalesChannelOnline || channel == SalesChannelImport
 }
 
 // AssignmentReminderCandidate is one TICKET SALE the sweep found: the row

@@ -1,7 +1,8 @@
 # Runbook: launching the Assignment Reminder
 
 The Assignment Reminder (ADR 0051, #361) is a daily, rationed, transactional
-mail to the buyer of an online Ticket Sale that still has Tickets nobody holds.
+mail to the buyer of an online or imported Ticket Sale that still has Tickets
+nobody holds (ADR 0055, #395, widened the audience past `online`).
 Its Cloud Scheduler job (`terraform/modules/ticket-pos/assignment_reminder.tf`)
 ships **paused**: merging mails nobody. Launching it is a Platform Operator's
 act, done in the order below, because the first run is also the catch-up for
@@ -71,7 +72,7 @@ reports a **count only**. Do not widen it to select names or addresses; the
 local database is a production copy.
 
 ```sql
--- Assignment Reminder, first-run candidates (ADR 0051).
+-- Assignment Reminder, first-run candidates (ADR 0051; channels per ADR 0055).
 WITH sale_tickets AS (
     SELECT
         s.id AS sale_id,
@@ -80,7 +81,7 @@ WITH sale_tickets AS (
     FROM ticket_sales s
     JOIN ticket_sale_lines l ON l.ticket_sale_id = s.id
     JOIN tickets t           ON t.ticket_sale_line_id = l.id
-    WHERE s.channel = 'online'
+    WHERE s.channel IN ('online', 'import')
       AND s.status = 'active'
       AND NOT EXISTS (SELECT 1 FROM sale_reversals r WHERE r.ticket_sale_id = s.id)
       AND s.created_at < TIMESTAMPTZ '2026-08-22T16:33:38Z'   -- go-live constant
