@@ -6,3 +6,4 @@ ticket_questions_enabled     = true
 ticket_assignment_enabled    = true
 holder_address_purge_enabled = true
 answer_reminder_enabled      = true
+assignment_reminder_enabled  = false

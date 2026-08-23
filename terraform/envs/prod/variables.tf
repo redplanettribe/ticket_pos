@@ -253,6 +253,24 @@ variable "answer_reminder_attempt_deadline_seconds" {
   default     = 120
 }
 
+variable "assignment_reminder_enabled" {
+  description = "Whether the production Assignment Reminder sweep tick fires (#361, #365, ADR 0051). STARTS FALSE and is present in terraform.tfvars as false: merging mails nobody, and its first run is a catch-up that writes to every buyer of more than one Ticket since the platform opened, so turning it on is a reviewable diff made after the candidate count has been reviewed locally (docs/runbook-assignment-reminder.md). Set it false and apply first if a reminder is ever suspected of reaching the wrong people or reaching them too often; a mail that has gone cannot be recalled."
+  type        = bool
+  default     = false
+}
+
+variable "assignment_reminder_schedule" {
+  description = "Unix cron for the production Assignment Reminder sweep. Daily at 10:30 Ecuador time, half an hour after the Answer Reminder; the module variable of the same name says why the cadence is not what limits how often anybody is written to."
+  type        = string
+  default     = "30 10 * * *"
+}
+
+variable "assignment_reminder_attempt_deadline_seconds" {
+  description = "How long Cloud Scheduler waits for one production Assignment Reminder sweep. One term of a chain that must be read before it is moved; the module variable of the same name says where."
+  type        = number
+  default     = 120
+}
+
 variable "holder_address_purge_enabled" {
   description = "Whether the production Holder Address Purge tick fires (#331, parent #322, ADR 0046). STARTS FALSE and stays false until ticket_assignment_enabled below has been open long enough for Tickets to be carrying holder addresses — before that it is a daily UPDATE matching no rows. This is the second scheduled job in production that deletes anything, and the only one that deletes personal data belonging to somebody who never came to this platform. It is the flag to set false first, and apply second, if the purge is ever suspected of taking more than an unaccepted address at a started Event — the backend does not gate this job on the feature flag, on purpose, so this is the only switch there is. It is equally the flag somebody must remember to set TRUE when assignment opens: leaving it false then is the platform holding third-party contact details with no scheduled end, which is the specific failure ADR 0046 priced this job against."
   type        = bool
