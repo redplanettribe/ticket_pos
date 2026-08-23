@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 )
 
@@ -27,9 +26,9 @@ type CorrectedSale struct {
 
 // CorrectImportedSale is a Sale Correction's whole write (#351, ADR 0050): ONE
 // transaction that reverses the mistaken imported Ticket Sale through the
-// shared primitive, records the replacement through the sale-commit spine every
-// channel shares, and links the two — replaced_by_sale_id on the old row,
-// replaces_sale_id on the new one.
+// shared primitive, records the replacement as a batchless imported sale
+// through the spine every channel shares, and links the two —
+// replaced_by_sale_id on the old row, replaces_sale_id on the new one.
 //
 // THE ORDER IS THE ACCOUNTING. The reversal runs first, so by the time the spine
 // locks the replacement's Ticket Type and checks capacity, the old sale's
@@ -39,10 +38,8 @@ type CorrectedSale struct {
 // validation and this lock fails the spine, the transaction rolls back, and the
 // original sale is exactly as active as it was.
 //
-// THE REPLACEMENT BELONGS TO NO BATCH: import_batch_id stays NULL, so a later
-// undo of the original's batch walks past it. Channel `import`, Source as the
-// caller set it (`direct`): it is an imported sale in every respect but the
-// spreadsheet.
+// THE REPLACEMENT BELONGS TO NO BATCH, which is commitBatchlessImportSaleTx's
+// whole subject: a later undo of the original's batch walks straight past it.
 //
 // Refusals are the single-sale reversal's: *SaleNotFoundError,
 // *SaleNotImportedError, *SaleAlreadyReversedError, decided under the row lock
@@ -59,37 +56,32 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 		return nil, err
 	}
 
-	recorded, err := r.CommitSales(ctx, tx, CommitSalesInput{
+	recorded, err := r.commitBatchlessImportSaleTx(ctx, tx, batchlessImportSale{
 		EventID:        in.EventID,
 		OrganizationID: in.OrganizationID,
-		Channel:        "import",
-		Source:         "direct",
-		Sales:          []CommitSale{in.Replacement},
+		Sale:           in.Replacement,
 		Now:            in.Now,
 		UpsertCustomer: in.UpsertCustomer,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(recorded) != 1 {
-		return nil, errors.New("sales: a Sale Correction recorded no replacement")
-	}
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE ticket_sales SET replaced_by_sale_id = $2 WHERE id = $1
-	`, in.SaleID, recorded[0].ID); err != nil {
+	`, in.SaleID, recorded.ID); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE ticket_sales SET replaces_sale_id = $2 WHERE id = $1
-	`, recorded[0].ID, in.SaleID); err != nil {
+	`, recorded.ID, in.SaleID); err != nil {
 		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &CorrectedSale{Reversed: *reversed, Replacement: recorded[0]}, nil
+	return &CorrectedSale{Reversed: *reversed, Replacement: *recorded}, nil
 }
 
 // SaleLineQuantity is one Ticket Sale Line's Ticket Type and quantity.

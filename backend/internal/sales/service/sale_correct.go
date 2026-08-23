@@ -16,19 +16,12 @@ import (
 //
 // Every cell arrives as the template would carry it — quantity and the amount
 // included — and is judged by the import row validator, so a correction can
-// record nothing an import would have refused (ADR 0050).
+// record nothing an import would have refused (ADR 0050). The columns
+// themselves are ImportRowInput, shared with every other route that types one
+// import row rather than uploading it (#367); what is left here is the one
+// thing that is a correction's alone.
 type CorrectSaleInput struct {
-	CustomerEmail       string
-	CustomerFirstName   string
-	CustomerLastName    string
-	CustomerTaxIDType   string
-	CustomerTaxIDNumber string
-	TicketTypeID        string
-	Quantity            int
-	PaymentMethod       string
-	SoldAt              string
-	// AmountCents overrides the catalog price; nil uses it, as a blank cell does.
-	AmountCents *int
+	ImportRowInput
 	// SendConfirmation mails the replacement's Sale Confirmation to the
 	// replacement's email. Off by default: the buyer dealt with a sales rep,
 	// not this platform, and already holds a Confirmation from the import.
@@ -155,56 +148,24 @@ func (s *Service) PreviewCorrection(ctx context.Context, actor ActorContext, eve
 	return s.validateCorrection(ctx, actor.OrganizationID, eventID, saleID, netOfSale(types, oldLines), loc, in)
 }
 
-// validateCorrection judges the replacement exactly as the import preview
-// judges a row — field rules, Ticket Type, Tax ID, the duplicate warning
-// against every active sale but the one being reversed, Purchase Limit net of
-// the sale being reversed — and then holds it to capacity, which the import
-// leaves to the batch commit: a correction is one row, so its one overage is a
-// complaint on the quantity cell rather than a batch failure.
+// validateCorrection judges the replacement as the shared typed-import-row
+// verdict judges any single typed row (#367), supplying the two things that
+// make it a CORRECTION rather than a plain record: the sale being reversed is
+// left out of the duplicate signal and the Purchase Limit tally — it is about to
+// stop existing, and the replacement would otherwise read as a duplicate of
+// itself and be refused an allowance it is giving back — and the capacity
+// complaint says so, because the snapshot it is measured against has already had
+// the old quantities netted back into it by the caller.
 //
 // It is the whole of the verdict, shared by the commit and the preview so the
 // two can never disagree (#352).
 func (s *Service) validateCorrection(ctx context.Context, orgID, eventID, saleID string, types []importfile.TicketTypeRef, loc *time.Location, in CorrectSaleInput) (*importfile.ValidateResult, error) {
-	raw := importfile.RawRow{
-		Line:                1,
-		CustomerEmail:       in.CustomerEmail,
-		CustomerFirstName:   in.CustomerFirstName,
-		CustomerLastName:    in.CustomerLastName,
-		CustomerTaxIDType:   in.CustomerTaxIDType,
-		CustomerTaxIDNumber: in.CustomerTaxIDNumber,
-		TicketTypeID:        in.TicketTypeID,
-		Quantity:            fmt.Sprint(in.Quantity),
-		PaymentMethod:       in.PaymentMethod,
-		SoldAt:              in.SoldAt,
-	}
-	if in.AmountCents != nil {
-		raw.Amount = fmt.Sprintf("%d.%02d", *in.AmountCents/100, *in.AmountCents%100)
-	}
-	validated := importfile.Validate(importfile.ValidateInput{
-		Rows:     []importfile.RawRow{raw},
-		Types:    types,
-		Now:      s.now(),
-		Location: loc,
+	return s.validateTypedImportRow(ctx, orgID, eventID, types, loc, in.ImportRowInput, typedRowContext{
+		ExcludeSaleID: saleID,
+		OverCapacity: func(impact importfile.CapacityImpact) string {
+			return fmt.Sprintf("exceeds the %d remaining on %s once this sale is reversed", impact.Remaining, impact.TicketTypeName)
+		},
 	})
-	// The sale being corrected is left out: it is about to be reversed, and the
-	// replacement would otherwise always read as a duplicate of itself.
-	existing, err := s.repo.ListActiveSaleKeys(ctx, orgID, eventID, saleID)
-	if err != nil {
-		return nil, err
-	}
-	flagDuplicates(&validated, existing, loc)
-	if err := s.refuseImportRowsOverPurchaseLimit(ctx, eventID, types, &validated, saleID); err != nil {
-		return nil, err
-	}
-	for _, impact := range validated.CapacityImpact {
-		if impact.Oversold && validated.Rows[0].Valid {
-			validated.RejectRow(0, importfile.RowError{
-				Field:   importfile.ColQuantity,
-				Message: fmt.Sprintf("exceeds the %d remaining on %s once this sale is reversed", impact.Remaining, impact.TicketTypeName),
-			})
-		}
-	}
-	return &validated, nil
 }
 
 // netOfSale gives the sale's own quantities back to the catalog snapshot, so

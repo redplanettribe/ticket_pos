@@ -770,6 +770,26 @@ func rowValidationFields(result *importfile.ValidateResult) []platform.FieldErro
 	return fields
 }
 
+// bareRowValidationFields flattens ONE typed row's complaints into field errors
+// under the template's own column names — "quantity", not "rows[1].quantity".
+//
+// A form has an input per template column and no row index anywhere on it, so a
+// prefix here would name a field the caller cannot find and every typed route
+// would have to strip it back off (#367). The uploaded file keeps the prefix,
+// where it is the only thing telling row 3's complaint from row 40's.
+//
+// No stable code, for the reason rowValidationFields gives: a RowError is a
+// spreadsheet cell's complaint, shown verbatim, and Staff-only.
+func bareRowValidationFields(result *importfile.ValidateResult) []platform.FieldError {
+	var fields []platform.FieldError
+	for _, row := range result.Rows {
+		for _, e := range row.Errors {
+			fields = append(fields, platform.FieldError{Field: e.Field, Message: e.Message})
+		}
+	}
+	return fields
+}
+
 // parseSkipRows parses the multipart `skip_rows` field: a comma-separated list of
 // file row numbers to exclude from the commit (e.g. "3,7"), tolerating optional
 // surrounding brackets and whitespace. Blank means skip nothing.
@@ -930,22 +950,47 @@ type correctSaleBody struct {
 	SendConfirmation    bool   `json:"send_confirmation"`
 }
 
-// correctSaleInput lifts the decoded form into the service's input, trimming
-// every text cell as the commit and the preview both must.
+// correctSaleInput lifts the decoded form into the service's input: the
+// template's columns through the shared trim, plus the one field a correction
+// alone carries.
 func correctSaleInput(body correctSaleBody) service.CorrectSaleInput {
 	return service.CorrectSaleInput{
-		CustomerEmail:       strings.TrimSpace(body.CustomerEmail),
-		CustomerFirstName:   strings.TrimSpace(body.CustomerFirstName),
-		CustomerLastName:    strings.TrimSpace(body.CustomerLastName),
-		CustomerTaxIDType:   strings.TrimSpace(body.CustomerTaxIDType),
-		CustomerTaxIDNumber: strings.TrimSpace(body.CustomerTaxIDNumber),
-		TicketTypeID:        strings.TrimSpace(body.TicketTypeID),
-		Quantity:            body.Quantity,
-		PaymentMethod:       strings.TrimSpace(body.PaymentMethod),
-		SoldAt:              strings.TrimSpace(body.SoldAt),
-		AmountCents:         body.AmountCents,
-		SendConfirmation:    body.SendConfirmation,
+		ImportRowInput: trimmedImportRow(service.ImportRowInput{
+			CustomerEmail:       body.CustomerEmail,
+			CustomerFirstName:   body.CustomerFirstName,
+			CustomerLastName:    body.CustomerLastName,
+			CustomerTaxIDType:   body.CustomerTaxIDType,
+			CustomerTaxIDNumber: body.CustomerTaxIDNumber,
+			TicketTypeID:        body.TicketTypeID,
+			Quantity:            body.Quantity,
+			PaymentMethod:       body.PaymentMethod,
+			SoldAt:              body.SoldAt,
+			AmountCents:         body.AmountCents,
+		}),
+		SendConfirmation: body.SendConfirmation,
 	}
+}
+
+// trimmedImportRow trims every text cell of one typed Sale Import row, and is
+// the one place any route that types a row rather than uploading one does it
+// (#367).
+//
+// It is shared rather than repeated because the trim is part of the verdict,
+// not decoration: " a@b.com " is a valid email and "a@b.com " is not, so a
+// route that forgot to trim would refuse a row its sibling accepts — the exact
+// drift between the two typed routes that ADR 0052 requires cannot happen.
+// The uploaded file gets the same treatment from the parser, before a RawRow
+// exists at all.
+func trimmedImportRow(in service.ImportRowInput) service.ImportRowInput {
+	in.CustomerEmail = strings.TrimSpace(in.CustomerEmail)
+	in.CustomerFirstName = strings.TrimSpace(in.CustomerFirstName)
+	in.CustomerLastName = strings.TrimSpace(in.CustomerLastName)
+	in.CustomerTaxIDType = strings.TrimSpace(in.CustomerTaxIDType)
+	in.CustomerTaxIDNumber = strings.TrimSpace(in.CustomerTaxIDNumber)
+	in.TicketTypeID = strings.TrimSpace(in.TicketTypeID)
+	in.PaymentMethod = strings.TrimSpace(in.PaymentMethod)
+	in.SoldAt = strings.TrimSpace(in.SoldAt)
+	return in
 }
 
 // saleTarget reads and checks the two path ids of a correction call,
@@ -1046,15 +1091,7 @@ func (h *Handler) CorrectSale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if invalid != nil {
-		// The one row's complaints, under the template's own column names: the
-		// form has a field per column and no "rows[1]." to strip.
-		var fields []platform.FieldError
-		for _, row := range invalid.Rows {
-			for _, e := range row.Errors {
-				fields = append(fields, platform.FieldError{Field: e.Field, Message: e.Message})
-			}
-		}
-		_ = platform.WriteValidationError(w, reqID, fields)
+		_ = platform.WriteValidationError(w, reqID, bareRowValidationFields(invalid))
 		return
 	}
 	_ = platform.WriteSuccess(w, reqID, http.StatusCreated, result)
