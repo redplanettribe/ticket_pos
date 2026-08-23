@@ -110,7 +110,18 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 		return nil, nil, mapCommitError(mapReverseSaleError(err))
 	}
 
-	s.tellDisplacedHolders(ctx, []string{corrected.Reversed.ID})
+	// THE HOLDERS OF THE SALE BEING REPLACED ARE TOLD, and the new Sale
+	// Confirmation checkbox is the buyer's notification policy on this path (#392,
+	// ADR 0055). A buyer who holds one of these Tickets by presumption is spared
+	// by default — the correction re-seats them in the same act, so telling them
+	// they had lost a ticket would not even be true by the time they read it — and
+	// is told when the Member chooses to write. A Holder who accepted by
+	// Assignment Link is told either way: their Ticket really is gone, and the
+	// replacement's Tickets are not theirs.
+	//
+	// THE MEMBER'S CHOICE AND NOT THE DELIVERY. `sent` below can still be false if
+	// the provider was unwell; what decides this is what the Member asked for.
+	s.tellDisplacedHolders(ctx, []string{corrected.Reversed.ID}, platform.BuyerNoticePolicy(in.SendConfirmation))
 
 	rs := corrected.Replacement
 	sent := false

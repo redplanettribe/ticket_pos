@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/peter/ticket_pos/backend/internal/platform"
 	"github.com/peter/ticket_pos/backend/internal/sales"
 	"github.com/peter/ticket_pos/backend/internal/sales/repository"
 )
@@ -30,9 +31,16 @@ type ReverseSaleResult struct {
 // defaults the same way. The correction that follows (#351) offers a new Sale
 // Confirmation instead, which is the mail that is actually useful.
 //
-// EVERY ACCEPTED HOLDER IS TOLD, unconditionally, through the one helper every
-// reversal route shares (#327): they came here, proved an address and are
-// expecting to attend. After commit, like the others.
+// EVERY HOLDER WHO ACCEPTED BY ASSIGNMENT LINK IS TOLD, unconditionally,
+// through the one helper every reversal route shares (#327): they came here,
+// proved an address and are expecting to attend. After commit, like the others.
+//
+// AND THE BUYER IS TOLD NOTHING HERE EITHER, INCLUDING ABOUT THE TICKET THEY
+// HOLD THEMSELVES (#392, ADR 0055). A buyer holding this Sale's Ticket 1 holds
+// it by presumption, not by a click, so the notice follows the buyer's
+// notification policy — and the policy of this route is the silence stated
+// above, which the correction that usually follows breaks on the Member's terms
+// rather than on the platform's.
 func (s *Service) ReverseImportedSale(ctx context.Context, actor ActorContext, eventID, saleID string) (*ReverseSaleResult, error) {
 	_, ok, err := s.repo.GetEventName(ctx, actor.OrganizationID, eventID)
 	if err != nil {
@@ -53,7 +61,7 @@ func (s *Service) ReverseImportedSale(ctx context.Context, actor ActorContext, e
 		return nil, mapReverseSaleError(err)
 	}
 
-	s.tellDisplacedHolders(ctx, []string{reversed.ID})
+	s.tellDisplacedHolders(ctx, []string{reversed.ID}, platform.BuyerIsNotBeingWrittenTo)
 
 	return &ReverseSaleResult{
 		SaleID:          reversed.ID,

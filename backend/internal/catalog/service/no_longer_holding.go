@@ -29,6 +29,26 @@ import (
 // for a name and no field for a cause, and repository.DisplacedHolder never
 // selects a column that could fill one.
 //
+// A HOLDER WHO IS THE BUYER FOLLOWS THE BUYER'S NOTIFICATION POLICY (#392,
+// ADR 0055), AND THAT IS THE ONE BRANCH IN THIS FILE. Since ADR 0048 and 0055 a
+// Ticket Sale's buyer holds one of its own Tickets — by paying, on an Online
+// Sale, and by PRESUMPTION on an imported one, where the address was
+// transcribed off a file and nobody clicked anything. Such a Holder is not the
+// person #327 wrote its unconditional rule for; they are the buyer, and the
+// buyer-facing toggles (a Sale Import undo's notify switch, a Sale Correction's
+// Sale Confirmation checkbox) exist precisely to decide whether the platform
+// writes to them at all. So the reversal path is handed one fact by sales — is
+// the buyer being written to about this? — and a Holder who is the buyer is
+// mailed only when the answer is yes. EVERYBODY ELSE IS TOLD UNCONDITIONALLY,
+// exactly as before: they came here, proved their address and accepted.
+//
+// THE BRANCH IS ON WHO THE HOLDER IS AND NEVER ON THE CHANNEL. ADR 0055
+// considered and rejected silencing `import` wholesale, because it would gag a
+// Holder who genuinely clicked an Assignment Link. Nothing here knows what
+// channel a Sale was made on, and `online` is unaffected for a structural
+// reason rather than a written one: every route that reverses an Online Sale
+// writes to its buyer anyway, so the policy it passes is always yes.
+//
 // SOMEBODY WHO NEVER ACCEPTED IS NEVER MAILED, in either case, and this is the
 // rule most easily got wrong. An address in `assigned` was typed by a buyer and
 // ignored by whoever received it; the platform never told that person they had
@@ -105,7 +125,18 @@ type NoLongerHoldingMailer interface {
 // The Holders remain Customers, Verified, with the names and Answers they gave;
 // the reversed Sale stays whole and stays visible to its buyer. This function
 // reads and mails, and that is the whole of it.
-func (s *Service) TellHoldersOfReversedSales(ctx context.Context, ticketSaleIDs []string) error {
+//
+// THE POLICY ARGUMENT IS THE WHOLE OF WHAT SALES CONTRIBUTES TO THE DECISION
+// (#392, ADR 0055): whether the BUYER of these Sales is hearing from the
+// platform about the reversal. Which Holder is the buyer is answered here, off
+// the read, because that is a fact about Holders and sales must not learn it —
+// the boundary is the same one that keeps the cause of the reversal on the far
+// side of it.
+func (s *Service) TellHoldersOfReversedSales(
+	ctx context.Context,
+	ticketSaleIDs []string,
+	buyer platform.BuyerNoticePolicy,
+) error {
 	// THE FLAG FIRST, before anything is read. A deployment that never opened
 	// Ticket Assignment has no accepted Holders to tell and must not start
 	// querying for them (ADR 0045). Its OWN flag: a build running Ticket
@@ -122,6 +153,14 @@ func (s *Service) TellHoldersOfReversedSales(ctx context.Context, ticketSaleIDs 
 		return err
 	}
 	for _, holder := range displaced {
+		// THE ONE SKIP: the buyer holds this Ticket themselves, and this act says
+		// nothing to buyers. Silence here is not the platform withholding news from
+		// somebody who was chasing it — it is the platform not opening a
+		// conversation the Organization chose not to have, with a person who never
+		// asked to be in one.
+		if holder.IsTheBuyer && !buyer.WritesToTheBuyer() {
+			continue
+		}
 		s.tellHolderTheyStoppedHolding(ctx, holder)
 	}
 	return nil
@@ -148,6 +187,13 @@ func (s *Service) TellHoldersOfReversedSales(ctx context.Context, ticketSaleIDs 
 // THE DISPLACED HOLDER IS MAILED AND THE NEW ONE IS TOO, and they are two
 // separate messages to two different people saying opposite things. Neither
 // names the other, and neither names the buyer.
+//
+// #392'S POLICY DOES NOT REACH THIS CAUSE, and the zero value below says so.
+// That policy is about a reversal the platform performs on the buyer's Sale
+// while deciding whether to write to them at all; a reassignment is the BUYER'S
+// OWN ACT, made on the buyer's own page, and a buyer who hands on the Ticket they
+// were holding themselves has just been told what happened by doing it. Nobody
+// is being spared an unsolicited mail here, so nothing is gated.
 func (s *Service) tellHolderDisplacedByReassignment(
 	ctx context.Context,
 	ticket *repository.AssignmentLinkTicket,

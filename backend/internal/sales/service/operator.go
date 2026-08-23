@@ -559,7 +559,13 @@ func (s *Service) ReverseSaleAsOperator(ctx context.Context, confirmationRef str
 	//
 	// The buyer keeps the reversed sale on their own Area, as they always have.
 	// Only the Holder's view loses the Event.
-	s.tellDisplacedHolders(ctx, []string{reversed.ID})
+	//
+	// THE BUYER IS BEING WRITTEN TO ON THIS ROUTE, always and with no toggle — the
+	// Sale Voided notice above — so a buyer who holds one of these Tickets
+	// themselves is told about that too (#392, ADR 0055). This route reaches only
+	// an Online Sale, whose buyer holds Ticket 1 by paying, so nothing about it
+	// has changed.
+	s.tellDisplacedHolders(ctx, []string{reversed.ID}, platform.BuyerIsBeingWrittenTo)
 
 	return &OperatorReversalResult{
 		TicketSaleID:    row.ID,

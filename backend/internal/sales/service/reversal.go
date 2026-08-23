@@ -1037,7 +1037,13 @@ func (s *Service) commitSaleReversal(ctx context.Context, sale *repository.Custo
 	// The buyer keeps this sale on their Area — a reversed Ticket Sale is never
 	// deleted and stays visible to them and to the Organization. Only the
 	// Holder's view loses the Event.
-	s.tellDisplacedHolders(ctx, []string{reversed.ID})
+	//
+	// THE BUYER IS BEING WRITTEN TO ON THIS ROUTE, always — the Sale Voided notice
+	// above, whether the undo was their own press or a drain finishing their
+	// Reversal Request — so a buyer who holds one of these Tickets themselves is
+	// told about that too (#392, ADR 0055). This route reaches only an Online
+	// Sale, whose buyer holds Ticket 1 by paying, so nothing about it has changed.
+	s.tellDisplacedHolders(ctx, []string{reversed.ID}, platform.BuyerIsBeingWrittenTo)
 
 	return &SaleReversalResult{
 		TicketSaleID:    sale.ID,

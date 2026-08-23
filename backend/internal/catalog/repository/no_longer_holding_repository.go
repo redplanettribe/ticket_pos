@@ -46,6 +46,19 @@ type DisplacedHolder struct {
 	// is resolved behind the recipient's own remembered Mail Locale by the
 	// service. See service.assignmentMailLocale, which this reuses.
 	SaleLocale sql.NullString
+	// IsTheBuyer says this Holder and the buyer of the Sale are the same person
+	// (#392, ADR 0055), which is the one distinction the notice's policy now turns
+	// on: a Holder who is the buyer holds by PRESUMPTION on an imported Sale and
+	// by PAYING on an Online one, and either way is the person the buyer-facing
+	// toggles exist to protect. Anybody else here accepted by clicking an
+	// Assignment Link and is told unconditionally.
+	//
+	// A COMPARISON AND NOT AN ADDRESS, which is what keeps the struct as poor as
+	// its doc insists. The buyer's email is compared inside the query and never
+	// selected, so no value in this package can name the buyer even by accident,
+	// and the mail composed from it still could not disclose one if the copy
+	// asked.
+	IsTheBuyer bool
 }
 
 // ListDisplacedHoldersForSales returns every Holder who had ACCEPTED a Ticket on
@@ -86,8 +99,15 @@ func (r *Repository) ListDisplacedHoldersForSales(ctx context.Context, ticketSal
 		return nil, nil
 	}
 
+	// THE BUYER IS COMPARED, NEVER SELECTED. The fourth column answers "is this
+	// Holder the buyer?" and no column of this query can answer "who is the
+	// buyer?" — see DisplacedHolder.IsTheBuyer. It folds case and trims, which is
+	// how every other comparison of these two addresses is written (migration 084,
+	// platform.NormalizeEmail), so a Holder seated from a file with a capitalised
+	// address is still recognised as the person who bought.
 	rows, err := r.db.Pool.QueryContext(ctx, `
-		SELECT tk.id, tk.holder_email, e.name, s.locale
+		SELECT tk.id, tk.holder_email, e.name, s.locale,
+		       lower(btrim(tk.holder_email)) = lower(btrim(s.customer_email))
 		`+answerableTicketFrom+`
 		WHERE l.ticket_sale_id = ANY($1)
 		  AND tk.accepted_at IS NOT NULL
@@ -102,7 +122,7 @@ func (r *Repository) ListDisplacedHoldersForSales(ctx context.Context, ticketSal
 	out := make([]DisplacedHolder, 0, len(ticketSaleIDs))
 	for rows.Next() {
 		var h DisplacedHolder
-		if err := rows.Scan(&h.TicketID, &h.HolderEmail, &h.EventName, &h.SaleLocale); err != nil {
+		if err := rows.Scan(&h.TicketID, &h.HolderEmail, &h.EventName, &h.SaleLocale, &h.IsTheBuyer); err != nil {
 			return nil, err
 		}
 		out = append(out, h)

@@ -488,7 +488,7 @@ func (s *Service) WithAssignmentReminders(source AssignmentReminderSource) *Serv
 // did and tells no Holder — the correct behaviour while assignment is dark, and
 // the safe behaviour if somebody forgets.
 type DisplacedHolderNotifier interface {
-	// TellHoldersOfReversedSales mails every accepted Holder on these Ticket
+	// TellHoldersOfReversedSales mails the accepted Holders on these Ticket
 	// Sales. It reads the Ticket Assignment feature flag on its own side, so a
 	// dark deployment mails nobody.
 	//
@@ -496,7 +496,14 @@ type DisplacedHolderNotifier interface {
 	// reversal primitive reports it actually reversed — never with a Sale
 	// somebody else had already voided, which is what keeps each Holder told
 	// exactly once.
-	TellHoldersOfReversedSales(ctx context.Context, ticketSaleIDs []string) error
+	//
+	// THE POLICY ARGUMENT IS THE ONLY THING SALES ADDS, and it is a fact about
+	// this module's own act rather than about anybody's Ticket: is the BUYER of
+	// these Sales hearing from the platform about the reversal? Catalog decides
+	// what to do with the answer, because deciding needs the one thing sales must
+	// never learn — which displaced Holder is the buyer themselves and which came
+	// here and clicked an Assignment Link (ADR 0055, #392).
+	TellHoldersOfReversedSales(ctx context.Context, ticketSaleIDs []string, buyer platform.BuyerNoticePolicy) error
 }
 
 // WithDisplacedHolders gives this service the seam that tells a reversed Sale's
@@ -528,19 +535,42 @@ func (s *Service) WithDisplacedHolders(notifier DisplacedHolderNotifier) *Servic
 // anybody was told, and re-running a reversal to retry a mail would be far worse
 // than a missing one. A failure is logged where an operator can count it.
 //
-// IT IS NOT GATED BY notifyBuyers, THE SALE IMPORT UNDO'S TOGGLE, and that is a
-// deliberate reading of #327 rather than an oversight. That switch exists so an
-// Organization can undo an import without writing to buyers who may not know
-// this platform exists. A Holder is not in that position: they came here, proved
-// their address, accepted a ticket, and are expecting to attend. The rule is
-// unconditional — "whenever an accepted Holder stops holding a Ticket, they are
-// told once" — and a toggle over one cause and not the other is exactly the
-// talkative-here-silent-there behaviour the ticket forbids.
-func (s *Service) tellDisplacedHolders(ctx context.Context, ticketSaleIDs []string) {
+// EVERY CALLER STATES ITS BUYER NOTIFICATION POLICY, AND THAT REPLACES THE
+// UNCONDITIONAL RULE THIS HELPER USED TO STATE (#392, ADR 0055).
+//
+// #327 read its own rule as ungated by notifyBuyers, the Sale Import undo's
+// toggle, and gave a reason: "A Holder is not in that position: they came here,
+// proved their address, accepted a ticket." ADR 0055 MAKES THAT PREMISE FALSE.
+// One Ticket of every imported Ticket Sale is now held by its BUYER — seated by
+// transcription, PRESUMED rather than proved, having clicked nothing and asked
+// for nothing. Left unconditional, undoing a 185-row import batch would mail 184
+// such buyers "you no longer hold a ticket", bypassing the very toggle built to
+// stop an import writing to them, and every Sale Correction would tell a buyer
+// they had lost a ticket that the same act re-seats them on.
+//
+// So the rule now reads: A HOLDER WHO ACCEPTED BY ASSIGNMENT LINK IS TOLD
+// UNCONDITIONALLY, ON EVERY ROUTE, and a Holder who IS THE BUYER follows
+// whatever this act does about the buyer. That is not an exception carved out of
+// #327 but a restoration of it: the warrant for writing was "this person came
+// here and accepted", and where a self-held import Holder is concerned that
+// person is the buyer — precisely who the toggle exists to protect.
+//
+// THE POLICY IS ABOUT THIS MODULE'S ACT AND NOT ABOUT ANY TICKET, which is what
+// keeps the boundary where it was: sales still learns nothing about Holders,
+// acceptance or Tickets. It answers one question — is the buyer being written to
+// about this reversal? — and the answer is not negotiable per caller: it is
+// simply whether that caller sends the buyer a mail. An Online Sale's reversal
+// always does (the Sale Voided notice, on both routes), so `online` is untouched
+// by all of this; the three import routes are the ones with something to say.
+//
+// A FUTURE ROUTE MUST PASS ONE TOO, deliberately: the argument is required, so a
+// fourth way to reverse a Sale cannot inherit a default that turns out to be the
+// wrong one for its buyers.
+func (s *Service) tellDisplacedHolders(ctx context.Context, ticketSaleIDs []string, buyer platform.BuyerNoticePolicy) {
 	if s.displacedHolders == nil || len(ticketSaleIDs) == 0 {
 		return
 	}
-	if err := s.displacedHolders.TellHoldersOfReversedSales(ctx, ticketSaleIDs); err != nil {
+	if err := s.displacedHolders.TellHoldersOfReversedSales(ctx, ticketSaleIDs, buyer); err != nil {
 		s.logger.Error("could not tell every Holder that a reversed Ticket Sale's tickets are no longer theirs; the reversal stands and some Holder was not told",
 			"ticket_sale_count", len(ticketSaleIDs),
 			"error", err,
@@ -1569,21 +1599,27 @@ func (s *Service) UndoImport(ctx context.Context, actor ActorContext, eventID, b
 		}
 	}
 
-	// EVERY HOLDER ON EVERY UNDONE SALE IS TOLD, AND notifyBuyers DOES NOT GATE
-	// IT (#327). That toggle is about the BUYERS of an imported batch, who may
-	// never have heard of this platform; a Holder accepted a ticket here, proved
-	// their address and is expecting to attend. #327's rule is unconditional —
-	// told once, whichever cause took the ticket away — and honouring it for a
-	// reassignment but not for an undone import is precisely the talkative-in-one-
-	// case-silent-in-the-other behaviour it forbids. See tellDisplacedHolders.
+	// EVERY HOLDER WHO ACCEPTED BY ASSIGNMENT LINK IS TOLD, AND notifyBuyers DOES
+	// NOT GATE THEM (#327): they came here, proved their address and are expecting
+	// to attend, and that is true whatever the Organization decides to say to the
+	// people who bought.
+	//
+	// THE TOGGLE DOES REACH A BUYER WHO HOLDS ONE OF THESE TICKETS THEMSELVES
+	// (#392, ADR 0055). An imported Sale's Ticket 1 is held by its buyer by
+	// PRESUMPTION, and undoing a 185-row batch with the toggle off must not mail
+	// 184 of them — that is precisely the writing-to-imported-buyers this switch
+	// exists to prevent. So the toggle travels as the buyer's notification policy
+	// and catalog applies it to the Holders who are buyers. See
+	// tellDisplacedHolders.
 	//
 	// ONE CALL FOR THE WHOLE BATCH rather than one per sale, so a thousand-row
-	// undo is one query on the far side.
+	// undo is one query on the far side — and one policy for the whole batch,
+	// because the toggle is one decision about one act.
 	reversedIDs := make([]string, 0, len(reversed.Sales))
 	for _, rs := range reversed.Sales {
 		reversedIDs = append(reversedIDs, rs.ID)
 	}
-	s.tellDisplacedHolders(ctx, reversedIDs)
+	s.tellDisplacedHolders(ctx, reversedIDs, platform.BuyerNoticePolicy(notifyBuyers))
 
 	return &UndoResult{
 		BatchID:   reversed.ID,

@@ -464,3 +464,251 @@ func TestAnAssignmentLinkForATicketTheHolderNoLongerHoldsSaysSoAndNamesNoBuyer(t
 		}
 	}
 }
+
+// A SELF-HELD IMPORT HOLDER FOLLOWS THE BUYER'S NOTIFICATION POLICY (#392,
+// parent #391, ADR 0055).
+//
+// EVERYTHING ABOVE THIS LINE IS ABOUT A HOLDER WHO CAME HERE AND ACCEPTED, and
+// stays true. What ADR 0055 adds is a SECOND KIND of Holder: the buyer of an
+// imported Ticket Sale, seated on Ticket 1 by TRANSCRIPTION rather than by a
+// click. They proved nothing, clicked nothing and asked for nothing, and they
+// are exactly the person the Sale Import undo's notify toggle and the Sale
+// Correction's off-by-default Sale Confirmation checkbox exist to protect. So
+// for THEM the notice follows the buyer's policy; for a Holder who accepted by
+// Assignment Link it stays unconditional on every path, unchanged.
+//
+// THE TWO KINDS ARE ALWAYS STAGED SIDE BY SIDE ON THE SAME SALE, so a build that
+// silenced the whole `import` channel — the option ADR 0055 rejected by name —
+// fails here rather than in the inbox of somebody who really did click a link.
+
+// seatSelfHeldImportHolder makes the buyer of an imported Ticket Sale the
+// accepted Holder of one of its Tickets, by hand.
+//
+// STAGED IN SQL BECAUSE THE FLOW THAT WILL WRITE IT DOES NOT EXIST YET. #392
+// lands this policy BEFORE #393's forward rule and #394's backfill, precisely so
+// that no window opens in which a batch undo becomes a mailshot — which means
+// the row the policy is about cannot yet be produced by any request. These are
+// the columns those two tickets go on to write, in the shape migration 084
+// already writes them on an Online Sale: the Sale's own Customer, the Sale's own
+// timestamps, and no mail of any kind.
+func seatSelfHeldImportHolder(t *testing.T, env *testEnv, saleID, ticketID string) {
+	t.Helper()
+	res, err := env.db.Exec(`
+		UPDATE tickets tk
+		SET holder_email = lower(btrim(ts.customer_email)),
+		    holder_customer_id = ts.customer_id,
+		    assigned_at = ts.created_at,
+		    accepted_at = ts.created_at
+		FROM ticket_sale_lines l
+		JOIN ticket_sales ts ON ts.id = l.ticket_sale_id
+		WHERE l.id = tk.ticket_sale_line_id AND ts.id = $1 AND tk.id = $2
+	`, saleID, ticketID)
+	if err != nil {
+		t.Fatalf("seat the self-held import Holder: %v", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("seated %d Tickets, want exactly 1 — the fixture proves nothing otherwise", n)
+	}
+}
+
+// selfHeldAndLinkAccepted stages ADR 0055's two kinds of Holder on ONE imported
+// Sale: Ana bought it and is presumed to hold Ticket 1, Carla was handed Ticket
+// 2 and really did click. The inbox is emptied afterwards, so every mail counted
+// by a test below was caused by the reversal under test.
+func selfHeldAndLinkAccepted(t *testing.T, env *testEnv, f assignmentFixture) {
+	t.Helper()
+	seatSelfHeldImportHolder(t, env, f.anaSaleID, f.anaTicketIDs[0])
+	assignTicketOK(t, env, f.ana, f.anaSaleID, f.anaTicketIDs[1], "carla@example.com")
+	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com")))
+	env.email.Reset()
+}
+
+// assertToldExactly insists on the whole population of the notice: who was
+// mailed, how many times each, and that nobody outside the map was mailed at
+// all. Silence has no words in it, so it is asserted by counting.
+func assertToldExactly(t *testing.T, env *testEnv, want map[string]int) {
+	t.Helper()
+	total := 0
+	for address, count := range want {
+		if got := len(noLongerHoldingMailsTo(env, address)); got != count {
+			t.Errorf("No Longer Holding mails to %s = %d, want %d", address, got, count)
+		}
+		total += count
+	}
+	if got := len(env.email.NoLongerHoldingsSent()); got != total {
+		t.Errorf("No Longer Holding mails in total = %d, want %d; somebody outside %v was written to",
+			got, total, want)
+	}
+}
+
+// A BATCH UNDO WITH THE TOGGLE OFF TELLS THE HOLDER WHO CLICKED AND SPARES THE
+// BUYER WHO WAS PRESUMED.
+//
+// THE SAFETY GATE FOR THE WHOLE OF #391, and the reason this ticket lands before
+// any presumed Holder can exist. Undoing a 185-row import would otherwise mail
+// 184 of them "you no longer hold a ticket", bypassing the very toggle built to
+// stop an import writing to its buyers.
+func TestABatchUndoWithTheToggleOffSparesTheSelfHeldImportBuyerAndTellsTheHolderWhoClicked(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	selfHeldAndLinkAccepted(t, env, f)
+
+	// undoBatch sends notify_buyers=false: the Organization is undoing a
+	// transcription and writing to nobody who bought through it.
+	undoBatch(t, env, f.staffSession, f.eventID, f.anaBatchID)
+
+	assertToldExactly(t, env, map[string]int{
+		"ana@example.com":   0,
+		"carla@example.com": 1,
+	})
+	// And Carla's is the same message it always was: the Event, no cause, no
+	// buyer. Silencing one reader must not change what the other reads.
+	assertMailGivesNoCauseAndNamesNoBuyer(t, theOneNoLongerHoldingMailTo(t, env, "carla@example.com"), f.anaRef)
+}
+
+// A BATCH UNDO WITH THE TOGGLE ON TELLS THE SELF-HELD IMPORT BUYER EXACTLY ONCE.
+//
+// The other half of "follows the buyer's policy", and the half that keeps this
+// from being a suppression: an Organization that HAS chosen to write to its
+// imported buyers tells them both things — their purchase was undone, and the
+// ticket they were holding is no longer theirs. Once each, never twice.
+func TestABatchUndoWithTheToggleOnTellsTheSelfHeldImportBuyerOnce(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	selfHeldAndLinkAccepted(t, env, f)
+
+	resp, body := env.post(t, "/api/v1/staff/events/"+f.eventID+"/sale-imports/"+f.anaBatchID+"/undo",
+		map[string]any{"notify_buyers": true}, authHeader(f.staffSession))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("undo batch status=%d error=%+v", resp.StatusCode, body.Error)
+	}
+
+	assertToldExactly(t, env, map[string]int{
+		"ana@example.com":   1,
+		"carla@example.com": 1,
+	})
+	// The notice to the buyer is the SAME notice, composed once for everybody:
+	// it names the Event, gives no cause and names no buyer — not even when the
+	// buyer is the reader.
+	assertMailGivesNoCauseAndNamesNoBuyer(t, theOneNoLongerHoldingMailTo(t, env, "ana@example.com"), f.anaRef)
+}
+
+// A SALE CORRECTION TELLS THE SELF-HELD IMPORT BUYER ONLY WHEN THE MEMBER SENDS
+// THE NEW SALE CONFIRMATION.
+//
+// The correction's checkbox is the buyer's notification policy on this path, and
+// it is off by default. Without it the buyer would be told they had lost a
+// ticket that the same act re-seats them on (#393) — a sentence that is not even
+// true by the time they read it.
+func TestACorrectionSparesTheSelfHeldImportBuyerUnlessTheConfirmationIsSent(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	selfHeldAndLinkAccepted(t, env, f)
+
+	// Bruno bought his own imported Sale's single Ticket, presumed exactly as Ana
+	// did, on a Sale nobody else holds anything on.
+	seatSelfHeldImportHolder(t, env, f.brunoSaleID, f.brunoTicketIDs[0])
+
+	// THE DEFAULT: no Sale Confirmation, so no notice to the buyer — and Carla,
+	// who clicked, is told all the same.
+	correctImportedSaleOK(t, env, f.staffSession, f.eventID, f.anaSaleID,
+		correctionBody("ana@example.com", "Ana", "Lopez", f.ticketTypeID, 2, "cash", "2026-07-02T10:00:00Z"))
+	assertToldExactly(t, env, map[string]int{
+		"ana@example.com":   0,
+		"carla@example.com": 1,
+	})
+
+	// THE MEMBER CHOOSES TO WRITE: Bruno is being sent a Sale Confirmation for
+	// the replacement, so he is told about the Ticket too.
+	env.email.Reset()
+	brunoCorrection := correctionBody("bruno@example.com", "Bruno", "Diaz", f.ticketTypeID, 1, "cash", "2026-07-01T10:00:00Z")
+	brunoCorrection["send_confirmation"] = true
+	correctImportedSaleOK(t, env, f.staffSession, f.eventID, f.brunoSaleID, brunoCorrection)
+	assertToldExactly(t, env, map[string]int{"bruno@example.com": 1})
+}
+
+// A SINGLE-SALE REVERSAL TELLS THE HOLDER WHO CLICKED AND SPARES THE BUYER.
+//
+// #350's reversal mails the buyer NOTHING and offers no toggle for it — an
+// imported buyer dealt with the Organization's sales rep — so that is the
+// buyer's notification policy on this path, and the presumed Holder follows it.
+// The Holder who clicked an Assignment Link is told, as they are everywhere.
+func TestASingleSaleReversalSparesTheSelfHeldImportBuyerAndTellsTheHolderWhoClicked(t *testing.T) {
+	env := setupTest(t)
+	f := newAssignmentFixture(t, env)
+	selfHeldAndLinkAccepted(t, env, f)
+
+	reverseImportedSaleOK(t, env, f.staffSession, f.eventID, f.anaSaleID)
+
+	assertToldExactly(t, env, map[string]int{
+		"ana@example.com":   0,
+		"carla@example.com": 1,
+	})
+}
+
+// AN OPERATOR REVERSAL TELLS EVERYBODY: THE BUYER HOLDING THEIR OWN TICKET AND
+// THE HOLDER WHO CLICKED.
+//
+// AN OPERATOR REVERSAL ONLY EVER REACHES AN ONLINE SALE — it records money that
+// went back through the platform, and it refuses an imported Sale outright with
+// SALE_NOT_REVERSIBLE — so this path is `online` by construction and is here as
+// the fourth of ADR 0055's unconditional cases. It mails the buyer the Sale
+// Voided notice always and offers no toggle, so the buyer's notification policy
+// on it is "they are being written to" and BOTH kinds of Holder are told.
+func TestAnOperatorReversalTellsTheOnlineBuyersOwnTicketHolderAndTheHolderWhoClicked(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Operator Fest", "operator-fest", 2000, 20)
+
+	// Two Tickets: Ana holds the first by paying (ADR 0048), and hands the second
+	// to Carla, who clicks.
+	begun := beginCheckoutOK(t, env, testOrgSlug, "operator-fest",
+		checkoutBody("ana@example.com", "Ana", "Lopez", cartLine(gaID, 2)))
+	settled := confirmCheckoutOK(t, env, begun.ClientTransactionID, "approved")
+	saleID := saleIDOfPayment(t, env, begun.ClientTransactionID)
+	ticketIDs := ticketIDsOfSale(t, env, saleID)
+	if len(ticketIDs) != 2 {
+		t.Fatalf("the Sale has %d Tickets, want 2", len(ticketIDs))
+	}
+	ana := customerSignIn(t, env, "ana@example.com")
+	assignTicketOK(t, env, ana, saleID, ticketIDs[1], "carla@example.com")
+	acceptAssignmentOK(t, env, assignmentTokenFrom(t, assignmentMailFor(t, env, "carla@example.com")))
+
+	operatorSessionID := operatorSession(t, env, "operator@example.com")
+	env.email.Reset()
+
+	// The money memo the endpoint insists on for a Sale that collected money. What
+	// it records is #348's subject, not this test's.
+	operatorReverseOK(t, env, operatorSessionID, settled.ConfirmationRef, operatorReversalBody{
+		RefundedAmountCents: intPtr(4460),
+		PlatformFeeKept:     boolPtr(false),
+	})
+
+	assertToldExactly(t, env, map[string]int{
+		"ana@example.com":   1,
+		"carla@example.com": 1,
+	})
+}
+
+// AN ONLINE SALE'S BUYER HOLDING THEIR OWN TICKET IS TOLD WHEN THEY UNDO IT,
+// EXACTLY AS BEFORE.
+//
+// ADR 0055 changes nothing on `online`, and this is the test that says so. An
+// Online Sale's buyer holds Ticket 1 by PAYING (ADR 0048) and every route that
+// reverses one writes to them anyway, so the policy this ticket introduces
+// resolves to "tell them" on that channel and the behaviour is untouched. A
+// build that read the rule as "an accepted Holder who is the buyer is never
+// told" would fail here.
+func TestAnOnlineBuyerHoldingTheirOwnTicketIsStillToldWhenTheyUndoTheSale(t *testing.T) {
+	env := setupTest(t)
+	enableTicketAssignment(t)
+	sessionID := orgAdminSession(t, env)
+	_, gaID := publishCheckoutEvent(t, env, sessionID, "Online Fest", "online-fest", 2000, 20)
+	ref := buyOnline(t, env, "online-fest", gaID, "ana@example.com")
+	env.email.Reset()
+
+	undoOwnSale(t, env, "ana@example.com", ref)
+
+	assertToldExactly(t, env, map[string]int{"ana@example.com": 1})
+}
