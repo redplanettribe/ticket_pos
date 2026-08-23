@@ -199,6 +199,26 @@ func (s *ResendEmailSender) SendHolderAnswerReminder(ctx context.Context, r Hold
 	return nil
 }
 
+// SendAssignmentReminder delivers the Assignment Reminder to the buyer of a
+// Ticket Sale with Tickets still nobody's (#362, ADR 0051).
+//
+// The error is returned rather than swallowed, and the sweep depends on it
+// exactly as it does for the Answer Reminder: the ledger row is written only
+// once the provider has accepted the mail, because the ledger is what rations
+// the next one, and a failed send reported as success would ration a buyer out
+// of a reminder they never received — permanently, since the cap is for the
+// life of the Sale.
+//
+// Transactional identity only (ADR 0030). The address and the error are logged
+// on failure; the Event and the link are not.
+func (s *ResendEmailSender) SendAssignmentReminder(ctx context.Context, r AssignmentReminder) error {
+	if err := s.send(ctx, r.To, r.Subject(), r.Text()); err != nil {
+		s.logger.Error("resend send assignment reminder failed", "email", r.To, "error", err)
+		return err
+	}
+	return nil
+}
+
 // SendTicketAssignment delivers the Assignment mail carrying an Assignment Link
 // (#325, ADR 0046).
 //

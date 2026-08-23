@@ -52,6 +52,14 @@ type EnvelopeAnswerReminderSweep struct {
 	RequestID string                            `json:"request_id"`
 }
 
+// EnvelopeAssignmentReminderSweep documents POST /internal/assignment-reminders/sweep
+// success responses.
+type EnvelopeAssignmentReminderSweep struct {
+	Data      service.AssignmentReminderSweepResult `json:"data"`
+	Error     *platform.APIError                    `json:"error"`
+	RequestID string                                `json:"request_id"`
+}
+
 // EnvelopeSalesSummary documents GET /staff/events/{id}/sales/summary success responses.
 type EnvelopeSalesSummary struct {
 	Data      service.SalesSummary `json:"data"`

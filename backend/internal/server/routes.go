@@ -100,6 +100,14 @@ func registerInternalRoutes(mux *http.ServeMux, app *App) {
 	// which makes the rule stricter rather than looser.
 	mux.HandleFunc("POST /api/v1/internal/answer-reminders/sweep", app.SalesHandler.SweepAnswerReminders)
 
+	// The Assignment Reminder sweep (#362, parent #361, ADR 0051): the buyer of
+	// an online Sale with Tickets still nobody's is pointed at the Sale's page.
+	// The Answer Reminder's route beside it, on every one of its terms: Cloud
+	// Run IAM authenticates the caller, no application middleware, no body, no
+	// parameter, no moment — and the first run is the announcement to buyers
+	// who bought before Ticket Assignment existed.
+	mux.HandleFunc("POST /api/v1/internal/assignment-reminders/sweep", app.SalesHandler.SweepAssignmentReminders)
+
 	// The Holder Address Purge (#331, parent #322, ADR 0046): the address a
 	// buyer typed for a friend who never accepted it, taken once the Event has
 	// started. Served by the CATALOG handler, unlike the purge above it, because

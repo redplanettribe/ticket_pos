@@ -380,6 +380,13 @@ func NewApp(ctx context.Context, cfg platform.Config, opts ...Option) (*App, err
 	// is Terraform's: the Cloud Scheduler job is created paused.
 	salesService = salesService.WithAnswerReminders(catalogService)
 
+	// The Assignment Reminder (#362, ADR 0051) runs on the same shape: the
+	// catalog says which Sales still have Tickets nobody holds and keeps the
+	// ledger; sales composes and sends to the buyer. The far side reads
+	// TICKET_ASSIGNMENT_ENABLED, so a dark deployment sweeps nothing, and the
+	// Cloud Scheduler job that drives it is created paused.
+	salesService = salesService.WithAssignmentReminders(catalogService)
+
 	// A Sale Reversal takes every Holder on the Sale with it, and they are told
 	// (#327, parent #322, ADR 0046). Tied on here for the same reason and at the
 	// same moment as the two above it, and pointing the same way: sales knows a

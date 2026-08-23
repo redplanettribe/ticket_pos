@@ -1129,6 +1129,20 @@
                 },
                 "type": "object"
             },
+            "openapi.EnvelopeAssignmentReminderSweep": {
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/service.AssignmentReminderSweepResult"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/platform.APIError"
+                    },
+                    "request_id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "openapi.EnvelopeBeginCheckout": {
                 "properties": {
                     "data": {
@@ -2410,6 +2424,35 @@
                     },
                     "ticket_type_name": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "service.AssignmentReminderSweepResult": {
+                "properties": {
+                    "backlog": {
+                        "description": "Backlog is how many Sales are due after this run, batch or no batch — the\nnumber an Operator watches drain during a catch-up.",
+                        "type": "integer"
+                    },
+                    "due": {
+                        "description": "Due is how many Sales this run found in its batch.",
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "description": "Failed is how many the provider refused; they stay due and are retried\nnext tick, because no ledger row was written.",
+                        "type": "integer"
+                    },
+                    "sent": {
+                        "description": "Sent is how many mails the provider accepted.",
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "description": "Skipped is how many were due but could not be composed — no address, no\nlink — and stay due.",
+                        "type": "integer"
+                    },
+                    "unrecorded": {
+                        "description": "Unrecorded is how many were sent but whose ledger row could not be\nwritten: counted in Sent too, and the one case that can cost a buyer one\nmail over the cap.",
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -7233,6 +7276,37 @@
                     }
                 },
                 "summary": "Send Answer Reminders",
+                "tags": [
+                    "internal"
+                ]
+            }
+        },
+        "/api/v1/internal/assignment-reminders/sweep": {
+            "post": {
+                "description": "Sweeps the online Ticket Sales that have more than one Ticket, at least one of them still unassigned, and an Event that has not started, and emails each Sale's BUYER once: the Event, how many of their tickets still have no address, a fresh Confirmation Link to the Sale's page, and the sentence ADR 0047 requires about what giving an address does. Rationed per Ticket Sale (ADR 0051): not before 24 hours after the Sale, at most one mail every 7 days, at most two ever; silent once the Event has started or every Ticket is assigned; never for a single-Ticket Sale, a reversed Sale or an import Sale. A reassigned Self-held Ticket counts as assigned. Transactional: not gated by Marketing Consent, exactly as the Sale Confirmation that carried the same link is not. Written in the Sale Locale, then the buyer's Mail Locale, then English. Sends nothing at all while TICKET_ASSIGNMENT_ENABLED is off. The Cloud Scheduler job that drives it ships paused, and its first run is the announcement to buyers who bought before Ticket Assignment existed. Internal service-to-service only: Cloud Run IAM authenticates the caller by Google-signed OIDC ID token before the request reaches the API (ADR 0008), and no Customer Session or staff token reaches it. Nothing about the run can be named by the caller — not the moment, not an Event, not a Sale — because a caller who could name the moment could lift the 7-day silence on demand. Safe to call by hand and effectively idempotent: a second run inside the cooldown mails nobody. Drains a large backlog in batches, oldest Sale first. The response reports how many Sales were due in this batch, how many mails went, how many were skipped or refused, how many were sent but could not be recorded, and the standing backlog. It names nobody.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeAssignmentReminderSweep"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Send Assignment Reminders",
                 "tags": [
                     "internal"
                 ]

@@ -686,6 +686,132 @@ func (r HolderAnswerReminder) Text() string {
 	return text
 }
 
+// The Assignment Reminder (#362, parent #361, ADR 0051): the message telling the
+// buyer that some of their Tickets still have nobody, and pointing at the page
+// where they can name somebody.
+//
+// IT GREETS BY NAME, unlike the Answer Reminder and the Assignment mail, because
+// this reader is the buyer and the platform knows their name from the same
+// checkout it knows their address from — the receipt greeted them the same
+// way. It is the only one of the three reminders that does.
+//
+// IT PRINTS A TALLY AND NOT A LIST. "2 of your 3 tickets" is the Customer
+// Area's own count, so the mail and the page agree to the number; a list of
+// Ticket Types or of who holds the others would repeat the receipt and say
+// things about third parties in a mail that gets forwarded.
+//
+// IT DISCLOSES WHAT ASSIGNING DOES, BEFORE THE LINK, and both halves are
+// acceptance criteria rather than niceties (ADR 0047): the Holder is emailed,
+// and the Organization sees the address beside the Ticket. Anyone shortening
+// this message has to keep both.
+//
+// IT SAYS IGNORING IS FINE, exactly as the Answer Reminder does, and states
+// the cap in the reader's own terms: "at most one more" is true of the first
+// and generous about the second, the safe direction for a promise printed in
+// an inbox. Anyone raising catalog.MaxAssignmentReminders has to come here and
+// either change that sentence or break it.
+//
+// WHAT IS ABSENT: the price, the Tax ID, the Sale Confirmation reference, the
+// Sale's Tickets and their Holders, and any second URL. ADR 0044's disclosure
+// rule, kept for a message that may be forwarded: a forwarded Confirmation
+// Link already opens the Sale, and the mail around it should give away
+// nothing more.
+//
+// THE GO-LIVE SENTENCE IS NOT HERE YET. ADR 0051 adds one sentence for a Sale
+// made before Ticket Assignment existed; #364 adds it, keyed on
+// AssignmentReminder.SaleCreatedAt against a constant it introduces. Text()
+// below is where it will be rendered, between the tally and the action.
+//
+// The Spanish is usted throughout and takes "entrada" for the thing, matching
+// the receipt.
+var (
+	assignmentReminderSubjectCopy = translated(
+		"%d of your %d tickets for %s have no name yet",
+		"%d de sus %d entradas para %s aún no tienen nombre",
+	)
+	assignmentReminderSubjectOneCopy = translated(
+		"%d of your %d tickets for %s has no name yet",
+		"%d de sus %d entradas para %s aún no tiene nombre",
+	)
+	assignmentReminderGreetingCopy = translated(
+		"Hi %s,",
+		"Hola %s,",
+	)
+	// The Event and, when the zone can be loaded, when it starts — in the
+	// Event's own zone, so the buyer is told the day the doors open where the
+	// doors are.
+	assignmentReminderEventCopy = translated(
+		"Event: %s",
+		"Evento: %s",
+	)
+	assignmentReminderEventDateCopy = translated(
+		"Starts: %s",
+		"Empieza: %s",
+	)
+	// The tally, in two numbers: what still has nobody, of what was bought.
+	// "Address" rather than "name" in the body, because an address is what the
+	// page asks for and what the disclosure below is about; the subject says
+	// "name" because that is what the reader is deciding.
+	assignmentReminderTallyCopy = translated(
+		"%d of your %d tickets have no address yet. You can give each ticket to the person who will use it.",
+		"%d de sus %d entradas aún no tienen dirección. Puede asignar cada entrada a la persona que la usará.",
+	)
+	assignmentReminderTallyOneCopy = translated(
+		"%d of your %d tickets has no address yet. You can give it to the person who will use it.",
+		"%d de sus %d entradas aún no tiene dirección. Puede asignarla a la persona que la usará.",
+	)
+	// The instruction and the address, which are the whole point of the
+	// message. No sign-in is needed: the Confirmation Link opens the Sale.
+	assignmentReminderActionCopy = translated(
+		"Assign them from your tickets page:\n%s",
+		"Asígnelas desde su página de entradas:\n%s",
+	)
+	// ADR 0047's disclosure, whole in both languages so a translator cannot
+	// keep one half and drop the other.
+	assignmentReminderDisclosureCopy = translated(
+		"When you add an address, we will email the ticket to that address and the organizer will see the address next to the ticket.",
+		"Cuando añada una dirección, enviaremos la entrada a esa dirección y la organización verá la dirección junto a la entrada.",
+	)
+	assignmentReminderClosingCopy = translated(
+		"Assigning is optional and your tickets are valid either way. We will send at most one more reminder about this.",
+		"Asignar es opcional y sus entradas son válidas igualmente. Enviaremos como máximo un recordatorio más al respecto.",
+	)
+)
+
+// Subject is the Assignment Reminder's subject line: the tally and the Event,
+// in the singular when one Ticket is left.
+func (r AssignmentReminder) Subject() string {
+	if r.UnassignedTickets == 1 {
+		return fmt.Sprintf(assignmentReminderSubjectOneCopy.in(r.Locale), r.UnassignedTickets, r.TotalTickets, r.EventName)
+	}
+	return fmt.Sprintf(assignmentReminderSubjectCopy.in(r.Locale), r.UnassignedTickets, r.TotalTickets, r.EventName)
+}
+
+// Text is the Assignment Reminder's plain-text body.
+//
+// ONE LINE IS CONDITIONAL, and it is the date: an Event whose zone Go cannot
+// load gets no date rather than a wrong one, exactly as the Follow Digest
+// does. Everything else is present by the time this renders, because the
+// sweep refuses to compose a reminder without its link.
+func (r AssignmentReminder) Text() string {
+	text := fmt.Sprintf(assignmentReminderGreetingCopy.in(r.Locale), r.FirstName)
+	text += "\n\n" + fmt.Sprintf(assignmentReminderEventCopy.in(r.Locale), r.EventName)
+	if when := formatEventDate(r.EventStartsAt, r.EventTimezone, r.Locale); when != "" {
+		text += "\n" + fmt.Sprintf(assignmentReminderEventDateCopy.in(r.Locale), when)
+	}
+	tally := assignmentReminderTallyCopy
+	if r.UnassignedTickets == 1 {
+		tally = assignmentReminderTallyOneCopy
+	}
+	text += "\n\n" + fmt.Sprintf(tally.in(r.Locale), r.UnassignedTickets, r.TotalTickets)
+	// #364: the go-live sentence for a Sale created before Ticket Assignment
+	// existed renders here, keyed on r.SaleCreatedAt.
+	text += "\n\n" + fmt.Sprintf(assignmentReminderActionCopy.in(r.Locale), r.ConfirmationLink)
+	text += "\n\n" + assignmentReminderDisclosureCopy.in(r.Locale)
+	text += "\n\n" + assignmentReminderClosingCopy.in(r.Locale)
+	return text
+}
+
 // The Assignment mail (#325, parent #322, ADR 0046): the message telling
 // somebody a friend bought them a ticket, and carrying the link whose click
 // accepts it.

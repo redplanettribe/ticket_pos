@@ -255,6 +255,77 @@ type HolderAnswerReminder struct {
 	Locale Locale
 }
 
+// AssignmentReminder is the mail telling the buyer of a Ticket Sale that some
+// of its Tickets still have nobody, and pointing them at the Sale's own page by
+// a fresh Confirmation Link (#362, parent #361, ADR 0051).
+//
+// IT IS ADDRESSED TO THE BUYER, AND ONLY EVER TO THE BUYER. An unassigned Ticket
+// has no Holder (ADR 0046), so there is nobody else who could be told and
+// nobody else who could act; the Answer Reminder beside this one chases the
+// Holder about an Answer, and ADR 0049 kept the two apart on purpose. One Sale
+// is one inbox for this reader, so one Sale is one mail, carrying a count.
+//
+// IT IS THE RECEIPT'S SENTENCE, SAID AGAIN LATER. The Sale Confirmation already
+// carried a Confirmation Link to the same page; this repeats that link days or
+// weeks on, with the one fact the receipt could not have known — how many
+// Tickets are still nobody's. Nothing else the receipt printed is repeated:
+// NO price, NO Tax ID, NO Sale Confirmation reference, NO list of Tickets. The
+// type has no field for any of them, which is the enforcement; mail is
+// forwarded, and a forwarded reminder should give away nothing a forwarded
+// link does not already.
+//
+// IT DISCLOSES WHAT ASSIGNING DOES, which ADR 0047 requires of every surface
+// that invites an address: the Holder is emailed, and the Organization will see
+// the address beside the Ticket. A reader deciding whether to type a friend's
+// address is entitled to both halves before they do.
+//
+// IT IS TRANSACTIONAL, and its place on EmailSender's transactional half is
+// what makes that structural. It is about the reader's own purchase, on the
+// same footing as the Sale Confirmation, so it is not gated by Marketing
+// Consent and nothing reads a consent state before sending it; it is not
+// reachable from the marketing identity at all (ADR 0030, ADR 0034). What bounds
+// it is catalog.MayRemindAssignment: not before a day after the Sale, at most
+// one a week, at most two ever, silence once the Event starts.
+//
+// IT IS SWEPT RATHER THAN TRIGGERED: the only caller is the scheduled job in
+// the sales module, so a buyer assigning and unassigning three times in an
+// evening is written to at most as the rationing allows.
+type AssignmentReminder struct {
+	// To is the Sale's buyer address, as recorded on the Ticket Sale.
+	To string
+	// FirstName is the buyer's first name, for the greeting — the same fact the
+	// receipt greeted them with.
+	FirstName string
+	// EventName, EventStartsAt and EventTimezone are the Event's own name,
+	// start and zone. The date is rendered in the Event's zone for the Follow
+	// Digest's reason: a buyer is told the day the doors open where the doors
+	// are. An unloadable zone drops the date line rather than lying about it.
+	EventName     string
+	EventStartsAt time.Time
+	EventTimezone string
+	// UnassignedTickets of TotalTickets is the tally the mail prints — the
+	// Customer Area's own, so mail and page agree. UnassignedTickets is at
+	// least one on any reminder the sweep composes.
+	UnassignedTickets int
+	TotalTickets      int
+	// ConfirmationLink opens this one Ticket Sale on the Storefront without a
+	// sign-in, freshly minted for this mail and expiring at the Event's end. IT
+	// IS THE WHOLE MESSAGE: a reminder with nowhere to go is an instruction its
+	// reader cannot follow, so the sweep refuses to compose one without it.
+	ConfirmationLink string
+	// SaleCreatedAt is when the Ticket Sale was recorded. IT IS NOT RENDERED
+	// YET. It travels so that #364 can add ADR 0051's one extra sentence for a
+	// Sale made before Ticket Assignment went live — "when you bought, tickets
+	// could not yet be assigned; now they can" — by comparing it against the
+	// go-live constant that ticket introduces beside this type. Until then it
+	// is carried and ignored.
+	SaleCreatedAt time.Time
+	// Locale is the language the mail is written in: the Sale Locale first,
+	// because this is the buyer's own purchase, then their remembered Mail
+	// Locale, then English (ADR 0033). Resolved by the sweep, never here.
+	Locale Locale
+}
+
 // TicketAssignment is the mail telling somebody that a friend bought them a
 // ticket, and carrying the Assignment Link whose click accepts it (#325, parent
 // #322, ADR 0046).
@@ -799,6 +870,15 @@ type EmailSender interface {
 	// consented to nothing. What bounds it is catalog.MayRemind, which is the
 	// only thing that does.
 	SendHolderAnswerReminder(ctx context.Context, reminder HolderAnswerReminder) error
+	// SendAssignmentReminder delivers the Assignment Reminder to the buyer of a
+	// Ticket Sale with Tickets still nobody's (#362, ADR 0051).
+	//
+	// On the TRANSACTIONAL half for the Answer Reminder's reason: it is about
+	// the reader's own purchase, no consent state is anywhere near the code
+	// that sends it, and it is not reachable from the marketing identity. What
+	// bounds it is catalog.MayRemindAssignment, and the ledger the sweep writes
+	// only after this returns nil.
+	SendAssignmentReminder(ctx context.Context, reminder AssignmentReminder) error
 	// SendTicketAssignment delivers the Assignment mail carrying an Assignment
 	// Link (#325, ADR 0046).
 	//
@@ -887,6 +967,16 @@ func (s *LoggingEmailSender) SendConsentWithdrawalConfirmation(_ context.Context
 // much, and in which language.
 func (s *LoggingEmailSender) SendHolderAnswerReminder(_ context.Context, r HolderAnswerReminder) error {
 	s.Logger.Info("holder answer reminder sent", "email", r.To, "tickets", len(r.Tickets), "locale", string(r.Locale))
+	return nil
+}
+
+// SendAssignmentReminder logs the Assignment Reminder for local development:
+// the address, the tally and the language, and not the body or the link — the
+// Confirmation Link opens the Sale without a sign-in and the receipt's own
+// logging keeps it out of the log for the same reason.
+func (s *LoggingEmailSender) SendAssignmentReminder(_ context.Context, r AssignmentReminder) error {
+	s.Logger.Info("assignment reminder sent", "email", r.To,
+		"unassigned", r.UnassignedTickets, "total", r.TotalTickets, "locale", string(r.Locale))
 	return nil
 }
 
@@ -988,6 +1078,11 @@ func (NoopEmailSender) SendHolderAnswerReminder(_ context.Context, _ HolderAnswe
 }
 
 // SendTicketAssignment discards the Assignment mail.
+// SendAssignmentReminder discards the Assignment Reminder.
+func (NoopEmailSender) SendAssignmentReminder(_ context.Context, _ AssignmentReminder) error {
+	return nil
+}
+
 func (NoopEmailSender) SendTicketAssignment(_ context.Context, _ TicketAssignment) error {
 	return nil
 }
@@ -1073,6 +1168,10 @@ type CaptureEmailSender struct {
 	// one place a test can get one, exactly as a Holder's inbox is the one place
 	// a person can.
 	TicketAssignments []TicketAssignment
+	// The Assignment Reminders delivered (#362, ADR 0051). Kept whole so a test
+	// can render what the buyer read; asserted on by LENGTH as much as by
+	// contents, since "nobody was reminded" has no message to inspect.
+	AssignmentReminders []AssignmentReminder
 	// The No Longer Holding notices delivered (#327). Kept whole, so a test can
 	// render Subject() and Text() itself and read what the Holder read — which is
 	// the only way "it gives no cause and names no buyer" can be asserted at all.
@@ -1194,6 +1293,17 @@ func (s *CaptureEmailSender) SendHolderAnswerReminder(_ context.Context, r Holde
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.HolderAnswerReminders = append(s.HolderAnswerReminders, r)
+	return nil
+}
+
+// SendAssignmentReminder records a delivered Assignment Reminder.
+func (s *CaptureEmailSender) SendAssignmentReminder(_ context.Context, r AssignmentReminder) error {
+	if err := s.failed(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AssignmentReminders = append(s.AssignmentReminders, r)
 	return nil
 }
 
@@ -1340,6 +1450,17 @@ func (s *CaptureEmailSender) HolderAnswerRemindersSent() []HolderAnswerReminder 
 	return out
 }
 
+// AssignmentRemindersSent returns the Assignment Reminders delivered so far, in
+// the order the sweep sent them — oldest Sale first, which is the order a test
+// of the batch limit asserts on.
+func (s *CaptureEmailSender) AssignmentRemindersSent() []AssignmentReminder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]AssignmentReminder, len(s.AssignmentReminders))
+	copy(out, s.AssignmentReminders)
+	return out
+}
+
 // TicketAssignmentsSent returns the Assignment mails delivered so far, in the
 // order they were sent.
 //
@@ -1470,6 +1591,7 @@ func (s *CaptureEmailSender) Reset() {
 	s.WithdrawalConfirmations = nil
 	s.HolderAnswerReminders = nil
 	s.TicketAssignments = nil
+	s.AssignmentReminders = nil
 	s.NoLongerHoldings = nil
 	s.SubmittedPayoutRequests = nil
 	s.PaidPayoutRequests = nil
