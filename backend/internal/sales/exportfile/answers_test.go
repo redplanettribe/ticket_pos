@@ -49,7 +49,10 @@ func oneSale() []Sale {
 		AmountCents:       2500,
 		Currency:          "USD",
 		Channel:           "import",
-		Status:            "active",
+		// The origin every fixture row carries (#373): this sale came in on an
+		// uploaded Sale Import batch. Never blank — see Sale.Origin.
+		Origin: "sale_import",
+		Status: "active",
 	}}
 }
 
@@ -124,12 +127,12 @@ func TestDataSheetIsUnchangedByTheAnswersSheet(t *testing.T) {
 			"tax_id_type", "tax_id_number",
 			"GA", "total_quantity",
 			"amount", "net_proceeds", "currency",
-			"channel", "source", "payment_method", "status",
+			"channel", "source", "origin", "payment_method", "status",
 			"reversed_at", "reversed_by", "corrected_by", "corrects",
 		},
 		{
 			"ABC123", "2026-07-01 10:00", "Ana", "Lopez", "ana@example.com",
-			"", "", "1", "1", "25.00", "", "USD", "import", "", "", "active", "", "",
+			"", "", "1", "1", "25.00", "", "USD", "import", "", "sale_import", "", "active", "", "",
 		},
 	}
 

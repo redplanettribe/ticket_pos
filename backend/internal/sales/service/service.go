@@ -1181,12 +1181,19 @@ func (s *Service) ExportSales(ctx context.Context, actor ActorContext, eventID s
 			Currency:          row.Currency,
 			Channel:           row.Channel,
 			Source:            row.Source,
-			PaymentMethod:     row.PaymentMethod,
-			Status:            row.Status,
-			ReversedAt:        row.ReversedAt,
-			ReversedBy:        exportedReversalRoute(row),
-			CorrectedByRef:    row.ReplacedByConfirmationRef,
-			CorrectsRef:       row.ReplacesConfirmationRef,
+			// How the sale reached the platform (#373, ADR 0052), from THE ONE
+			// place that predicate lives (#370) — the same call the Sales list
+			// mapper makes, off the same ListSales row, so the file and the
+			// screen can never disagree about where a sale came from. A
+			// Manually Recorded Sale is a three-way negative, and restating it
+			// here would be the copy that stops being updated.
+			Origin:         sales.DeriveSaleOrigin(row.Channel, row.ImportBatchID, row.ReplacesSaleID),
+			PaymentMethod:  row.PaymentMethod,
+			Status:         row.Status,
+			ReversedAt:     row.ReversedAt,
+			ReversedBy:     exportedReversalRoute(row),
+			CorrectedByRef: row.ReplacedByConfirmationRef,
+			CorrectsRef:    row.ReplacesConfirmationRef,
 		})
 	}
 
