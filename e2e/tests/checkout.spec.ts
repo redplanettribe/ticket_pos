@@ -192,6 +192,70 @@ test("a Customer buys a ticket through the stub provider and lands on the confir
   await expect(page.getByRole("link", { name: "See your tickets" })).toBeVisible();
 });
 
+// The buyer whose session did not survive the Payment Provider (#387, ADR 0054).
+//
+// This is the most consequential path in the Storefront, because the money has
+// already moved by the time it runs. The buyer is off-origin at the provider,
+// possibly for minutes: cookies get cleared, a provider webview can drop them,
+// a session can be revoked, and they can come back in a different browser. Under
+// every one of those, a person who HAS ALREADY PAID lands on this page.
+//
+// It is worth stating plainly because the branch this exercises looks exactly
+// like guest-checkout residue now that a buyer is signed in by construction, and
+// deleting it would be invisible until it happened to somebody who had paid. So
+// the session cookie is destroyed mid-journey — after the Payment is under way
+// and before the return leg runs — and the checkout context cookie is left
+// alone, which is precisely the state a dropped session produces.
+test("a buyer whose session dies at the provider still lands on their confirmation", async ({
+  page,
+  context,
+}) => {
+  const email = `e2e-lostsession-${Date.now()}@example.com`;
+  await signInAsCustomer(page, email);
+
+  await selectOneTicketAndOpenCheckout(page);
+  await fillCheckoutFormAndPay(page, email);
+
+  // At the provider, holding an unconfirmed Payment. Drop ONLY the Customer
+  // Session: the checkout context is a separate cookie and is what carries this
+  // buyer home.
+  const surviving = (await context.cookies()).filter(
+    (cookie) => cookie.name !== "ticket_pos_customer_session",
+  );
+  await context.clearCookies();
+  await context.addCookies(surviving);
+
+  await page.getByRole("link", { name: "Approve payment" }).click();
+
+  // Confirm is public and reads the checkout context rather than a session, so
+  // the Ticket Sale still commits and the buyer still gets their reference.
+  await expect(page).toHaveURL(new RegExp(`/${LOCALE}/checkout/success\\?ref=`));
+  await expect(page.getByRole("heading", { name: "You're going!" })).toBeVisible();
+  const ref = (await page.getByTestId("confirmation-ref").innerText()).trim();
+  expect(ref).toMatch(CONFIRMATION_REF);
+
+  // Not a dead end: they are told where they stand and offered a way back in,
+  // with the address they bought under already in the field, so a buyer who
+  // mistyped nothing cannot be locked out of what they just paid for.
+  await expect(page.getByText("You're signed out on this device", { exact: false })).toBeVisible();
+  const signIn = page.getByRole("link", { name: "Sign in to see your tickets" });
+  await expect(signIn).toBeVisible();
+  const href = await signIn.getAttribute("href");
+  expect(href).toContain(encodeURIComponent(email));
+  expect(href).toContain(`next=${encodeURIComponent("/tickets")}`);
+
+  // And the locale carried through the return leg still decides the language:
+  // null is not English.
+  await expect(page.locator("html")).toHaveAttribute("lang", LOCALE);
+
+  // Re-loading the confirmation shows the same Ticket Sale rather than a second
+  // one. This is the terminal page and not the return route, so it is the weaker
+  // of the two idempotency claims; the return route's own is pinned in the Go
+  // integration suite, against a real database.
+  await page.reload();
+  await expect(page.getByTestId("confirmation-ref")).toHaveText(ref);
+});
+
 test("a declined payment lands on the failure page and retry returns the selection", async ({
   page,
 }) => {

@@ -50,6 +50,26 @@ func beginCheckoutSettled(t *testing.T, env *testEnv, orgSlug, eventSlug, token 
 	return result
 }
 
+// beginCheckoutSmugglingSettled is beginCheckoutSmuggling decoded as a settled
+// free claim. It exists because beginCheckoutSmugglingOK decodes the narrow
+// result, which carries no status and no reference — enough to prove a smuggled
+// address was ignored, but not enough to prove the claim it was smuggled into
+// actually settled.
+func beginCheckoutSmugglingSettled(
+	t *testing.T, env *testEnv, orgSlug, eventSlug, token string, body map[string]any,
+) freeCheckoutResult {
+	t.Helper()
+	resp, envBody := beginCheckoutSmuggling(t, env, orgSlug, eventSlug, token, body)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("begin checkout status=%d error=%+v, want 201", resp.StatusCode, envBody.Error)
+	}
+	var result freeCheckoutResult
+	if err := json.Unmarshal(envBody.Data, &result); err != nil {
+		t.Fatalf("decode begin checkout result: %v", err)
+	}
+	return result
+}
+
 // approvedRef asserts the shape of a settled free claim and returns its Sale
 // Confirmation reference: approved, a TP- reference, and no redirect anywhere.
 func approvedRef(t *testing.T, result freeCheckoutResult) string {
@@ -427,7 +447,7 @@ func TestFreeClaimAppliesTheSelfAssertedTaxIDRules(t *testing.T) {
 	// sent from somebody else's session, reaches her in no way (ADR 0054, #386).
 	// A ticket that costs nothing is still a Customer record written and a receipt
 	// emailed, so the door in front of it is the same door.
-	stranger := beginCheckoutSmugglingOK(t, env, "test-org", "asserted-fest",
+	stranger := beginCheckoutSmugglingSettled(t, env, "test-org", "asserted-fest",
 		buyerSession(t, env, "bruno@example.com"),
 		taxIDCheckoutBody("ana@example.com", "Ana", "Lopez", "cedula", otherCedula, line))
 	if got := readCustomerTaxID(t, env, "ana@example.com"); !got.is("ruc", companyRUC) {
@@ -436,7 +456,11 @@ func TestFreeClaimAppliesTheSelfAssertedTaxIDRules(t *testing.T) {
 	if got := readCustomerTaxID(t, env, "bruno@example.com"); !got.is("cedula", otherCedula) {
 		t.Fatalf("his tax id = %s, want the cedula he typed about himself", got)
 	}
-	_ = stranger
+	// And it settled, rather than merely being accepted: a free claim comes back
+	// `approved` with a confirmation reference at begin, which is the whole of
+	// what free means (ADR 0017). Asserted because the interesting failure here
+	// is a claim that reaches the right person and then goes nowhere.
+	approvedRef(t, stranger)
 }
 
 // TestFreeClaimsAreFilterableByPaymentMethod: `free` is a Payment Method like

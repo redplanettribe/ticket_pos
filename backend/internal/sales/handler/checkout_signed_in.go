@@ -15,25 +15,33 @@ import (
 // the buyer's address from their Customer Session and offers no field by which
 // another can be named.
 //
-// It sits beside the public begin-checkout above rather than replacing it,
-// because this is the expand half of an expand–contract: the Storefront still
-// calls the public route until it is moved, and #386 deletes that one afterwards.
-// While both exist, ONE of them is the guarantee and the other is the legacy —
-// and the difference is entirely in what the request may say about who is buying.
+// It is the ONLY way to begin an online checkout. It arrived beside a public
+// begin-checkout, as the expand half of an expand–contract, but #386 deleted
+// that one: there is no second door, and anyone auditing this guarantee should
+// find nothing when they go looking for the legacy route this comment used to
+// point at. If a public begin-checkout ever appears beside this again, the
+// guarantee is off by default for anyone who knows the URL.
 //
 // Why the enforcement is here at all, rather than in the Storefront: the BFF is
 // a hop, not a boundary (ADR 0008). A wall drawn only in the dialog would leave
 // this API a guest-checkout endpoint accepting any typed address, and the
 // property would be a UI convention that the next stale client quietly drops.
 
-// beginCustomerCheckoutBody is the session-gated begin-checkout's request: the
-// public body with `customer_email` DELETED, and nothing else changed.
+// beginCustomerCheckoutBody is the session-gated begin-checkout's request, and
+// the only type any online checkout request is decoded into. It names no
+// address.
 //
-// The deletion is the load-bearing part of ADR 0054 and the reason this type
-// exists at all rather than the public one being reused with the field ignored.
-// A field a handler ignores is still a field a client can send, still a field
-// that appears in the generated API client, and still a mistake somebody will
-// eventually express. There is no address here to get wrong.
+// That absence is the load-bearing part of ADR 0054, and the reason this type
+// exists rather than the internal beginCheckoutBody being reused with its
+// address field ignored. A field a handler ignores is still a field a client can
+// send, still a field that appears in the generated API client, and still a
+// mistake somebody will eventually express. There is no address here to get
+// wrong.
+//
+// beginCheckoutBody still carries a CustomerEmail, but it is `json:"-"` and so
+// is not part of any wire: it survives as the internal description of an online
+// checkout, and the only thing that ever fills it is addressedTo, from the
+// session. A reader checking this guarantee should confirm that remains true.
 //
 // Every remaining field means exactly what it means on the public body, and the
 // documentation for each lives there (beginCheckoutBody) so the two cannot
