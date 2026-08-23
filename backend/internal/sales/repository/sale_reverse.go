@@ -34,6 +34,68 @@ func (e *SaleAlreadyReversedError) Error() string {
 	return "ticket sale already reversed: " + e.SaleID
 }
 
+// queryRower is the one method the imported-sale guard needs, so it runs the
+// same way on the pool (lock-free) and inside a transaction (FOR UPDATE).
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// requireActiveImportedSale decides the three refusals every single-sale staff
+// action shares: *SaleNotFoundError when no such sale is on the Event under the
+// Organization, *SaleNotImportedError on any channel but `import`, and
+// *SaleAlreadyReversedError when it is no longer active. With lock=true the row
+// is taken FOR UPDATE first, so the refusal is decided on what this transaction
+// will act on.
+func requireActiveImportedSale(ctx context.Context, q queryRower, orgID, eventID, saleID string, lock bool) error {
+	query := `
+		SELECT channel, status FROM ticket_sales
+		WHERE id = $1 AND event_id = $2 AND organization_id = $3
+	`
+	if lock {
+		query += " FOR UPDATE"
+	}
+	var channel, status string
+	err := q.QueryRowContext(ctx, query, saleID, eventID, orgID).Scan(&channel, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &SaleNotFoundError{SaleID: saleID}
+	}
+	if err != nil {
+		return err
+	}
+	if channel != "import" {
+		return &SaleNotImportedError{SaleID: saleID, Channel: channel}
+	}
+	if status != "active" {
+		return &SaleAlreadyReversedError{SaleID: saleID}
+	}
+	return nil
+}
+
+// reverseOneImportedSaleTx locks and checks the sale, then reverses exactly it
+// through the shared primitive as the staff actor. The primitive not finding
+// the row it locked and read active a moment ago is a fact about this
+// transaction, not a refusal to report, so it is folded into
+// *SaleAlreadyReversedError.
+func reverseOneImportedSaleTx(ctx context.Context, tx *sql.Tx, orgID, eventID, saleID string, now time.Time) (*ReversedSale, error) {
+	if err := requireActiveImportedSale(ctx, tx, orgID, eventID, saleID, true); err != nil {
+		return nil, err
+	}
+	reversed, err := reverseSalesTx(ctx, tx, ReverseSalesInput{
+		EventID:        eventID,
+		OrganizationID: orgID,
+		SaleIDs:        []string{saleID},
+		Actor:          sales.ReversalActorStaff,
+		Now:            now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(reversed) != 1 {
+		return nil, &SaleAlreadyReversedError{SaleID: saleID}
+	}
+	return &reversed[0], nil
+}
+
 // ReverseImportedSaleInput names one imported Ticket Sale to reverse.
 type ReverseImportedSaleInput struct {
 	EventID        string
@@ -63,43 +125,13 @@ func (r *Repository) ReverseImportedSale(ctx context.Context, in ReverseImported
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var channel, status string
-	err = tx.QueryRowContext(ctx, `
-		SELECT channel, status FROM ticket_sales
-		WHERE id = $1 AND event_id = $2 AND organization_id = $3
-		FOR UPDATE
-	`, in.SaleID, in.EventID, in.OrganizationID).Scan(&channel, &status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, &SaleNotFoundError{SaleID: in.SaleID}
-	}
+	reversed, err := reverseOneImportedSaleTx(ctx, tx, in.OrganizationID, in.EventID, in.SaleID, in.Now)
 	if err != nil {
 		return nil, err
-	}
-	if channel != "import" {
-		return nil, &SaleNotImportedError{SaleID: in.SaleID, Channel: channel}
-	}
-	if status != "active" {
-		return nil, &SaleAlreadyReversedError{SaleID: in.SaleID}
-	}
-
-	reversed, err := reverseSalesTx(ctx, tx, ReverseSalesInput{
-		EventID:        in.EventID,
-		OrganizationID: in.OrganizationID,
-		SaleIDs:        []string{in.SaleID},
-		Actor:          sales.ReversalActorStaff,
-		Now:            in.Now,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(reversed) != 1 {
-		// The row was locked and read active a moment ago; the primitive not
-		// finding it is a fact about this transaction, not a refusal to report.
-		return nil, &SaleAlreadyReversedError{SaleID: in.SaleID}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &reversed[0], nil
+	return reversed, nil
 }

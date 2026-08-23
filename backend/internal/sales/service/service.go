@@ -681,34 +681,41 @@ func (s *Service) commit(ctx context.Context, actor ActorContext, eventID string
 	// that id does not exist until the batch commits.
 	if !batch.Replayed {
 		for _, rs := range batch.Recorded {
-			_ = s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
-				To:               rs.CustomerEmail,
-				CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
-				EventName:        event.Name,
-				Reference:        rs.ConfirmationRef,
-				AmountCents:      rs.AmountCents,
-				Currency:         event.Currency,
-				ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
-				// An IMPORTED sale's Tickets start out owing everything, because
-				// nobody ever put the questions to that buyer — there is no checkout
-				// form on a spreadsheet import. That is the honest state of the debt
-				// (see repository.outstandingAnswerWhere, which deliberately has no
-				// channel filter), and this is the one mail that can do anything
-				// about it: the buyer gets their Confirmation Link and the sentence
-				// telling them the Tickets behind it still need answers.
-				HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, rs.ID),
-				TaxID:                 rs.CustomerTaxID,
-				// An imported sale was produced by no page and records no Sale
-				// Locale, so this resolves to whatever the recipient's own record
-				// remembers, and to English for the great majority who have never
-				// signed in (ADR 0033). The same helper the online path uses, for
-				// the same reason: one chain, one place.
-				Locale: s.mailLocale(ctx, rs.ID, rs.Locale, rs.CustomerEmail),
-			})
+			_ = s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, rs))
 		}
 	}
 
 	return result, nil
+}
+
+// importedSaleConfirmation builds the Sale Confirmation for a Ticket Sale
+// recorded on the import channel — by a Sale Import batch or as a Sale
+// Correction's replacement — so both paths mail one and the same thing.
+func (s *Service) importedSaleConfirmation(ctx context.Context, event *repository.EventImportContext, rs repository.RecordedSale) platform.SaleConfirmation {
+	return platform.SaleConfirmation{
+		To:               rs.CustomerEmail,
+		CustomerName:     displayName(rs.CustomerFirstName, rs.CustomerLastName),
+		EventName:        event.Name,
+		Reference:        rs.ConfirmationRef,
+		AmountCents:      rs.AmountCents,
+		Currency:         event.Currency,
+		ConfirmationLink: s.confirmationLink(rs.ID, event.End()),
+		// An IMPORTED sale's Tickets start out owing everything, because
+		// nobody ever put the questions to that buyer — there is no checkout
+		// form on a spreadsheet import. That is the honest state of the debt
+		// (see repository.outstandingAnswerWhere, which deliberately has no
+		// channel filter), and this is the one mail that can do anything
+		// about it: the buyer gets their Confirmation Link and the sentence
+		// telling them the Tickets behind it still need answers.
+		HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, rs.ID),
+		TaxID:                 rs.CustomerTaxID,
+		// An imported sale was produced by no page and records no Sale
+		// Locale, so this resolves to whatever the recipient's own record
+		// remembers, and to English for the great majority who have never
+		// signed in (ADR 0033). The same helper the online path uses, for
+		// the same reason: one chain, one place.
+		Locale: s.mailLocale(ctx, rs.ID, rs.Locale, rs.CustomerEmail),
+	}
 }
 
 // confirmationLink mints the Confirmation Link for a recorded Ticket Sale, or
@@ -1348,7 +1355,7 @@ func exportedNetProceeds(row repository.SaleRow) *int {
 //     three different levers write it (#352): `correction` when the sale was
 //     replaced by a Sale Correction (it carries the linkage), `import_undo`
 //     when it went with its whole Sale Import batch (its reversed_at is the
-//     batch's undone_at), and `staff_reversal` when one sale was voided on its
+//     batch's undone_at), and `staff_reversal` when one sale was reversed on its
 //     own from the Sales list.
 //
 // Anything else is dropped to nil rather than emitted. A value added to the

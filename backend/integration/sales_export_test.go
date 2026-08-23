@@ -2028,7 +2028,7 @@ func TestSalesExportLogsWhoTookWhatAndNeverTheSearchTerm(t *testing.T) {
 // corrects — each by the other's Sale Confirmation reference, the value an
 // accountant can follow in either direction within the same file. The route
 // column tells the three staff levers apart: `import_undo` for a whole batch,
-// `staff_reversal` for one sale voided on its own, `correction` for one sale
+// `staff_reversal` for one sale reversed on its own, `correction` for one sale
 // replaced — all of them `staff` in the database, which tells the reader only
 // that their own Organization acted.
 func TestSalesExportCarriesTheCorrectionLinkage(t *testing.T) {

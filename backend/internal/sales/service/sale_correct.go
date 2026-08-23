@@ -122,18 +122,7 @@ func (s *Service) CorrectImportedSale(ctx context.Context, actor ActorContext, e
 	rs := corrected.Replacement
 	sent := false
 	if in.SendConfirmation {
-		if err := s.email.SendSaleConfirmation(ctx, platform.SaleConfirmation{
-			To:                    rs.CustomerEmail,
-			CustomerName:          displayName(rs.CustomerFirstName, rs.CustomerLastName),
-			EventName:             event.Name,
-			Reference:             rs.ConfirmationRef,
-			AmountCents:           rs.AmountCents,
-			Currency:              event.Currency,
-			ConfirmationLink:      s.confirmationLink(rs.ID, event.End()),
-			HasOutstandingAnswers: s.hasOutstandingAnswers(ctx, rs.ID),
-			TaxID:                 rs.CustomerTaxID,
-			Locale:                s.mailLocale(ctx, rs.ID, rs.Locale, rs.CustomerEmail),
-		}); err == nil {
+		if err := s.email.SendSaleConfirmation(ctx, s.importedSaleConfirmation(ctx, event, rs)); err == nil {
 			sent = true
 		}
 	}

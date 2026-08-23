@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"time"
-
-	"github.com/peter/ticket_pos/backend/internal/sales"
 )
 
 // CorrectImportedSaleInput names one imported Ticket Sale to reverse and the
@@ -56,37 +54,9 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var channel, status string
-	err = tx.QueryRowContext(ctx, `
-		SELECT channel, status FROM ticket_sales
-		WHERE id = $1 AND event_id = $2 AND organization_id = $3
-		FOR UPDATE
-	`, in.SaleID, in.EventID, in.OrganizationID).Scan(&channel, &status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, &SaleNotFoundError{SaleID: in.SaleID}
-	}
+	reversed, err := reverseOneImportedSaleTx(ctx, tx, in.OrganizationID, in.EventID, in.SaleID, in.Now)
 	if err != nil {
 		return nil, err
-	}
-	if channel != "import" {
-		return nil, &SaleNotImportedError{SaleID: in.SaleID, Channel: channel}
-	}
-	if status != "active" {
-		return nil, &SaleAlreadyReversedError{SaleID: in.SaleID}
-	}
-
-	reversed, err := reverseSalesTx(ctx, tx, ReverseSalesInput{
-		EventID:        in.EventID,
-		OrganizationID: in.OrganizationID,
-		SaleIDs:        []string{in.SaleID},
-		Actor:          sales.ReversalActorStaff,
-		Now:            in.Now,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(reversed) != 1 {
-		return nil, &SaleAlreadyReversedError{SaleID: in.SaleID}
 	}
 
 	recorded, err := r.CommitSales(ctx, tx, CommitSalesInput{
@@ -119,7 +89,7 @@ func (r *Repository) CorrectImportedSale(ctx context.Context, in CorrectImported
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &CorrectedSale{Reversed: reversed[0], Replacement: recorded[0]}, nil
+	return &CorrectedSale{Reversed: *reversed, Replacement: recorded[0]}, nil
 }
 
 // SaleLineQuantity is one Ticket Sale Line's Ticket Type and quantity.
@@ -133,22 +103,8 @@ type SaleLineQuantity struct {
 // The same three refusals as CorrectImportedSale, decided without a lock —
 // the transaction decides them again under one.
 func (r *Repository) ImportedSaleLines(ctx context.Context, orgID, eventID, saleID string) ([]SaleLineQuantity, error) {
-	var channel, status string
-	err := r.db.Pool.QueryRowContext(ctx, `
-		SELECT channel, status FROM ticket_sales
-		WHERE id = $1 AND event_id = $2 AND organization_id = $3
-	`, saleID, eventID, orgID).Scan(&channel, &status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, &SaleNotFoundError{SaleID: saleID}
-	}
-	if err != nil {
+	if err := requireActiveImportedSale(ctx, r.db.Pool, orgID, eventID, saleID, false); err != nil {
 		return nil, err
-	}
-	if channel != "import" {
-		return nil, &SaleNotImportedError{SaleID: saleID, Channel: channel}
-	}
-	if status != "active" {
-		return nil, &SaleAlreadyReversedError{SaleID: saleID}
 	}
 	rows, err := r.db.Pool.QueryContext(ctx, `
 		SELECT ticket_type_id, quantity FROM ticket_sale_lines WHERE ticket_sale_id = $1

@@ -901,23 +901,8 @@ func validateImport(source string, body commitImportBody) ([]platform.FieldError
 func (h *Handler) ReverseSale(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
 
-	eventID := strings.TrimSpace(r.PathValue("id"))
-	saleID := strings.TrimSpace(r.PathValue("saleId"))
-	var fields []platform.FieldError
-	if eventID == "" {
-		fields = append(fields, platform.FieldError{Field: "id", Code: platform.CodeRequired, Message: "is required"})
-	}
-	if saleID == "" {
-		fields = append(fields, platform.FieldError{Field: "saleId", Code: platform.CodeRequired, Message: "is required"})
-	}
-	if len(fields) > 0 {
-		_ = platform.WriteValidationError(w, reqID, fields)
-		return
-	}
-	if _, err := uuid.Parse(saleID); err != nil {
-		// A malformed id names no sale: the same answer as an unknown one, and
-		// the same answer a probe gets.
-		_ = platform.WriteDomainError(w, reqID, sales.ErrTicketSaleIDNotFound(saleID))
+	eventID, saleID, ok := saleTarget(w, r, reqID)
+	if !ok {
 		return
 	}
 
@@ -963,9 +948,9 @@ func correctSaleInput(body correctSaleBody) service.CorrectSaleInput {
 	}
 }
 
-// correctionTarget reads and checks the two path ids of a correction call,
+// saleTarget reads and checks the two path ids of a correction call,
 // writing the refusal itself when either is missing or malformed.
-func correctionTarget(w http.ResponseWriter, r *http.Request, reqID string) (eventID, saleID string, ok bool) {
+func saleTarget(w http.ResponseWriter, r *http.Request, reqID string) (eventID, saleID string, ok bool) {
 	eventID = strings.TrimSpace(r.PathValue("id"))
 	saleID = strings.TrimSpace(r.PathValue("saleId"))
 	var fields []platform.FieldError
@@ -1007,7 +992,7 @@ func correctionTarget(w http.ResponseWriter, r *http.Request, reqID string) (eve
 // @Router       /api/v1/staff/events/{id}/sales/{saleId}/correct/preview [post]
 func (h *Handler) PreviewSaleCorrection(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
-	eventID, saleID, ok := correctionTarget(w, r, reqID)
+	eventID, saleID, ok := saleTarget(w, r, reqID)
 	if !ok {
 		return
 	}
@@ -1044,7 +1029,7 @@ func (h *Handler) PreviewSaleCorrection(w http.ResponseWriter, r *http.Request) 
 // @Router       /api/v1/staff/events/{id}/sales/{saleId}/correct [post]
 func (h *Handler) CorrectSale(w http.ResponseWriter, r *http.Request) {
 	reqID := platform.RequestID(r.Context())
-	eventID, saleID, ok := correctionTarget(w, r, reqID)
+	eventID, saleID, ok := saleTarget(w, r, reqID)
 	if !ok {
 		return
 	}

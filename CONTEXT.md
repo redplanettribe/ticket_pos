@@ -350,7 +350,7 @@ _Avoid_: Guest list, attendee list, invitees, RSVP list, outstanding answers (as
 
 **Sale Reversal**:
 The voiding of a recorded Ticket Sale: its tickets cease to exist, its capacity returns to the Ticket Type, and any money collected is returned to the Customer.
-Reachable by four routes, and the sale records which one voided it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, staff on a single imported Ticket Sale — on its own, or as the first half of a Sale Correction — and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
+Reachable by four routes, and the sale records which one reversed it: the Customer on their own Online Sale within the Reversal Window, staff through a Sale Import undo, staff on a single imported Ticket Sale — on its own, or as the first half of a Sale Correction — and a Platform Operator through an Operator Reversal. Always whole-Sale — no part of a Ticket Sale can be reversed on its own.
 An outcome, not an ask. The Customer's route passes through a Reversal Request, and becomes a Sale Reversal only once the Payment Provider has confirmed the money went back; a Reversal Request that is refused never becomes one.
 A reversed Ticket Sale is never deleted: it keeps its Sale Confirmation reference and stays visible to both the Customer and the Organization, and it stops counting toward Net Proceeds, the Withdrawable Balance, and platform revenue — except for a Platform Fee an Operator Reversal said the platform kept.
 _Avoid_: Refund, cancellation, void, chargeback

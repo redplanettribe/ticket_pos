@@ -217,7 +217,7 @@ func TestCorrectingAnImportedSaleRecordsALinkedReplacement(t *testing.T) {
 		t.Errorf("Sale Confirmations = %d, want 0 without send_confirmation", n)
 	}
 	if n := len(env.email.Voided()); n != 0 {
-		t.Errorf("voided mails = %d, want 0 — never a voided mail on a correction", n)
+		t.Errorf("Sale Voided mails = %d, want 0 — never a Sale Voided mail on a correction", n)
 	}
 }
 
@@ -428,9 +428,9 @@ func TestABatchUndoNeverReversesAReplacement(t *testing.T) {
 	if got := soldCount(t, env, sessionID, eventID, gaID); got != 1 {
 		t.Errorf("sold_count = %d, want the replacement's 1", got)
 	}
-	voided := env.email.Voided()
-	if len(voided) != 1 || voided[0].To != "bob@example.com" {
-		t.Errorf("voided mails = %+v, want exactly one, to Bob", voided)
+	saleVoided := env.email.Voided()
+	if len(saleVoided) != 1 || saleVoided[0].To != "bob@example.com" {
+		t.Errorf("Sale Voided mails = %+v, want exactly one, to Bob", saleVoided)
 	}
 }
 
@@ -476,7 +476,7 @@ func TestCorrectionTellsHoldersAndMailsTheBuyerOnlyWhenAsked(t *testing.T) {
 		t.Error("the replacement's confirmation does not carry the outstanding-answers line; its fresh Tickets owe every answer")
 	}
 	if n := len(env.email.Voided()); n != 0 {
-		t.Errorf("voided mails = %d, want 0", n)
+		t.Errorf("Sale Voided mails = %d, want 0", n)
 	}
 	// Nothing carried over: the replacement's Tickets are all unassigned.
 	var assigned int
