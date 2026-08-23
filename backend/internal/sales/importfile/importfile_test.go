@@ -545,15 +545,31 @@ func TestTemplateRoundTrip(t *testing.T) {
 			t.Fatalf("%s (%s): missing input-message tooltip", name, sqref)
 		}
 	}
-	// The amount tooltip must disclose the otherwise-invisible blank→price rule.
+	// The amount tooltip must disclose the otherwise-invisible blank→price rule,
+	// and say the cell is the price of ONE ticket rather than the row's total.
+	// The column is a unit price on every path that records it (#379), and the
+	// prose that called it "total paid" cost one Organizer a hand-repaired sale.
 	if p := byRange["H2:H10001"].Prompt; p == nil || !strings.Contains(*p, "price") {
 		t.Fatalf("amount tooltip = %v, want it to mention using the Ticket Type's price when blank", p)
+	} else if !strings.Contains(*p, "per ticket") || !strings.Contains(*p, "not the row's total") {
+		t.Fatalf("amount tooltip = %q, want it to say the amount is the price per ticket, not the row's total", *p)
 	}
-
 	// Header-row notes describe each of the eight visible columns.
 	comments, err := f.GetComments(templateSheet)
 	if err != nil {
 		t.Fatalf("get comments: %v", err)
+	}
+	// Read off the generated workbook rather than templateHeaderComments: the
+	// organizer is owed the worked multiplication in the file they open, and a
+	// check against the source map would pass even if the note never landed.
+	var amountNote string
+	for _, c := range comments {
+		if c.Cell == "H1" {
+			amountNote = c.Text
+		}
+	}
+	if !strings.Contains(amountNote, "3 at 25.00") || !strings.Contains(amountNote, "75.00") {
+		t.Fatalf("amount header comment = %q, want it to work the multiplication through for the organizer", amountNote)
 	}
 	if len(comments) != len(templateHeaders)-1 { // all visible headers, excludes hidden ticket_type_id
 		t.Fatalf("header comments = %d, want %d", len(comments), len(templateHeaders)-1)

@@ -221,6 +221,42 @@ func TestCorrectingAnImportedSaleRecordsALinkedReplacement(t *testing.T) {
 	}
 }
 
+// THE REPLACEMENT'S AMOUNT IS THE PRICE OF ONE TICKET, not the sale's total —
+// the Sale Correction's share of the decision on #379.
+//
+// This is the repair the witness sale actually needed: 6 tickets sold for 30.00
+// each were imported as 6 × 180.00 because the spreadsheet template called the
+// amount column "total paid", and the Organizer corrected them by hand. The
+// correction reads the column the way every other path does, so typing 3000 on a
+// quantity of 6 records 18000. The existing coverage above supplies an amount on
+// a quantity of ONE, where the two readings agree and nothing is pinned.
+func TestCorrectionAmountIsThePricePerTicket(t *testing.T) {
+	env := setupTest(t)
+	sessionID := orgAdminSession(t, env)
+	eventID := createDraftEvent(t, env, sessionID, "Repair Fest", "repair-fest")
+	ttID := createTicketTypeWithCapacity(t, env, sessionID, eventID, "Community Senior", 18000, 50)
+
+	commitBatch(t, env, sessionID, eventID, "witness", []map[string]any{
+		{"customer_email": "ana@example.com", "customer_first_name": "Ana", "customer_last_name": "Lopez", "ticket_type_id": ttID, "quantity": 6, "payment_method": "cash", "sold_at": "2026-07-01T10:00:00Z"},
+	})
+	mistaken := saleRowByEmail(t, env, sessionID, eventID, "ana@example.com", "active")
+	if mistaken.AmountCents != 108000 {
+		t.Fatalf("mistaken sale = %d, want 6 × the catalog 18000", mistaken.AmountCents)
+	}
+
+	body := correctionBody("ana@example.com", "Ana", "Lopez", ttID, 6, "cash", "2026-07-01T10:00:00Z")
+	body["amount_cents"] = 3000
+	result := correctImportedSaleOK(t, env, sessionID, eventID, mistaken.ID, body)
+
+	repl := saleRowByID(t, env, sessionID, eventID, result.ReplacementSaleID, "active")
+	if repl.AmountCents != 18000 {
+		t.Errorf("replacement amount = %d, want 6 × the per-ticket 3000 (#379)", repl.AmountCents)
+	}
+	if got := takingsCents(t, env, sessionID, eventID); got != 18000 {
+		t.Errorf("Takings = %d, want just the replacement's 18000", got)
+	}
+}
+
 // THE SAME BUYER, CORRECTED TWICE: a correction chain is walkable from either
 // end, and a corrected sale cannot be corrected again.
 func TestACorrectedSaleCannotBeCorrectedAgainButItsReplacementCan(t *testing.T) {

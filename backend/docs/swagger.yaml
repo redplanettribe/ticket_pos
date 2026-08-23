@@ -9553,30 +9553,30 @@ paths:
         — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number
         pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO
         8601, naive values read in the Event timezone), and an optional amount_cents
-        overriding the Ticket Type''s catalog price (0 records a comp). There is deliberately
-        NO send_confirmation and NO idempotency_key. The row is validated exactly
-        as an import row: Ticket Type on this Event, the Tax ID pair rule with the
-        pair optional, a positive integer quantity, sold_at not in the future — plus
-        two departures from the file import, both deliberate: CAPACITY is refused
-        here on the quantity rather than deferred to a batch commit, and the PURCHASE
-        LIMIT is enforced. A refused row returns 400 VALIDATION_FAILED with one field
-        error per offending column, named by the template''s bare column name with
-        no rows[N]. prefix, and writes nothing. A row matching another active sale
-        on the Event by email, Ticket Type and sold-at date carries possible_duplicate
-        with duplicate_of_date — a warning that never blocks the record. The recorded
-        sale is a Direct Sale on the `import` channel with source `direct` and NO
-        Sale Import batch: it never appears in the Import history, and recording one
-        never stops an earlier upload being the latest batch, so an existing batch
-        stays undoable. Tickets are minted one per unit, all `unassigned` and none
-        self-held; no fee snapshot is written, so the sale contributes its full price
-        to Takings and nothing to Net Proceeds. The buyer is ALWAYS mailed their Sale
-        Confirmation, in their own remembered language; confirmation_sent reports
-        whether that mail went out and a failure does not undo the sale. Refused with
-        409 EVENT_IS_EXTERNAL_REGISTRATION before any field is judged on an Event
-        that registers externally, 404 EVENT_NOT_FOUND when the Event is not this
-        Organization''s, and 409 IMPORT_BATCH_FAILED if capacity was lost to a race
-        between validation and commit. Gated by the same permission as Sale Import;
-        reading the Sales list is not.'
+        giving the price of ONE ticket, overriding the Ticket Type''s catalog price
+        and multiplied by the quantity (0 records a comp). There is deliberately NO
+        send_confirmation and NO idempotency_key. The row is validated exactly as
+        an import row: Ticket Type on this Event, the Tax ID pair rule with the pair
+        optional, a positive integer quantity, sold_at not in the future — plus two
+        departures from the file import, both deliberate: CAPACITY is refused here
+        on the quantity rather than deferred to a batch commit, and the PURCHASE LIMIT
+        is enforced. A refused row returns 400 VALIDATION_FAILED with one field error
+        per offending column, named by the template''s bare column name with no rows[N].
+        prefix, and writes nothing. A row matching another active sale on the Event
+        by email, Ticket Type and sold-at date carries possible_duplicate with duplicate_of_date
+        — a warning that never blocks the record. The recorded sale is a Direct Sale
+        on the `import` channel with source `direct` and NO Sale Import batch: it
+        never appears in the Import history, and recording one never stops an earlier
+        upload being the latest batch, so an existing batch stays undoable. Tickets
+        are minted one per unit, all `unassigned` and none self-held; no fee snapshot
+        is written, so the sale contributes its full price to Takings and nothing
+        to Net Proceeds. The buyer is ALWAYS mailed their Sale Confirmation, in their
+        own remembered language; confirmation_sent reports whether that mail went
+        out and a failure does not undo the sale. Refused with 409 EVENT_IS_EXTERNAL_REGISTRATION
+        before any field is judged on an Event that registers externally, 404 EVENT_NOT_FOUND
+        when the Event is not this Organization''s, and 409 IMPORT_BATCH_FAILED if
+        capacity was lost to a race between validation and commit. Gated by the same
+        permission as Sale Import; reading the Sales list is not.'
       parameters:
       - description: Event ID
         in: path
@@ -9646,15 +9646,16 @@ paths:
         — customer_email, customer_first_name, customer_last_name, the optional customer_tax_id_type/customer_tax_id_number
         pair, ticket_type_id, quantity, payment_method (cash|transfer), sold_at (ISO
         8601, naive values read in the Event timezone), and an optional amount_cents
-        overriding the catalog price — plus `send_confirmation` (default false). The
-        replacement is validated exactly like an import row: Ticket Type on the Event,
-        Tax ID rules when either half is filled, Payment Method required, sold_at
-        not in the future, capacity and the Purchase Limit both counted NET of the
-        sale being reversed. A refused replacement returns 400 VALIDATION_FAILED with
-        one field error per offending column (field names are the template''s column
-        names) and writes nothing — the original sale stays active. The replacement
-        is a fresh sale: channel `import`, source `direct`, no Sale Import batch (so
-        a later batch undo never sweeps it), a new Sale Confirmation reference, and
+        giving the price of ONE ticket, overriding the catalog price and multiplied
+        by the quantity — plus `send_confirmation` (default false). The replacement
+        is validated exactly like an import row: Ticket Type on the Event, Tax ID
+        rules when either half is filled, Payment Method required, sold_at not in
+        the future, capacity and the Purchase Limit both counted NET of the sale being
+        reversed. A refused replacement returns 400 VALIDATION_FAILED with one field
+        error per offending column (field names are the template''s column names)
+        and writes nothing — the original sale stays active. The replacement is a
+        fresh sale: channel `import`, source `direct`, no Sale Import batch (so a
+        later batch undo never sweeps it), a new Sale Confirmation reference, and
         fresh Tickets all `unassigned` — no Ticket Assignment or Answer is carried
         over. Every accepted Holder on the old sale is told; the buyer is mailed NOTHING
         unless send_confirmation is true, in which case the replacement''s Sale Confirmation

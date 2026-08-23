@@ -492,16 +492,28 @@ func TestManualSaleAmountSnapshotsOverridesOrComps(t *testing.T) {
 		t.Errorf("comped amount = %d, want 0 — a comp is a sale at no charge, not a missing amount", comp.AmountCents)
 	}
 
-	// AND THE OVERRIDE MEANS WHAT THE FILE IMPORT'S AMOUNT CELL MEANS, cent for
-	// cent: it stands in for the Ticket Type's price on each ticket the row
-	// buys, so three at 1000 is 3000. Nothing about this route may reinterpret
-	// the column — ADR 0052's whole reason for sharing one validator is that the
-	// same act must not mean two things depending on how it was typed.
+	// AND THE OVERRIDE IS THE PRICE OF ONE TICKET, not the sale's total: it
+	// stands in for the Ticket Type's price on each ticket the row buys, so
+	// three at 1000 is 3000.
+	//
+	// That was genuinely in question. Every code path read the cell as a unit
+	// price, but the Sale Import spreadsheet's own prose called it "total paid",
+	// and an Organizer who believed it recorded 6 tickets at 180.00 as 1080.00
+	// and repaired the sale by hand. #379 settled it in favour of the per-ticket
+	// reading — the sale total is derived and never stored, so a total would
+	// have to be split across units by a rule the sales domain does not have,
+	// and both Staff surfaces already said "Price per ticket" — and the
+	// template's three strings were corrected to say so. See ADR 0053.
+	//
+	// This assertion is that decision, and nothing about this route may
+	// reinterpret the column: ADR 0052's whole reason for sharing one validator
+	// is that the same act must not mean two things depending on how it was
+	// typed.
 	perUnit := manualSaleBody("dana@example.com", "Dana", "Ruiz", gaID, 3, "cash", "2026-07-01T10:00:00Z")
 	perUnit["amount_cents"] = 1000
 	multi := recordManualSaleOK(t, env, sessionID, eventID, perUnit)
 	if multi.AmountCents != 3000 {
-		t.Errorf("three at an overridden 1000 = %d, want the file import's own reading of the column", multi.AmountCents)
+		t.Errorf("three at an overridden 1000 = %d, want 3 × the per-ticket 1000 (#379)", multi.AmountCents)
 	}
 
 	// Each figure lands on the row and in the Event's Takings.

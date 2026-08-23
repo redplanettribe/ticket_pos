@@ -32,7 +32,10 @@ type ImportRowInput struct {
 	Quantity            int
 	PaymentMethod       string
 	SoldAt              string
-	// AmountCents overrides the catalog price; nil uses it, as a blank cell does.
+	// AmountCents is the price of ONE ticket, overriding the catalog price on
+	// each ticket the row buys; nil uses it, as a blank cell does. It is never
+	// the row's total — #379 settled that reading and corrected the Sale Import
+	// template's prose, which had said "total paid", to match.
 	AmountCents *int
 }
 
