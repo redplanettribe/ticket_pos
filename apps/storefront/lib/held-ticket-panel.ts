@@ -108,3 +108,19 @@ export function closedWindowKey(ticket: {
       return "closedUnknown";
   }
 }
+
+/**
+ * How a held Ticket's row in its Event group draws (#356): `plain` when there
+ * is nothing to open, `details` when the questions panel sits behind it.
+ *
+ * A row is plain when the held-ticket read never produced it (the feature is
+ * dark, or the read failed — the row must never wait on the questions) or
+ * when the panel's own rule says the Ticket asks nothing: a chevron over an
+ * empty panel is a promise the row cannot keep.
+ */
+export function heldRowDisclosure(
+  row: { outstanding_count: number; questions: QuestionAnswer[] } | null,
+): "plain" | "details" {
+  if (row === null) return "plain";
+  return panelDisclosure(row) === "none" ? "plain" : "details";
+}
