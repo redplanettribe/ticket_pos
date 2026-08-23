@@ -258,8 +258,10 @@ export async function TicketSaleCard({
 
           It draws NOTHING at all unless this sale's Ticket Types ask something,
           which most do not, and nothing while the feature is dark. So the great
-          majority of these cards are exactly the card they were before. */}
-      <BuyerTicketAnswers ticketSaleId={sale.id} />
+          majority of these cards are exactly the card they were before — once
+          the lists have landed. Until then it holds one row per Ticket, and
+          the count is this card's to give: the lines know it (#357). */}
+      <BuyerTicketAnswers ticketSaleId={sale.id} ticketCount={totalTickets} />
       </div>
     </details>
   );
