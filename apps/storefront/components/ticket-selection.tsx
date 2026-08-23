@@ -48,6 +48,7 @@ import {
   totalCents,
   totalQuantity,
 } from "@/lib/checkout";
+import type { RestoredSelection, SelectionAdjustment } from "@/lib/selection-url";
 import { formatPrice } from "@/lib/format";
 import { localizedPath, toAppLocale } from "@/lib/locale";
 import {
@@ -122,6 +123,22 @@ type TicketSelectionProps = {
   eventSlug: string;
   eventName: string;
   ticketTypes: PublicTicketType[];
+  /**
+   * The basket the buyer arrived with, already re-judged against the Ticket
+   * Types above (ADR 0054, lib/selection-url.ts).
+   *
+   * It arrives JUDGED, not claimed: the page decoded the address and clamped
+   * every quantity to what capacity and the Purchase Limit currently allow
+   * (ADR 0025) before handing it over, so nothing here can seed a stepper with
+   * a number a finger could not have produced. Its `adjustments` are what could
+   * NOT be restored, and they are drawn above the ticket list — a basket that
+   * silently differs from the one the buyer pressed Buy on is the one outcome
+   * this whole mechanism exists to prevent.
+   *
+   * Absent for every visitor who arrived without an encoded selection, which is
+   * everybody today: nothing writes such an address yet (#385).
+   */
+  restoredSelection?: RestoredSelection;
   /**
    * Whether an Online Sale hands the buyer its first Ticket as their own
    * (ADR 0048) — the platform's assignment flag, read off the event payload so
@@ -221,6 +238,7 @@ export function TicketSelection({
   eventSlug,
   eventName,
   ticketTypes,
+  restoredSelection,
   buyerHoldsFirstTicket,
   priceIncludesFee,
   timezone,
@@ -239,7 +257,13 @@ export function TicketSelection({
   // read-only list on an ended Event says them from the same keys. Two lists of
   // the same Ticket Types must not be able to word the same fact differently.
   const eventCopy = useTranslations("event");
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  // Seeded from the restored basket, and from an empty object for everybody
+  // else. The seed is an initial value and not a subscription: once the buyer
+  // touches a stepper the address has had its say, and a later re-render must
+  // never push their own choice back to what a link suggested.
+  const [quantities, setQuantities] = useState<Record<string, number>>(
+    () => restoredSelection?.selection ?? {},
+  );
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -322,6 +346,38 @@ export function TicketSelection({
   // Two hundred region names and a collation sort, held across the keystrokes
   // that re-render the form around the selector.
   const countryRows = useMemo(() => countries(formatLocale), [formatLocale]);
+
+  // What the address asked for and could not have. Empty for everybody who
+  // arrived without an encoded selection, which is everybody today.
+  const adjustments = restoredSelection?.adjustments ?? [];
+
+  /**
+   * The sentence for one thing that could not be restored.
+   *
+   * Each branch names a literal message key rather than composing one, so the
+   * catalog can be checked and a missing sentence is a build failure instead of
+   * a blank line in front of a buyer. The Ticket Type is named by ITS OWN name
+   * off the Event payload — an adjustment only ever refers to a Ticket Type this
+   * Event has, because lib/selection-url.ts reports on nothing else.
+   */
+  function adjustmentSentence(adjustment: SelectionAdjustment): string {
+    const ticketType =
+      ticketTypes.find((candidate) => candidate.id === adjustment.ticketTypeId)?.name ?? "";
+    const { requested, restored } = adjustment;
+    if (adjustment.reason === "sold_out") {
+      return t("restored.soldOut", { ticketType });
+    }
+    if (adjustment.reason === "purchase_limit") {
+      // Their own allowance, not the Event's stock. The two must not share a
+      // sentence (ADR 0025).
+      return restored === 0
+        ? t("restored.limitReached", { ticketType })
+        : t("restored.limitReduced", { ticketType, requested, restored });
+    }
+    return restored === 0
+      ? t("restored.unavailable", { ticketType })
+      : t("restored.capacityReduced", { ticketType, requested, restored });
+  }
 
   function adjust(ticketType: PublicTicketType, delta: number) {
     setQuantities((current) => ({
@@ -579,6 +635,36 @@ export function TicketSelection({
 
   return (
     <>
+      {/* What the address asked for and this page could not give back
+          (ADR 0054). It is drawn ABOVE the ticket list, before the buyer reads
+          a single price, because it is the difference between the basket they
+          pressed Buy on and the one in front of them now — and a difference
+          they discover at the total is a difference they were misled about.
+
+          It is not dismissed and does not fade when the steppers move: it is a
+          statement about what happened on arrival, and that stays true however
+          the buyer edits things afterwards.
+
+          Nothing here reasons about the rules; `reason` already carries the
+          verdict from lib/selection-url.ts, and the only job left is choosing
+          the sentence. Sold out and a spent Purchase Limit get different words
+          on purpose — a Customer who has used their own allowance must never
+          read it as the Event being full (ADR 0025). */}
+      {adjustments.length > 0 ? (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>{t("restored.title")}</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-4">
+              {adjustments.map((adjustment) => (
+                <li key={adjustment.ticketTypeId}>
+                  {adjustmentSentence(adjustment)}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="space-y-3">
         {ticketTypes.map((ticketType) => {
           const quantity = quantities[ticketType.id] ?? 0;
