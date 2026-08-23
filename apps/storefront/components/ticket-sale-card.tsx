@@ -30,10 +30,18 @@ import { undoDeadline } from "@/lib/undo-window";
 export async function TicketSaleCard({
   sale,
   defaultOpen = false,
+  badgeReversed = true,
   viaConfirmationLink = false,
   customerEmail = null,
 }: {
   sale: TicketSale;
+  /**
+   * Whether a reversed Sale wears its badge on the row. True everywhere but
+   * the Reversed tab, whose heading and description already say it of every
+   * row there: a badge repeated down a list that is nothing else stops being
+   * a warning and becomes wallpaper.
+   */
+  badgeReversed?: boolean;
   /**
    * True when the row should start open — the Event has only this one Sale,
    * so there is nothing to choose between and nothing to hide.
@@ -136,7 +144,9 @@ export async function TicketSaleCard({
         {/* A reversed sale must say so plainly rather than sit in the list
             looking like tickets the Customer still holds — and on the shut
             row, where the list is read. */}
-        {reversed ? <Badge variant="destructive">{t("reversedBadge")}</Badge> : null}
+        {reversed && badgeReversed ? (
+          <Badge variant="destructive">{t("reversedBadge")}</Badge>
+        ) : null}
         {/* Not destructive, and deliberately: a destructive badge beside
             tickets that are still good would say the purchase is gone. This
             is work in progress on the money and nothing else. */}

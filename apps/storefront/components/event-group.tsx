@@ -27,9 +27,12 @@ import { formatEventDateTime } from "@/lib/format";
  */
 export async function EventGroup({
   group,
+  badgeReversed = true,
   viaConfirmationLink = false,
   customerEmail = null,
 }: {
+  /** Passed through to each Sale row; false on the Reversed tab. */
+  badgeReversed?: boolean;
   group: EventGroupData;
   /** See TicketSaleCard: true for a reader who arrived by a Confirmation Link. */
   viaConfirmationLink?: boolean;
@@ -77,6 +80,7 @@ export async function EventGroup({
       <ul className="mt-4 divide-y border-t">
         {sales.map((sale) => (
           <TicketSaleCard
+            badgeReversed={badgeReversed}
             key={sale.id}
             sale={sale}
             // A person with one ticket to this Event should never have to

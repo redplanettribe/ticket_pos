@@ -348,6 +348,7 @@ async function CustomerArea({
               <EventGroup
                 key={group.event.id}
                 group={group}
+                badgeReversed={tab !== "reversed"}
                 viaConfirmationLink={viaConfirmationLink}
                 customerEmail={customerEmail}
               />
