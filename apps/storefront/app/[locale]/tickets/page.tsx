@@ -25,7 +25,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { BRAND_NAME } from "@/lib/brand";
 import {
   availableTabs,
-  countFor,
+  type TabCount,
   groupsFor,
   tabForLinkedSale,
   tabOf,
@@ -207,7 +207,10 @@ export default async function CustomerAreaPage({
             for — under them on a phone, beside them on a laptop, sticky so the
             panel rides along while a long list of Event groups scrolls
             (top-24 clears the sticky header). */}
-        {session.status === "ok" && showMyInfo ? (
+        {/* The second test repeats the first's, for the type checker alone:
+            `showMyInfo` is a boolean and cannot narrow `session` to the
+            shape `MyInfo` wants. */}
+        {showMyInfo && session.status === "ok" ? (
           <aside className="mt-8 lg:sticky lg:top-24 lg:mt-0">
             <MyInfo profile={session.data} />
           </aside>
@@ -305,7 +308,7 @@ async function CustomerArea({
   // A URL can name a tab the bar does not draw — a Past link sent before the
   // last past Sale was reversed, say. It opens on Upcoming, like any other
   // name this page has nothing for, rather than on a heading over nothing.
-  const tab = tabs.includes(requested) ? requested : "upcoming";
+  const tab = tabs.some((entry) => entry.tab === requested) ? requested : "upcoming";
   const groups = groupsFor(area, tab, now);
 
   return (
@@ -320,7 +323,7 @@ async function CustomerArea({
           a choice between one thing and nothing; the page has already opened
           on the tab that Sale lives in. */}
       {viaConfirmationLink ? null : (
-        <TabBar tabs={tabs} current={tab} area={area} now={now} />
+        <TabBar tabs={tabs} current={tab} />
       )}
 
       <section className="space-y-4" aria-labelledby="customer-area-tab-heading">
@@ -389,19 +392,15 @@ const TAB_HEADING = {
 async function TabBar({
   tabs,
   current,
-  area,
-  now,
 }: {
-  tabs: CustomerAreaTab[];
+  tabs: TabCount[];
   current: CustomerAreaTab;
-  area: CustomerAreaData;
-  now: Date;
 }) {
   const t = await getTranslations("customerArea");
   return (
     <nav aria-label={t("tabsLabel")} className="-mx-4 overflow-x-auto px-4">
       <ul className="flex min-w-max gap-1 border-b">
-        {tabs.map((tab) => {
+        {tabs.map(({ tab, count }) => {
           const selected = tab === current;
           return (
             <li key={tab}>
@@ -417,7 +416,7 @@ async function TabBar({
               >
                 {t("tabCount", {
                   label: t(TAB_HEADING[tab]),
-                  count: countFor(area, tab, now),
+                  count,
                 })}
               </Link>
             </li>

@@ -103,19 +103,25 @@ test("a Reversal Request in flight is not a reversal: the Sale stays put", () =>
 });
 
 test("availableTabs always offers Upcoming and hides an empty Past or Reversed", () => {
-  assert.deepEqual(availableTabs(area(), NOW), ["upcoming"]);
-  assert.deepEqual(
-    availableTabs(area({ past: [sale("p1")] }), NOW),
-    ["upcoming", "past"],
-  );
+  assert.deepEqual(availableTabs(area(), NOW), [{ tab: "upcoming", count: 0 }]);
+  assert.deepEqual(availableTabs(area({ past: [sale("p1")] }), NOW), [
+    { tab: "upcoming", count: 0 },
+    { tab: "past", count: 1 },
+  ]);
   assert.deepEqual(
     availableTabs(area({ upcoming: [sale("u1", { status: "reversed" })] }), NOW),
-    ["upcoming", "reversed"],
+    [
+      { tab: "upcoming", count: 0 },
+      { tab: "reversed", count: 1 },
+    ],
   );
   // A past list made only of reversed Sales leaves Past empty.
   assert.deepEqual(
     availableTabs(area({ past: [sale("p1", { status: "reversed" })] }), NOW),
-    ["upcoming", "reversed"],
+    [
+      { tab: "upcoming", count: 0 },
+      { tab: "reversed", count: 1 },
+    ],
   );
 });
 

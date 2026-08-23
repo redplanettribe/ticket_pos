@@ -41,6 +41,9 @@ export async function EventGroup({
 }) {
   const { event, organization, sales, held } = group;
   const t = await getTranslations("customerArea");
+  // One row opens by itself: with nothing to choose between there is nothing
+  // to hide, whether the row is a Sale or a Ticket somebody gave them.
+  const onlyRow = sales.length + held.length === 1;
   // The Event page's own words for the Organization behind an Event, read from
   // where they are written rather than restated here: a purchase and the Event
   // it is for must not credit the same Organization two different ways.
@@ -86,7 +89,7 @@ export async function EventGroup({
             // A person with one ticket to this Event should never have to
             // click to see it; with several, the collapsed rows are the
             // overview and each opens on demand.
-            defaultOpen={sales.length + held.length === 1}
+            defaultOpen={onlyRow}
             viaConfirmationLink={viaConfirmationLink}
             customerEmail={customerEmail}
           />
@@ -95,7 +98,7 @@ export async function EventGroup({
             were given, and a buyer with no purchases for this Event sees
             the held rows alone. */}
         {held.length > 0 ? (
-          <HeldTicketRows held={held} defaultOpen={sales.length + held.length === 1} />
+          <HeldTicketRows held={held} defaultOpen={onlyRow} />
         ) : null}
       </ul>
     </li>

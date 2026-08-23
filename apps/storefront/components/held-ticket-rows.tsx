@@ -18,7 +18,7 @@ import { heldRowDisclosure } from "@/lib/held-ticket-panel";
  * tickets", and a Ticket a friend bought them belongs in that thought; a
  * separate "Tickets someone gave you" section, which is what this was before
  * #356, made them find the same Event twice on one page. What the row draws
- * is what the Holder has — the Ticket Type and the questions the organizer
+ * is what the Holder has — the Ticket Type and the questions the Organization
  * asked them — and it stays what it is: NOT a purchase. The Ticket Sale, the
  * money, the Sale Confirmation reference, the Tax ID and the Reversal Window
  * all stayed with the buyer, so none of them is drawn here and no undo is
@@ -101,7 +101,7 @@ export function HeldTicketRows({
             {/* `open` is the attribute or nothing, never `false`, for the same
                 reason as the Sale row: a save inside would otherwise snap it
                 shut. It starts open while an Answer is owed, so what the
-                organizer is waiting on is not hidden behind a click. */}
+                Organization is waiting on is not hidden behind a click. */}
             <details
               className="group"
               open={defaultOpen || row.outstanding_count > 0 || undefined}

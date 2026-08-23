@@ -413,7 +413,7 @@
       "giveAway": "Dar esta entrada a otra persona"
     },
     "tabsLabel": "Sus entradas por estado",
-    "reversedHeading": "Revertidas",
+    "reversedHeading": "Anuladas",
     "tabCount": "{label} ({count})",
     "reversedTabDescription": "Compras que se deshicieron. Estas entradas se liberaron y ya no sirven para el ingreso."
   },

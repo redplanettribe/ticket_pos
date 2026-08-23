@@ -3,7 +3,7 @@ import type { CustomerArea, HeldTicket, TicketSale } from "@/lib/customer-sessio
 /**
  * The Customer Area's tabs and the Event groups inside them.
  *
- * THREE TABS, BY WHEN AND BY WHETHER THE PURCHASE STILL STANDS. "Upcoming"
+ * THREE TABS, BY WHEN AND BY WHETHER THE SALE STILL STANDS. "Upcoming"
  * and "Past" are the API's own split of the Customer's Ticket Sales, minus
  * every reversed one; "Reversed" is those, from either list, whatever their
  * date. A reversed Sale is never hidden — CONTEXT.md says it stays visible to
@@ -14,11 +14,11 @@ import type { CustomerArea, HeldTicket, TicketSale } from "@/lib/customer-sessio
  *
  * ONE GROUP PER EVENT, NOT ONE CARD PER SALE. A person who bought three
  * times for the same DevFest thinks "my DevFest tickets", not "my three
- * DevFest purchases"; the Sales stay inside the group because the money, the
+ * DevFest Sales"; the Sales stay inside the group because the money, the
  * Sale Confirmation, the Tax ID and the Reversal Window are each a fact about
  * one Sale. A Ticket somebody ELSE bought and gave this Customer (a held
  * Ticket) joins the group of its Event for the same reason — it is a ticket
- * to that Event — while staying what it is: not a purchase, so no amount, no
+ * to that Event — while staying what it is: not a Ticket Sale of theirs, so no amount, no
  * reference and no undo are drawn for it.
  *
  * A held Ticket is filed under Upcoming or Past by the rule the API applies
@@ -63,16 +63,22 @@ export function isReversed(sale: TicketSale): boolean {
   return sale.status === "reversed";
 }
 
+export type TabCount = { tab: CustomerAreaTab; count: number };
+
 /**
- * Which tabs to draw at all. Upcoming is always there — its empty state is
- * where the "discover events" offer lives — while Past and Reversed appear
- * only once there is something behind them: a tab labelled "Reversed" on the
- * page of somebody who has never undone anything is a question they did not
- * ask.
+ * Which tabs to draw at all, each with what it holds. Upcoming is always
+ * there — its empty state is where the "discover events" offer lives — while
+ * Past and Reversed appear only once there is something behind them: a tab
+ * labelled "Reversed" on the page of somebody who has never undone anything
+ * is a question they did not ask.
+ *
+ * Counted once here rather than again by the bar that draws them, so the
+ * grouping runs once per tab per render and the bar cannot disagree with the
+ * filter that chose it.
  */
-export function availableTabs(area: CustomerArea, now: Date): CustomerAreaTab[] {
-  return CUSTOMER_AREA_TABS.filter(
-    (tab) => tab === "upcoming" || countFor(area, tab, now) > 0,
+export function availableTabs(area: CustomerArea, now: Date): TabCount[] {
+  return CUSTOMER_AREA_TABS.map((tab) => ({ tab, count: countFor(area, tab, now) })).filter(
+    ({ tab, count }) => tab === "upcoming" || count > 0,
   );
 }
 
@@ -94,10 +100,9 @@ export function groupsFor(area: CustomerArea, tab: CustomerAreaTab, now: Date): 
 }
 
 /**
- * The same grouping over a list already chosen — the page's Upcoming and Past
- * sections, until the tabs above take over (#355). It filters nothing: a
- * reversed Sale passed in stays in its Event's group, wearing its badge,
- * because until the Reversed tab exists there is nowhere else for it to be.
+ * The grouping itself, over lists already chosen. It filters nothing — what
+ * belongs on a tab is `groupsFor`'s question — so a test can hand it any
+ * Sales and held Tickets and read back only how they fall into Events.
  */
 export function groupSales(sales: TicketSale[], held: HeldTicket[] = []): EventGroup[] {
   const groups = new Map<string, EventGroup>();
