@@ -161,6 +161,60 @@
                 },
                 "type": "object"
             },
+            "handler.beginCustomerCheckoutBody": {
+                "properties": {
+                    "affiliate_codes": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "answers": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.checkoutAnswerBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "customer_first_name": {
+                        "type": "string"
+                    },
+                    "customer_last_name": {
+                        "type": "string"
+                    },
+                    "customer_phone": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_number": {
+                        "type": "string"
+                    },
+                    "customer_tax_id_type": {
+                        "type": "string"
+                    },
+                    "lines": {
+                        "items": {
+                            "$ref": "#/components/schemas/handler.checkoutLineBody"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "locale": {
+                        "type": "string"
+                    },
+                    "marketing_consent": {
+                        "type": "boolean"
+                    },
+                    "networking_consent": {
+                        "type": "boolean"
+                    },
+                    "policy_acceptance": {
+                        "description": "The consent boxes, POINTERS with a load-bearing nil exactly as on the\npublic body — absent means the box was not shown, which is a different fact\nfrom `false`.\n\nOn this route the absences are the ordinary case rather than the exception:\na Customer meets the boxes at sign-in now, so the dialog behind a session\ndraws only what that Customer has not answered, and a Customer who has\nanswered everything sends none of these at all. Which boxes they were owed\nis still the SERVICE's finding and never this body's assertion.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "handler.buyerAssignmentBody": {
                 "properties": {
                     "holder_email": {
@@ -6449,6 +6503,122 @@
                     }
                 ],
                 "summary": "Answer a ticket question on a ticket you hold",
+                "tags": [
+                    "customer"
+                ]
+            }
+        },
+        "/api/v1/customer/organizations/{slug}/events/{eventSlug}/checkout": {
+            "post": {
+                "description": "The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status \"pending\" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status \"approved\" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything.",
+                "parameters": [
+                    {
+                        "description": "Organization slug",
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Event slug",
+                        "in": "path",
+                        "name": "eventSlug",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/handler.beginCustomerCheckoutBody",
+                                        "summary": "body",
+                                        "description": "Checkout lines, the buyer's name, Tax ID and optional phone — no email"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Checkout lines, the buyer's name, Tax ID and optional phone — no email",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/openapi.EnvelopeBeginCheckout"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/platform.Envelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "summary": "Begin an online checkout as the signed-in Customer",
                 "tags": [
                     "customer"
                 ]

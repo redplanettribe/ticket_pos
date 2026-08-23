@@ -295,6 +295,30 @@ func registerCustomerRoutes(mux *http.ServeMux, app *App) {
 
 	mux.Handle("GET /api/v1/customer/auth/session", signedIn(http.HandlerFunc(h.GetSession)))
 	mux.Handle("POST /api/v1/customer/auth/logout", signedIn(http.HandlerFunc(h.Logout)))
+	// Beginning an online checkout, session-gated and with no address on the
+	// request (ADR 0054, #384). Served by the SALES handler under this namespace
+	// for the same reason the undo below is: the credential is a Customer Session,
+	// which is this namespace's business, while the operation is a Payment and a
+	// Ticket Sale, which are the sales module's.
+	//
+	// THE NAMESPACE IS THE STATEMENT. The public begin-checkout under /public
+	// takes a `customer_email` and will sell to whatever address is typed into it;
+	// this one has no such field and reads the address from the session, so a Sale
+	// begun here can only ever be addressed to an inbox somebody proved they own.
+	// Both exist for now — the Storefront still calls the public one, and #386
+	// deletes it once the Storefront has moved.
+	//
+	// It sits behind the same gate as everything else here and behind one more the
+	// middleware cannot express: the handler refuses a Confirmation Link session,
+	// because a token that travelled inside a receipt is not Proof of Email
+	// Ownership and must not be able to buy.
+	//
+	// Confirm is deliberately NOT moved. It stays public and idempotent under
+	// /public/checkout/{clientTransactionId}/confirm: it is the Payment Provider's
+	// return leg and has to work for a browser that came back having lost
+	// everything, including its session.
+	mux.Handle("POST /api/v1/customer/organizations/{slug}/events/{eventSlug}/checkout",
+		signedIn(http.HandlerFunc(app.SalesHandler.BeginCustomerCheckout)))
 	// The Customer Area read. There is deliberately no Customer, email, or
 	// Organization in this path: the session is the only scope.
 	mux.Handle("GET /api/v1/customer/ticket-sales", signedIn(http.HandlerFunc(h.ListTicketSales)))
