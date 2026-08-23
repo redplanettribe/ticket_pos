@@ -1432,6 +1432,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customer/organizations/{slug}/events/{eventSlug}/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin an online checkout as the signed-in Customer
+         * @description The session-gated begin-checkout (ADR 0054). It does the same work as the public begin-checkout — validates ticket types, quantities, remaining capacity and each Ticket Type's Purchase Limit, snapshots current unit prices into a Payment, and returns our client transaction id with how the checkout was left — and differs from it in exactly one way: THE BUYER'S EMAIL IS READ FROM THE CUSTOMER SESSION AND IS NOT A REQUEST FIELD. There is no `customer_email` on this body and nothing here reads one, so a Ticket Sale begun on this route can only ever be addressed to an address the platform has proof of ownership for. A request with no Customer Session is refused 401. A request carrying a CONFIRMATION LINK session is refused 403 CUSTOMER_SESSION_SCOPE_INSUFFICIENT: that credential is minted from a token which travelled in an email and may have been forwarded, so it is not Proof of Email Ownership and cannot buy. A checkout with money to collect comes back status "pending" with the Payment Provider's redirect_url; a checkout whose cart totals zero — Free Ticket Types only — is settled here and now, comes back status "approved" with confirmation_ref and no redirect_url, and is gated by the session identically, because a free Ticket is still a Ticket that needs a reachable inbox (ADR 0017). Because the buyer is proven, the details they give here are their own assertion about themselves: first and last name, the Tax ID (required, ADR 0016) and the optional phone are written back onto the Customer as well as snapshotted onto the sale. Consent given here is recorded as ANSWERED and never as a Pending Confirmation, and which boxes the buyer was owed is recomputed server-side from the Customer on the session and never taken from this body — a Customer who has already accepted the current Policy Version and answered both optional boxes sends no consent fields at all, is owed nothing, writes no Consent Record, and is not asked again; one who still owes Policy Acceptance must send it present and true or the checkout is refused 400 POLICY_ACCEPTANCE_REQUIRED with no Payment created. An answer for a box the buyer was not owed is dropped rather than applied. Purchase Limits, Affiliate Link attribution, `locale`, and the skippable `answers` section all behave exactly as they do on the public route, including that nothing about an answer can ever refuse or delay a checkout (ADR 0044). The technical proof stored with a consent record (IP, user agent, origin URL) is taken from the request and never from this body, and the Policy Version accepted is resolved server-side. Confirming this checkout uses the same public confirm route, which stays public and idempotent: it is the Payment Provider's return leg and must work for a browser that has lost everything.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Organization slug */
+                    slug: string;
+                    /** @description Event slug */
+                    eventSlug: string;
+                };
+                cookie?: never;
+            };
+            /** @description Checkout lines, the buyer's name, Tax ID and optional phone — no email */
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never> | components["schemas"]["handler.beginCustomerCheckoutBody"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["openapi.EnvelopeBeginCheckout"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["platform.Envelope"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customer/privacy": {
         parameters: {
             query?: never;
@@ -9507,6 +9601,31 @@ export interface components {
              *     WHICH BOXES WERE OWED IS THE SERVICE'S FINDING, not this body's assertion:
              *     an answer for a box the buyer was not owed is dropped rather than applied
              *     (service.owedConsentAnswers).
+             */
+            policy_acceptance?: boolean;
+        };
+        "handler.beginCustomerCheckoutBody": {
+            affiliate_codes?: string[];
+            answers?: components["schemas"]["handler.checkoutAnswerBody"][];
+            customer_first_name?: string;
+            customer_last_name?: string;
+            customer_phone?: string;
+            customer_tax_id_number?: string;
+            customer_tax_id_type?: string;
+            lines?: components["schemas"]["handler.checkoutLineBody"][];
+            locale?: string;
+            marketing_consent?: boolean;
+            networking_consent?: boolean;
+            /**
+             * @description The consent boxes, POINTERS with a load-bearing nil exactly as on the
+             *     public body — absent means the box was not shown, which is a different fact
+             *     from `false`.
+             *
+             *     On this route the absences are the ordinary case rather than the exception:
+             *     a Customer meets the boxes at sign-in now, so the dialog behind a session
+             *     draws only what that Customer has not answered, and a Customer who has
+             *     answered everything sends none of these at all. Which boxes they were owed
+             *     is still the SERVICE's finding and never this body's assertion.
              */
             policy_acceptance?: boolean;
         };
