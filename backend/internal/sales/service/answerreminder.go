@@ -236,10 +236,14 @@ func (s *Service) SweepAnswerReminders(ctx context.Context) (*AnswerReminderSwee
 	result.Due = len(due)
 
 	deadline := s.now().Add(answerReminderBudget)
+	pacer := &reminderPacer{service: s, deadline: deadline}
 	for _, candidate := range due {
-		// The budget is checked BEFORE each send rather than after, so a run stops
+		// The gap between requests is spent first (#376, reminderpacing.go), then
+		// the budget is checked BEFORE each send rather than after, so a run stops
 		// with a message unsent rather than with one sent and unrecorded. What is
-		// left is due again on the next tick, having lost nothing.
+		// left is due again on the next tick, having lost nothing. Sent and Failed
+		// together are the requests the provider has seen from this run.
+		pacer.pauseBefore(ctx, result.Sent+result.Failed)
 		if !s.now().Before(deadline) {
 			s.logger.Info("answer reminder sweep stopped on its budget; the rest are due on the next tick",
 				"sent", result.Sent, "remaining", len(due)-result.Sent-result.Skipped-result.Failed)

@@ -325,6 +325,11 @@ type Service struct {
 	// exportRowCap is how many Ticket Sales one Sales Export may carry. Set by
 	// New to defaultExportRowCap; see WithExportRowCap.
 	exportRowCap int
+	// sendGap is the pause between consecutive provider requests inside one
+	// Reminder sweep, and sleep is how it is spent. Set by New to
+	// reminderSendGap and a real sleep; see WithReminderPacing.
+	sendGap time.Duration
+	sleep   func(ctx context.Context, d time.Duration)
 }
 
 // New returns a sales service. The customers service is required: every Ticket
@@ -348,12 +353,24 @@ func New(repo *repository.Repository, customers CustomerService, email platform.
 		logger:            logger,
 		now:               time.Now,
 		exportRowCap:      defaultExportRowCap,
+		sendGap:           reminderSendGap,
+		sleep:             sleepUnlessCancelled,
 	}
 }
 
 // WithClock overrides the clock (tests).
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
+	return s
+}
+
+// WithReminderPacing overrides the gap the Reminder sweeps keep between
+// sends and the sleep that spends it (tests). A zero gap never calls sleep.
+func (s *Service) WithReminderPacing(gap time.Duration, sleep func(ctx context.Context, d time.Duration)) *Service {
+	s.sendGap = gap
+	if sleep != nil {
+		s.sleep = sleep
+	}
 	return s
 }
 
